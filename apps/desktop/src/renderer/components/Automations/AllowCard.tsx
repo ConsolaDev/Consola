@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, ShieldCheck } from 'lucide-react';
+import { ExternalLink, KeyRound, ShieldCheck } from 'lucide-react';
 import type { AutomationView, EntryAgentsView } from '../../../shared/automations';
+import { useSettings } from '../../contexts/SettingsContext';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
@@ -8,6 +9,7 @@ import { ITEM_TEXT_LINE, skillsLine } from './agentGrantWords';
 import { EntrySource } from './AutomationPipeline';
 import { allowAgentSections, allowNotes, grantWords } from './checkWords';
 import { useIntent } from './parts';
+import { SecretLines, useEntrySecrets } from './SecretLines';
 
 /**
  * What allowing a poll entry lets Consola do, shown before it does it: the
@@ -21,7 +23,10 @@ import { useIntent } from './parts';
  * While the folder does not apply that is the running version, never the
  * live files: Open then says it shows the file as it is now. Allow waits for
  * every agent's body at that version. Allow is for this version of the
- * entry; one that changed since is asked to be reviewed again.
+ * entry; one that changed since is asked to be reviewed again. The Secrets
+ * lines say where the check's and the steps' secrets go and where this Mac
+ * binds them; a name unbound (only in a snapshot race: an unbound entry has a
+ * problem, and is not offered Allow) turns Allow into Bind….
  */
 export function AllowCard({
   workspaceId,
@@ -35,6 +40,8 @@ export function AllowCard({
   onOpenFile: () => void;
 }) {
   const { busy, error, act } = useIntent();
+  const { openSettings } = useSettings();
+  const { unbound } = useEntrySecrets(workspaceId, automation.name);
   const standing = useAutomationsStore(
     (state) => state.snapshots[workspaceId]?.standing !== undefined,
   );
@@ -77,6 +84,7 @@ export function AllowCard({
             {note}
           </p>
         ))}
+        <SecretLines workspaceId={workspaceId} automation={automation.name} />
       </div>
       <EntrySource
         workspaceId={workspaceId}
@@ -173,17 +181,30 @@ export function AllowCard({
         </div>
       )}
       <div className="automations-allow-actions">
-        <button
-          type="button"
-          className="dialog-button-primary automations-small-button"
-          disabled={busy !== null || !ready}
-          onClick={() =>
-            void act('allow', () => automationsBridge.allow(workspaceId, automation.name, version))
-          }
-        >
-          <ShieldCheck size={12} aria-hidden="true" />
-          {busy === 'allow' ? 'Allowing…' : 'Allow'}
-        </button>
+        {unbound ? (
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            onClick={() => openSettings('secrets')}
+          >
+            <KeyRound size={12} aria-hidden="true" />
+            Bind…
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            disabled={busy !== null || !ready}
+            onClick={() =>
+              void act('allow', () =>
+                automationsBridge.allow(workspaceId, automation.name, version),
+              )
+            }
+          >
+            <ShieldCheck size={12} aria-hidden="true" />
+            {busy === 'allow' ? 'Allowing…' : 'Allow'}
+          </button>
+        )}
       </div>
     </section>
   );

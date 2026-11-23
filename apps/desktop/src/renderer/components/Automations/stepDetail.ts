@@ -25,16 +25,29 @@ export interface VariableRow {
   long: boolean;
   /** The file wrote a template (`{{…}}`), so the value came from somewhere worth naming. */
   templated: boolean;
+  /** A secret: its value is never shown, only where it was bound when the step ran. */
+  secret?: true;
 }
 
+/** A command's `env:` rows in file order, then one per secret it was given, by name (Call 9). */
 export function variableRows(command: CommandFile): VariableRow[] {
-  return command.env.map(({ name, template, value }) => ({
+  const env = command.env.map(({ name, template, value }) => ({
     name,
     template,
     value,
     long: value.length > LONG_VALUE || value.includes('\n'),
     templated: template !== value,
   }));
+  const secrets = (command.secrets ?? []).map(({ name, bound }) => ({
+    name,
+    template: '',
+    // A dry run's command names its secrets but reads none, so it has no binding to name.
+    value: bound !== undefined ? `secret, from ${bound}` : 'secret',
+    long: false,
+    templated: false,
+    secret: true as const,
+  }));
+  return [...env, ...secrets];
 }
 
 /** An earlier attempt's status in the words a person uses: one that did not run did not fail. */

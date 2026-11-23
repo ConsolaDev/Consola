@@ -3900,6 +3900,15 @@
   overflow-wrap: anywhere;
 }
 
+/* A secret's row: where it was bound when the step ran, never a value. */
+.automations-var-secret {
+  grid-column: 2;
+  min-width: 0;
+  font-style: italic;
+  color: var(--color-text-tertiary);
+  overflow-wrap: anywhere;
+}
+
 .automations-var-block {
   max-height: 160px;
   margin: 0;
@@ -4270,4 +4279,18 @@
 .automations-earlier-run {
   align-self: flex-start;
   font-size: var(--font-size-sm, 12px);
+}
+
+/* A card's Secrets lines: where each name goes and where this Mac binds it. */
+.automations-secret-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.automations-secret-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
 }

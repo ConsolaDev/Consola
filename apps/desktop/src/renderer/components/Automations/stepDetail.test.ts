@@ -64,6 +64,55 @@ describe('variableRows', () => {
     expect(variableRows(env('a'.repeat(301)))[0].long).toBe(true);
     expect(variableRows(env('one\ntwo'))[0].long).toBe(true);
   });
+
+  it('lists each secret after the env: rows, by name and where it was bound, never a value', () => {
+    const rows = variableRows({
+      cwd: '/work',
+      command: 'page "$PAGER_TOKEN"',
+      env: [
+        { name: 'REPO', template: 'sprocket/catalog-portal', value: 'sprocket/catalog-portal' },
+      ],
+      secrets: [{ name: 'PAGER_TOKEN', bound: 'your login environment (STUB_PAGER_TOKEN)' }],
+    });
+    expect(rows.map((row) => row.name)).toEqual(['REPO', 'PAGER_TOKEN']);
+    expect(rows[1]).toEqual({
+      name: 'PAGER_TOKEN',
+      template: '',
+      value: 'secret, from your login environment (STUB_PAGER_TOKEN)',
+      long: false,
+      templated: false,
+      secret: true,
+    });
+  });
+
+  it('reads a dry run’s secret, which names no binding, as a secret', () => {
+    const [row] = variableRows({
+      cwd: '/work',
+      command: 'page',
+      env: [],
+      secrets: [{ name: 'PAGER_TOKEN' }],
+    });
+    expect(row).toEqual({
+      name: 'PAGER_TOKEN',
+      template: '',
+      value: 'secret',
+      long: false,
+      templated: false,
+      secret: true,
+    });
+  });
+
+  it('gives a command with no secrets exactly the rows it had', () => {
+    const rows = variableRows({
+      cwd: '/work',
+      command: 'gh pr review "$PR"',
+      env: [{ name: 'PR', template: '{{ item.number }}', value: '51' }],
+    });
+    expect(rows).toEqual([
+      { name: 'PR', template: '{{ item.number }}', value: '51', long: false, templated: true },
+    ]);
+    expect('secret' in rows[0]).toBe(false);
+  });
 });
 
 describe('attemptsLine', () => {

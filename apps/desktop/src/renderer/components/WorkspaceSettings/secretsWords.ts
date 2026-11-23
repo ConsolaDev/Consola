@@ -74,7 +74,7 @@ export function formatChangedAt(
 }
 
 /** One use of a name: "`page-on-call` · step `page`" or "`watch-tickets` · its check". */
-export function useWords(use: SecretBindingView['uses'][number]): string {
+export function secretUseWords(use: SecretBindingView['uses'][number]): string {
   return `\`${use.automation}\` · ${use.check ? 'its check' : `step \`${use.step}\``}`;
 }
 
@@ -118,7 +118,7 @@ export function secretRows(list: SecretsList, at: { timeZone?: string }): Secret
       binding: binding ? binding.label : NOT_BOUND,
       ...(changed ? { changed: `last changed ${changed}` } : {}),
       ...(binding?.program ? { program: `reads with ${binding.program}` } : {}),
-      uses: view.uses.length > 0 ? view.uses.map(useWords) : [NOT_USED],
+      uses: view.uses.length > 0 ? view.uses.map(secretUseWords) : [NOT_USED],
       ...(note ? { note } : {}),
       ...(sameAs ? { sameAs } : {}),
       action: binding ? 'Change…' : 'Bind…',

@@ -10,6 +10,7 @@ import {
   Hand,
   History,
   Inbox,
+  KeyRound,
   MousePointerClick,
   RefreshCw,
   ScanSearch,
@@ -21,6 +22,7 @@ import type {
   RunListEntry,
 } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
+import { useSettings } from '../../contexts/SettingsContext';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { waitingRuns } from '../../sidebar/entries';
@@ -389,6 +391,7 @@ function AutomationRow({
   /** Asks every harness's CLI again, as the banner's Check again does. */
   onRecheck: () => void;
 }) {
+  const { openSettings } = useSettings();
   const isAgent = automation.kind === 'agent';
   const TriggerIcon =
     automation.source === 'poll'
@@ -474,6 +477,17 @@ function AutomationRow({
                 >
                   <RefreshCw size={12} aria-hidden="true" />
                   Check again
+                </button>
+              )}
+              {/* An entry that needs a secret bound runs nothing until it is: bind it where the binding lives. */}
+              {automation.unbound && (
+                <button
+                  type="button"
+                  className="dialog-button-secondary automations-small-button"
+                  onClick={inside(() => openSettings('secrets'))}
+                >
+                  <KeyRound size={12} aria-hidden="true" />
+                  Bind…
                 </button>
               )}
             </div>

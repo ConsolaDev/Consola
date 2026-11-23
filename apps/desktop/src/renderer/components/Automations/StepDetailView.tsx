@@ -568,7 +568,7 @@ function CommandFacts({
               in <code>{command.cwd}</code>
             </p>
           </Fact>
-          {command.env.length > 0 && (
+          {(command.env.length > 0 || (command.secrets?.length ?? 0) > 0) && (
             <Fact label="Env">
               <ul className="automations-vars">
                 {variableRows(command).map((row) => (
@@ -577,7 +577,10 @@ function CommandFacts({
                       <code>{row.name}</code>
                       <span className="automations-var-eq"> = </span>
                     </span>
-                    {row.long ? (
+                    {/* A secret's row says where it was bound when the step ran: it has no value to show. */}
+                    {row.secret ? (
+                      <span className="automations-var-secret">{row.value}</span>
+                    ) : row.long ? (
                       <pre className="automations-prompt automations-var-block">{row.value}</pre>
                     ) : (
                       <code className="automations-var-value">{row.value}</code>

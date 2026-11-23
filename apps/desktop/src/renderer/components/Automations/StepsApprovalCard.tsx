@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Bot, Terminal } from 'lucide-react';
+import { Bot, KeyRound, Terminal } from 'lucide-react';
 import type { RunDefinition } from '../../../shared/automations';
+import { useSettings } from '../../contexts/SettingsContext';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ITEM_TEXT_LINE } from './agentGrantWords';
 import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
 import { useIntent } from './parts';
+import { SecretLines, useEntrySecrets } from './SecretLines';
 
 type Loaded =
   | { state: 'loading' }
@@ -29,18 +31,24 @@ const FOLD_LINES = 8;
  * Reading the definition, and the step detail of a step whose agent names
  * skills (each `SKILL.md` as the run holds it: review M4), is all that
  * opening the card does. Start and Dismiss are the same approve and dismiss
- * intents the legacy card sends.
+ * intents the legacy card sends. Under the steps, the Secrets lines say
+ * where each secret goes and where this Mac binds it; while a name is unbound
+ * Start is Bind…, which opens Settings › Secrets.
  */
 export function StepsApprovalCard({
+  workspaceId,
   runId,
   itemType = null,
 }: {
+  /** The run's workspace, whose snapshot holds its secrets' bindings. */
+  workspaceId: string;
   runId: string;
   /** What the run's item is, for the pull request note; null for a scheduled run. */
   itemType?: 'pr' | 'issue' | null;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
   const { busy, error, act } = useIntent();
+  const { openSettings } = useSettings();
 
   useEffect(() => {
     let live = true;
@@ -60,6 +68,8 @@ export function StepsApprovalCard({
 
   const ready = loaded.state === 'ready' ? loaded.definition : null;
   const dryRun = ready ? dryRunCommands(ready) : [];
+  // Its places come from the snapshot's uses of this entry (review S1), the definition's at any version a run can start.
+  const { unbound } = useEntrySecrets(workspaceId, ready?.automation.name ?? '');
 
   return (
     <div className="automations-approval" aria-label="What this run will do">
@@ -91,17 +101,33 @@ export function StepsApprovalCard({
           {dryRun.length > 0 && (
             <p className="automations-hint">Also runs in a dry run: {dryRun.join(', ')}</p>
           )}
+          <SecretLines
+            workspaceId={workspaceId}
+            automation={ready.automation.name}
+            lineClassName="automations-hint"
+          />
         </>
       )}
       <div className="automations-card-actions">
-        <button
-          type="button"
-          className="dialog-button-primary automations-small-button"
-          disabled={busy !== null || !ready}
-          onClick={() => void act('approve', () => automationsBridge.approve(runId))}
-        >
-          {busy === 'approve' ? 'Starting…' : 'Start'}
-        </button>
+        {unbound ? (
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            onClick={() => openSettings('secrets')}
+          >
+            <KeyRound size={12} aria-hidden="true" />
+            Bind…
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            disabled={busy !== null || !ready}
+            onClick={() => void act('approve', () => automationsBridge.approve(runId))}
+          >
+            {busy === 'approve' ? 'Starting…' : 'Start'}
+          </button>
+        )}
         <button
           type="button"
           className="dialog-button-secondary automations-small-button"

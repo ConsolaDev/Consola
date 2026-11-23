@@ -217,7 +217,11 @@ export function StepsRunView({
       {run.status === 'needs-approval' ? (
         <section className="automations-detail-section" aria-label="Waiting for your approval">
           <h3 className="automations-section-title">Waiting for your approval</h3>
-          <StepsApprovalCard runId={run.id} itemType={run.trigger.item?.type ?? null} />
+          <StepsApprovalCard
+            workspaceId={workspace.id}
+            runId={run.id}
+            itemType={run.trigger.item?.type ?? null}
+          />
         </section>
       ) : (
         steps.length > 0 && (
