@@ -52,6 +52,11 @@ function formsOf(value: string): string[] {
   ];
 }
 
+/** `text` as a RegExp source that matches it literally: every metacharacter escaped, backslash included. */
+function literal(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 const UNBOUND = 'needs `PAGER_TOKEN` bound on this Mac (Settings › Secrets)';
 const ENV_LABEL = 'your login environment (STUB_PAGER_TOKEN)';
 const ENV_NOTE =
@@ -509,7 +514,7 @@ test('Run, masked: the command gets its secret, and nothing Consola writes or sh
     await expect(lines).toContainText('Secrets');
     await expect(lines.locator('p').nth(1)).toHaveText(
       new RegExp(
-        `^\`PAGER_TOKEN\` → command \`page\`, as its environment variable · bound on this Mac to ${ENV_LABEL.replace(/[()]/g, '\\$&')}, last changed \\d{1,2} [A-Z][a-z]{2}$`,
+        `^\`PAGER_TOKEN\` → command \`page\`, as its environment variable · bound on this Mac to ${literal(ENV_LABEL)}, last changed \\d{1,2} [A-Z][a-z]{2}$`,
       ),
     );
     await expect(lines.locator('p').last()).toHaveText(TRUST_LINE);
@@ -647,7 +652,7 @@ test('A check names a secret: the Allow card says where it goes, and its failure
     const lines = card.locator('.automations-secret-lines');
     await expect(lines).toContainText(
       new RegExp(
-        `\`TRACKER_TOKEN\` → this automation's check, as its environment variable · bound on this Mac to ${ENV_LABEL.replace(/[()]/g, '\\$&')}, last changed \\d{1,2} [A-Z][a-z]{2}`,
+        `\`TRACKER_TOKEN\` → this automation's check, as its environment variable · bound on this Mac to ${literal(ENV_LABEL)}, last changed \\d{1,2} [A-Z][a-z]{2}`,
       ),
     );
     await expect(lines).toContainText('`PAGER_TOKEN` and `TRACKER_TOKEN` are the same variable');
