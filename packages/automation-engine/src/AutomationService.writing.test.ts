@@ -382,7 +382,13 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
       checkout: { before: 'b0' },
     });
     await h.world.endTurn('session-1', { exitCode: 0 });
-    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle']);
+    expect(callNames(h)).toEqual([
+      'make',
+      'settleBetween',
+      'endStepProcesses',
+      'settle',
+      'settleBetween',
+    ]);
     expect(settles(h)[0]).toEqual({
       dir: ownedDir(h, run.id),
       branch: `fix/${run.id.slice(0, 8)}`,
@@ -484,7 +490,7 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     });
     h.world.runCheckouts.settleAnswers = [{ ok: true, after: 'p1', files: 1, flagged: [] }];
     await stepCommands(h)[0].end();
-    expect(h.world.runCheckouts.calls.slice(3)).toEqual([
+    expect(h.world.runCheckouts.calls.slice(5)).toEqual([
       { endStepProcesses: { dir: ownedDir(h, run.id) } },
       {
         settle: expect.objectContaining({ step: 'pr', before: 'c1', commit: null }),
@@ -517,11 +523,11 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     const run = await runNow(h, 'write');
     await h.world.endTurn('session-1', { exitCode: 0 });
     await stepCommands(h)[0].end();
-    expect(callNames(h, 3)).toEqual([]);
+    expect(callNames(h, 5)).toEqual([]);
     expect(stepOf(h, run.id, 'pr').status).toBe('running');
     ended();
     await h.flush();
-    expect(callNames(h, 3)).toEqual(['endStepProcesses', 'settle']);
+    expect(callNames(h, 5)).toEqual(['endStepProcesses', 'settle']);
     expect(stepOf(h, run.id, 'pr').status).toBe('completed');
   });
 
@@ -545,7 +551,7 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     const h = await writing(WRITE_ENTRY);
     const run = await runNow(h, 'write');
     await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
-    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle']);
+    expect(callNames(h)).toEqual(['make', 'settleBetween', 'endStepProcesses', 'settle']);
     expect(settles(h)[0]).toMatchObject({ before: 'b0', commit: null, keepOnly: true });
     expect(stepOf(h, run.id, 'fix')).toMatchObject({
       status: 'failed',
@@ -577,7 +583,7 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     const [run] = h.store.runs().filter((candidate) => candidate.automationId === 'poll-write');
     // `notes` is a file in the checkout: the step tools' missing documents do not hold the step before the commit.
     await h.world.endTurn(lastSession(h), { exitCode: 0 });
-    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle', 'showAt']);
+    expect(callNames(h)).toEqual(['make', 'settleBetween', 'endStepProcesses', 'settle', 'showAt']);
     expect(h.world.reminders).toHaveLength(1);
     expect(h.world.reminders[0].prompt).toContain(
       'notes (the file docs/fixes/SHOP-42.md in this checkout)',
@@ -731,6 +737,7 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
       'endStepProcesses',
       'settle',
       'reset',
+      'settleBetween',
     ]);
     expect(stepOf(again, run.id, 'fix').attempt).toBe(2);
   });
@@ -745,12 +752,13 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     const checked = h.world.runCheckouts.folderChecks.length;
     await h.service.retry(run.id);
     await h.flush();
-    expect(callNames(h, done)).toEqual([]);
+    // No reset: only the boundary before it starts (Task 14).
+    expect(callNames(h, done)).toEqual(['settleBetween']);
     expect(h.world.runCheckouts.folderChecks.slice(checked)).toEqual([ownedDir(h, run.id)]);
     expect(stepCommands(h)).toHaveLength(2);
     expect(stepCommands(h)[1].spec.env.CONSOLA_CHECKOUT_HEAD).toBe('c1');
     await stepCommands(h)[1].end();
-    expect(callNames(h, done)).toEqual(['endStepProcesses', 'settle']);
+    expect(callNames(h, done)).toEqual(['settleBetween', 'endStepProcesses', 'settle']);
   });
 
   it('a declared retry of a write step ends its leftovers, keeps its patch and resets before its next attempt', async () => {
@@ -774,7 +782,7 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     const done = h.world.runCheckouts.calls.length;
     h.advance(60_000);
     await h.tick();
-    expect(callNames(h, done)).toEqual(['endStepProcesses', 'settle', 'reset']);
+    expect(callNames(h, done)).toEqual(['endStepProcesses', 'settle', 'reset', 'settleBetween']);
     expect(stepOf(h, run.id, 'fix')).toMatchObject({ attempt: 2, status: 'running' });
     expect(h.world.launches).toHaveLength(2);
   });
@@ -815,13 +823,13 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
     h.world.processes.gate = new Promise<void>((resolve) => (release = resolve));
     const run = await runNow(h, 'write');
     await h.world.endTurn('session-1', { exitCode: 0 });
-    expect(callNames(h)).toEqual(['make', 'endStepProcesses']);
+    expect(callNames(h)).toEqual(['make', 'settleBetween', 'endStepProcesses']);
     const again = await h.relaunch();
     await again.flush();
     h.world.processes.gate = undefined;
     release();
     await again.flush();
-    expect(callNames(again)).toEqual(['make', 'endStepProcesses']);
+    expect(callNames(again)).toEqual(['make', 'settleBetween', 'endStepProcesses']);
     expect(stepOf(again, run.id, 'fix')).toMatchObject({
       status: 'failed',
       error: INTERRUPTED_WRITE,
@@ -906,7 +914,7 @@ describe("a reminder and a resume start a step's CLI in its run's checkout: the 
     expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'failed', error: CHANGED });
     expect(stepOf(h, run.id, 'pr').status).toBe('not-run');
     // Its processes ended first, then its patch kept: nothing committed.
-    expect(callNames(h)).toEqual(['make', 'endStepProcesses', 'settle']);
+    expect(callNames(h)).toEqual(['make', 'settleBetween', 'endStepProcesses', 'settle']);
     expect(settles(h)[0]).toMatchObject({ commit: null, keepOnly: true });
   });
 
@@ -946,6 +954,300 @@ describe("a reminder and a resume start a step's CLI in its run's checkout: the 
     expect(stepOf(again, run.id, 'look')).toMatchObject({ status: 'failed', error: CHANGED });
     expect(stepOf(again, run.id, 'pr').status).toBe('not-run');
     expect(stepCommands(again)).toEqual([]);
+  });
+});
+
+describe("a person's session in a run's checkout holds the run, and what it leaves is committed apart (Task 14)", () => {
+  const HOLDER = { sessionId: 'sfix', name: 'fix' };
+  const betweens = (h: StepsHarness) =>
+    h.world.runCheckouts.calls.flatMap((call) =>
+      'settleBetween' in call ? [call.settleBetween] : [],
+    );
+  const listed = (h: StepsHarness, id: string) =>
+    h.service.snapshot(WORKSPACE_ID).runs.find((run) => run.id === id)!;
+  /** `fix` writes, a person answers `ok`, then `pr` a command. */
+  const GATED_WRITE = file(
+    `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: ok\n  gate: { ask: Push it? }', '- id: pr\n  run: "true"')}`,
+  );
+  /** A pull request's event: `fix` writes in the run's own checkout. */
+  const PR_WRITE = file(
+    `  - name: pr-write\n    on: { github: pull_request.review_requested }\n    mode: auto\n${owned('fix/pr-{{item.number}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: pr\n  run: "true"')}`,
+  );
+
+  /** `write` run now, `fix`'s turn ended while `HOLDER` is open in the checkout. */
+  async function heldAfterFix(yaml = WRITE_ENTRY) {
+    const h = await writing(yaml);
+    const run = await runNow(h, 'write');
+    h.world.holders.set(ownedDir(h, run.id), HOLDER);
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    return { h, run };
+  }
+
+  it('a session open in the checkout makes the run wait before its next step, saying which, with no status change', async () => {
+    const { h, run } = await heldAfterFix();
+    expect(runOf(h, run.id)).toMatchObject({ status: 'running', waitingFor: { session: 'sfix' } });
+    expect(runOf(h, run.id).checkout!.lastHolder).toBe('sfix');
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({
+      status: 'completed',
+      checkout: { after: 'c1' },
+    });
+    expect(stepOf(h, run.id, 'pr').status).toBe('pending');
+    expect(stepCommands(h)).toEqual([]);
+    // Activity names the session.
+    expect(listed(h, run.id).waitingFor).toEqual({ session: 'fix' });
+  });
+
+  it('nothing is settled between steps while a session holds the checkout, at the boundary or at a tick', async () => {
+    const { h, run } = await heldAfterFix();
+    // One before `fix` started, in a checkout nobody held; none since.
+    expect(betweens(h)).toHaveLength(1);
+    await h.tick();
+    await h.tick();
+    expect(betweens(h)).toHaveLength(1);
+    expect(runOf(h, run.id).waitingFor).toEqual({ session: 'sfix' });
+    expect(stepCommands(h)).toEqual([]);
+  });
+
+  it('once it closes, what it left is committed apart and the run goes on', async () => {
+    const { h, run } = await heldAfterFix();
+    h.world.holders.clear();
+    h.world.runCheckouts.betweenAnswers = [
+      { ok: true, after: 'p1', files: 1, flagged: ['.github/x'] },
+    ];
+    await h.tick();
+    expect(betweens(h).at(-1)).toEqual({
+      dir: ownedDir(h, run.id),
+      branch: `fix/${run.id.slice(0, 8)}`,
+      base: 'b0',
+      before: 'c1',
+      message: 'changes by fix during write',
+      session: 'fix',
+    });
+    expect(runOf(h, run.id).checkout).toMatchObject({
+      head: 'p1',
+      byPerson: [
+        {
+          session: 'sfix',
+          before: 'c1',
+          after: 'p1',
+          files: 1,
+          flagged: ['.github/x'],
+          at: h.now().toISOString(),
+        },
+      ],
+    });
+    expect(runOf(h, run.id).checkout!.lastHolder).toBeUndefined();
+    expect(runOf(h, run.id).waitingFor).toBeUndefined();
+    expect(stepOf(h, run.id, 'pr').status).toBe('running');
+    expect(stepCommands(h)[0].spec.env.CONSOLA_CHECKOUT_HEAD).toBe('p1');
+  });
+
+  it('a session that left nothing lets the run go on with no commit and no entry', async () => {
+    const { h, run } = await heldAfterFix();
+    h.world.holders.clear();
+    await h.tick();
+    expect(runOf(h, run.id).checkout).toMatchObject({ head: 'c1' });
+    expect(runOf(h, run.id).checkout!.byPerson).toBeUndefined();
+    expect(runOf(h, run.id).checkout!.lastHolder).toBeUndefined();
+    expect(runOf(h, run.id).waitingFor).toBeUndefined();
+    expect(stepOf(h, run.id, 'pr').status).toBe('running');
+  });
+
+  it.each([
+    ['a moved HEAD', '`fix`, opened by you, moved `HEAD` off fix/x'],
+    ['a process', "`fix`, opened by you, left a process running in this run's checkout"],
+  ])(
+    '%s it left fails the run in its words, the next step not-run; Retry starts there',
+    async (_, error) => {
+      const { h, run } = await heldAfterFix();
+      h.world.holders.clear();
+      h.world.runCheckouts.betweenAnswers = [{ ok: false, error }];
+      await h.tick();
+      expect(runOf(h, run.id)).toMatchObject({ status: 'failed', error });
+      expect(runOf(h, run.id).waitingFor).toBeUndefined();
+      expect(stepOf(h, run.id, 'fix').status).toBe('completed');
+      expect(stepOf(h, run.id, 'pr').status).toBe('not-run');
+      expect(stepCommands(h)).toEqual([]);
+      await h.service.retry(run.id, 'pr');
+      await h.flush();
+      expect(stepCommands(h)).toHaveLength(1);
+    },
+  );
+
+  it('changes left by a session never seen are committed as a session', async () => {
+    const h = await writing(WRITE_ENTRY);
+    // Nothing before `fix`; after it, a session nobody saw left three files.
+    h.world.runCheckouts.betweenAnswers = [null, { ok: true, after: 'p1', files: 3, flagged: [] }];
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(betweens(h)).toHaveLength(2);
+    expect(betweens(h)[1]).toMatchObject({
+      before: 'c1',
+      message: 'changes by a session during write',
+    });
+    expect(betweens(h)[1]).not.toHaveProperty('session');
+    expect(runOf(h, run.id).checkout!.byPerson).toEqual([
+      { before: 'c1', after: 'p1', files: 3, flagged: [], at: h.now().toISOString() },
+    ]);
+    expect(stepOf(h, run.id, 'pr').status).toBe('running');
+  });
+
+  it("a session open while a step runs is recorded at a tick; the step's own session is not", async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    // The step's own CLI runs in the checkout: never its holder.
+    h.world.holders.set(ownedDir(h, run.id), { sessionId: 'session-1', name: 'write · fix' });
+    await h.tick();
+    expect(runOf(h, run.id).checkout!.lastHolder).toBeUndefined();
+    h.world.holders.set(ownedDir(h, run.id), HOLDER);
+    await h.tick();
+    expect(runOf(h, run.id).checkout!.lastHolder).toBe('sfix');
+    expect(runOf(h, run.id).waitingFor).toBeUndefined();
+  });
+
+  it('a run parked at a gate records who holds its checkout, and waits for them after the answer', async () => {
+    const h = await writing(GATED_WRITE);
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(runOf(h, run.id).status).toBe('waiting');
+    h.world.holders.set(ownedDir(h, run.id), HOLDER);
+    await h.tick();
+    expect(runOf(h, run.id).checkout!.lastHolder).toBe('sfix');
+    h.service.answerGate(run.id, 'ok', 'approve');
+    await h.flush();
+    expect(runOf(h, run.id)).toMatchObject({ status: 'running', waitingFor: { session: 'sfix' } });
+    expect(stepOf(h, run.id, 'pr').status).toBe('pending');
+    h.world.holders.clear();
+    await h.tick();
+    expect(stepOf(h, run.id, 'pr').status).toBe('running');
+  });
+
+  it('a declared retry of a write step waits while a session holds the checkout, and resets once it closes', async () => {
+    const yaml = WRITE_ENTRY.replace(
+      '  prompt: Fix it.',
+      '  prompt: Fix it.\n        on_failure: { retry: 1 }',
+    );
+    expect(yaml).toContain('on_failure: { retry: 1 }');
+    const h = await writing(
+      yaml,
+      {},
+      {
+        'agents/fixer.md': '---\ntools: edit\nenvironment: sandboxed\n---\nFix it.\n',
+        'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      },
+    );
+    const run = await runNow(h, 'write');
+    await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+    expect(runOf(h, run.id).status).toBe('waiting');
+    h.world.holders.set(ownedDir(h, run.id), HOLDER);
+    const done = h.world.runCheckouts.calls.length;
+    h.advance(60_000);
+    await h.tick();
+    expect(callNames(h, done)).toEqual([]);
+    expect(runOf(h, run.id)).toMatchObject({ status: 'waiting', waitingFor: { session: 'sfix' } });
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'waiting', attempt: 1 });
+    h.world.holders.clear();
+    await h.tick();
+    expect(callNames(h, done)).toEqual(['endStepProcesses', 'settle', 'reset', 'settleBetween']);
+    expect(runOf(h, run.id).waitingFor).toBeUndefined();
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'running', attempt: 2 });
+  });
+
+  it.each([
+    ['a manual run', WRITE_ENTRY],
+    ['a pull request', PR_WRITE],
+  ])(
+    "a person's Retry is refused while a session is open, on %s, and nothing is reset",
+    async (_, yaml) => {
+      const h = await writing(yaml);
+      let run: { id: string };
+      if (yaml === PR_WRITE) {
+        await h.poll([]);
+        await h.poll([inboxItem({ repo: REPO, number: 51 })]);
+        [run] = h.store.runs();
+      } else run = await runNow(h, 'write');
+      await h.world.endTurn('session-1', { exitCode: 1 });
+      expect(runOf(h, run.id).status).toBe('failed');
+      h.world.holders.set(ownedDir(h, run.id), HOLDER);
+      const done = h.world.runCheckouts.calls.length;
+      await expect(h.service.retry(run.id)).rejects.toThrow(
+        "`fix` is open in this run's checkout; close it, then retry",
+      );
+      expect(callNames(h, done)).toEqual([]);
+      expect(runOf(h, run.id).status).toBe('failed');
+      h.world.holders.clear();
+      await expect(h.service.retry(run.id)).resolves.toMatchObject({ status: 'running' });
+    },
+  );
+
+  it("a loop's round is one boundary with its first step, checked once, and each later round's again", async () => {
+    const LOOP_WRITE = file(
+      `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: boolean }')}`,
+    );
+    const h = await writing(LOOP_WRITE);
+    const run = await runNow(h, 'write');
+    expect(callNames(h)).toEqual(['make', 'settleBetween']);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'running', round: 1 });
+    h.world.setOutputs('session-1', { done: false });
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(callNames(h, 2)).toEqual(['endStepProcesses', 'settle', 'settleBetween']);
+    expect(stepOf(h, run.id, 'fix')).toMatchObject({ status: 'running', round: 2 });
+  });
+
+  it('a boundary still settling is not asked again: one commit, one start, however often the run is picked up', async () => {
+    const { h, run } = await heldAfterFix();
+    let release!: () => void;
+    h.world.runCheckouts.betweenGate = new Promise<void>((resolve) => (release = resolve));
+    h.world.holders.clear();
+    h.world.runCheckouts.betweenAnswers = [{ ok: true, after: 'p1', files: 1, flagged: [] }];
+    await h.tick();
+    await h.tick();
+    expect(betweens(h)).toHaveLength(2);
+    h.world.runCheckouts.betweenGate = undefined;
+    release();
+    await h.flush();
+    expect(betweens(h)).toHaveLength(2);
+    expect(runOf(h, run.id).checkout!.byPerson).toHaveLength(1);
+    expect(stepCommands(h)).toHaveLength(1);
+  });
+
+  it('a session opened while the boundary settled holds the run before its next step starts', async () => {
+    const { h, run } = await heldAfterFix();
+    let release!: () => void;
+    h.world.runCheckouts.betweenGate = new Promise<void>((resolve) => (release = resolve));
+    h.world.holders.clear();
+    await h.tick();
+    expect(betweens(h)).toHaveLength(2);
+    h.world.holders.set(ownedDir(h, run.id), { sessionId: 'sreview', name: 'review' });
+    h.world.runCheckouts.betweenGate = undefined;
+    release();
+    await h.flush();
+    expect(runOf(h, run.id)).toMatchObject({
+      status: 'running',
+      waitingFor: { session: 'sreview' },
+    });
+    expect(stepCommands(h)).toEqual([]);
+    h.world.holders.clear();
+    await h.tick();
+    expect(betweens(h)).toHaveLength(3);
+    expect(betweens(h)[2]).toMatchObject({ message: 'changes by review during write' });
+    expect(stepCommands(h)).toHaveLength(1);
+  });
+
+  it('a full-tools continuation is refused while the run is open and allowed after', async () => {
+    const h = await writing(WRITE_ENTRY);
+    const run = await runNow(h, 'write');
+    expect(h.service.continuationRefusal(run.id, 'fix')).toBe(
+      'Continue with full tools after the run ends',
+    );
+    await h.world.endTurn('session-1', { exitCode: 0 });
+    expect(runOf(h, run.id).status).toBe('running');
+    expect(h.service.continuationRefusal(run.id, 'fix')).toBe(
+      'Continue with full tools after the run ends',
+    );
+    await stepCommands(h)[0].end({ result: { exitCode: 0 } });
+    expect(runOf(h, run.id).status).toBe('completed');
+    expect(h.service.continuationRefusal(run.id, 'fix')).toBeNull();
   });
 });
 

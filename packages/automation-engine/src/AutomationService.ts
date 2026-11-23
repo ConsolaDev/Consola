@@ -215,6 +215,7 @@ import {
 import { isEngineRun, isStepsRun } from './steps/recover';
 import {
   commitMessage,
+  CONTINUE_AFTER_RUN,
   folderChangedMessage,
   leftoverProblem,
   makeFailedMessage,
@@ -222,7 +223,9 @@ import {
   NO_RUN_CHECKOUTS,
   noWriteAgents,
   pathArtifactProblem,
+  personsCommitMessage,
   type RunCheckoutPort,
+  sessionHoldsRetry,
   type SettleResult,
 } from './steps/runCheckout';
 import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
@@ -784,6 +787,16 @@ export class AutomationService {
   private readonly retrying = new Map<string, { dir: string; itemKey?: string }>();
   /** Runs whose write step's declared retry is resetting their own checkout (slice 3-B): one reset at a time each. */
   private readonly resetting = new Set<string>();
+  /**
+   * Runs in a checkout of their own whose next step, gate or round is past
+   * the boundary check (slice 3-B, *Who may touch it*): the `advance` that
+   * goes on consumes it, so every boundary is checked once, and only once.
+   */
+  private readonly boundaryPassed = new Set<string>();
+  /** Runs whose boundary is committing what a person's session left (`crossBoundary`), one at a time each. */
+  private readonly crossing = new Set<string>();
+  /** The name the host gave each session it found holding a run's checkout, for words once the workspace lists it no more. */
+  private readonly holderNames = new Map<string, string>();
   /**
    * A step turn whose `init` failed its check, by session: the engine's words
    * for why, which become the step's error when the turn it stopped ends.
@@ -1477,6 +1490,7 @@ export class AutomationService {
     try {
       this.runDueChecks();
       this.resumeDueWaits();
+      this.watchHolders();
       const now = this.deps.now();
       for (const entry of this.allResolved()) {
         // A run still in progress keeps the occurrence for a later
@@ -2883,6 +2897,11 @@ export class AutomationService {
       : undefined;
     // A run that owns its checkout keeps it; one whose checkout was never made makes it now (slice 3-B).
     const workItem = loaded.definition.automation.scope || owned ? undefined : itemRefOf(run);
+    // A retry is a boundary too, whatever the item: a person's session open in the run's own checkout refuses it.
+    const ownCheckout = owned ? this.ownedCheckout(run) : null;
+    const held =
+      ownCheckout && !('problem' in ownCheckout) ? this.holderOf(run, ownCheckout) : null;
+    if (held) throw new Error(sessionHoldsRetry(held.name));
     if (owned && run.checkout?.base === undefined) {
       if (!this.deps.runCheckout) throw new Error(NO_RUN_CHECKOUTS);
       const dir = this.deps.runCheckout.pathFor(runId, owned.repo);
@@ -3047,7 +3066,7 @@ export class AutomationService {
     const entries = this.deps.store
       .runs()
       .filter((run) => run.attribution.workspaceId === workspaceId)
-      .map(toListEntry);
+      .map((run) => toListEntry(run, (id) => this.holderName(run, id)));
     const ordered = filterRuns(entries, filter, this.deps.now()).sort(newestFirst);
     if (before === undefined) return ordered;
     const at = ordered.findIndex((run) => run.id === before);
@@ -3060,7 +3079,9 @@ export class AutomationService {
     // Every live run, and the newest ended ones; the rest are `listRuns`'s.
     const ended = all.filter((run) => !isLiveRun(run)).sort(newestFirst);
     const left = new Set(ended.slice(SNAPSHOT_ENDED_RUNS));
-    const runs = all.filter((run) => !left.has(run)).map(toListEntry);
+    const runs = all
+      .filter((run) => !left.has(run))
+      .map((run) => toListEntry(run, (id) => this.holderName(run, id)));
     // A place in its lane's line, which every workspace shares.
     const queue: Record<string, number> = {};
     const { lines } = this.waitingRuns();
@@ -3246,8 +3267,10 @@ export class AutomationService {
   /**
    * Started steps runs with no step queued or running and nothing starting:
    * nothing will advance them. Every transition queues the next step in the
-   * same breath, so only a restart leaves one: cut off between two lines, or
-   * while it prepared its checkout.
+   * same breath, so only a restart leaves one (cut off between two lines, or
+   * while it prepared its checkout), or a run in a checkout of its own whose
+   * boundary waits for a person's session there (slice 3-B): each pass asks
+   * it again, and once the session has closed it goes on.
    */
   private stalledRuns(): RunRecord[] {
     return this.deps.store.runs().filter(
@@ -4055,6 +4078,177 @@ export class AutomationService {
   }
 
   /**
+   * The boundary before a run-owned run's next step, gate or round (slice
+   * 3-B, *Who may touch it*, Call 12): a person's session holding the
+   * checkout makes the run wait, its status unchanged and `waitingFor`
+   * naming it; with none, what one left is checked and committed apart
+   * (`crossBoundary`), and only then does the run go on. Never settles while
+   * a session holds it.
+   */
+  private checkBoundary(run: RunRecord, options: { quiet?: boolean }): void {
+    const owned = this.ownedCheckout(run);
+    if (!owned) return;
+    if ('problem' in owned) {
+      this.failRun(run.id, owned.problem, options);
+      return;
+    }
+    if (this.heldBySession(run, owned)) return;
+    if (this.crossing.has(run.id)) return;
+    this.crossing.add(run.id);
+    void this.crossBoundary(run.id, owned, options).catch((error: unknown) =>
+      console.error(`Run ${run.id} could not check its checkout between steps.`, error),
+    );
+  }
+
+  /**
+   * No session holds the checkout: what one left since the run last looked
+   * (`before` its head) is committed apart, as `changes by <session> during
+   * <automation>`, and appended to `checkout.byPerson` with `head` moved to
+   * it; nothing changed, nothing is written but the end of the wait. A
+   * problem fails the run before its next step, which stays `not-run`, in
+   * the host's words naming the session. A stop or a quit meanwhile keeps
+   * the record of a commit made, and goes no further.
+   */
+  private async crossBoundary(
+    runId: string,
+    owned: OwnedCheckout,
+    options: { quiet?: boolean },
+  ): Promise<void> {
+    const run = this.deps.store.get(runId)!;
+    const holder = run.checkout?.lastHolder;
+    const name = holder === undefined ? undefined : this.holderName(run, holder);
+    let settled: SettleResult | null;
+    try {
+      settled = await owned.port.settleBetween({
+        dir: owned.dir,
+        branch: owned.branch,
+        base: owned.base,
+        before: owned.head,
+        message: personsCommitMessage(name, run.automationId),
+        ...(name !== undefined ? { session: name } : {}),
+      });
+    } catch (error) {
+      settled = { ok: false, error: describeError(error) };
+    } finally {
+      this.crossing.delete(runId);
+    }
+    if (!this.started) return;
+    const now = this.deps.store.get(runId);
+    if (!now?.checkout || now.checkout.cwd !== owned.dir) return;
+    if (settled === null || settled.ok) {
+      const { lastHolder: _seen, ...checkout } = now.checkout;
+      const at = this.iso();
+      const committed = settled?.ok
+        ? {
+            byPerson: [
+              ...(checkout.byPerson ?? []),
+              {
+                ...(holder !== undefined ? { session: holder } : {}),
+                before: owned.head,
+                after: settled.after,
+                files: settled.files,
+                flagged: settled.flagged,
+                at,
+              },
+            ],
+            head: settled.after,
+          }
+        : {};
+      if (settled?.ok || holder !== undefined || now.waitingFor?.session !== undefined) {
+        this.deps.store.update(runId, {
+          checkout: { ...checkout, ...committed },
+          ...(now.waitingFor?.session !== undefined
+            ? { waitingFor: withoutSessionWait(now.waitingFor) }
+            : {}),
+          updatedAt: at,
+        });
+        this.broadcastRun(runId);
+      }
+    }
+    if (now.status !== 'running') return;
+    if (settled !== null && !settled.ok) {
+      this.failRun(runId, settled.error, options);
+      return;
+    }
+    // A session opened while that was settled holds the run now: it waits, and the next boundary settles again.
+    if (this.heldBySession(this.deps.store.get(runId)!, owned)) return;
+    this.boundaryPassed.add(runId);
+    this.advance(runId, options);
+  }
+
+  /**
+   * The session holding a run's own checkout now (Call 12): the host's
+   * `holder`, never the session of one of this run's own steps while it
+   * runs (its CLI works there). Its name is kept for the words.
+   */
+  private holderOf(
+    run: RunRecord,
+    owned: OwnedCheckout,
+  ): { sessionId: string; name: string } | null {
+    const held = owned.port.holder(owned.dir);
+    if (!held) return null;
+    const ownStep = (run.steps ?? []).some(
+      (step) =>
+        step.sessionId === held.sessionId &&
+        (step.status === 'running' || step.status === 'queued'),
+    );
+    if (ownStep) return null;
+    this.holderNames.set(held.sessionId, held.name);
+    return held;
+  }
+
+  /**
+   * Whether a person's session holds the run's own checkout now: when it
+   * does, the run records it as `checkout.lastHolder` and waits for it
+   * (`waitingFor.session`), its status unchanged.
+   */
+  private heldBySession(run: RunRecord, owned: OwnedCheckout): boolean {
+    const held = this.holderOf(run, owned);
+    if (!held) return false;
+    this.recordHolder(run, held.sessionId, true);
+    return true;
+  }
+
+  /** `checkout.lastHolder`, and with `waits` the run's `waitingFor.session`, as `sessionId`: one line, only when either changes. */
+  private recordHolder(run: RunRecord, sessionId: string, waits: boolean): void {
+    const current = this.deps.store.get(run.id) ?? run;
+    if (!current.checkout) return;
+    const seen = current.checkout.lastHolder === sessionId;
+    const waiting = !waits || current.waitingFor?.session === sessionId;
+    if (seen && waiting) return;
+    this.deps.store.update(run.id, {
+      checkout: { ...current.checkout, lastHolder: sessionId },
+      ...(waits ? { waitingFor: { ...current.waitingFor, session: sessionId } } : {}),
+      updatedAt: this.iso(),
+    });
+    this.broadcastRun(run.id);
+  }
+
+  /** A holding session's name: the workspace's, else the host's when it found it, else its id. */
+  private holderName(run: RunRecord, sessionId: string): string {
+    return this.sessionNamed(run, sessionId)?.name ?? this.holderNames.get(sessionId) ?? sessionId;
+  }
+
+  /**
+   * Every open run in a checkout of its own, at each tick (slice 3-B, Call
+   * 12): the session holding it now, if any, becomes its `lastHolder` (and
+   * its `waitingFor` while it already waits on one). A running one waiting
+   * on a session has no step queued or running, so the tick's pump picks it
+   * up (`stalledRuns`) and its boundary asks again: once the session has
+   * closed, it goes on.
+   */
+  private watchHolders(): void {
+    for (const run of [...this.deps.store.runs()]) {
+      if (run.checkout?.kind !== 'run-owned' || !isStepsRun(run)) continue;
+      if (run.status !== 'queued' && run.status !== 'running' && run.status !== 'waiting') continue;
+      const owned = this.ownedCheckout(run);
+      if (!owned || 'problem' in owned) continue;
+      const held = this.holderOf(run, owned);
+      if (held) this.recordHolder(run, held.sessionId, run.waitingFor?.session !== undefined);
+    }
+  }
+
+  /**
    * After a run starts, or a step settles: apply what the sequencer says
    * from the record and the run's own definition, each change its own line,
    * then queue the next step for the pump to start, or end the run. A
@@ -4064,6 +4258,8 @@ export class AutomationService {
    * there, never started.
    */
   private advance(runId: string, options: { quiet?: boolean } = {}): void {
+    // Consumed whatever this call does: a boundary passed counts for the move it decided, never a later one.
+    const passed = this.boundaryPassed.delete(runId);
     const run = this.deps.store.get(runId);
     if (run?.status !== 'running' || !run.steps) return;
     const loaded = this.definitionOf(run);
@@ -4116,6 +4312,16 @@ export class AutomationService {
       );
       return;
     }
+    // A run's own checkout (slice 3-B, *Who may touch it*): before its next step, gate or round, a person's
+    // session open there holds it, and what one left is committed apart first (`checkBoundary`).
+    if (
+      !passed &&
+      run.checkout?.kind === 'run-owned' &&
+      (next.kind === 'start' || next.kind === 'ask' || next.kind === 'round')
+    ) {
+      this.checkBoundary(run, options);
+      return;
+    }
     if (next.kind === 'round') {
       // One line begins the round; then its steps take their turns, in the same call.
       const block = flatSteps(loaded.definition.automation.steps).find(
@@ -4123,6 +4329,8 @@ export class AutomationService {
       )?.step as RepeatStep;
       this.writeSteps(runId, withRound(this.stepsOf(runId), block, next.round, this.iso()));
       this.broadcastRun(runId);
+      // Its first move is past the same boundary: nothing ran between the two.
+      if (passed) this.boundaryPassed.add(runId);
       this.advance(runId, options);
       return;
     }
@@ -4248,6 +4456,18 @@ export class AutomationService {
     this.broadcastRun(runId);
     this.pickUp(this.deps.store.get(runId)!);
     return { ...this.deps.store.get(runId)! };
+  }
+
+  /**
+   * Why a step's session cannot be continued with full tools yet (slice 3-B,
+   * *A full-tools continuation*): while its run is open, its checkout and
+   * its branch are the run's. Null once the run has ended, and for a run or
+   * a step this service does not know.
+   */
+  public continuationRefusal(runId: string, stepId: string): string | null {
+    const run = this.deps.store.get(runId);
+    if (!run?.steps?.some((step) => step.id === stepId)) return null;
+    return TERMINAL_RUN_STATUSES.includes(run.status) ? null : CONTINUE_AFTER_RUN;
   }
 
   /**
@@ -5318,15 +5538,23 @@ export class AutomationService {
           Date.parse(step.retryAt) <= now,
       );
       if (!due) continue;
-      // A write step in a run's own checkout is reset first (slice 3-B), as a person's Retry resets it.
-      if (run.checkout?.kind === 'run-owned' && isWriteStepToReset(due)) {
-        if (!this.resetting.has(run.id)) void this.resumeAfterReset(run.id, due.id);
-        continue;
+      if (run.checkout?.kind === 'run-owned') {
+        // A declared retry is a boundary too (slice 3-B): it waits at its `retryAt` while a person's session holds the checkout.
+        const owned = this.ownedCheckout(run);
+        if (owned && !('problem' in owned) && this.heldBySession(run, owned)) continue;
+        // A write step in a run's own checkout is reset first, as a person's Retry resets it.
+        if (isWriteStepToReset(due)) {
+          if (!this.resetting.has(run.id)) void this.resumeAfterReset(run.id, due.id);
+          continue;
+        }
       }
       const at = this.iso();
       this.deps.store.update(run.id, {
         status: 'running',
         steps: withRetryDue(run.steps ?? [], due.id, at),
+        ...(run.waitingFor?.session !== undefined
+          ? { waitingFor: withoutSessionWait(run.waitingFor) }
+          : {}),
         updatedAt: at,
       });
       this.broadcastRun(run.id);
@@ -5371,6 +5599,9 @@ export class AutomationService {
         status: 'running',
         steps: withRetryDue(now.steps ?? [], stepId, at),
         checkout: { ...now.checkout!, head: before },
+        ...(now.waitingFor?.session !== undefined
+          ? { waitingFor: withoutSessionWait(now.waitingFor) }
+          : {}),
         updatedAt: at,
       });
       this.broadcastRun(runId);
@@ -6916,6 +7147,14 @@ function agentNamesServer(definition: RunDefinition, stepId: string): boolean {
   return (definition.agents?.[stepId]?.mcpServers.length ?? 0) > 0;
 }
 
+/** A run's `waitingFor` once no session holds it: what else it waited for, or nothing. */
+function withoutSessionWait(
+  waitingFor: NonNullable<RunRecord['waitingFor']>,
+): RunRecord['waitingFor'] {
+  const { session: _session, ...rest } = waitingFor;
+  return Object.keys(rest).length > 0 ? rest : undefined;
+}
+
 /**
  * A write step's attempt that a retry starts again from its `before`: an
  * agent row whose agent writes (`tools`, written at its start) and that
@@ -7071,13 +7310,22 @@ function firstMove(
 
 /**
  * A run as the activity list shows it: its kind, and its result only while
- * it waits for a person or a slot. Everything else is `getRun`'s.
+ * it waits for a person or a slot; the session it waits for by its name
+ * (`nameOf`), where the record keeps its id. Everything else is `getRun`'s.
  */
-function toListEntry(run: RunRecord): RunListEntry {
-  const { result, approval: _approval, steps: _steps, ...rest } = run;
+function toListEntry(run: RunRecord, nameOf: (sessionId: string) => string): RunListEntry {
+  const { result, approval: _approval, steps: _steps, waitingFor, ...rest } = run;
   const step = currentStep(run);
   return {
     ...rest,
+    ...(waitingFor
+      ? {
+          waitingFor: {
+            ...waitingFor,
+            ...(waitingFor.session !== undefined ? { session: nameOf(waitingFor.session) } : {}),
+          },
+        }
+      : {}),
     kind: runKind(run),
     ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}),
     ...(step ? { step } : {}),

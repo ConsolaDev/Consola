@@ -1001,6 +1001,32 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     expect(run(dir, 'rev-parse', 'HEAD')).toBe(base);
   });
 
+  it('settleBetweenSteps names the session it saw holding the checkout when HEAD, the branch or the git folder moved (Task 14)', async () => {
+    const asFix = (before: string) =>
+      settleBetweenSteps({ dir, branch: BRANCH, base, before, message: 'x', session: 'fix' });
+    writeFile(dir, 'NOTES.md', 'by hand');
+    run(dir, 'add', '-A');
+    run(dir, 'commit', '-qm', 'mine');
+    const mine = run(dir, 'rev-parse', 'HEAD');
+    run(dir, 'update-ref', `refs/heads/${BRANCH}`, base);
+    expect(await asFix(mine)).toEqual({
+      ok: false,
+      error: `\`fix\`, opened by you, moved ${BRANCH} off the commit the run was at (${mine.slice(0, 7)})`,
+    });
+    run(dir, 'checkout', '-q', '--detach');
+    expect(await asFix(base)).toEqual({
+      ok: false,
+      error: `\`fix\`, opened by you, moved \`HEAD\` off ${BRANCH}`,
+    });
+    run(dir, 'checkout', '-q', BRANCH);
+    fs.writeFileSync(path.join(dir, '.git'), `gitdir: ${path.join(source, '.git')}\n`);
+    expect(await asFix(base)).toEqual({
+      ok: false,
+      error:
+        "`fix`, opened by you, changed this checkout's git folder (.git in the checkout is not Consola's pointer), so Consola will not commit in it",
+    });
+  });
+
   it("settleBetweenSteps reports a person's own commit, with nothing left uncommitted", async () => {
     writeFile(dir, 'NOTES.md', 'by hand');
     run(dir, 'add', '-A');

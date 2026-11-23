@@ -295,9 +295,16 @@ export type RunKind = 'agent' | 'tool' | 'request';
  * while it waits (the Waiting card's preview). The panel reads the rest
  * with getRun.
  */
-export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps'> & {
+export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps' | 'waitingFor'> & {
   kind: RunKind;
   result?: unknown;
+  /**
+   * What holds the run, as its record says (`RunRecord.waitingFor`), but a
+   * person's session open in the run's own checkout by its name, for
+   * Activity's "waiting for you to close `<session>`" (slice 3-B); the
+   * record keeps its id.
+   */
+  waitingFor?: { gate?: { automation: string; run: string; step: string }; session?: string };
   /**
    * Where a steps run is: its queued, running or waiting step (a loop's row
    * only while it waits at its exhaustion gate), else the step it ended at

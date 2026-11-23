@@ -320,6 +320,8 @@ export interface StepsWorld {
     makeGate?: Promise<void>;
     settleAnswers: SettleResult[];
     betweenAnswers: Array<SettleResult | null>;
+    /** Every `settleBetween` waits for this while it is set, after recording the call. */
+    betweenGate?: Promise<void>;
     showAnswers: Array<
       { ok: true; text: string } | { ok: false; reason: 'missing' | 'not-a-file' | 'too-large' }
     >;
@@ -918,6 +920,7 @@ function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
     },
     settleBetween: async (request) => {
       runCheckouts.calls.push({ settleBetween: request });
+      if (runCheckouts.betweenGate) await runCheckouts.betweenGate;
       return runCheckouts.betweenAnswers.length > 0 ? runCheckouts.betweenAnswers.shift()! : null;
     },
     reset: async (dir, before, branch) => {

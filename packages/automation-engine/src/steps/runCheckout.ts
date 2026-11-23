@@ -219,6 +219,23 @@ export function commitMessage(
 }
 
 /**
+ * Consola's commit of what a person's session left between steps (slice 3-B,
+ * Call 12): `changes by <session> during <automation>`, `a session` when the
+ * run never saw which one held its checkout.
+ */
+export function personsCommitMessage(session: string | undefined, automation: string): string {
+  return `changes by ${session ?? 'a session'} during ${automation}`;
+}
+
+/** A person's Retry of a run whose own checkout a session holds (spec *A retry is a boundary too*). */
+export function sessionHoldsRetry(session: string): string {
+  return `\`${session}\` is open in this run's checkout; close it, then retry`;
+}
+
+/** What a step's session says while its run is open (spec *A full-tools continuation*). */
+export const CONTINUE_AFTER_RUN = 'Continue with full tools after the run ends';
+
+/**
  * Files that tell an agent CLI, git or CI what to do, compared case-folded
  * (the Mac's file system reads `claude.md` as `CLAUDE.md`): each agent CLI
  * Consola drives has its own instructions file (Claude's `CLAUDE.md` and

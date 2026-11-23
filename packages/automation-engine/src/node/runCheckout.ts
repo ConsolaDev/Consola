@@ -451,16 +451,27 @@ export async function treeProblem(
 }
 
 /** HEAD on `branch`, and `branch` still descending from `before` (replace refs and grafts off): the words when not. */
-async function headProblem(dir: string, branch: string, before: string): Promise<string | null> {
+async function headProblem(
+  dir: string,
+  branch: string,
+  before: string,
+  session?: string,
+): Promise<string | null> {
   const head = await runCloneGit(dir, ['symbolic-ref', '-q', 'HEAD']).then(
     (said) => said.trim(),
     () => '',
   );
-  if (head !== `refs/heads/${branch}`) return `the step moved \`HEAD\` off ${branch}`;
+  const who = session === undefined ? 'the step' : openedByYou(session);
+  if (head !== `refs/heads/${branch}`) return `${who} moved \`HEAD\` off ${branch}`;
   if (!(await answers(dir, ['merge-base', '--is-ancestor', before, `refs/heads/${branch}`])))
-    return `the step moved ${branch} off the commit it started from (${before.slice(0, 7)})`;
+    return session === undefined
+      ? `the step moved ${branch} off the commit it started from (${before.slice(0, 7)})`
+      : `${who} moved ${branch} off the commit the run was at (${before.slice(0, 7)})`;
   return null;
 }
+
+/** A person's session, as a between-steps refusal names it (slice 3-B Task 14): `` `<name>`, opened by you, ``. */
+const openedByYou = (session: string) => `\`${session}\`, opened by you,`;
 
 /** The paths that differ between `from` and `to` (the working tree when `to` is absent). */
 async function namesBetween(dir: string, from: string, to?: string): Promise<string[]> {
@@ -676,14 +687,25 @@ export async function settleBetweenSteps(request: {
   base: string;
   before: string;
   message: string;
-  /** The session the run last saw holding the checkout, for a refusal's words; absent, `a session`. */
+  /**
+   * The session the run last saw holding the checkout, for a refusal's words
+   * (`` `<name>`, opened by you, moved `HEAD` off <branch> ``); absent, the
+   * tree's refusals say `a session` and the rest the step's words.
+   */
   session?: string;
 }): Promise<SettleResult | null> {
-  const { dir, branch, before, message } = request;
+  const { dir, branch, before, message, session } = request;
   const folder = gitFolderProblem(dir);
-  if (folder) return { ok: false, error: changedFolder(folder) };
+  if (folder)
+    return {
+      ok: false,
+      error:
+        session === undefined
+          ? changedFolder(folder)
+          : `${openedByYou(session)} changed this checkout's git folder (${folder}), so Consola will not commit in it`,
+    };
   try {
-    const moved = await headProblem(dir, branch, before);
+    const moved = await headProblem(dir, branch, before, session);
     if (moved) return { ok: false, error: moved };
     // Before the look for changes: git lists no change for a repository planted inside the checkout.
     const tree = await treeProblem(dir, request.session ?? 'a session');
