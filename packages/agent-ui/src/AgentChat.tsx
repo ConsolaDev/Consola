@@ -503,6 +503,12 @@ function useChatRouter(sessionId: string) {
   return router;
 }
 
+/**
+ * One session's chat. `AgentChat` keys it by host and session, so a new `sessionId` (or
+ * `hostUrl`) on a mounted chat starts it again: the old session's registration goes, and the new
+ * one's hold, pass and registration start from nothing, so it is registered only once this page
+ * holds it, and with the new pass (`AgentChat.sessionChange.browser.test.tsx`).
+ */
 function SessionChat(props: AgentChatProps) {
   const problem = useHostConnection(props);
   const router = useChatRouter(props.sessionId);

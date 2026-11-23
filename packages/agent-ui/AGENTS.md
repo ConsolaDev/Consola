@@ -119,7 +119,15 @@ pieces:
   and when another window holds it, puts the pass back in t3's credential store once t3 has
   removed the registration (`restoreStoredPass`). Only the pass is put back: the other window
   keeps its own registration, and t3's cached thread for the session is gone and refilled. The
-  pass is absent for an instant between t3's delete and the put. If two windows end at the same
+  pass is absent for an instant between t3's delete and the put. t3's bearer connection reads the
+  stored pass at every connect (`client-runtime/connection/resolver.ts`), so the other window, if
+  it reconnects in that instant, finds none: t3 blocks its connection with
+  `credentialMissingError`, a `ConnectionBlockedError` whose reason is `authentication`, which
+  `AgentChat` cannot tell from a refused pass. With `onPassExpired` that chat asks for a new pass
+  and reconnects; without it, it shows "The host refused this chat's pass" until its page hands
+  it a new `pass` or reloads. In an insecure context (no Web Locks) `heldByAnotherPage` is always
+  false, so the pass is never put back: the other window meets the same the next time it
+  connects, not just in an instant. If two windows end at the same
   moment each sees the other holding, so neither removes it: it stays until the next page's first
   registration sweeps it (its lock is free by then) (`AgentChat.sharedSession.browser.test.tsx`,
   with the other window an iframe of the dev page). A window that closes or reloads without unmounting
@@ -130,6 +138,13 @@ pieces:
   `AGENTS.md`, "Before the socket"); the pass is the only credential. No t3 sign-in, pairing or
   environment picker is mounted.
 - **The environment and the thread are the session**: both ids are `sessionId`.
+- **A new session on a mounted chat starts it again.** `AgentChat` keys its session's part
+  (`SessionChat`) by `hostUrl` and `sessionId`, so a chat whose `sessionId` changes (a
+  `/sessions/:id` route that keeps its element) removes the old session's registration, and
+  registers the new one only once the page holds it, with the new `pass`
+  (`AgentChat.sessionChange.browser.test.tsx`). An embedder need not key `AgentChat` by
+  `sessionId` itself; keying it as well is harmless (it also remounts the theme and the
+  injected-style copies).
 - **Pass expiry.** The host closes a connection with `4401` at its pass's `exp`, and refuses
   the expired pass at the next ticket call. A refused pass is t3's `401`, on which t3's
   connection stops (blocked, `authentication`). `AgentChat` watches the registry's state for
