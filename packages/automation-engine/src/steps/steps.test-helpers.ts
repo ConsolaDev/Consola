@@ -243,6 +243,8 @@ export interface FakeMcp {
   orphans: ServerGroup[];
   /** What `endOrphan` answers. Default `ended`. */
   orphanAnswer: 'ended' | 'gone' | 'unknown';
+  /** Every `endOrphan` waits for this while it is set, after recording the group: `ps` is still being read. */
+  orphanGate?: Promise<void>;
   /** Every connect waits for this while it is set (or until its signal aborts), after the group was handed over. */
   connectGate?: Promise<void>;
   /** Every connect waits for this while it is set, before the group is handed over: the process is still being spawned. */
@@ -887,6 +889,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
           },
           endOrphan: async (group) => {
             world.mcp.orphans.push(group);
+            if (world.mcp.orphanGate) await world.mcp.orphanGate;
             return world.mcp.orphanAnswer;
           },
         };

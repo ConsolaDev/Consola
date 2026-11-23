@@ -2340,3 +2340,47 @@ describe('a retried call before it starts (review M1)', () => {
     expect(h.world.mcp.calls).toHaveLength(1);
   });
 });
+
+/*
+ * Review M3: the sweep's answer for a group an earlier start left lands
+ * late (`ps` is slow); by then the step may have started again with a group
+ * of its own, which the answer must not mark ended.
+ */
+describe('a late answer for a group an earlier start left (review M3)', () => {
+  it("marks ended only the group it was handed, never the one the step's new attempt recorded", async () => {
+    const connecting = held();
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    h.world.mcp.connectGate = connecting.promise;
+    h.store.accept(`${WORKSPACE_ID} brief`, h.service.entryAgents(WORKSPACE_ID, 'brief')!.version);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h.world.endTurn('session-1');
+    // Quit while connecting: its group is recorded, its intent is not.
+    expect(stepOf(h, run.id, 'post').call).toEqual({ server: GROUP });
+    const NEWER = { pgid: 5151, startedAt: 'Mon Nov 16 09:00:00 2026' };
+    h.world.mcp.servers.set('slack', slack({ group: NEWER }));
+    const sweep = held();
+    h.world.mcp.orphanGate = sweep.promise;
+    const again = await h.relaunch();
+    await again.flush();
+    // The start handed the old group to be ended, and the step, back in line, started again.
+    expect(again.world.mcp.orphans).toEqual([GROUP]);
+    expect(stepOf(again, run.id, 'post')).toMatchObject({
+      status: 'running',
+      call: { server: NEWER },
+    });
+    // Only now does the sweep answer for the old group.
+    again.world.mcp.orphanGate = undefined;
+    sweep.release();
+    await again.flush();
+    expect(stepOf(again, run.id, 'post').call?.server).toEqual(NEWER);
+    again.world.mcp.connectGate = undefined;
+    connecting.release();
+    await again.flush();
+    expect(stepOf(again, run.id, 'post')).toMatchObject({
+      status: 'completed',
+      call: { server: { ...NEWER, ended: true } },
+    });
+  });
+});
