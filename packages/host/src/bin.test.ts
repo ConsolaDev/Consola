@@ -1,7 +1,15 @@
 // @effect-diagnostics nodeBuiltinImport:off - It starts the host with node and reads what it prints.
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { get } from 'node:http';
 import { type AddressInfo, createServer, type Server } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -28,6 +36,12 @@ import {
   StartFailed,
   UsageError,
 } from './bin.ts';
+import {
+  HARNESS_API_KEYS,
+  REDACTED,
+  RUNNER_SECRET_VARIABLES,
+  scrubSecrets,
+} from './core/runnerDecisions.ts';
 import { isolateMachine } from './testing/machine.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from './testing/replay.ts';
 import { connectT3Client, hostSocketUrl } from './testing/t3Client.ts';
@@ -918,6 +932,34 @@ describe('parseRunnerArgs', () => {
     expect(args.offer.harnesses).toEqual(['claude', 'codex']);
     expect(args.secrets.gitToken).toBeUndefined();
     expect(args.secretValues).not.toContain('');
+  });
+
+  it('takes the value of every variable in RUNNER_SECRET_VARIABLES out of what it says', () => {
+    const values = Object.fromEntries(
+      RUNNER_SECRET_VARIABLES.map((name) => [name, `sprocket-${name.toLowerCase()}-0123456789`]),
+    );
+    const args = parse(flags, { ...RUNNER_ENV, ...values });
+    for (const [name, value] of Object.entries(values)) {
+      expect(args.secretValues, name).toContain(value);
+      expect(scrubSecrets(`${name}=${value}`, args.secretValues)).toBe(`${name}=${REDACTED}`);
+    }
+  });
+
+  it('lists in RUNNER_SECRET_VARIABLES every secret variable the host reads', () => {
+    // Every `env.NAME` (or `env['NAME']`) in the host's own source, the harnesses' keys too.
+    const read = new Set<string>(Object.values(HARNESS_API_KEYS));
+    for (const file of readdirSync(SRC, { recursive: true, encoding: 'utf8' })) {
+      if (!file.endsWith('.ts') || file.endsWith('.test.ts') || file.startsWith('testing')) continue;
+      const source = readFileSync(join(SRC, file), 'utf8');
+      for (const match of source.matchAll(/\benv(?:\.|\[['"])([A-Z][A-Z0-9_]*)/g)) {
+        if (match[1] !== undefined) read.add(match[1]);
+      }
+    }
+    const secretNamed = [...read].filter(
+      (name) => /(SECRET|TOKEN|_KEY)$/.test(name) && !name.includes('PUBLIC'),
+    );
+    expect(secretNamed).toEqual(expect.arrayContaining(['CONSOLA_RUNNER_SECRET', 'GIT_TOKEN']));
+    for (const name of secretNamed) expect(RUNNER_SECRET_VARIABLES).toContain(name);
   });
 
   it('is the command when runner comes first', () => {

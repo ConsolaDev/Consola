@@ -54,6 +54,7 @@ import {
   readRepositories,
   type SandboxSecrets,
   scrubSecrets,
+  secretValuesOf,
 } from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
 import * as ThreadRuntime from './runtime/threadRuntime.ts';
@@ -383,7 +384,7 @@ export type RunnerArgs = {
   readonly offer: RunnerOffer;
   /** What a sandbox is given: the git token and its harness's key. */
   readonly secrets: SandboxSecrets;
-  /** Every secret it holds, taken out of whatever it reports or logs. */
+  /** The values of `RUNNER_SECRET_VARIABLES`, taken out of whatever it reports or logs. */
   readonly secretValues: ReadonlyArray<string>;
   /** A session host's idle minutes. */
   readonly idleMinutes: number;
@@ -480,9 +481,7 @@ export const parseRunnerArgs = (
       secret,
       offer: { repositories: repositories.repositories, harnesses },
       secrets: { gitToken, apiKeys },
-      secretValues: [secret, gitToken, ...Object.values(apiKeys)].filter(
-        (value): value is string => value !== undefined && value !== '',
-      ),
+      secretValues: secretValuesOf(env),
       idleMinutes,
       maxSessionMinutes,
     };

@@ -702,7 +702,8 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `CONSOLA_RUNNER_REPOSITORIES` (the repositories it offers, `owner/name`,
   comma-separated), `GIT_TOKEN` (optional, for the clone), and the API keys,
   each offering its harness (`harnessesFromEnv`): `ANTHROPIC_API_KEY` claude,
-  `OPENAI_API_KEY` codex. The E2B provider (Task 6) adds `E2B_API_KEY`.
+  `OPENAI_API_KEY` codex. The E2B provider (Task 6) adds `E2B_API_KEY`, to
+  `RUNNER_SECRET_VARIABLES` too (below).
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
   not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
@@ -781,9 +782,13 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   so a socket that died without a close (a NAT that forgot it, a laptop that
   slept, a cell gone without a reset) is not written into for the minutes TCP
   takes to notice. The cell answers pings as `ws` does by default.
-- **Secrets.** It never logs its environment. Its log lines (stderr, `consola-host
-  runner: …`) and every update are scrubbed of the runner secret, the git token
-  and the API keys (`scrubSecrets`, as they are and URL-encoded), errors and
+- **Secrets.** It never logs its environment. Its secret variables are one
+  list, `RUNNER_SECRET_VARIABLES` (`core/runnerDecisions.ts`): the runner
+  secret, the git token and each harness's API key; Task 6 adds `E2B_API_KEY`
+  there, and `bin.test.ts` fails on a secret-named variable the host's source
+  reads that the list lacks. Its log lines (stderr, `consola-host runner: …`)
+  and every update are scrubbed of those variables' values (`secretValuesOf`,
+  `scrubSecrets`, as they are and URL-encoded), errors and
   titles before they are bounded to 1000 characters (`scrubUpdate`), and a
   command's stderr as it arrives, before its tail is cut (`StderrTail` holds back
   what may start a secret split across chunks). `hostUrl` is the provider's

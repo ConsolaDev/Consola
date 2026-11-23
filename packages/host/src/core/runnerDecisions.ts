@@ -29,6 +29,27 @@ export const HARNESS_API_KEYS: Readonly<Record<Harness, string>> = {
   codex: 'OPENAI_API_KEY',
 };
 
+/**
+ * Every variable of the runner's environment that holds a secret: its own secret, the git token,
+ * and each harness's API key (Task 6 adds `E2B_API_KEY`). It is the one list: the runner takes
+ * their values out of everything it logs or reports (`secretValuesOf`), and never logs any of
+ * them. A new secret the runner reads joins it (`bin.test.ts` checks the host's source for one
+ * missing).
+ */
+export const RUNNER_SECRET_VARIABLES: ReadonlyArray<string> = [
+  'CONSOLA_RUNNER_SECRET',
+  'GIT_TOKEN',
+  ...Object.values(HARNESS_API_KEYS),
+];
+
+/** The values `env` gives `RUNNER_SECRET_VARIABLES`, the empty ones left out. */
+export function secretValuesOf(env: Readonly<Record<string, string | undefined>>): string[] {
+  return RUNNER_SECRET_VARIABLES.flatMap((name) => {
+    const value = env[name];
+    return value === undefined || value === '' ? [] : [value];
+  });
+}
+
 /** The harnesses a runner offers: each one whose API key its environment holds. */
 export function harnessesFromEnv(env: Readonly<Record<string, string | undefined>>): Harness[] {
   return HARNESSES.filter((harness) => (env[HARNESS_API_KEYS[harness]] ?? '') !== '');
