@@ -31,6 +31,7 @@ import {
   runInConnection,
 } from './connection.ts';
 import { hostHttpOrigin } from './hostAddress.ts';
+import { copyInjectedStyles } from './injectedStyles.ts';
 import { forgetUnheldSessions, holdSession } from './storedSessions.ts';
 import { I18nProvider } from '~/i18n/I18nProvider';
 import { startI18n } from '~/i18n/runtime';
@@ -414,7 +415,8 @@ function useChatDark(root: RefObject<HTMLElement | null>): boolean {
 /**
  * t3's popups are Base UI portals at the end of `<body>`, outside the chat. While the chat is
  * mounted, each is marked as the chat's (`styles.css` styles inside it) and given the chat's
- * theme. A page that uses Base UI itself would see its own portals marked too.
+ * theme. A page that uses Base UI itself would see its own portals marked too, and then they
+ * would be styled as the chat's, under its guard: none of the page's own CSS would reach them.
  */
 function useMarkedPortals(dark: boolean) {
   useEffect(() => {
@@ -479,6 +481,7 @@ export function AgentChat(props: AgentChatProps): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const dark = useChatDark(root);
   useMarkedPortals(dark);
+  useEffect(copyInjectedStyles, []);
   return (
     <div ref={root} className="consola-agent-ui">
       <div className={dark ? 'consola-agent-ui-theme dark' : 'consola-agent-ui-theme'}>
