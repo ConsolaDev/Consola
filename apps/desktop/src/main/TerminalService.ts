@@ -1081,17 +1081,6 @@ export class TerminalService extends EventEmitter {
     return stats.isDirectory() ? null : `Working folder is not a directory: ${cwd}.`;
   }
 
-  /**
-   * The provider token for this session's workspace account, with the
-   * variable it belongs in, or null.
-   *
-   * Null is the whole degradation story: no binding means no token and a
-   * spawn identical to pre-v6 Consola. A binding whose token cannot be
-   * borrowed — or whose provider this build lacks — also launches, but with
-   * a visible notice, because an agent silently running the provider CLI
-   * as whatever account happens to be active in its keyring is exactly the
-   * cross-account accident bindings exist to prevent.
-   */
   /** A line of Consola's in the pane, above whatever comes next: a launch refused before anything spawned. */
   public notice(text: string): void {
     this.writeNotice(text);
@@ -1159,6 +1148,17 @@ export class TerminalService extends EventEmitter {
       if (!known.has(`${entry.pid} ${entry.started}`)) record.descendants.push(entry);
   }
 
+  /**
+   * The provider token for this session's workspace account, with the
+   * variable it belongs in, or null.
+   *
+   * Null is the whole degradation story: no binding means no token and a
+   * spawn identical to pre-v6 Consola. A binding whose token cannot be
+   * borrowed — or whose provider this build lacks — also launches, but with
+   * a visible notice, because an agent silently running the provider CLI
+   * as whatever account happens to be active in its keyring is exactly the
+   * cross-account accident bindings exist to prevent.
+   */
   private async borrowProviderToken(): Promise<{ envVar: string; token: string } | null> {
     const { providerId, providerAccountLogin: login } = this.options;
     if (!providerId || !login) return null;
