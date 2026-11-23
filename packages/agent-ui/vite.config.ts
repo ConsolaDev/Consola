@@ -6,7 +6,7 @@ import react from '@vitejs/plugin-react';
 import { esmExternalRequirePlugin } from 'vite/rolldown/plugins';
 import { defineConfig, type Plugin } from 'vite-plus';
 import { playwright } from 'vite-plus/test/browser-playwright';
-import { serverSdkGuard, thirdPartyNotices } from './build/bundleGuards.ts';
+import { serverSdkGuard, thirdPartyNotices, workerPlugins } from './build/bundleGuards.ts';
 import { scopeCss } from './build/scopeCss.ts';
 import { T3_APP_VERSION } from './build/t3Version.ts';
 import { signPass } from './src/testing/passKeys.ts';
@@ -128,7 +128,7 @@ export default defineConfig({
   css: {
     postcss: { plugins: [tailwindcss({ base: here('./src') }), scopeCss()] },
   },
-  worker: { plugins: () => [notices.workers] },
+  worker: { plugins: () => workerPlugins(notices) },
   build: {
     lib: {
       entry: here('./src/index.ts'),

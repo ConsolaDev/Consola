@@ -118,7 +118,8 @@ export const noticesFor = (packageDirs: Iterable<string>): Notice[] => {
   return [...notices.values()].sort((a, b) => a.name.localeCompare(b.name));
 };
 
-const RULE = '='.repeat(72);
+/** Starts each entry (kept plain text: a NUL would make the file binary to every tool). */
+export const ENTRY_MARK = `${'='.repeat(72)}\n`;
 
 export const renderNotices = (notices: ReadonlyArray<Notice>): string => {
   const header =
@@ -126,7 +127,11 @@ export const renderNotices = (notices: ReadonlyArray<Notice>): string => {
     "@consola/agent-ui's bundle holds the packages below, each under the licence named. The " +
     "chat's own sources, and t3code's, which are copied into it, are MIT.\n";
   const entries = notices.map((notice) => {
-    const lines = [RULE, `${notice.name}@${notice.version}`, `License: ${notice.license}`];
+    const lines = [
+      ENTRY_MARK.trimEnd(),
+      `${notice.name}@${notice.version}`,
+      `License: ${notice.license}`,
+    ];
     if (notice.text !== undefined) lines.push('', notice.text);
     return lines.join('\n');
   });
@@ -168,3 +173,13 @@ export const thirdPartyNotices = (): { main: Plugin; workers: Plugin } => {
     },
   };
 };
+
+/**
+ * The plugins of the library's worker bundles (`worker.plugins`): t3's office, PDF and image
+ * workers are bundles of their own, which the main build's plugins never see, so they carry the
+ * SDK guard and the notices' collector too.
+ */
+export const workerPlugins = (notices: { workers: Plugin }): Plugin[] => [
+  serverSdkGuard(),
+  notices.workers,
+];

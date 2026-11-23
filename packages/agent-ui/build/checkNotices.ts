@@ -6,14 +6,12 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { needsFullText } from './bundleGuards.ts';
-
-const RULE = '='.repeat(72);
+import { ENTRY_MARK, needsFullText } from './bundleGuards.ts';
 
 /** What is wrong with a notices file, one sentence each; empty when it is whole. */
 export const problemsIn = (notices: string): string[] => {
   const problems: string[] = [];
-  const entries = notices.split(`${RULE}\n`).slice(1);
+  const entries = notices.split(ENTRY_MARK).slice(1);
   if (entries.length === 0) return ['It lists no package.'];
   const seen = new Set<string>();
   for (const entry of entries) {

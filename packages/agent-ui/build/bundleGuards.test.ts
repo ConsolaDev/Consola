@@ -6,10 +6,13 @@ import { build } from 'vite-plus';
 import { afterAll, describe, expect, it } from 'vite-plus/test';
 import {
   needsFullText,
+  ENTRY_MARK,
   noticesFor,
   packageDirOf,
   renderNotices,
   serverSdkGuard,
+  thirdPartyNotices,
+  workerPlugins,
 } from './bundleGuards.ts';
 import { problemsIn } from './checkNotices.ts';
 
@@ -23,6 +26,8 @@ const buildWithGuard = (entry: string) =>
     configFile: false,
     logLevel: 'silent',
     plugins: [serverSdkGuard()],
+    // As the package's config has it: the guard is on the main build's plugins, the workers' come from here.
+    worker: { format: 'es', plugins: () => workerPlugins(thirdPartyNotices()) },
     build: {
       write: false,
       lib: { entry, formats: ['es'], fileName: 'out' },
@@ -45,6 +50,45 @@ describe('serverSdkGuard', () => {
       );
     });
   }
+
+  const failsNaming = async (entry: string, importer: string, source: string) => {
+    await expect(buildWithGuard(entry)).rejects.toThrow(
+      new RegExp(`${importer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} imports ${source}`),
+    );
+  };
+
+  it('fails a build whose dependency imports the SDK, naming the dependency', async () => {
+    const dep = join(root, 'node_modules', 'sdk-user');
+    mkdirSync(dep, { recursive: true });
+    writeFileSync(
+      join(dep, 'package.json'),
+      '{"name":"sdk-user","version":"1.0.0","main":"index.js"}',
+    );
+    writeFileSync(
+      join(dep, 'index.js'),
+      "import * as sdk from '@cursor/sdk';\nexport default sdk;\n",
+    );
+    const entry = join(root, 'via-dependency.ts');
+    writeFileSync(entry, "import dep from 'sdk-user';\nexport default dep;\n");
+    await failsNaming(entry, join(dep, 'index.js'), '@cursor/sdk');
+  });
+
+  it('fails a build whose file imports the SDK dynamically', async () => {
+    const entry = join(root, 'dynamic.ts');
+    writeFileSync(entry, "export const load = () => import('@anthropic-ai/claude-agent-sdk');\n");
+    await failsNaming(entry, entry, '@anthropic-ai/claude-agent-sdk');
+  });
+
+  it('fails a build whose worker imports the SDK, naming the worker', async () => {
+    const worker = join(root, 'sdk.worker.ts');
+    writeFileSync(worker, "import * as sdk from '@cursor/sdk';\nself.postMessage(sdk);\n");
+    const entry = join(root, 'with-worker.ts');
+    writeFileSync(
+      entry,
+      "export const start = () => new Worker(new URL('./sdk.worker.ts', import.meta.url), { type: 'module' });\n",
+    );
+    await failsNaming(entry, worker, '@cursor/sdk');
+  });
 
   it('lets a build with no such import through', async () => {
     const entry = join(root, 'fine.ts');
@@ -126,7 +170,7 @@ describe('third-party notices', () => {
 describe('checkNotices', () => {
   const long = 'x'.repeat(300);
   const entry = (name: string, license: string, text = '') =>
-    `${'='.repeat(72)}\n${name}@1.0.0\nLicense: ${license}\n${text}\n`;
+    `${ENTRY_MARK}${name}@1.0.0\nLicense: ${license}\n${text}\n`;
   const whole =
     entry('heic-to', 'LGPL-3.0', `GNU LESSER GENERAL PUBLIC LICENSE ${long}`) +
     entry('@betteroffice/fonts', '(Apache-2.0 AND OFL-1.1)', `SIL OPEN FONT LICENSE ${long}`);
