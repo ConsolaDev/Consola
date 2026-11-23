@@ -68,7 +68,8 @@ export const RESET_LAYER = 'reset';
 /**
  * What the floor's rules start with: the guard's elements without its weight (the floor is in a
  * layer, and `:where` lets the theme element's rule after it win), and none of MathML, whose
- * attributes style it and which KaTeX renders only for screen readers, out of sight.
+ * attributes style it: KaTeX's copy for screen readers, and a Mermaid diagram's visible math
+ * labels (AGENTS.md, "The page's CSS").
  */
 export const FLOOR = `:where(.${SCOPE_CLASS} *, .${PORTAL_CLASS}, .${PORTAL_CLASS} *):where(:not(math, math *))`;
 
@@ -155,7 +156,12 @@ export const SVG_PRESENTATION_ATTRIBUTES = [
  * from what `all: revert` takes away from each), and the properties each sets. With SVG's, they
  * are where the floor lets a property fall through (`revert-layer`): `revert` rolls back to the
  * browser's own styles, and the attributes' styles are the page's origin, so the floor would take
- * them away (an icon's `stroke`, a `hidden` element's `display: none`).
+ * them away (an icon's `stroke`, a `hidden` element's `display: none`). Measured in Chromium
+ * (`src/floor.browser.test.tsx` holds it to that), but for a list's numbering, which Gecko styles
+ * from `ol`'s `start` and `reversed` and `li`'s `value` (Chromium reads those attributes itself):
+ * without those, every numbered list would start at 1 in Firefox, a markdown list resumed after a
+ * code block (`<ol start="3">`) too. Obsolete attributes t3 never renders are left out
+ * (AGENTS.md, "The page's CSS").
  */
 export const ATTRIBUTE_STYLED: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
   ['[hidden]', ['display', 'content-visibility']],
@@ -174,7 +180,12 @@ export const ATTRIBUTE_STYLED: ReadonlyArray<readonly [string, ReadonlyArray<str
   ['[border]', ['border']],
   ['[frameborder]', ['border']],
   ['[cellspacing]', ['border-spacing']],
+  // A table's cell padding, `cellpadding`'s or 1px without one, which Chromium gives each of its
+  // cells: the cell carries no attribute for it.
+  [':is(td, th)', ['padding']],
   [':is(ol, ul, li)[type]', ['list-style-type']],
+  ['ol:is([start], [reversed])', ['counter-reset']],
+  ['li[value]', ['counter-set']],
   ...SVG_PRESENTATION_ATTRIBUTES.map((name) => [`[${name}]`, [name]] as const),
 ];
 
