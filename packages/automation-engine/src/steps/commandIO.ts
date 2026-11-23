@@ -9,7 +9,7 @@ import {
   type OutputType,
   type OutputValue,
 } from '@consola/factory-spec';
-import { withoutGitHooks } from '../gitEnv';
+import { withoutGitHooks, withoutRepositoryOverrides } from '../gitEnv';
 import type { CommandResult } from '../ports';
 
 /** The most each of a command's logs holds; past it, writing stops and the pipes keep draining. */
@@ -31,7 +31,10 @@ export function maskSecrets(text: string, secrets: readonly string[]): string {
 /**
  * The environment a command runs with, in the spec's order: base (login env
  * + token), rendered env:, the step's own secrets, Consola's variables, then
- * git hooks off.
+ * git hooks off; never a variable that aims git at another repository than
+ * the folder it runs in (the 3-B code review's F5: a login shell's `GIT_DIR`
+ * would make the command after a write step push another repository; `env:`
+ * refuses `GIT_` names).
  */
 export function layerCommandEnv(
   base: NodeJS.ProcessEnv,
@@ -39,7 +42,9 @@ export function layerCommandEnv(
   consola: Record<string, string>,
   secrets: Record<string, string> = {},
 ): NodeJS.ProcessEnv {
-  return withoutGitHooks({ ...base, ...rendered, ...secrets, ...consola });
+  return withoutGitHooks(
+    withoutRepositoryOverrides({ ...base, ...rendered, ...secrets, ...consola }),
+  );
 }
 
 export function utf8Bytes(text: string): number {

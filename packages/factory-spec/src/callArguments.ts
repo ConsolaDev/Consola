@@ -7,7 +7,7 @@
  * this file.
  */
 import { isStepsEntry, type Automation, type Trigger } from './schema';
-import { itemKindOf, TRUSTED_ITEM_FIELDS, type Step } from './steps';
+import { itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS, type StepEntry } from './steps';
 import { templatePaths } from './template';
 import { usesTexts, type UsesStep } from './uses';
 
@@ -40,7 +40,7 @@ const own = (object: object, key: string) => Object.prototype.hasOwnProperty.cal
 /** Each top-level `with:` argument, in the order written. */
 export function callArguments(
   step: UsesStep,
-  entry: { trigger: Trigger; appliesTo?: readonly string[]; steps: readonly Step[] },
+  entry: { trigger: Trigger; appliesTo?: readonly string[]; steps: readonly StepEntry[] },
 ): CallArgument[] {
   const identity = itemKindOf(entry.trigger, entry.appliesTo) === 'identity';
   const texts = usesTexts(step);
@@ -61,13 +61,16 @@ export function callArguments(
         else if (ref.root === 'previous')
           sources.push({ kind: 'previous', step: ref.step, name: ref.name });
         else {
-          const producer = entry.steps.find((candidate) => candidate.id === ref.step);
-          if (producer && own(producer.outputs, ref.name))
+          // A loop's steps are producers too; a gate's one output is `decision`, one of its choices.
+          const producer = leafSteps(entry.steps).find((candidate) => candidate.id === ref.step);
+          const outputs: Readonly<Record<string, { type: string }>> | undefined =
+            producer?.kind === 'gate' ? { decision: { type: 'enum' } } : producer?.outputs;
+          if (outputs && own(outputs, ref.name))
             sources.push({
               kind: 'output',
               step: ref.step,
               name: ref.name,
-              trusted: TRUSTED_OUTPUT_TYPES.includes(producer.outputs[ref.name].type),
+              trusted: TRUSTED_OUTPUT_TYPES.includes(outputs[ref.name].type),
             });
           else sources.push({ kind: 'artifact', step: ref.step, name: ref.name });
         }

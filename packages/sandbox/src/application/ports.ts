@@ -7,19 +7,36 @@ import type { Command, CreateSandboxOptions } from '../domain/sandbox';
  * `SandboxError`. So a provider only translates: it receives requests that are already valid,
  * and maps its SDK's answers and failures onto these types and onto `SandboxError` codes.
  *
- * A provider declares a capability by having its member (`pausing`, `snapshots`), and never
- * exposes its own name or id for code to branch on.
+ * A provider declares a capability by having its member (`pausing`, `snapshots`, `keepAlive`),
+ * and never exposes its own name or id for code to branch on.
  */
 export interface SandboxProvider {
   /**
    * Starts a sandbox from `options.template`, with `options.env` set for every command. Rejects
-   * with `not-found` when there is no such template.
+   * with `not-found` when there is no such template. With `options.lifetimeSeconds` the
+   * provider stops the sandbox on its own once that runs out (unless renewed); without it, its
+   * own default applies.
    */
   create(options: CreateSandboxOptions): Promise<ProviderSandbox>;
+  /**
+   * A new handle on a running sandbox, by its id, from this process or another: how a runner
+   * that restarted reaches the sandboxes it started. It leaves the sandbox's lifetime as it is.
+   * Rejects with `not-found` when there is no such sandbox, or it has stopped, and with
+   * `not-running` when it is paused.
+   */
+  attach(sandboxId: string): Promise<ProviderSandbox>;
+  /**
+   * Stops the sandbox with this id, wherever it was started, ending what it runs. Stopping one
+   * that has stopped, or that never was, does nothing: a runner cleaning up after one that died
+   * cannot tell the two apart, and needs neither to fail.
+   */
+  stop(sandboxId: string): Promise<void>;
   /** Present when sandboxes can be paused and resumed. */
   readonly pausing?: ProviderPausing;
   /** Present when a sandbox can be saved as a template. */
   readonly snapshots?: ProviderSnapshots;
+  /** Present when a sandbox's lifetime can be renewed. */
+  readonly keepAlive?: ProviderKeepAlive;
 }
 
 export interface ProviderSandbox {
@@ -84,4 +101,13 @@ export interface ProviderSnapshots {
    * not make by a snapshot is refused with `invalid`.
    */
   remove(template: string): Promise<void>;
+}
+
+export interface ProviderKeepAlive {
+  /**
+   * Gives a running sandbox `lifetimeSeconds` more from now: it stops on its own that long from
+   * now unless renewed again, which can shorten its life as well as lengthen it. Rejects with
+   * `not-running` when the sandbox has stopped (its lifetime ran out first, say).
+   */
+  renew(sandboxId: string, lifetimeSeconds: number): Promise<void>;
 }

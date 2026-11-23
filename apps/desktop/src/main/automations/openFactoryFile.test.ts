@@ -19,7 +19,7 @@ let folder: string;
 beforeEach(() => {
   base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-open-factory-')));
   folder = path.join(base, 'workspaces', 'ws-1');
-  for (const sub of ['agents', 'automations', 'skills/triage', 'runs/r1', '.git'])
+  for (const sub of ['agents', 'automations', 'skills/triage', 'environments', 'runs/r1', '.git'])
     fs.mkdirSync(path.join(folder, sub), { recursive: true });
 });
 
@@ -41,9 +41,9 @@ const write = (relative: string, text = 'You review.\n', mode = 0o644) => {
 };
 
 const OUTSIDE =
-  "leads outside this factory's folder; Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md and skills/<name>/SKILL.md.";
+  "leads outside this factory's folder; Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md, skills/<name>/SKILL.md and environments/<name>.yaml.";
 const NOT_OWN =
-  "Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md and skills/<name>/SKILL.md.";
+  "Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md, skills/<name>/SKILL.md and environments/<name>.yaml.";
 
 describe('openFactoryFile', () => {
   it.each([
@@ -51,6 +51,7 @@ describe('openFactoryFile', () => {
     'automations/catalog-review.yaml',
     'agents/reviewer.md',
     'skills/triage/SKILL.md',
+    'environments/sandboxed.yaml',
   ])('opens %s as text on macOS: `open -t`, through execFile', async (relative) => {
     const file = write(relative);
     const { all, execFile, reveal } = deps('darwin');
@@ -200,4 +201,17 @@ describe('openFactoryFile', () => {
     expect(execFile).not.toHaveBeenCalled();
     expect(reveal).not.toHaveBeenCalled();
   });
+
+  it.each(['environments/x.yml', 'environments/.x.yaml'])(
+    'refuses %s: not one of the factory files an environment is (slice 3-B)',
+    async (relative) => {
+      const file = write(relative, 'isolation: host\n');
+      const { all, execFile, reveal } = deps('darwin');
+      await expect(openFactoryFile(folder, file, relative, all)).rejects.toThrow(
+        `Not opened: \`${relative}\` leads to \`${relative}\`. ${NOT_OWN}`,
+      );
+      expect(execFile).not.toHaveBeenCalled();
+      expect(reveal).not.toHaveBeenCalled();
+    },
+  );
 });

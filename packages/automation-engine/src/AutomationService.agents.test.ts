@@ -100,6 +100,34 @@ describe('an automation file', () => {
       }),
     );
   });
+
+  it("an unknown agent in a loop's step is an issue at that step's line", async () => {
+    const looped = [
+      'on: { cron: "0 7 * * 1-5" }',
+      'scope: catalog-portal',
+      'mode: auto',
+      'steps:',
+      '  - id: polish',
+      '    repeat: { max: 2, until: steps.look.verdict == "ok" }',
+      '    steps:',
+      '      - id: look',
+      '        agent: nope',
+      '        outputs:',
+      '          verdict: { enum: [ok, look-again] }',
+      '',
+    ].join('\n');
+    const h = await folder({ files: { [CATALOG_REVIEW_FILE]: looped, [REVIEWER_FILE]: REVIEWER } });
+    expect(h.service.list(WORKSPACE_ID)).toEqual([]);
+    expect(h.service.snapshot(WORKSPACE_ID).issues).toContainEqual(
+      expect.objectContaining({
+        file: CATALOG_REVIEW_FILE,
+        path: 'steps[0].steps[0].agent',
+        line: 9,
+        automation: ENTRY_NAME,
+        message: '`nope` is not an agent here: there is no agents/nope.md.',
+      }),
+    );
+  });
 });
 
 describe('a step that names an agent', () => {
@@ -190,14 +218,14 @@ describe('a step that names an agent', () => {
         'automations/catalog-recheck.yaml': CATALOG_REVIEW.replace('0 7 * * 1-5', '0 12 * * 1-5'),
         [REVIEWER_FILE]: REVIEWER,
         // A folder a later slice reads: the read's own notice comes first.
-        'environments/staging.yaml': 'isolation: host\n',
+        'connections/staging.yaml': 'kind: github\n',
       },
       agentHarnesses: { 'claude-work': { ...CLAUDE_WORK, warning } },
     });
     expect(h.service.snapshot(WORKSPACE_ID).notices).toEqual([
       {
         message:
-          '`environments/` is read from slice 3 (write steps); its files have no effect yet.',
+          '`connections/` is read once connection manifests arrive; its files have no effect yet.',
       },
       { file: REVIEWER_FILE, line: 3, message: warning },
     ]);
@@ -374,6 +402,19 @@ describe('saving where an entry lives', () => {
       'Not saved: its step `look` names the agent `reviewer`, which has problems of its own in agents/reviewer.md; save it once they are fixed.',
     );
     expect(h.texts().get(CATALOG_REVIEW_FILE)).toBe(CATALOG_REVIEW);
+  });
+
+  it("says the same of an agent a loop's step names", async () => {
+    const h = await folder();
+    await h.writeFile(REVIEWER_FILE, '---\ntools: write\n---\nYou review.\n');
+    const looped = ITEM.replace(
+      '  steps:\n    - id: look\n      agent: reviewer\n      outputs:\n        verdict: { enum: [ok, look-again] }\n',
+      "  steps:\n    - id: polish\n      repeat: { max: 2, until: steps.look.verdict == 'ok' }\n      steps:\n        - id: look\n          agent: reviewer\n          outputs:\n            verdict: { enum: [ok, look-again] }\n",
+    );
+    expect(looped).not.toBe(ITEM);
+    await expect(h.service.saveEntry(WORKSPACE_ID, looped, { replace: true })).rejects.toThrow(
+      'Not saved: its step `look` names the agent `reviewer`, which has problems of its own in agents/reviewer.md; save it once they are fixed.',
+    );
   });
 
   it('says the same of an agent the folder could not read: its agents/ links outside', async () => {
@@ -570,6 +611,17 @@ describe("an entry's agents, with their servers and skills (2-C, Task 13)", () =
         skills: [],
       },
     ]);
+  });
+
+  it("gives an agent that only a loop's step names", async () => {
+    const looped = POLL.replace(
+      steps,
+      'steps:\n  - id: polish\n    repeat: { max: 2, until: steps.investigate.done }\n    steps:\n      - id: investigate\n        agent: summariser\n        outputs: { done: boolean }\n',
+    );
+    const h = await investigating(looped);
+    expect(
+      h.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.agents.map((agent) => agent.name),
+    ).toEqual(['summariser']);
   });
 
   it("while the folder does not apply, a skill's SKILL.md is the running version's, not the live file's (review M4)", async () => {

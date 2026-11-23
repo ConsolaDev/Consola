@@ -4,6 +4,7 @@ import {
   CALL_SETTLE_INTERRUPTED,
   INTERRUPTED_CALL,
   INTERRUPTED_COMMAND,
+  INTERRUPTED_WRITE,
   isEngineRun,
   recoverAfterRestart,
 } from './recover';
@@ -162,6 +163,91 @@ describe('recoverAfterRestart', () => {
     },
   );
 
+  describe('loops and waits (slice 3)', () => {
+    const loopRow = (status: StepRun['status'], fields: Partial<StepRun> = {}): StepRun => ({
+      id: 'polish',
+      kind: 'repeat',
+      status,
+      attempt: 1,
+      round: 2,
+      max: 3,
+      ...fields,
+    });
+    const byId = (steps: StepRun[], id: string) => steps.find((step) => step.id === id);
+
+    it('a restart in round 2 puts review back in line and leaves polish as it was', () => {
+      const run = stepsRun([
+        loopRow('running'),
+        agentStep({ id: 'review', round: 2, attempt: 2 }),
+        { ...pending('address'), round: 2 },
+      ]);
+      const recovered = recoverAfterRestart(run, NOW)!;
+      expect(byId(recovered.steps!, 'polish')).toEqual(byId(run.steps!, 'polish'));
+      expect(byId(recovered.steps!, 'review')).toEqual({
+        ...agentStep({ id: 'review', round: 2, attempt: 2 }),
+        status: 'queued',
+      });
+      expect(recovered.status).toBe('running');
+    });
+
+    it('a run between rounds, its loop row running and nothing else, is unchanged', () => {
+      // Nothing was cut off: the loop's row is no work under way, so the run is picked up from its record.
+      const run = stepsRun([
+        loopRow('running'),
+        { ...agentStep({ id: 'review', round: 2 }), status: 'completed' },
+        { ...pending('address'), round: 2 },
+      ]);
+      expect(recoverAfterRestart(run, NOW)).toBeNull();
+    });
+
+    it.each([
+      [
+        'at a gate',
+        [{ ...pending('decide'), kind: 'gate', status: 'waiting', gate: { askedAt: EARLIER } }],
+      ],
+      ["at a loop's exhaustion gate", [loopRow('waiting', { gate: { askedAt: EARLIER } })]],
+      ['out a retry', [agentStep({ status: 'waiting', retryAt: NOW, retries: 1, error: 'x' })]],
+    ] as Array<[string, StepRun[]]>)('a run waiting %s is returned unchanged', (_name, steps) => {
+      expect(recoverAfterRestart(stepsRun(steps, { status: 'waiting' }), NOW)).toBeNull();
+    });
+
+    it('a command cut off inside a loop fails the loop with the run', () => {
+      const run = stepsRun([
+        loopRow('running'),
+        commandStep({ id: 'check', round: 2 }),
+        { ...pending('address'), round: 2 },
+        pending('pr'),
+      ]);
+      const recovered = recoverAfterRestart(run, NOW)!;
+      expect(recovered).toMatchObject({ status: 'failed', error: INTERRUPTED_COMMAND });
+      expect(recovered.steps).toEqual([
+        loopRow('failed', { finishedAt: NOW }),
+        commandStep({
+          id: 'check',
+          round: 2,
+          status: 'failed',
+          error: INTERRUPTED_COMMAND,
+          finishedAt: NOW,
+        }),
+        { ...pending('address'), round: 2, status: 'not-run' },
+        { ...pending('pr'), status: 'not-run' },
+      ]);
+    });
+
+    it('an open loop row a cut-off command leaves at its exhaustion gate (a hand-built record) fails too', () => {
+      const run = stepsRun([loopRow('waiting', { gate: { askedAt: EARLIER } }), commandStep()]);
+      expect(recoverAfterRestart(run, NOW)!.steps![0]).toEqual(
+        loopRow('waiting', { gate: { askedAt: EARLIER }, status: 'failed', finishedAt: NOW }),
+      );
+    });
+
+    it('a loop row that already ended keeps its end when a later command is cut off', () => {
+      const done = loopRow('completed', { note: 'clean after round 2', finishedAt: EARLIER });
+      const recovered = recoverAfterRestart(stepsRun([done, commandStep()]), NOW)!;
+      expect(recovered.steps![0]).toEqual(done);
+    });
+  });
+
   it('pins the interrupted-command copy', () => {
     expect(INTERRUPTED_COMMAND).toBe(
       'Interrupted: Consola quit while this command was running. It may or may not have finished; check, then retry.',
@@ -246,5 +332,84 @@ describe('recoverAfterRestart: a call (5a-2 Task 9)', () => {
     expect(CALL_SETTLE_INTERRUPTED).toBe(
       "Consola quit while recording this call's result. It happened; check what it did, then retry.",
     );
+  });
+});
+
+describe('a write step cut off by a quit (slice 3-B)', () => {
+  const running = (id: string, fields: Partial<StepRun> = {}): StepRun => ({
+    id,
+    kind: 'agent',
+    status: 'running',
+    attempt: 1,
+    startedAt: EARLIER,
+    ...fields,
+  });
+
+  it('pins the copy', () => {
+    expect(INTERRUPTED_WRITE).toBe(
+      'Interrupted: Consola quit while this step was changing the checkout. Check it, then retry.',
+    );
+  });
+
+  it.each(['write', 'edit'] as const)(
+    'a running %s step fails from its record alone; a read-only one still resumes',
+    (tools) => {
+      const run = stepsRun([
+        running('fix', { tools, sessionId: 's1' }),
+        pending('review'),
+        pending('pr'),
+      ]);
+      const recovered = recoverAfterRestart(run, NOW)!;
+      expect(recovered).toMatchObject({
+        status: 'failed',
+        error: INTERRUPTED_WRITE,
+        finishedAt: NOW,
+      });
+      expect(recovered.steps!.map((step) => [step.id, step.status])).toEqual([
+        ['fix', 'failed'],
+        ['review', 'not-run'],
+        ['pr', 'not-run'],
+      ]);
+      expect(recovered.steps![0]).toMatchObject({ error: INTERRUPTED_WRITE, finishedAt: NOW });
+      expect(
+        recoverAfterRestart(stepsRun([running('review', { sessionId: 's2' })]), NOW)!.steps![0]
+          .status,
+      ).toBe('queued');
+    },
+  );
+
+  it('a write step in round 2 fails, and its loop row with it', () => {
+    const loop: StepRun = {
+      id: 'polish',
+      kind: 'repeat',
+      status: 'running',
+      attempt: 1,
+      round: 2,
+      max: 3,
+    };
+    const run = stepsRun([
+      loop,
+      { id: 'review', kind: 'agent', status: 'completed', attempt: 2, round: 2 },
+      running('address', { tools: 'edit', round: 2 }),
+      pending('pr'),
+    ]);
+    const recovered = recoverAfterRestart(run, NOW)!;
+    expect(recovered).toMatchObject({ status: 'failed', error: INTERRUPTED_WRITE });
+    expect(recovered.steps!.map((step) => [step.id, step.status])).toEqual([
+      ['polish', 'failed'],
+      ['review', 'completed'],
+      ['address', 'failed'],
+      ['pr', 'not-run'],
+    ]);
+  });
+
+  it('a write step that ended before the quit is not cut off', () => {
+    const run = stepsRun([
+      { ...running('fix', { tools: 'write' }), status: 'completed', finishedAt: EARLIER },
+      running('review', { sessionId: 's2' }),
+    ]);
+    const recovered = recoverAfterRestart(run, NOW)!;
+    expect(recovered.status).toBe('running');
+    expect(recovered.steps!.map((step) => step.status)).toEqual(['completed', 'queued']);
   });
 });

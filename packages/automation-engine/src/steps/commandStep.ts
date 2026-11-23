@@ -1,4 +1,5 @@
 import {
+  leafSteps,
   parseTemplate,
   renderTemplate,
   type CommandStep,
@@ -20,6 +21,7 @@ import {
   parseOutputFile,
 } from './commandIO';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from './definition';
+import { CHECKOUT_FILES } from './runCheckout';
 import { withAttemptStarted, withStep } from './stepRecords';
 
 /*
@@ -60,7 +62,10 @@ export interface PreparedCommand {
   dir: string;
   files: { output: string; stdout: string; stderr: string };
   values: RenderedValue[];
-  /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, an item run's `CONSOLA_CHECKOUT_HEAD`, and a poll run's `CONSOLA_ITEM_FILE`. */
+  /**
+   * `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, `CONSOLA_CHECKOUT_HEAD` for a run that has a head, a poll run's
+   * `CONSOLA_ITEM_FILE`, and in a run's own checkout its branch, base, changes file and caches (`runOwnedVariables`).
+   */
   variables: Record<string, string>;
 }
 
@@ -94,6 +99,33 @@ export function commandOutputFile(
   attempt: number,
 ): string {
   return inFolder(folder.attemptDir(workspaceId, runId, stepId, attempt), 'outputs.env');
+}
+
+/**
+ * A command in a run's own checkout (slice 3-B Task 15): its branch, its
+ * base and the branch's changes since it (`CONSOLA_CHANGES_FILE`, which
+ * Consola writes into the attempt's folder before it spawns), and the
+ * package managers' caches under `<checkout>/.consola-cache/`, which every
+ * reset keeps and a sandbox lets a step write (review S10: pnpm's store is
+ * outside the checkout otherwise). Never `GIT_DIR`, `GIT_WORK_TREE` or
+ * `GIT_COMMON_DIR` (review NB1): its git finds the run's clone through the
+ * checkout's pointer, which Consola checks right before it spawns, and
+ * exported they would make `git clone` refuse and aim git in any other
+ * repository at the run's clone. Nothing for any other run.
+ */
+function runOwnedVariables(run: RunRecord, dir: string): Record<string, string> {
+  const checkout = run.checkout;
+  if (checkout?.kind !== 'run-owned' || !checkout.branch || !checkout.base) return {};
+  const cache = `${checkout.cwd}/.consola-cache`;
+  return {
+    CONSOLA_BRANCH: checkout.branch,
+    CONSOLA_BASE: checkout.base,
+    CONSOLA_CHANGES_FILE: inFolder(dir, CHECKOUT_FILES.changes),
+    XDG_CACHE_HOME: cache,
+    npm_config_cache: `${cache}/npm`,
+    npm_config_store_dir: `${cache}/pnpm-store`,
+    YARN_CACHE_FOLDER: `${cache}/yarn`,
+  };
 }
 
 type Found = { value: string } | { missing: string };
@@ -144,7 +176,7 @@ function valueAt(
   const written = (record.artifacts ?? []).some((artifact) => artifact.name === path.name);
   if (path.file) {
     if (!written) return { missing: `${path.step} completed without it` };
-    const producer = definition.automation.steps.find((step) => step.id === path.step);
+    const producer = leafSteps(definition.automation.steps).find((step) => step.id === path.step);
     // A command's `output` is kept in its declared format; a call's as JSON or as text, which its file says (review S6).
     const formats: ReadonlyArray<'json' | 'text' | undefined> =
       path.name !== 'output'
@@ -228,7 +260,7 @@ export function prepareCommand(input: {
   previous: { runId: string } | undefined;
 }): { ok: true; command: PreparedCommand } | { ok: false; error: string } {
   const { run, definition, stepId, cwd, workspaceId, folder, source, polled, previous } = input;
-  const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+  const step = leafSteps(definition.automation.steps).find((candidate) => candidate.id === stepId);
   const record = run.steps?.find((candidate) => candidate.id === stepId);
   if (step?.kind !== 'run' || !record)
     return { ok: false, error: `Its definition has no command step ${stepId}.` };
@@ -249,7 +281,8 @@ export function prepareCommand(input: {
       stdout: inFolder(dir, 'stdout.log'),
       stderr: inFolder(dir, 'stderr.log'),
     };
-    const head = run.trigger.item ? run.checkout?.head : undefined;
+    // Every run that has one: an item run's, and a run's own checkout's, which Consola commits after every step (slice 3-B).
+    const head = run.checkout?.head;
     // A poll entry's run on an item keeps the whole object its check printed beside its definition.
     const polledFile =
       definition.automation.trigger.kind === 'poll' && run.trigger.item
@@ -261,6 +294,7 @@ export function prepareCommand(input: {
       CONSOLA_STEP: stepId,
       ...(head ? { CONSOLA_CHECKOUT_HEAD: head } : {}),
       ...(polledFile ? { CONSOLA_ITEM_FILE: polledFile } : {}),
+      ...runOwnedVariables(run, dir),
     };
     const { attempt } = record;
     return {

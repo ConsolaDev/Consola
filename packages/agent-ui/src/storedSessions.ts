@@ -30,6 +30,21 @@ const recordedSessions = (): string[] => {
   return sessions;
 };
 
+/** How many holds this page has on each session. */
+const ownHolds = new Map<string, number>();
+
+/**
+ * Whether a page other than this one holds the session: its lock is held more times than this
+ * page holds it. Without Web Locks nothing tells, so false.
+ */
+export const heldByAnotherPage = async (sessionId: string): Promise<boolean> => {
+  const manager = locks();
+  if (manager === undefined) return false;
+  const { held = [] } = await manager.query();
+  const holds = held.filter(({ name }) => name === nameFor(sessionId)).length;
+  return holds > (ownHolds.get(sessionId) ?? 0);
+};
+
 let recordFailureLogged = false;
 
 /**
@@ -61,6 +76,8 @@ export const holdSession = (sessionId: string): Promise<() => void> => {
     record(sessionId);
     return Promise.resolve(() => {});
   }
+  const count = (change: number) =>
+    ownHolds.set(sessionId, (ownHolds.get(sessionId) ?? 0) + change);
   return new Promise((held, failed) => {
     let release: () => void = () => {};
     const released = new Promise<void>((done) => {
@@ -69,8 +86,9 @@ export const holdSession = (sessionId: string): Promise<() => void> => {
     manager
       .request(nameFor(sessionId), { mode: 'shared' }, () => {
         record(sessionId);
+        count(1);
         held(release);
-        return released;
+        return released.finally(() => count(-1));
       })
       .catch(failed);
   });

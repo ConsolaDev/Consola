@@ -46,6 +46,10 @@
 #                                 removes it, and reads prefer `<Operation>.pending.json`
 #   STUB_GH_OWNER_REPO / _NUMBER  which item an id is said to belong to (sprocket/catalog-portal#51)
 #   STUB_GH_MUTATION_FAILURE_FILE while this file exists, every write is rejected
+#   STUB_GH_CREATED=path          `pr create --head <b> --title <t> --body-file <f>` appends
+#                                 `{"head":b,"title":t,"body":<f's text>}` to this file, one JSON
+#                                 line per pull request, and every such call prints
+#                                 https://github.com/sprocket/catalog-portal/pull/77
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -272,6 +276,37 @@ case "$cmd" in
       # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.
       git checkout -B "stub-pr-${3:?pr number}" --quiet
     fi
+    ;;
+  "pr create")
+    # gh pr create --head <branch> --title <title> --body-file <file>, flags in any order.
+    head='' title='' body_file=''
+    shift 2
+    while [[ $# -gt 0 ]]; do
+      case "$1" in
+        --head) head="${2:-}"; shift 2 ;;
+        --title) title="${2:-}"; shift 2 ;;
+        --body-file) body_file="${2:-}"; shift 2 ;;
+        *) echo "stub gh: unhandled argv: pr create ... $1" >&2; exit 64 ;;
+      esac
+    done
+    if [[ -z "$head" || -z "$title" || -z "$body_file" ]]; then
+      echo 'stub gh: pr create needs --head, --title and --body-file' >&2
+      exit 64
+    fi
+    reject_writes
+    if [[ -n "${STUB_GH_CREATED:-}" ]]; then
+      # One JSON line per pull request, written in one call, the body as the file holds it.
+      perl -MJSON::PP -MEncode=decode -e '
+        open(my $in, "<:encoding(UTF-8)", $ARGV[3]) or die "$ARGV[3]: $!";
+        local $/; my $body = <$in>; close $in;
+        my $line = JSON::PP->new->utf8->canonical->encode({
+          head => decode("UTF-8", $ARGV[1]), title => decode("UTF-8", $ARGV[2]), body => $body,
+        });
+        open(my $out, ">>", $ARGV[0]) or die "$ARGV[0]: $!";
+        syswrite($out, "$line\n") or die "$ARGV[0]: $!";
+      ' "$STUB_GH_CREATED" "$head" "$title" "$body_file"
+    fi
+    echo "https://github.com/sprocket/catalog-portal/pull/77"
     ;;
   "repo clone")
     # gh repo clone <owner/name> <dir> — clone from the local fixture instead.

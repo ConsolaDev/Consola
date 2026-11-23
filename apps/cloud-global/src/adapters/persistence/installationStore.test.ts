@@ -208,4 +208,33 @@ describe('the installation store', () => {
       'GitHub installation 1 has an unknown account type, "Enterprise".',
     );
   });
+
+  it('names the workspace that holds an installation, and its region, for its events', async () => {
+    await installations.connect({
+      installation: sprocketOrg,
+      workspaceId: 'catalog',
+      connectedBy: 'dana',
+      at: at('2026-11-22T09:00:00Z'),
+    });
+    await installations.connect({
+      installation: danaOwn,
+      workspaceId: 'sprocket',
+      connectedBy: 'dana',
+      at: at('2026-11-22T09:00:00Z'),
+    });
+
+    expect(await installations.holderOf(sprocketOrg.id)).toEqual({
+      workspaceId: 'catalog',
+      region: 'us',
+    });
+    expect(await installations.holderOf(danaOwn.id)).toEqual({
+      workspaceId: 'sprocket',
+      region: 'eu',
+    });
+    expect(await installations.holderOf(4_100_003)).toBeNull();
+
+    // Disconnected, it is held by no workspace, and its events go nowhere.
+    await installations.disconnect({ workspaceId: 'catalog', installationId: sprocketOrg.id });
+    expect(await installations.holderOf(sprocketOrg.id)).toBeNull();
+  });
 });

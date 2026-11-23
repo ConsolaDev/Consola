@@ -23,7 +23,7 @@ import type { PathLock } from './PathLock';
 import { judge, type TreeFacts, userBlockers } from './policy';
 import type { ProcessSnapshot } from './ProcessCwdIndex';
 import { judgeLookup, PullRequestResolver, toFact } from './PullRequestResolver';
-import { indexTrees, type TreeUser } from './TreeIndex';
+import { indexTrees, type TreeUser, withRunOwnedTrees } from './TreeIndex';
 import { type Execution, type ExecutorDeps, WorktreeExecutor } from './WorktreeExecutor';
 
 export interface WorktreeCleanupDeps extends Omit<FactSources, 'lock' | 'worktrees'> {
@@ -33,6 +33,7 @@ export interface WorktreeCleanupDeps extends Omit<FactSources, 'lock' | 'worktre
   stop(session: Pick<Session, 'id' | 'instanceId'>): void;
   recordRemoved(entries: Array<{ sessionId: string; removed: RemovedWorktree }>): void;
   clearRemoved(worktreePath: string): void;
+  recordRunCheckoutRemoved?: ExecutorDeps['recordRunCheckoutRemoved'];
   removed?: ExecutorDeps['removed'];
   /** What the "pull request finished" rule asks the provider with. Absent: the rule never applies. */
   pullRequests?: {
@@ -92,6 +93,7 @@ export class WorktreeCleanupService {
       worktrees: deps.worktrees,
       recordRemoved: (entries) => deps.recordRemoved(entries),
       clearRemoved: (worktreePath) => deps.clearRemoved(worktreePath),
+      recordRunCheckoutRemoved: (runId, removed) => deps.recordRunCheckoutRemoved?.(runId, removed),
       removed: deps.removed,
       now: () => deps.now(),
       sleep: deps.sleep,
@@ -355,12 +357,30 @@ export class WorktreeCleanupService {
   /** Every tree in scope, judged with fresh facts. `sweepOnly` skips trees no rule could touch. */
   private async evaluateAll(options: SweepOptions, sweepOnly: boolean) {
     const rulesFor = options.rulesFor ?? this.deps.rules?.rulesFor ?? (() => null);
-    const trees = [...indexTrees(this.deps.getWorkspaces(), (dir) => this.treeOf(dir))].filter(
-      ([, users]) =>
-        !options.workspaceId || users.some((user) => user.workspace.id === options.workspaceId),
+    const workspaces = this.deps.getWorkspaces();
+    // A run's own checkout no session uses is its run's workspace's (slice 3-B).
+    const runOwned = await this.gatherer.runOwnedTrees();
+    const ownerOf = new Map(runOwned.map((entry) => [entry.tree, entry.workspaceId]));
+    const owner = (tree: string) =>
+      workspaces.find((workspace) => workspace.id === ownerOf.get(tree)) ?? null;
+    const indexed = withRunOwnedTrees(
+      indexTrees(workspaces, (dir) => this.treeOf(dir)),
+      runOwned,
+    );
+    const trees = [...indexed].filter(
+      ([tree, users]) =>
+        !options.workspaceId ||
+        users.some((user) => user.workspace.id === options.workspaceId) ||
+        (users.length === 0 && ownerOf.get(tree) === options.workspaceId),
     );
     const candidates = sweepOnly
-      ? trees.filter(([, users]) => users.every((user) => anySweepRuleOn(rulesFor(user.workspace))))
+      ? trees.filter(([tree, users]) => {
+          if (users.length > 0) {
+            return users.every((user) => anySweepRuleOn(rulesFor(user.workspace)));
+          }
+          const workspace = owner(tree);
+          return workspace !== null && anySweepRuleOn(rulesFor(workspace));
+        })
       : trees;
     if (candidates.length === 0) return [];
 

@@ -50,6 +50,83 @@ describe('FakeProvider', () => {
     const fake = new FakeProvider();
     expect(fake.pausing).toBeUndefined();
     expect(fake.snapshots).toBeUndefined();
+    expect(fake.keepAlive).toBeUndefined();
+  });
+
+  it('stops a sandbox once its lifetime runs out on its clock, which only a test moves', async () => {
+    const fake = new FakeProvider({ programs: POSIX_PROGRAMS });
+    const brief = await fake.create({ template: 'base', lifetimeSeconds: 60 });
+    await fake.create({ template: 'base' });
+    const sleeping = await brief.start({ argv: ['sleep', '600'] });
+    expect(fake.sandboxes.map((s) => [s.lifetimeSeconds, s.remainingSeconds])).toEqual([
+      [60, 60],
+      [null, null],
+    ]);
+
+    fake.elapse(59.5);
+    expect(fake.sandboxes[0]).toMatchObject({ state: 'running', remainingSeconds: 0.5 });
+    fake.elapse(0.5);
+    expect(await sleeping.wait()).toBeNull();
+    expect(fake.sandboxes.map((s) => [s.state, s.remainingSeconds])).toEqual([
+      ['stopped', 0],
+      ['running', null],
+    ]);
+    await expect(brief.start({ argv: ['true'] })).rejects.toEqual(coded('not-running'));
+    expect(() => fake.elapse(-1)).toThrow(SandboxError);
+  });
+
+  it('keeps a paused sandbox from ageing', async () => {
+    const fake = new FakeProvider({ capabilities: ['pausing'] });
+    const sandbox = await fake.create({ template: 'base', lifetimeSeconds: 60 });
+    await fake.pausing?.pause(sandbox.id);
+    fake.elapse(600);
+    await fake.pausing?.resume(sandbox.id);
+    expect(fake.sandboxes[0]).toMatchObject({ state: 'running', remainingSeconds: 60 });
+  });
+
+  it('renews a lifetime from now, longer or shorter, only while the sandbox runs', async () => {
+    const fake = new FakeProvider({ capabilities: ['keepAlive'] });
+    const keepAlive = fake.keepAlive;
+    if (!keepAlive) throw new Error('The fake was asked for keepAlive.');
+    const sandbox = await fake.create({ template: 'base', lifetimeSeconds: 60 });
+    fake.elapse(50);
+    await keepAlive.renew(sandbox.id, 300);
+    expect(fake.sandboxes[0]?.remainingSeconds).toBe(300);
+    await keepAlive.renew(sandbox.id, 5);
+    fake.elapse(5);
+    expect(fake.sandboxes[0]?.state).toBe('stopped');
+    await expect(keepAlive.renew(sandbox.id, 60)).rejects.toEqual(coded('not-running'));
+  });
+
+  it('attaches to a running sandbox by its id, and refuses one paused, stopped or never made', async () => {
+    const fake = new FakeProvider({ capabilities: ['pausing'] });
+    const sandbox = await fake.create({ template: 'base', lifetimeSeconds: 60 });
+    await sandbox.writeFile('/tmp/mine', new TextEncoder().encode('mine'));
+    const attached = await fake.attach(sandbox.id);
+    expect(attached.id).toBe(sandbox.id);
+    expect(new TextDecoder().decode(await attached.readFile('/tmp/mine'))).toBe('mine');
+    expect(fake.sandboxes[0]?.remainingSeconds).toBe(60);
+
+    await fake.pausing?.pause(sandbox.id);
+    await expect(fake.attach(sandbox.id)).rejects.toEqual(coded('not-running', /paused/));
+    await fake.pausing?.resume(sandbox.id);
+    await sandbox.stop();
+    await expect(fake.attach(sandbox.id)).rejects.toEqual(coded('not-found'));
+    await expect(fake.attach('fake-9')).rejects.toEqual(coded('not-found'));
+  });
+
+  it('stops a sandbox by its id for every handle on it, and stops nothing for an unknown id', async () => {
+    const fake = new FakeProvider({ programs: POSIX_PROGRAMS });
+    const sandbox = await fake.create({ template: 'base' });
+    const attached = await fake.attach(sandbox.id);
+    const sleeping = await sandbox.start({ argv: ['sleep', '600'] });
+    await fake.stop(sandbox.id);
+    expect(await sleeping.wait()).toBeNull();
+    await expect(sandbox.readFile('/tmp/x')).rejects.toEqual(coded('not-running'));
+    await expect(attached.readFile('/tmp/x')).rejects.toEqual(coded('not-running'));
+    await fake.stop(sandbox.id);
+    await fake.stop('fake-9');
+    expect(fake.sandboxes.map((s) => s.state)).toEqual(['stopped']);
   });
 
   it("hands a program its command line, folder, variables and the sandbox's files", async () => {

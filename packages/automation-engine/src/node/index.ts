@@ -26,3 +26,18 @@ export {
   SECRET_READ_TIMEOUT_MS,
   SecretReaderFailure,
 } from './secretReaders';
+export {
+  deleteRunClone,
+  fetchKeepRef,
+  gitFolderProblem,
+  makeRunClone,
+  rebuildRunClone,
+  resetRunClone,
+  runCloneChanges,
+  runCloneGitDirFor,
+  runCloneGitEnv,
+  runCloneShowAt,
+  settleBetweenSteps,
+  settleRunClone,
+  treeProblem,
+} from './runCheckout';

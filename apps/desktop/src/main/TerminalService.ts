@@ -22,6 +22,8 @@ import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalSta
 import type { SessionToolPolicy } from '../shared/workspace';
 import { oneLine, withoutControls } from '../shared/oneLine';
 import { formatCostUsd } from '../shared/cost';
+import { sandboxSessionEnv } from './automations/sandboxEnv';
+import { execFile } from 'node:child_process';
 
 /**
  * One session tab's terminal.
@@ -74,6 +76,78 @@ const UNATTENDED_NOTICE =
 /** A reporting turn's: the CLI prints JSON, so the pane shows Consola's lines while it works. */
 const REPORTING_NOTICE =
   'Consola is running this unattended and read-only. Its progress shows here; its findings are on the run page when it finishes. Press Ctrl+C to stop it.';
+
+/**
+ * The pane's notice for an unattended turn: a write step's says it writes,
+ * and where it is held (slice 3-B); every other turn's, read-only.
+ */
+export function unattendedNotice(
+  reporting: boolean,
+  policy: SessionToolPolicy | undefined,
+  grants: AgentGrants | undefined,
+): string {
+  if (policy === 'edit' || policy === 'write') {
+    const held =
+      grants?.environment?.isolation === 'sandbox' ? 'sandboxed' : 'on host, a convention';
+    return `Consola is running this unattended, writing in this run's checkout, ${held}. ${
+      reporting
+        ? 'Its progress shows here; its findings are on the run page when it finishes.'
+        : 'What it finds appears here when it finishes.'
+    } Press Ctrl+C to stop it.`;
+  }
+  return reporting ? REPORTING_NOTICE : UNATTENDED_NOTICE;
+}
+
+/** Git's names that would aim a step's git at a folder Consola did not check (review NB1). */
+const GIT_FOLDER_VARIABLES = ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'];
+
+/** What a write step's CLI left behind as it ran (Call 8): its process group, and its descendants as last seen. */
+export interface StepProcessRecord {
+  pgid: number;
+  descendants: Array<{ pid: number; pgid: number; started: string }>;
+}
+
+/** `ps -A -o pid=,ppid=,pgid=,lstart=`'s output: every process with its parent, group and start time. */
+export function listProcessesByPs(): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      'ps',
+      ['-A', '-o', 'pid=,ppid=,pgid=,lstart='],
+      { maxBuffer: 16 * 1024 * 1024, timeout: 5_000 },
+      (error, stdout) => (error ? reject(error) : resolve(stdout)),
+    );
+  });
+}
+
+/** Every descendant of `root` in `ps` output (pid, ppid, pgid, start time), with its group and start time. */
+export function descendantsOf(output: string, root: number): StepProcessRecord['descendants'] {
+  const rows: Array<{ pid: number; ppid: number; pgid: number; started: string }> = [];
+  for (const line of output.split('\n')) {
+    const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
+    if (match)
+      rows.push({
+        pid: Number(match[1]),
+        ppid: Number(match[2]),
+        pgid: Number(match[3]),
+        started: match[4],
+      });
+  }
+  const children = new Map<number, typeof rows>();
+  for (const row of rows) children.set(row.ppid, [...(children.get(row.ppid) ?? []), row]);
+  const found: StepProcessRecord['descendants'] = [];
+  const queue = [root];
+  const seen = new Set<number>([root]);
+  while (queue.length > 0) {
+    const parent = queue.shift()!;
+    for (const child of children.get(parent) ?? []) {
+      if (seen.has(child.pid)) continue;
+      seen.add(child.pid);
+      found.push({ pid: child.pid, pgid: child.pgid, started: child.started });
+      queue.push(child.pid);
+    }
+  }
+  return found;
+}
 const UNATTENDED_LIMIT_REASON = 'it ran for an hour without finishing';
 const UNATTENDED_LIMIT_NOTICE = 'Stopped: it ran for an hour without finishing.';
 
@@ -255,6 +329,13 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
   turnMaxTurns?: number;
   /** The record's grants, handed to the driver on every launch. From the record, never a window. */
   grants?: AgentGrants;
+  /**
+   * What is left of the run's budget for the first unattended launch only
+   * (plan Call 15); consumed by it, like `turnMaxTurns`. Never on the record.
+   */
+  turnMaxBudgetUsd?: number;
+  /** How a write step's processes are listed (`ps -A -o pid=,ppid=,pgid=,lstart=`); absent, `ps` itself. For tests. */
+  listProcesses?: () => Promise<string>;
 }
 
 export interface TerminalExitInfo {
@@ -374,6 +455,12 @@ export class TerminalService extends EventEmitter {
   private streamLimitNotice = false;
   /** A cap for the next unattended spawn only: `turnMaxTurns`, or a relaunch's. */
   private oneShotMaxTurns: number | undefined;
+  /** What is left of the run's budget, for the next unattended spawn only. */
+  private oneShotMaxBudgetUsd: number | undefined;
+  /** A write step's CLI's group and descendants (Call 8), kept until its next launch. */
+  private stepRecord: StepProcessRecord | null = null;
+  /** The live reporting turn's result line was seen, and its descendants asked for once. */
+  private resultRecorded = false;
   private unattendedLimit: NodeJS.Timeout | null = null;
   private unattendedKill: NodeJS.Timeout | null = null;
   /** Why Consola stopped the unattended turn, when it did. */
@@ -402,6 +489,7 @@ export class TerminalService extends EventEmitter {
     this.harness = toHarnessConfig(options);
     this.unattendedPending = options.unattended === true;
     this.oneShotMaxTurns = options.turnMaxTurns;
+    this.oneShotMaxBudgetUsd = options.turnMaxBudgetUsd;
     this.forkPending = options.forkFrom;
     this.launchNotice = options.launchNotice;
     // An unattended turn takes its prompt as its argument: there is no
@@ -788,6 +876,9 @@ export class TerminalService extends EventEmitter {
         attentionUrl,
         ...(reporting ? { reportTurn: true } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(unattended && this.oneShotMaxBudgetUsd !== undefined
+          ? { maxBudgetUsd: this.oneShotMaxBudgetUsd }
+          : {}),
         ...(this.options.grants !== undefined ? { grants: this.options.grants } : {}),
       };
       // The driver's own line about this launch (a step's skills no longer
@@ -813,7 +904,10 @@ export class TerminalService extends EventEmitter {
 
       // Written before the spawn so it sits above whatever the turn prints.
       if (unattended)
-        this.writeNotice(reporting ? REPORTING_NOTICE : UNATTENDED_NOTICE, formatInfo);
+        this.writeNotice(
+          unattendedNotice(reporting, this.options.toolPolicy, this.options.grants),
+          formatInfo,
+        );
       this.claudeProducedOutput = false;
       this.streamLimitNotice = false;
       const reader = reporting ? (this.driver.createTurnReader?.() ?? null) : null;
@@ -822,17 +916,19 @@ export class TerminalService extends EventEmitter {
         cols: this.dimensions.cols,
         rows: this.dimensions.rows,
         cwd: this.options.cwd,
-        env: layerProviderToken(
-          this.driver.composeEnv(this.harness, getLoginEnv()),
-          borrowed?.envVar ?? null,
-          borrowed?.token ?? null,
-        ) as { [key: string]: string },
+        env: this.spawnEnv(borrowed) as { [key: string]: string },
       });
       // A prompt on the command line is delivered by the spawn itself,
       // and the turn, cap and fork it asked for are done with once spawned.
       this.initialPromptArgument = undefined;
       this.unattendedPending = false;
-      if (unattended) this.oneShotMaxTurns = undefined;
+      if (unattended) {
+        this.oneShotMaxTurns = undefined;
+        this.oneShotMaxBudgetUsd = undefined;
+      }
+      // A write step's CLI leads its own process group (node-pty starts it as a session leader): kept until the next launch.
+      this.stepRecord = this.writes() ? { pgid: this.claudePty.pid, descendants: [] } : null;
+      this.resultRecorded = false;
       this.turnReader = reader;
       this.forkPending = undefined;
       this.claudeExited = false;
@@ -867,6 +963,11 @@ export class TerminalService extends EventEmitter {
         // A reporting turn: the reader takes the raw stream, and the pane
         // gets only Consola's lines and what the CLI printed outside JSON.
         const shown = this.shownFor(reader.push(data));
+        // Its result line: the CLI is about to exit, its children not yet reparented (Call 8).
+        if (reader.resultSeen && !this.resultRecorded) {
+          this.resultRecorded = true;
+          void this.recordStepProcesses();
+        }
         if (reader.limitNotice) this.streamLimitNotice = true;
         this.handleData(data, shown);
       });
@@ -980,6 +1081,73 @@ export class TerminalService extends EventEmitter {
     return stats.isDirectory() ? null : `Working folder is not a directory: ${cwd}.`;
   }
 
+  /** A line of Consola's in the pane, above whatever comes next: a launch refused before anything spawned. */
+  public notice(text: string): void {
+    this.writeNotice(text);
+  }
+
+  /** Whether this session is a step that writes (slice 3-B). */
+  private writes(): boolean {
+    return this.options.toolPolicy === 'edit' || this.options.toolPolicy === 'write';
+  }
+
+  /**
+   * The environment a spawn runs with. A `sandbox` write step's is the
+   * allow-list (`sandboxSessionEnv`): the person's environment, with this
+   * harness's effective profile variable, filtered; never a token. Any
+   * write step's carries no git folder variable (review NB1): its git, and
+   * the CLI's own, find the run clone's folder through the checkout's
+   * pointer, which Consola checks before the spawn. Every other session's
+   * is what it always was.
+   */
+  private spawnEnv(borrowed: { envVar: string; token: string } | null): NodeJS.ProcessEnv {
+    const composed = this.driver.composeEnv(this.harness, getLoginEnv());
+    const environment = this.options.grants?.environment;
+    if (this.writes() && environment?.isolation === 'sandbox')
+      return sandboxSessionEnv(
+        composed,
+        { envVar: this.driver.configDirEnvVar },
+        environment.envNames,
+        this.options.cwd,
+      ).env;
+    const env = layerProviderToken(composed, borrowed?.envVar ?? null, borrowed?.token ?? null);
+    if (this.writes()) for (const name of GIT_FOLDER_VARIABLES) delete env[name];
+    return env;
+  }
+
+  /**
+   * A write step's CLI's process group and the descendants recorded at its
+   * turn's end (Call 8): what ending its leftovers signals, and nothing
+   * else. Null for any other session, and before its first launch.
+   */
+  public stepProcesses(): StepProcessRecord | null {
+    if (!this.stepRecord) return null;
+    return { pgid: this.stepRecord.pgid, descendants: [...this.stepRecord.descendants] };
+  }
+
+  /**
+   * Record the live CLI's descendants, each with its group and start time,
+   * for a write step only: when its `Stop` hook arrives (before Consola
+   * answers it, so the CLI and its children are alive) and when its
+   * result line does. Any other session never pays for a `ps`. A listing
+   * that fails records nothing more.
+   */
+  public async recordStepProcesses(): Promise<void> {
+    // Only a write step has a record to add to (`stepRecord`, set at its spawn).
+    const record = this.stepRecord;
+    if (!record || !this.claudePty) return;
+    let output: string;
+    try {
+      output = await (this.options.listProcesses ?? listProcessesByPs)();
+    } catch {
+      return;
+    }
+    if (this.stepRecord !== record) return;
+    const known = new Set(record.descendants.map((entry) => `${entry.pid} ${entry.started}`));
+    for (const entry of descendantsOf(output, record.pgid))
+      if (!known.has(`${entry.pid} ${entry.started}`)) record.descendants.push(entry);
+  }
+
   /**
    * The provider token for this session's workspace account, with the
    * variable it belongs in, or null.
@@ -994,9 +1162,10 @@ export class TerminalService extends EventEmitter {
   private async borrowProviderToken(): Promise<{ envVar: string; token: string } | null> {
     const { providerId, providerAccountLogin: login } = this.options;
     if (!providerId || !login) return null;
-    // A read-only session acts as nobody on the provider: what it needs
-    // of the item, main fetches with the token for it.
-    if (this.options.toolPolicy === 'read-only') return null;
+    // A session with a policy acts as nobody on the provider, a write step's
+    // included (slice 3-B): what it needs of the item, main fetches with the
+    // token for it.
+    if (this.options.toolPolicy !== undefined) return null;
     try {
       const driver = getProviderDriver(providerId);
       return { envVar: driver.tokenEnvVar, token: await driver.token(login) };

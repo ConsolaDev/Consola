@@ -58,11 +58,11 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
     .getWorkspaces()
     .find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
   const caller = workspace?.sessions.find((session) => session.id === sessionId);
-  // A read-only session — one an automation started — gets only tools that
-  // change nothing: no deletes, and no run_automation, since a run never
-  // starts another run. Whatever its item's text talks it into, it has no
-  // hands here.
-  const readOnly = caller?.toolPolicy === 'read-only';
+  // A session with a policy — one an automation started, a write step's
+  // included (slice 3-B) — gets only tools that change nothing: no deletes,
+  // and no run_automation, since a run never starts another run. Whatever
+  // its item's text talks it into, it has no hands here.
+  const readOnly = caller?.toolPolicy !== undefined;
 
   for (const tool of deps.registry.list()) {
     if (readOnly && (tool.mutating || tool.fullToolsOnly)) continue;

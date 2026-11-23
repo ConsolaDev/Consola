@@ -6,6 +6,7 @@ import {
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
   cellTokenClaims,
+  GITHUB_EVENT_TYPE,
   OUTBOX_MESSAGE_TYPE,
 } from '@consola/cloud-contract';
 import {
@@ -122,11 +123,13 @@ describe('createJoseTokenVerifier', () => {
     expect(keys).not.toHaveBeenCalled();
   });
 
-  it("refuses an outbox delivery's typ without asking the key set, whatever it holds", async () => {
+  it("refuses a delivery's typ without asking the key set, whatever it holds", async () => {
     const keys = vi.fn(createLocalJWKSet(published));
     const { verifier } = verifierOver(keys);
-    const delivery = await sign(claims(), cloudGlobal, { typ: OUTBOX_MESSAGE_TYPE });
-    expect(await verifier.verify(delivery, NOW)).toEqual({ kind: 'invalid' });
+    for (const typ of [OUTBOX_MESSAGE_TYPE, GITHUB_EVENT_TYPE]) {
+      const delivery = await sign(claims(), cloudGlobal, { typ });
+      expect([typ, await verifier.verify(delivery, NOW)]).toEqual([typ, { kind: 'invalid' }]);
+    }
     expect(keys).not.toHaveBeenCalled();
     // Any other typ is no concern of the token check.
     expect(

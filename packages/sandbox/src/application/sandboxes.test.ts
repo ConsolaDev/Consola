@@ -39,13 +39,29 @@ function spy(
     calls,
     sandboxes: sandboxesFrom({
       create: async (options) => {
-        calls.push(`create ${options.template}`);
+        calls.push(
+          `create ${options.template}${options.lifetimeSeconds ? ` for ${options.lifetimeSeconds}s` : ''}`,
+        );
         return sandbox;
+      },
+      attach: async (sandboxId) => {
+        calls.push(`attach ${sandboxId}`);
+        return sandbox;
+      },
+      stop: async (sandboxId) => {
+        calls.push(`stop ${sandboxId}`);
       },
       ...provider,
     }),
   };
 }
+
+/** A provider's members `sandboxesFrom` needs, answered by `sandbox`, for a test to add to. */
+const basics = (sandbox: ProviderSandbox): SandboxProvider => ({
+  create: async () => sandbox,
+  attach: async () => sandbox,
+  stop: async () => undefined,
+});
 
 const fakeSandboxes = (options: ConstructorParameters<typeof FakeProvider>[0] = {}) => {
   const fake = new FakeProvider({ programs: POSIX_PROGRAMS, ...options });
@@ -173,13 +189,17 @@ describe('sandboxesFrom stops a sandbox whose answer it refuses', () => {
       },
     };
     const sandboxes = sandboxesFrom({
-      create: async () => other,
+      ...basics(other),
       pausing: { pause: async () => undefined, resume: async () => other },
     });
     await expect(requireCapability(sandboxes, 'pausing').resume('spy-1')).rejects.toEqual(
       coded('provider', /gave back sandbox spy-2/),
     );
     expect(stopped).toBe(1);
+    await expect(sandboxes.attach('spy-1')).rejects.toEqual(
+      coded('provider', /Attaching to spy-1 gave back sandbox spy-2/),
+    );
+    expect(stopped).toBe(2);
   });
 
   it('and still reports the refusal when that stop fails', async () => {
@@ -396,11 +416,12 @@ describe('capabilities', () => {
   it('are listed in order, and absent from a provider without them', () => {
     expect(fakeSandboxes().sandboxes.capabilities).toEqual([]);
     expect(
-      fakeSandboxes({ capabilities: ['snapshots', 'pausing'] }).sandboxes.capabilities,
-    ).toEqual(['pausing', 'snapshots']);
+      fakeSandboxes({ capabilities: ['keepAlive', 'snapshots', 'pausing'] }).sandboxes.capabilities,
+    ).toEqual(['pausing', 'snapshots', 'keepAlive']);
     const { sandboxes } = fakeSandboxes();
     expect(sandboxes.pausing).toBeUndefined();
     expect(sandboxes.snapshots).toBeUndefined();
+    expect(sandboxes.keepAlive).toBeUndefined();
   });
 
   it('are required with a sentence that names what is missing', () => {
@@ -445,6 +466,7 @@ describe('capabilities', () => {
       stop: async () => undefined,
     };
     const sandboxes = sandboxesFrom({
+      ...basics(sandbox),
       create: async () => ({ ...sandbox, id: 'spy-1' }),
       pausing: { pause: async () => undefined, resume: async () => sandbox },
       snapshots: { snapshot: async () => '', remove: async () => undefined },
@@ -469,5 +491,57 @@ describe('capabilities', () => {
       coded('invalid', /not made by a snapshot/),
     );
     expect(fake.sandboxes).toHaveLength(1);
+  });
+
+  it("renew a sandbox's lifetime through the provider, for a handle of its own that runs", async () => {
+    const { fake, sandboxes } = fakeSandboxes({ capabilities: ['keepAlive'] });
+    const keepAlive = requireCapability(sandboxes, 'keepAlive');
+    const sandbox = await sandboxes.create({ template: 'base', lifetimeSeconds: 60 });
+    fake.elapse(50);
+    await keepAlive.renew(sandbox, 600);
+    expect(fake.sandboxes[0]?.remainingSeconds).toBe(600);
+    await expect(keepAlive.renew(sandbox, 0)).rejects.toEqual(coded('invalid', /lifetime/));
+    await expect(keepAlive.renew(sandbox, 1.5)).rejects.toEqual(coded('invalid', /lifetime/));
+    const theirs = await fakeSandboxes().sandboxes.create({ template: 'base' });
+    await expect(keepAlive.renew(theirs, 60)).rejects.toEqual(coded('invalid'));
+    await sandbox.stop();
+    await expect(keepAlive.renew(sandbox, 60)).rejects.toEqual(coded('not-running'));
+  });
+});
+
+describe('a sandbox by its id', () => {
+  it('is created with a lifetime, which reaches the provider, and refused a malformed one', async () => {
+    const { calls, sandboxes } = spy();
+    await sandboxes.create({ template: 'base', lifetimeSeconds: 900 });
+    for (const lifetimeSeconds of [0, -5, 2.5, Number.NaN, '60' as never]) {
+      await expect(sandboxes.create({ template: 'base', lifetimeSeconds })).rejects.toEqual(
+        coded('invalid', /lifetime/),
+      );
+    }
+    expect(calls).toEqual(['create base for 900s']);
+  });
+
+  it('is attached to, and stopped, through the provider', async () => {
+    const { calls, sandboxes } = spy();
+    const attached = await sandboxes.attach('spy-1');
+    expect(attached.id).toBe('spy-1');
+    expect((await attached.run({ argv: ['printf', 'x'] })).exitCode).toBe(0);
+    await sandboxes.stop('spy-1');
+    expect(calls).toEqual(['attach spy-1', 'start printf x', 'stop spy-1']);
+  });
+
+  it('is refused with no id, before the provider sees it', async () => {
+    const { calls, sandboxes } = spy();
+    for (const sandboxId of ['', '  ', 7 as never, undefined as never]) {
+      await expect(sandboxes.attach(sandboxId)).rejects.toEqual(coded('invalid', /id of a/));
+      await expect(sandboxes.stop(sandboxId)).rejects.toEqual(coded('invalid', /id of a/));
+    }
+    expect(calls).toEqual([]);
+  });
+
+  it("keeps the provider's code when there is none to attach to", async () => {
+    const { sandboxes } = fakeSandboxes();
+    await expect(sandboxes.attach('fake-9')).rejects.toEqual(coded('not-found'));
+    await sandboxes.stop('fake-9');
   });
 });

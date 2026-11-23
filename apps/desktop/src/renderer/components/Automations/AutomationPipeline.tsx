@@ -8,12 +8,15 @@ import {
   Copy,
   ExternalLink,
   FileCode,
+  GitBranch,
   Hand,
   Inbox,
   LoaderCircle,
   MousePointerClick,
   Plug,
+  Repeat,
   ScanSearch,
+  UserCheck,
   Wrench,
   Zap,
   type LucideIcon,
@@ -23,8 +26,10 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { agentStepFoot, nodeGrantsLine } from './agentGrantWords';
+import { gateChoicesWords, loopFoot } from './approvalCard';
 import { stepKindLabel } from './callWords';
 import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
+import { checkoutNode, writeChip } from './runCheckout';
 import {
   approvalStep,
   commandFoot,
@@ -32,6 +37,7 @@ import {
   formatDueAt,
   formatDuration,
   formatTime,
+  waitingForYouRuns,
   yamlTokens,
 } from './presentation';
 
@@ -43,8 +49,9 @@ type NodeState = 'due' | 'waiting' | 'running' | 'queued' | 'passed' | 'preview'
  * one, and what it runs, joined left to right (top to bottom when narrow).
  *
  * The nodes carry what is happening now, and only that: the countdown to
- * the next run, a run waiting at the approval step, one working in the
- * target. How past runs went is the lead's and the run list's to say.
+ * the next run, a run waiting at the approval step, one parked at a gate
+ * (or a loop's exhaustion gate), one working in the target. How past runs
+ * went is the lead's and the run list's to say.
  */
 export function PipelineGraph({
   automation,
@@ -65,6 +72,15 @@ export function PipelineGraph({
 }) {
   const step = approvalStep(automation, draft);
   const waiting = runs.find((run) => run.status === 'needs-approval');
+  // A run parked at one of its gates: that gate's node waits for the person (3-A code review M3).
+  const parked = waitingForYouRuns(runs)[0];
+  const parkedAt = parked?.step?.id;
+  const parkedAction = parked && (
+    <button type="button" className="automations-node-action" onClick={() => onOpenRun(parked.id)}>
+      Waiting for you · Review
+      <ArrowRight size={12} aria-hidden="true" />
+    </button>
+  );
   const running = runs.find((run) => run.status === 'running');
   const queued = runs.find((run) => run.status === 'queued');
   const countdown = automation.nextRunAt ? formatCountdown(automation.nextRunAt, now) : null;
@@ -204,36 +220,97 @@ export function PipelineGraph({
   ) : null;
 
   // A `steps:` entry draws one node per step after the approval, the step's own
-  // `if:` on the edge into it; what a run is doing is the run page's to say.
+  // `if:` on the edge into it, and a loop as a frame around its steps' nodes;
+  // what a run is doing is the run page's to say.
   if (automation.steps) {
-    const gated = automation.steps.some((entry) => entry.if !== undefined);
-    const stepNodes = automation.steps.map((entry, index) => (
+    const described = automation.steps;
+    type Described = (typeof described)[number];
+    // The first step a run takes: the first node, or a loop's first step.
+    const first = described.find((entry) => entry.kind !== 'repeat');
+    const stepNode = (entry: Described) => (
       <PipelineNode
         key={`step:${entry.id}`}
-        state={pathLit && index === 0 ? targetState : undefined}
-        icon={entry.kind === 'agent' ? Bot : entry.kind === 'uses' ? Plug : Wrench}
+        state={
+          entry.id === parkedAt ? 'waiting' : pathLit && entry === first ? targetState : undefined
+        }
+        icon={
+          entry.kind === 'agent'
+            ? Bot
+            : entry.kind === 'gate'
+              ? UserCheck
+              : entry.kind === 'uses'
+                ? Plug
+                : Wrench
+        }
         kicker={entry.kind === 'agent' ? 'Agent step' : stepKindLabel(entry.kind)}
-        title={entry.kind === 'agent' ? entry.summary : <code>{entry.summary}</code>}
+        title={
+          entry.kind === 'run' || entry.kind === 'uses' ? (
+            <code>{entry.summary}</code>
+          ) : (
+            entry.summary
+          )
+        }
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
         }
         grants={nodeGrantsLine(entry) ?? undefined}
+        chip={writeChip(entry) ?? undefined}
         code={entry.id}
         edgeLabel={entry.if}
       >
-        {index === 0 && liveAction
-          ? liveAction
-          : entry.kind === 'agent'
-            ? agentStepFoot(entry.servers)
-            : commandFoot(entry, automation.mode)}
+        {entry.id === parkedAt
+          ? parkedAction
+          : entry === first && liveAction
+            ? liveAction
+            : entry.kind === 'agent'
+              ? agentStepFoot(entry.servers)
+              : entry.kind === 'gate'
+                ? gateChoicesWords(entry.choices)
+                : commandFoot(entry, automation.mode)}
       </PipelineNode>
-    ));
+    );
+    const top = described.filter((entry) => entry.loop === undefined);
+    const gated = described.some((entry) => entry.if !== undefined && entry.loop === undefined);
+    const stepNodes = top.map((entry) => {
+      if (entry.kind !== 'repeat') return stepNode(entry);
+      const inner = described.filter((step) => step.loop === entry.id);
+      const innerGated = inner.some((step) => step.if !== undefined);
+      return (
+        <PipelineNode
+          key={`loop:${entry.id}`}
+          className="automations-node-loop"
+          state={entry.id === parkedAt ? 'waiting' : undefined}
+          icon={Repeat}
+          kicker="Loop"
+          title={entry.summary}
+          code={entry.id}
+          edgeLabel={entry.if}
+          inside={
+            <ol
+              className={`automations-pipeline automations-pipeline-loop ${innerGated ? 'automations-pipeline-gated' : ''}`}
+              aria-label={`Steps of ${entry.id}`}
+            >
+              {inner.map((step) => stepNode(step))}
+            </ol>
+          }
+        >
+          {entry.id === parkedAt ? parkedAction : loopFoot(entry.exhausted)}
+        </PipelineNode>
+      );
+    });
+    // Its own checkout (slice 3-B), made before its first step: the branch it cuts, from where.
+    const own = checkoutNode(automation.checkout);
+    const checkout = own && (
+      <PipelineNode key="checkout" icon={GitBranch} kicker="Checkout" title={own.title}>
+        A checkout of its own for each run, never pushed by Consola
+      </PipelineNode>
+    );
     return (
       <ol
         className={`automations-pipeline ${gated ? 'automations-pipeline-gated' : ''} ${automation.problem ? 'automations-pipeline-paused' : ''}`}
         aria-label="Pipeline"
       >
-        {[trigger, gate, ...stepNodes]}
+        {[trigger, gate, checkout, ...stepNodes]}
       </ol>
     );
   }
@@ -271,17 +348,22 @@ export function PipelineGraph({
 
 function PipelineNode({
   state,
+  className,
   icon: Icon,
   kicker,
   title,
   subtitle,
   grants,
+  chip,
   code,
   wrapCode = false,
   edgeLabel,
+  inside,
   children,
 }: {
   state?: NodeState;
+  /** A kind of node drawn apart: a loop's frame. */
+  className?: string;
   icon: LucideIcon;
   kicker: string;
   title: ReactNode;
@@ -289,15 +371,21 @@ function PipelineNode({
   subtitle?: string;
   /** A third line: the servers and skills an agent step's agent names. */
   grants?: string;
+  /** A write agent's step (slice 3-B): what it writes with, `ui-bugfixer · writes · sandboxed`. */
+  chip?: string;
   code?: string;
   /** The code is a command shown in full: it wraps rather than running past the node. */
   wrapCode?: boolean;
   /** Drawn on the edge into this node, as text. */
   edgeLabel?: string;
+  /** Nodes drawn inside this one, above its foot: a loop's steps. */
+  inside?: ReactNode;
   children: ReactNode;
 }) {
   return (
-    <li className={`automations-node ${state ? `automations-node-${state}` : ''}`}>
+    <li
+      className={`automations-node ${state ? `automations-node-${state}` : ''} ${className ?? ''}`}
+    >
       {edgeLabel !== undefined && (
         <span className="automations-node-if" title={`if: ${edgeLabel}`}>
           <span className="sr-only">Runs if </span>
@@ -311,11 +399,13 @@ function PipelineNode({
       <div className="automations-node-title">{title}</div>
       {subtitle !== undefined && <div className="automations-node-agent">{subtitle}</div>}
       {grants !== undefined && <div className="automations-node-agent">{grants}</div>}
+      {chip !== undefined && <div className="automations-node-chip">{chip}</div>}
       {code && (
         <code className={`automations-node-code ${wrapCode ? 'automations-node-code-wrap' : ''}`}>
           {code}
         </code>
       )}
+      {inside}
       <div className="automations-node-foot">{children}</div>
     </li>
   );

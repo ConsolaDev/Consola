@@ -8,7 +8,7 @@ import type {
 } from '../../../shared/automations';
 import { formatCostUsd } from '../../../shared/cost';
 import { serversFact, skillsFact } from './agentGrantWords';
-import { formatElapsed } from './presentation';
+import { clockTime, formatAgo, formatElapsed, rejectedAtGate } from './presentation';
 
 /**
  * A value past this many characters, or spanning lines, folds behind a
@@ -155,6 +155,41 @@ export function earlierCosts(step: StepRun): string | null {
   return `Earlier attempts: ${listed.join(', ')}`;
 }
 
+/**
+ * A step in a run's own checkout, as its detail adds it (slice 3-B Task
+ * 22), in this order and each only when recorded: its environment and how
+ * it is held (`sandboxed · sandbox, enforced`, `my-machine · host, a
+ * convention`), the Claude version it ran under, the environment's
+ * variables it got and lacked, the commits it started and ended at with
+ * the files changed, and the paths flagged for a person's look.
+ */
+export function writeRows(step: StepRun): Array<[string, string]> {
+  const rows: Array<[string, string]> = [];
+  const environment = step.environment;
+  if (environment) {
+    const held = environment.isolation === 'sandbox' ? 'sandbox, enforced' : 'host, a convention';
+    rows.push(['Environment', `${environment.name} · ${held}`]);
+    if (environment.cliVersion !== undefined) rows.push(['Claude', environment.cliVersion]);
+    const names = (list: string[] | undefined) =>
+      list && list.length > 0 ? list.join(', ') : 'none';
+    rows.push(['Passed', names(environment.passed)]);
+    rows.push(['Missing', names(environment.missing)]);
+  }
+  const checkout = step.checkout;
+  if (checkout) {
+    const before = checkout.before.slice(0, 7);
+    rows.push([
+      'Commits',
+      checkout.after !== undefined
+        ? `${before} → ${checkout.after.slice(0, 7)} · ${checkout.files ?? 0} files`
+        : `started at ${before}, nothing committed`,
+    ]);
+    if (checkout.flagged && checkout.flagged.length > 0)
+      rows.push(['Flagged', checkout.flagged.map((flagged) => `changed ${flagged}`).join(', ')]);
+  }
+  return rows;
+}
+
 /** The tools the latest attempt's turns were refused: `Denied: mcp__grafana__delete_dashboard, Read`. Null when none was. */
 export function deniedLine(step: StepRun): string | null {
   const denied = step.turn?.deniedTools ?? [];
@@ -198,12 +233,20 @@ export function visibleTail(
  * How a step went, as its row in the run's trace marks it. A step still
  * `pending` once the run is over never came, so it reads as not run; a
  * status this build does not know reads the same way, never as an outcome.
+ * `waiting` is a step queued for a slot; a row parked at a gate (a gate's,
+ * or a loop's at its exhaustion gate) `asks`, and one waiting out its
+ * declared retry is `retrying`. A gate the person rejected (a gate's row, or
+ * a loop's rejected at its exhaustion gate) is `rejected`: its row is
+ * `completed`, but the run stopped there (3-A code review S2).
  */
 export type StepTone =
   | 'passed'
+  | 'rejected'
   | 'failed'
   | 'running'
   | 'waiting'
+  | 'asks'
+  | 'retrying'
   | 'pending'
   | 'skipped'
   | 'not-run'
@@ -214,7 +257,13 @@ export function runIsOver(status: RunRecord['status']): boolean {
   return status === 'completed' || status === 'failed' || status === 'rejected';
 }
 
-export function stepTone(status: StepRunStatus, runOver: boolean): StepTone {
+/** How a step went, from its row (or, where only that is known, its status: a `waiting` row then reads as not started). */
+export function stepTone(step: StepRun | StepRunStatus, runOver: boolean): StepTone {
+  const row = typeof step === 'string' ? undefined : step;
+  const status = typeof step === 'string' ? step : step.status;
+  if (status === 'waiting' && row?.gate) return 'asks';
+  if (status === 'waiting' && row?.retryAt !== undefined) return 'retrying';
+  if (status === 'completed' && row?.gate?.decision === 'reject') return 'rejected';
   switch (status) {
     case 'completed':
       return 'passed';
@@ -244,12 +293,18 @@ export function stepOutcome(tone: StepTone, ms: number | null): string {
   switch (tone) {
     case 'passed':
       return took ? `Completed in ${took}` : 'Completed';
+    case 'rejected':
+      return 'Rejected';
     case 'failed':
       return took ? `Failed after ${took}` : 'Failed';
     case 'running':
       return took ? `Running · ${took}` : 'Running';
     case 'waiting':
       return 'Waiting for a slot';
+    case 'asks':
+      return 'Waiting for you';
+    case 'retrying':
+      return 'Waiting to retry';
     case 'pending':
       return 'Not started';
     case 'skipped':
@@ -299,13 +354,44 @@ export function conditionValues(
   return values;
 }
 
-/** Why a step the run never reached did not run, from how the run ended. */
-export function notRunReason(run: Pick<RunRecord, 'status' | 'steps'>): string {
+/**
+ * Why a step the run never reached did not run: the row's own note first
+ * (the run stopped after a `then: stop` step), then a person's rejection at
+ * a gate, then how the run ended.
+ */
+export function notRunReason(
+  run: Pick<RunRecord, 'status' | 'steps' | 'startedAt'>,
+  step?: StepRun,
+): string {
+  if (step?.note) return step.note;
+  const gate = rejectedAtGate(run);
+  if (gate !== undefined) return `The run was rejected at \`${gate}\` before this step.`;
+  // Turned away after it started (3-A code review M6): it did start.
+  if (run.status === 'rejected' && run.startedAt !== undefined)
+    return 'The run was turned away before reaching it.';
   if (run.status === 'rejected') return 'The run was turned down before it started.';
-  const failed = run.steps?.find((candidate) => candidate.status === 'failed');
+  // A failed step inside a loop before the loop's own row, which fails with it (review S10).
+  const failed =
+    run.steps?.find((candidate) => candidate.status === 'failed' && candidate.kind !== 'repeat') ??
+    run.steps?.find((candidate) => candidate.status === 'failed');
   if (failed) return `The run stopped at ${failed.id} before reaching it.`;
   if (run.status === 'failed') return 'The run failed before reaching it.';
   return 'The run ended before reaching it.';
+}
+
+/**
+ * When a step waiting out its declared retry goes again, and which try that
+ * will be of the ones its definition allows: `retries at 10:42, attempt 2
+ * of 3`. Without the definition, only the time.
+ */
+export function retryLine(
+  record: Pick<StepRun, 'retryAt' | 'retries'>,
+  definition?: { onFailure?: { retry: number } } | { kind: 'gate' },
+): string | null {
+  if (record.retryAt === undefined) return null;
+  const declared = definition && 'onFailure' in definition ? (definition.onFailure?.retry ?? 0) : 0;
+  const at = `retries at ${clockTime(record.retryAt)}`;
+  return declared > 0 ? `${at}, attempt ${(record.retries ?? 0) + 1} of ${declared + 1}` : at;
 }
 
 /** A value as a row shows it: on one line, cut short past `max` characters. */
@@ -320,6 +406,26 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** An artifact as its button names it: a path artifact (slice 3-B) with its path in the checkout, `notes · docs/fixes/SHOP-42.md`. */
+export function artifactTitle(
+  name: string,
+  paths: ReadonlyArray<{ name: string; path: string }> | undefined,
+): string {
+  const file = paths?.find((artifact) => artifact.name === name);
+  return file ? `${name} · ${file.path}` : name;
+}
+
+/**
+ * A kept `changes.patch` (slice 3-B) as Markdown: one `diff` block, in a
+ * fence longer than any run of backticks in it, so no line of the patch
+ * can close it.
+ */
+export function diffMarkdown(patch: string): string {
+  const longest = Math.max(0, ...(patch.match(/`+/g) ?? []).map((run) => run.length));
+  const fence = '`'.repeat(Math.max(3, longest + 1));
+  return `${fence}diff\n${patch.endsWith('\n') ? patch : `${patch}\n`}${fence}`;
+}
+
 /** What an artifact is for, where its name says: the two every step may write. */
 export function artifactNote(name: string, kind: StepRun['kind']): string | null {
   if (name === 'handover') return 'what it handed to the steps after it';
@@ -331,19 +437,27 @@ export function artifactNote(name: string, kind: StepRun['kind']): string | null
 /**
  * What a step did, in one line under its name: the outputs it set and what
  * it wrote, or what it printed; the error, word for word, when it failed;
- * why it did not run. Null where the row's outcome already says it all.
- * A call names its tool (`ref`, `<server>#<tool>` from the run's
- * definition) while it calls, once it called and under a dry run; without
- * it, a call reads as a command's outputs do.
+ * why it did not run; where a parked row waits (`waiting for you at
+ * decide`, `retries at 10:42`); how a person answered a gate (`answered
+ * comment by you 5m ago`, from `now`); how a loop ended (its note). Null
+ * where the row's outcome already says it all. A call names its tool
+ * (`ref`, `<server>#<tool>` from the run's definition) while it calls, once
+ * it called and under a dry run; without it, a call reads as a command's
+ * outputs do.
  */
 export function stepSummary(
   step: StepRun,
-  run: Pick<RunRecord, 'status' | 'steps'>,
+  run: Pick<RunRecord, 'status' | 'steps' | 'startedAt'>,
   ref?: string,
+  now: Date = new Date(),
 ): string | null {
   const call = step.kind === 'uses' && ref !== undefined ? `\`${ref}\`` : null;
-  const tone = stepTone(step.status, runIsOver(run.status));
+  const tone = stepTone(step, runIsOver(run.status));
   switch (tone) {
+    case 'asks':
+      return `waiting for you at ${step.id}`;
+    case 'retrying':
+      return `retries at ${clockTime(step.retryAt as string)}`;
     case 'failed':
       return step.error ?? 'It failed without saying why.';
     case 'skipped': {
@@ -351,16 +465,29 @@ export function stepSummary(
       return condition ? `if: ${condition} was false` : (step.skipped ?? null);
     }
     case 'not-run':
-      return notRunReason(run);
+      return notRunReason(run, step);
+    case 'rejected': {
+      const at = step.gate?.at;
+      return `rejected by you${at ? ` ${formatAgo(at, now)}` : ''}`;
+    }
     case 'reported':
-      return call ? `Would have called ${call}` : 'A dry run: it was not run';
+      if (call) return `Would have called ${call}`;
+      return step.note ?? 'A dry run: it was not run';
     case 'running':
       if (call) return `Calling ${call}`;
-      return step.kind === 'agent' ? 'Working in a read-only session' : null;
+      if (step.kind !== 'agent') return null;
+      // A write step (slice 3-B) works in its run's own checkout, never read-only.
+      return step.tools !== undefined
+        ? "Working in this run's checkout"
+        : 'Working in a read-only session';
     case 'waiting':
     case 'pending':
       return null;
     case 'passed': {
+      const answer = step.gate;
+      if (answer?.decision !== undefined)
+        return `answered ${answer.decision} by you${answer.at ? ` ${formatAgo(answer.at, now)}` : ''}`;
+      if (step.note) return step.note;
       const parts: string[] = call ? [`Called ${call}`] : [];
       const outputs = Object.entries(step.outputs ?? {});
       if (outputs.length > 0)
@@ -454,17 +581,24 @@ export function failureIsExit(error: string | undefined): boolean {
   return error !== undefined && COMMAND_ENDED.test(error);
 }
 
-/** How the run's steps went, counted for the trace's heading: `6 steps · 5 completed · 1 skipped`. */
-export function stepCounts(steps: StepRun[], runOver: boolean): string {
+/**
+ * How the run's steps went, counted for the trace's heading: `6 steps · 5
+ * completed · 1 skipped`. A loop's own row is no step: its steps count.
+ */
+export function stepCounts(rows: StepRun[], runOver: boolean): string {
+  const steps = rows.filter((step) => step.kind !== 'repeat');
   const counts = new Map<StepTone, number>();
   for (const step of steps) {
-    const tone = stepTone(step.status, runOver);
+    const tone = stepTone(step, runOver);
     counts.set(tone, (counts.get(tone) ?? 0) + 1);
   }
   const words: Array<[StepTone, string]> = [
     ['passed', 'completed'],
+    ['rejected', 'rejected'],
     ['failed', 'failed'],
     ['running', 'running'],
+    ['asks', 'waiting for you'],
+    ['retrying', 'waiting to retry'],
     ['waiting', 'waiting'],
     ['reported', 'would have run'],
     ['skipped', 'skipped'],

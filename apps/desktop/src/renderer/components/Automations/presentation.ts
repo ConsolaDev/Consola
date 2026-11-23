@@ -30,6 +30,7 @@ const STATUS_WORDS: Record<RunFacts['status'], string> = {
   queued: 'queued',
   running: 'running',
   'needs-approval': 'waiting',
+  waiting: 'on hold',
   completed: 'completed',
   failed: 'failed',
   rejected: 'dismissed',
@@ -38,6 +39,73 @@ const STATUS_WORDS: Record<RunFacts['status'], string> = {
 /** Where a run stands, in one word: "waiting" for a person, "dismissed" when they turned it down. */
 export function statusWord(status: RunFacts['status']): string {
   return STATUS_WORDS[status];
+}
+
+/**
+ * What `rejectedAtGate` reads: a record's steps, or a list entry's `step`,
+ * which has no records; and whether the run started.
+ */
+export type RejectedFacts = Pick<RunFacts, 'status' | 'steps' | 'startedAt'> & {
+  step?: RunListEntry['step'];
+};
+
+/**
+ * The gate a person rejected a run at, when they did: from its records (the
+ * gate row whose answer is `reject`), or for a list entry its `step`, which
+ * names the gate a rejected run ended at (`gate`). Undefined for any other
+ * run, a `rejected` one turned down before it started included.
+ */
+export function rejectedAtGate(run: RejectedFacts): string | undefined {
+  if (run.status !== 'rejected') return undefined;
+  const row = run.steps?.find((step) => step.gate?.decision === 'reject');
+  if (row) return row.id;
+  return run.step?.gate ? run.step.id : undefined;
+}
+
+/**
+ * Whether a `rejected` run started first: a person rejected it at a gate, or
+ * it was turned away after it started (its entry's retry started it again,
+ * and a review had been started by hand meanwhile, 3-A code review M6). A
+ * run turned down before it started has no `startedAt`.
+ */
+export function rejectedAfterStart(run: RejectedFacts): boolean {
+  return (
+    run.status === 'rejected' && (rejectedAtGate(run) !== undefined || run.startedAt !== undefined)
+  );
+}
+
+/**
+ * Whether a run worked, so its row gives how long: it completed, failed or
+ * runs, or was rejected after it started (3-A code review M5: a run a
+ * person rejected at a gate ran first).
+ */
+export function runWorked(run: RejectedFacts): boolean {
+  return (
+    run.status === 'completed' ||
+    run.status === 'failed' ||
+    run.status === 'running' ||
+    rejectedAfterStart(run)
+  );
+}
+
+/**
+ * A run's status in one word, as `statusWord` says it, but a run rejected
+ * after it started is `rejected`: it ran, then a person said no at a gate,
+ * or it was turned away, which is not a run turned down before it started
+ * (`dismissed`).
+ */
+export function runStatusWord(run: RejectedFacts): string {
+  return rejectedAfterStart(run) ? 'rejected' : statusWord(run.status);
+}
+
+/** A run's status as a label, as `statusLabel` says it, but `Rejected` for a run rejected after it started. */
+export function runStatusLabel(run: RejectedFacts): string {
+  return rejectedAfterStart(run) ? 'Rejected' : statusLabel(run.status);
+}
+
+/** A time of day, as the run list says one: `10:42`, in the person's own clock. */
+export function clockTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 /** What an automation does when it fires, in words. */
@@ -165,22 +233,91 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
 
 /**
  * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
- * "running · publish", "waiting for a slot before publish", "failed at
- * publish" ("failed before publish" when it failed between steps, and the
- * engine names the step it did not reach), or that it waits for its item's
- * checkout. Null when there is nothing step-shaped to say (a legacy run, a
- * run that finished), so the row keeps `runAbout`.
+ * "waiting for you at decide" at a gate, "retrying fix at 10:42" out a
+ * step's retry, "retrying the run at 10:42" out the entry's (it waits at no
+ * step, and may wait before any ran), "round 2 of 3 · review" inside a
+ * loop, "running · publish", "waiting for a slot before publish", "failed at publish" ("failed before
+ * publish" when it failed between steps, and the engine names the step it
+ * did not reach), that it waits for its item's checkout (for another
+ * run's gate, `waitingForWords`), or "waiting for you to close fix" while a
+ * person's session in its own checkout holds it (slice 3-B; the entry names
+ * the session). Null when there is nothing step-shaped to
+ * say (a legacy run, a run that finished), so the row keeps `runAbout`.
  */
 export function stepWords(run: RunListEntry): string | null {
-  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT) return CHECKOUT_WAIT;
+  // A person's session in the run's own checkout holds it (slice 3-B): that is what it waits on.
+  if (run.waitingFor?.session !== undefined)
+    return `waiting for you to close ${run.waitingFor.session}`;
+  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT)
+    return waitingForWords(run) ?? CHECKOUT_WAIT;
+  if (run.status === 'waiting' && run.retryAt !== undefined && run.step?.status !== 'waiting')
+    return `retrying the run at ${clockTime(run.retryAt)}`;
   const step = run.step;
   if (!step) return null;
+  if (run.status === 'waiting' && step.gate) return `waiting for you at ${step.id}`;
+  if (run.status === 'waiting' && step.retryAt !== undefined)
+    return `retrying ${step.id} at ${clockTime(step.retryAt)}`;
+  if (
+    run.status === 'running' &&
+    step.status === 'running' &&
+    step.loop !== undefined &&
+    step.round !== undefined &&
+    step.max !== undefined
+  )
+    return `round ${step.round} of ${step.max} · ${step.id}`;
   if (run.status === 'running' && step.status === 'running') return `running · ${step.id}`;
   if (run.status === 'running' && step.status === 'queued')
     return `waiting for a slot before ${step.id}`;
   if (run.status === 'failed')
     return step.status === 'not-run' ? `failed before ${step.id}` : `failed at ${step.id}`;
   return null;
+}
+
+/**
+ * What a sidebar row's run waits for (it has a row because it wants the
+ * person, `runAttention`): the person at a gate, a loop's exhaustion gate
+ * included, or their approval of its start. Answering a gate is not
+ * approving a run (3-A code review M2).
+ */
+export function sidebarRunWaits(run: Pick<RunListEntry, 'status' | 'step'>): string {
+  return run.status === 'waiting' && run.step?.gate
+    ? `waiting for you at ${run.step.id}`
+    : 'waiting for your approval';
+}
+
+/**
+ * What a run held by another run's gate waits for (it waits for its item's
+ * checkout, which that run holds while it waits for the person): "waiting
+ * for you at `decide` in `review-assigned-prs-gated`". Null for any other.
+ */
+export function waitingForWords(run: Pick<RunListEntry, 'waitingFor'>): string | null {
+  const gate = run.waitingFor?.gate;
+  return gate ? `waiting for you at \`${gate.step}\` in \`${gate.automation}\`` : null;
+}
+
+/** Whether a run waits for the person at a gate: a list entry's `step` says so, or a record's waiting gate row. */
+function isWaitingAtGate(run: RunFacts & { step?: RunListEntry['step'] }): boolean {
+  return (
+    run.status === 'waiting' &&
+    (run.step?.gate === true ||
+      (run.steps ?? []).some((step) => step.status === 'waiting' && step.gate !== undefined))
+  );
+}
+
+/** The runs Activity's first group shows: waiting for the person at a gate, oldest first. */
+export function waitingForYouRuns(runs: readonly RunListEntry[]): RunListEntry[] {
+  return runs
+    .filter((run) => isWaitingAtGate(run))
+    .sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt));
+}
+
+/**
+ * The run an automation's page asks the person about: one waiting for their
+ * approval, else the oldest waiting for them at a gate. A run waiting out a
+ * retry asks no one (3-A code review M3).
+ */
+export function runWaitingForYou(runs: readonly RunListEntry[]): RunListEntry | undefined {
+  return runs.find((run) => run.status === 'needs-approval') ?? waitingForYouRuns(runs)[0];
 }
 
 export type RunFilter = 'all' | 'agent' | 'tool' | 'failed';
@@ -277,9 +414,13 @@ function dayLabel(at: Date, now: Date): string {
   return date;
 }
 
-/** Waiting for a person or a slot, or working: history never drops these, so neither does the list. */
+/**
+ * Waiting for a person or a slot, parked at a gate or a retry, or working:
+ * history never drops these, so neither does the list.
+ */
 const LIVE_STATUSES: ReadonlySet<RunFacts['status']> = new Set([
   'needs-approval',
+  'waiting',
   'queued',
   'running',
 ]);
@@ -539,25 +680,45 @@ const STRIP_ORDER: ReadonlyArray<RunFacts['status']> = [
   'failed',
   'running',
   'needs-approval',
+  'waiting',
   'queued',
   'rejected',
 ];
 
 /** The strip in words, for whoever cannot see its colours: "Last 12 runs: 11 completed, 1 failed". */
-export function recentRunsInWords(runs: RunFacts[]): string {
+export function recentRunsInWords(runs: Array<RunFacts & RejectedFacts>): string {
   if (runs.length === 0) return 'No runs in the last 30 days';
   const lead = runs.length === 1 ? 'Last run' : `Last ${runs.length} runs`;
-  const present = STRIP_ORDER.filter((status) => runs.some((run) => run.status === status));
-  if (present.length === 1)
-    return `${lead}: ${runs.length === 1 ? '' : 'all '}${statusWord(present[0])}`;
+  const counts = wordCounts(runs);
+  if (counts.length === 1) return `${lead}: ${runs.length === 1 ? '' : 'all '}${counts[0].word}`;
   return `${lead}: ${statusCountsInWords(runs)}`;
 }
 
-/** How runs ended, counted in the strip's order: "3 completed, 1 failed". */
-export function statusCountsInWords(runs: RunFacts[]): string {
-  return statusCounts(runs)
-    .map(({ status, count }) => `${count} ${statusWord(status)}`)
+/**
+ * How runs ended, counted in the strip's order: "3 completed, 1 failed". A
+ * run rejected at a gate counts apart from one turned down before it
+ * started: "1 rejected, 1 dismissed" (`runStatusWord`).
+ */
+export function statusCountsInWords(runs: Array<RunFacts & RejectedFacts>): string {
+  return wordCounts(runs)
+    .map(({ word, count }) => `${count} ${word}`)
     .join(', ');
+}
+
+/** Runs counted by `runStatusWord`, in the strip's order (a gate's `rejected` before `dismissed`). */
+function wordCounts(runs: Array<RunFacts & RejectedFacts>): Array<{ word: string; count: number }> {
+  const counts: Array<{ word: string; count: number }> = [];
+  for (const status of STRIP_ORDER) {
+    const words =
+      status === 'rejected' ? ['rejected', statusWord('rejected')] : [statusWord(status)];
+    for (const word of words) {
+      const count = runs.filter(
+        (run) => run.status === status && runStatusWord(run) === word,
+      ).length;
+      if (count > 0) counts.push({ word, count });
+    }
+  }
+  return counts;
 }
 
 /** Runs counted by status, in the strip's order, leaving out the ones none have. */
@@ -723,7 +884,10 @@ export function approvalStep(
     // A steps entry's dry run starts its agent steps (read-only) and the commands marked `dry_run: run`.
     const runs = steps?.filter((step) => step.kind === 'agent' || step.dryRun) ?? [];
     if (steps && runs.length > 0) {
-      const reports = steps.filter((step) => !runs.includes(step)).map((step) => step.id);
+      // A loop's own row runs nothing and reports nothing: its steps are named (3-A code review M4).
+      const reports = steps
+        .filter((step) => !runs.includes(step) && step.kind !== 'repeat')
+        .map((step) => step.id);
       const agents = runs.filter((step) => step.kind === 'agent').map((step) => step.id);
       // A call's server starts as the person too, so a call marked `dry_run: run` is said with the commands.
       const commands = runs.filter((step) => step.kind !== 'agent').map((step) => step.id);
@@ -918,6 +1082,7 @@ const LATEST_LABELS: Record<RunFacts['status'], string> = {
   queued: 'Queued',
   running: 'Running',
   'needs-approval': 'Waiting for you',
+  waiting: 'On hold',
   completed: 'Completed',
   failed: 'Failed',
   rejected: 'Dismissed',
@@ -930,23 +1095,40 @@ export function statusLabel(status: RunFacts['status']): string {
 
 /**
  * The run an automation's row speaks for, strongest first: one waiting for
- * the person however old, then one running, then one queued, else the
- * newest. `runs` oldest first, as `recentRuns` gives them; `place` is a
- * queued run's place in line.
+ * the person's approval however old, then one waiting for them at a gate,
+ * then one running, then one queued, else the newest. `runs` oldest first,
+ * as `recentRuns` gives them; `place` is a queued run's place in line. A
+ * waiting run's detail is the run page's: `asked <ago>` at a gate (since the
+ * line it parked on), `retries at 10:42` out a retry.
  */
 export function latestRun(
-  runs: RunFacts[],
+  runs: Array<RunFacts & { step?: RunListEntry['step'] }>,
   now: Date,
   place?: (runId: string) => number | undefined,
 ): LatestRun | null {
   const newestFirst = [...runs].reverse();
   const run =
     newestFirst.find((candidate) => candidate.status === 'needs-approval') ??
+    newestFirst.find((candidate) => isWaitingAtGate(candidate)) ??
     newestFirst.find((candidate) => candidate.status === 'running') ??
     newestFirst.find((candidate) => candidate.status === 'queued') ??
     newestFirst[0];
   if (!run) return null;
-  const label = statusLabel(run.status);
+  const label = runStatusLabel(run);
+  if (run.status === 'waiting') {
+    if (isWaitingAtGate(run))
+      return { run, tone: run.status, label, detail: `asked ${formatAgo(run.updatedAt, now)}` };
+    const retryAt =
+      run.step?.retryAt ??
+      run.steps?.find((step) => step.status === 'waiting')?.retryAt ??
+      run.retryAt;
+    return {
+      run,
+      tone: run.status,
+      label,
+      detail: retryAt ? `retries at ${clockTime(retryAt)}` : formatAgo(run.updatedAt, now),
+    };
+  }
   if (run.status === 'running')
     return { run, tone: run.status, label, detail: `for ${formatDuration(run, now) ?? '0s'}` };
   if (run.status === 'queued') {
@@ -1124,10 +1306,16 @@ export function lastRunWords(lastRun: ItemTargetRow['lastRun'], now: Date): stri
       return 'running now';
     case 'needs-approval':
       return 'waiting for you';
+    case 'waiting':
+      return lastRun.gate !== undefined ? `waiting for you at ${lastRun.gate}` : 'retrying';
     case 'failed':
       return `failed ${whenWords(lastRun.at, now)}`;
     case 'rejected':
-      return `dismissed ${whenWords(lastRun.at, now)}`;
+      return lastRun.gate !== undefined
+        ? `rejected at \`${lastRun.gate}\` ${whenWords(lastRun.at, now)}`
+        : lastRun.started
+          ? `rejected ${whenWords(lastRun.at, now)}`
+          : `dismissed ${whenWords(lastRun.at, now)}`;
     default:
       return `ran ${whenWords(lastRun.at, now)}`;
   }

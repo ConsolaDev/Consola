@@ -48,6 +48,11 @@ describe('stepKindLabel', () => {
     expect(stepKindLabel('run')).toBe('Command');
     expect(stepKindLabel('uses')).toBe('Tool');
   });
+
+  it('labels a gate Gate and a loop Loop, as slice 3 labels them (merge)', () => {
+    expect(stepKindLabel('gate')).toBe('Gate');
+    expect(stepKindLabel('repeat')).toBe('Loop');
+  });
 });
 
 describe('trustLabel and sourceWords', () => {

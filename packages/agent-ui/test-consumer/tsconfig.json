@@ -1,0 +1,23 @@
+{
+  // An embedding app's program (AGENTS.md, "Types"): cloud-web's settings
+  // (apps/cloud-web/tsconfig.json), stricter where a looser one could hide what it checks.
+  // - `types: []`: no ambient declarations. cloud-web's `vite/client` declares every `*.css`
+  //   module, which would hide whether the stylesheet's export has types of its own.
+  // - `noUncheckedSideEffectImports`: the stylesheet import is resolved, not skipped.
+  // - `skipLibCheck: false`: the package's declarations are checked, not skipped as a library's.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "noUncheckedSideEffectImports": true,
+    "skipLibCheck": false,
+    "noEmit": true,
+    "types": []
+  },
+  "include": ["src"]
+}

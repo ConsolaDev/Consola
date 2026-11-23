@@ -46,6 +46,22 @@ export interface AutomationControl {
   ): Promise<SavedAutomation>;
 }
 
+/**
+ * The runner as the tools hold it: these four members, each forwarding,
+ * and nothing else. The runner itself also answers gates, approves and
+ * stops runs; handed on whole, a tool could reach those by a name no search
+ * finds (`runner['answer' + 'Gate']`), so it never is (3-A code review S4).
+ */
+export function automationControl(runner: AutomationControl): AutomationControl {
+  return {
+    list: (workspaceId) => runner.list(workspaceId),
+    trigger: (workspaceId, name, actor, target) => runner.trigger(workspaceId, name, actor, target),
+    capabilities: (workspaceId) => runner.capabilities(workspaceId),
+    saveEntry: (workspaceId, entryYaml, options) =>
+      runner.saveEntry(workspaceId, entryYaml, options),
+  };
+}
+
 export interface ConsolaToolDeps {
   cleanup: Pick<
     SessionCleanupService,

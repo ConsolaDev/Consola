@@ -17,8 +17,12 @@ const app = createApp({
   health: unreachable as never,
   tokens: unreachable as never,
   deliveries: unreachable as never,
+  events: unreachable as never,
   workspaceCopies: unreachable as never,
+  gitHubEvents: unreachable as never,
   teams: unreachable as never,
+  factories: unreachable as never,
+  runs: unreachable as never,
   clock: unreachable as never,
   report: () => {},
 });

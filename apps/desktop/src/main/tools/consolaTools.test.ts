@@ -324,7 +324,7 @@ describe('save_automation and Allow', () => {
       entry: '- name: catalog-notes',
       notApplied: {
         issues: [
-          'agents/reviewer.md:5: Write tools arrive with write steps; an agent is read-only until then',
+          'agents/reviewer.md:5: A write agent must name its environment (invariant 9); add `environment: <name>`',
         ],
         since: '08:00',
       },
@@ -335,7 +335,7 @@ describe('save_automation and Allow', () => {
       as('me'),
     );
     expect(result.summary).toBe(
-      "Added catalog-notes in factory.yml, but the factory doesn't apply until these are fixed: agents/reviewer.md:5: Write tools arrive with write steps; an agent is read-only until then. The version from 08:00 keeps running.",
+      "Added catalog-notes in factory.yml, but the factory doesn't apply until these are fixed: agents/reviewer.md:5: A write agent must name its environment (invariant 9); add `environment: <name>`. The version from 08:00 keeps running.",
     );
   });
 

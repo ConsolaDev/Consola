@@ -15,22 +15,29 @@ The service is built in rings, and imports point inward only.
   (`CREATOR_ROLE`), which workspace a new session opens
   (`defaultActiveWorkspace`), the regions a workspace can be in (`REGIONS` and
   `isRegion`, which `region.ts` takes from the contract), how long the outbox
-  waits before it delivers a message again (`retryDelayMs`), who may connect
-  another service (`mayManageConnections`) and whether a Connect's state
-  finishes in this session (`checkInstallState`), and `Workspace`,
-  `MyWorkspace`, `Person`, `SignedIn` and the GitHub types
+  waits before it delivers a message again (`retryDelayMs`), who may change
+  how a workspace looks (`mayManageWorkspace`) and the icons it may wear
+  (`WORKSPACE_ICONS`, `checkWorkspaceIcon` in `workspaceIcon.ts`), who may
+  connect another service (`mayManageConnections`) and whether a Connect's
+  state finishes in this session (`checkInstallState`), what a webhook
+  delivery's headers name and the installation its payload came through
+  (`readDeliveryHeaders`, `installationOfEvent`, in `webhooks.ts`), what
+  each GitHub token's purpose may have and whether GitHub granted it
+  (`TOKEN_PURPOSES`, `scopeFor`, `grantedAsAsked`, in `gitHubTokens.ts`), and
+  `Workspace`, `MyWorkspace`, `Person`, `SignedIn` and the GitHub types
   (`connections.ts`). It is plain TypeScript, with no I/O, and no package but
   the contract (below).
 - `src/application/` holds the use cases (`createWorkspace`,
-  `listMyWorkspaces`, `setActiveWorkspace`, `listActiveWorkspaceMembers`,
-  `workspaceForNewSession`,
+  `listMyWorkspaces`, `setActiveWorkspace`, `setWorkspaceIcon`,
+  `listActiveWorkspaceMembers`, `workspaceForNewSession`,
   `mayCreateAccount`, `mayStartSession`, `describeMe`, `mintCellToken`,
   `cellTokenKeys`, `deliverOutbox`, `listConnections`, `startGitHubInstall`,
-  `finishGitHubInstall`, `disconnectGitHub`, `checkHealth`) and, in
-  `ports.ts`, the stores, probes, signers, the cell and the GitHub App they
-  need. A use case is a plain function that takes its ports first, and is
-  handed the time when it needs it (`mintCellToken`'s `issuedAt`,
-  `deliverOutbox`'s `now`).
+  `finishGitHubInstall`, `disconnectGitHub`, `receiveGitHubWebhook`,
+  `mintGitHubToken`, `checkHealth`) and, in `ports.ts`, the stores, probes,
+  signers, the cell, the GitHub App and its webhook signatures they need. A
+  use case is a plain function that takes its ports first, and is handed the
+  time when it needs it (`mintCellToken`'s `issuedAt`, `deliverOutbox`'s
+  `now`).
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database, the schema,
     and one store per port, which `stores.ts` builds together. Its one writer
@@ -42,16 +49,20 @@ The service is built in rings, and imports point inward only.
     (`@hono/zod-openapi`); `app.ts` implements them, and TypeScript checks
     each handler's answers against the route's (see "The contract"). Each
     route asks a use case and maps its answer to a status and a body;
-  - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token and
-    outbox messages with the configured private key and publishes the public
-    key (below). It is the only code that holds the private key;
-  - `outbox/` delivers the outbox: the request to a cell (`cellDelivery.ts`,
+  - `cellToken/` is `jose` (`cellTokenSigner.ts`): it signs the cell token,
+    outbox messages and GitHub's events with the configured private key and
+    publishes the public key (below). It is the only code that holds the
+    private key. It also checks what a cell signs, with each region's cell's
+    public key (`cellRequestVerifier.ts`, "GitHub tokens");
+  - `outbox/` makes the requests to a cell: the outbox's (`cellDelivery.ts`,
     with `fetch`) and the worker's loop and timers (`outboxWorker.ts`), which
-    runs `deliverOutbox` (below);
+    runs `deliverOutbox` (below), and the GitHub events passed on
+    (`eventDelivery.ts`, "Webhooks");
   - `github/` is GitHub's REST API over `fetch`, and `node:crypto`: the app
-    (`gitHubApp.ts`, which reads the app's `.pem` with `loadGitHubAppKey`) and
-    the signed state of a Connect (`installStateSigner.ts`). It is the only
-    code that holds the GitHub App's private key and client secret.
+    (`gitHubApp.ts`, which reads the app's `.pem` with `loadGitHubAppKey`),
+    the signed state of a Connect (`installStateSigner.ts`) and the webhook
+    signature check (`webhookSignatures.ts`). It is the only code that holds
+    the GitHub App's private key, client secret and webhook secret.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeApi`), and the one
   place a startup step would live (there is none today). `composeApi` is
@@ -107,8 +118,9 @@ The service is built in rings, and imports point inward only.
   (`@consola/*`, or `consola`, the desktop), with one exception:
   `@consola/cloud-contract` (`packages/cloud-contract`), the contract
   `cloud-global` shares with the cells. It holds the regions, the workspace
-  roles, the claims of the token `cloud-global` mints for a cell, and the
-  outbox messages it sends one. It does no I/O, which its own boundary test
+  roles, the claims of the token `cloud-global` mints for a cell, the outbox
+  messages it sends one, the GitHub events it passes on, and a cell's signed
+  request for a GitHub token. It does no I/O, which its own boundary test
   proves, so any layer may import it, `domain` and `application` included.
   Only its entry point counts: a path inside it is refused. Before changing
   it, read `packages/cloud-contract/AGENTS.md`.
@@ -157,13 +169,25 @@ between them.
 - `PUT /api/me/workspace` `{ workspaceId }`: makes one of the person's
   workspaces active (`setActiveWorkspace`); one they are not in is 404, like
   one that does not exist;
+- `PUT /api/me/workspace/icon` `{ icon }`: sets the active workspace's icon,
+  or takes it off (null) (`setWorkspaceIcon`). Only an owner or an admin may
+  (`mayManageWorkspace`; anyone else is 403 `not_allowed`), read from the
+  database, never the request. An icon is one of `WORKSPACE_ICONS`, the
+  desktop app's own ids (`workspaceIcon.test.ts` reads its
+  `shared/workspaceIcons.ts` and fails when the two differ), so a workspace
+  known to both wears the same icon; anything else is 400 `icon_unknown`.
+  It writes the icon alone, into Better Auth's `organization.logo`, which
+  reads back as no icon when it holds anything else (`iconOf`);
 - `GET /api/me/workspace/members`: the active workspace's members, each with
   their global id, name, email, image and role, in the order they joined
   (`listActiveWorkspaceMembers`). Every member may list them: a cell names
   people by global id only, so this is how the web app puts a name to them
   (8.2, Teams). No workspace open is 409 `no_active_workspace`; one the person
   is not in is 403 `not_a_member`;
-- `GET /api/workspaces`: the person's workspaces, in the order they joined;
+- `GET /api/workspaces`: the person's workspaces, in the order they joined.
+  Every workspace an answer names carries its `icon` and `canManage`, whether
+  the person may change it (`mayManageWorkspace`), so the web app shows its
+  controls by what the server says, never by reading the role;
 - `POST /api/workspaces` `{ name, slug, region }`: makes one
   (`createWorkspace`). The creator is its owner and their session opens it. A
   request `checkNewWorkspace` refuses is 400 with every problem named; a slug
@@ -201,6 +225,10 @@ A request that changes something (`POST`, `PUT`, `PATCH`, `DELETE`) must come
 from the web app's origin (`PUBLIC_URL`), or it is 403 `bad_origin`, as Better
 Auth requires of its own routes: the session cookie is SameSite=Lax, which
 another site on the same host, any other localhost port, would still be sent.
+Two routes are the exception, registered before the origin check because no
+cookie authorises them: a cell's `POST /api/github/tokens` ("GitHub tokens"),
+and GitHub's webhook deliveries, `POST /api/github/webhooks`, which carry no
+cookie and no Origin, and whose signature is what is checked ("Webhooks").
 `src/app.test.ts` pins the route list, so a new route is added there on
 purpose.
 
@@ -215,17 +243,26 @@ list belongs in a regional cell, never here.
   yet.
 - **Proposed**, after Linear's published list of what it keeps global, and not
   yet confirmed:
-  - the workspace list: id, name, slug and region (`organization`, with Better
-    Auth's own `logo`, `created_at` and `metadata`);
+  - the workspace list: id, name, slug, region and icon (`organization`, with
+    Better Auth's own `logo`, which holds the icon's id, `created_at` and
+    `metadata`). The icon is global because the switcher shows every
+    workspace's, whatever its region;
   - membership: who is in which workspace, their workspace-level role, and
     pending invites (`member`, `invitation`);
   - app installs: which installation belongs to which workspace
     (`github_installation`: the installation, its workspace, the GitHub
     account it is on, who connected it and when), the GitHub App's key and the
-    tokens minted from it (no table yet). The repositories an installation
-    covers are not kept: they are company information, and GitHub is asked
-    for them each time;
-  - webhook intake, with the bodies dropped (no table yet);
+    tokens minted from it (`github_token_mint`: each mint's workspace,
+    installation, purpose, repositories by their GitHub ids, permissions,
+    and when it was minted and expires; never the token, and never a
+    repository's name). The repositories an installation covers are not kept:
+    they are company information, and GitHub is asked for them each time;
+  - webhook intake (14.2, CON-70), which stores nothing: each delivery is
+    checked, passed on to the cell of the workspace that holds its
+    installation, and dropped. What an event says is company content, so the
+    cell keeps it, and it is the cell that records a delivery once by its id.
+    Only the routing it needs is read here, from what is already on this
+    list (`github_installation`, `organization`);
   - the outbox (6.1, CON-52): each change a workspace's cell must hear
     about, and how its delivery went (`outbox_message`). It may live here
     because it holds nothing that is not already on this list: a workspace's
@@ -251,9 +288,10 @@ afterwards:
 
 - `WorkspaceStore.create` writes it only when it makes the row, and every
   store reads back only a listed region (`regionOf`);
-- no route changes a workspace: Consola's routes make and switch, and Better
-  Auth's are closed. Its organisation plugin also declares the region with
-  `input: false`, so nothing it would accept carries one;
+- no route moves a workspace: Consola's routes make and switch, and set an
+  icon, which writes `logo` alone; Better Auth's are closed. Its organisation
+  plugin also declares the region with `input: false`, so nothing it would
+  accept carries one;
 - a new route or hook that writes `organization` must leave `region` alone, and
   `src/app.test.ts` checks that no route moves it.
 
@@ -331,7 +369,9 @@ removing one (`member.removed`). So the outbox holds every change that
 committed, and none that did not. Nothing else writes `organization` or
 `member`: a new store that changes either calls it inside its own
 transaction, then tells `messageWritten` once that commits, so the worker
-wakes.
+wakes. The one exception is `WorkspaceStore.setIcon`, which writes
+`organization.logo` alone: no cell holds an icon, so there is no message to
+commit with it. A change a cell must hear about never goes that way.
 
 **Proposed** (6.1, CON-52), not yet confirmed:
 
@@ -506,6 +546,128 @@ each before anything trusts the redirect:
 
 No token, code, client secret or key is ever logged: a failed call logs what
 it was and GitHub's status. `describeStartupFailure` hides the client secret.
+
+## Webhooks
+
+The GitHub App's webhooks reach `POST /api/github/webhooks` (14.2, CON-70;
+`postGitHubWebhook` in the contract, `adapters/http/webhooks.ts`). In
+development a Cloudflare tunnel brings them to this machine (decided
+2026-11-22; `README.md`, "Receive GitHub's webhooks"). Nothing is deployed.
+
+- **In the contract, not outside it.** GitHub is the only caller, and it
+  calls through no generated client, but every answer the route gives is
+  Consola's own, so it is declared, typed and checked like any other route,
+  as the callback is. `OUTSIDE_THE_CONTRACT` stays for what Consola does not
+  answer itself. The request is declared only in words (`description`): a
+  body or header schema would make the library parse them before the
+  signature is checked.
+- **The signature comes first.** `GITHUB_WEBHOOK_SECRET` is optional, at
+  least 32 characters, and never logged (`describeStartupFailure` hides it);
+  with none set, every delivery is 503 `webhooks_not_configured`. A body over
+  `GITHUB_PAYLOAD_MAX_BYTES` (GitHub's own cap) is 413 `too_large` before it
+  is read. Then `receiveGitHubWebhook` checks `X-Hub-Signature-256`, the
+  HMAC-SHA256 of the body's bytes as they arrived, compared in constant time
+  (`timingSafeEqual`, `webhookSignatures.ts`), before it reads a header or
+  parses the body: unsigned, mis-signed or changed is 401 `bad_signature`.
+  GitHub's SHA-1 `X-Hub-Signature` is never read.
+- **Then, in order:** the headers and the body (400 `invalid_delivery`: no
+  `X-GitHub-Event` or `X-GitHub-Delivery`, ones GitHub does not write, or a
+  body that is no JSON object); GitHub's `ping`, answered 200 `pong` and passed
+  to no cell; the installation the payload names (`installationOfEvent`) and
+  the workspace that holds it (`InstallationStore.holderOf`), where an event
+  through none, or through one no workspace holds (installed on GitHub but
+  never connected, or disconnected), is dropped and logged, 422
+  `no_installation` or `unknown_installation`; and the workspace's region's
+  cell (503 `cell_not_configured` without one).
+- **Passed on, never kept.** The event goes to the cell signed like an outbox
+  message, typed `GITHUB_EVENT_TYPE` (`signGitHubEvent`,
+  `createCellEventDelivery`; `packages/cloud-contract`, "Passing on a GitHub
+  event"), while GitHub waits: `EVENT_DELIVERY_TIMEOUT_MS` (8 s) of GitHub's
+  10. Nothing of it is written here, so there is nothing to retry from: a cell
+  that does not take it is 502 `cell_unavailable`, and GitHub's Redeliver,
+  which keeps the delivery's id, sends it again.
+- **A delivery is recorded once, by the cell.** It keys each event by the
+  workspace and `X-GitHub-Delivery`, so a delivery it has already (GitHub's
+  Redeliver after a success, or a captured delivery replayed) changes
+  nothing, and the route answers 409 `duplicate_delivery`. GitHub signs the
+  body only, not its headers, so a captured body replayed under a new
+  delivery id would check; TLS on the tunnel is what keeps a delivery from
+  being captured.
+- **What is logged** is one line per delivery (`webhookLine`): ids, the
+  event's name, the installation, the workspace and the cell's status. A
+  delivery's id and event are logged only once its signature checks. Never
+  the body, a signature or the secret.
+
+## GitHub tokens
+
+`cloud-global` holds the GitHub App's key, so it alone mints installation
+tokens, and each one is narrowed to the repositories and permissions it is
+needed for (decided 2026-11-21; 14.3, CON-71). The cell holds the work a token
+is for, a factory pulled from a repository (9.4) or saved to one (37.2), or a
+run (epic 21), so the cell asks. The request's shape is the contract's
+(`packages/cloud-contract/AGENTS.md`, "A cell's request for a GitHub token").
+
+**Proposed** (14.3, CON-71), not yet confirmed:
+
+- **The route.** `POST /api/github/tokens` `{ request }`, where `request` is
+  the cell's signed request, answers 201
+  `{ token, expiresAt, repositories, permissions }` with
+  `Cache-Control: no-store`: `expiresAt` in whole seconds, `repositories` as
+  `{ id, fullName }` (GitHub's names now, which the cell uses to call GitHub),
+  and `permissions` exactly the purpose's, plus the metadata read GitHub gives
+  every token. A cell calls it, never a browser, so it is registered before
+  the origin check and reads no session.
+- **A cell signs with a key of its own.** Each region's cell has an Ed25519
+  key pair. Its public half is `CELL_PUBLIC_KEY_<REGION>` here
+  (`cellKeyVariable`), a JWK on one line, optional like `CELL_URL_<REGION>`:
+  a region with none can ask for nothing. `config.ts` refuses a key with a
+  private part (`d`), one key for two cells, and `cloud-global`'s own cell
+  token key, so nothing `cloud-global` signs passes for a cell's request.
+  `cellRequestVerifier.ts` picks the key by `kid` (its thumbprint), allows
+  `EdDSA` alone and only the request's `typ`, and the key that checks says
+  which region's cell asked. Its private half is the cell's, configured there
+  when the cell first asks (9.4).
+- **The purposes fix the permissions** (`TOKEN_PURPOSES`): `review-run`,
+  contents read and pull requests write, for at most 10 repositories;
+  `factory-pull`, contents read, and `factory-save`, contents write, each for
+  exactly one. The request names a purpose, never permissions. Pulling a
+  factory gets a read-only token: only saving writes.
+- **What is checked, in order, before anything is minted**
+  (`mintGitHubToken`): the signature (401 `unsigned`); the contract's reader,
+  times included (400 `unreadable`, its reason logged); the purpose's rules:
+  at least one repository, never a whole installation, no more than it
+  allows, none twice (400 `invalid_token_request`, every problem named); the
+  workspace holds the installation, read from `github_installation`, so one
+  workspace never gets a token for another's installation, even in the same
+  region (404 `installation_not_found`); the workspace is in the signing
+  cell's region (403 `other_region`); this server has the app (503
+  `github_not_configured`); GitHub still has the installation (410
+  `installation_gone`); and the installation covers every repository, as
+  GitHub lists it (the list `GET /api/connections` reads, reused for a minute)
+  (403 `repository_not_covered`, naming each by id).
+- **GitHub's answer is checked too.** The mint asks for `repository_ids` and
+  `permissions` (`mintToken`), and a token is handed out only when GitHub
+  says it carries exactly those repositories and permissions, plus metadata
+  read (`grantedAsAsked`). Anything else is revoked (`DELETE
+  /installation/token`) and answered 503 `github_unavailable`. GitHub refusing
+  the scope (422: a permission the app lacks, or a repository it stopped
+  covering) is 403 `scope_refused`. Each token is a new one: never kept, never
+  reused, never the one the repositories are listed with.
+- **Every token handed out is recorded first** (`github_token_mint`): the
+  workspace, installation, purpose, repository ids, permissions, and when it
+  was minted and expires. One that cannot be recorded is revoked, and the
+  request fails. Repositories are recorded by id: their names are the
+  company's, and stay on GitHub and in the cell. There is no foreign key: a
+  record outlives the installation and the workspace it speaks of.
+- **Checked against GitHub** on 2026-11-22 with the development app: a token
+  narrowed to one repository read it (200) and got 404 for another private
+  repository of the same installation, listed one repository, could not write
+  with read (403), and was 401 once revoked; a repository of another
+  installation was 422. The HTTP suite replays those answers.
+- **What this does not do yet.** A signed request can be used again within
+  its minute, and mints another token for the same scope: single use would
+  need its id recorded. The cell that asks says nothing of who or what asked
+  (a person, a factory, a run): that stays in the cell, beside the work.
 
 ## Tests
 

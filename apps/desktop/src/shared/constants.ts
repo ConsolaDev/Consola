@@ -192,11 +192,14 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_GET_STEP_DETAIL: 'automations:get-step-detail', // One step's record, definition, command.json and log tails
   AUTOMATIONS_READ_STEP_LOG: 'automations:read-step-log', // One step log, up to the 1 MB it holds
   AUTOMATIONS_READ_ARTIFACT: 'automations:read-artifact', // One declared artifact of a step's latest attempt
+  AUTOMATIONS_OPEN_RUN_CHECKOUT: 'automations:open-run-checkout', // A run's own checkout in the file manager, only that (slice 3-B)
   AUTOMATIONS_READ_STEP_CONVERSATION: 'automations:read-step-conversation', // A step's part of its transcript, read from disk
   AUTOMATIONS_ALLOW: 'automations:allow', // A person lets a poll entry's check command run, at one version
   AUTOMATIONS_LIST_RUN_TARGETS: 'automations:list-run-targets', // The items Run on… offers an automation
   AUTOMATIONS_RETRY: 'automations:retry', // Retry a failed steps run from its failed step
   AUTOMATIONS_CHECK_SERVER: 'automations:check-server', // Check server: start a factory server once, on a person's press, and list its tools
+  AUTOMATIONS_GET_GATE: 'automations:get-gate', // A waiting or answered gate's question, material and choices
+  AUTOMATIONS_ANSWER_GATE: 'automations:answer-gate', // A person's answer to a run's gate
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot

@@ -143,7 +143,6 @@ automations:
   });
 
   it.each([
-    ['repos', '[catalog-portal]', '`repos` arrives with write steps; it is not supported yet.'],
     ['policy', '{}', '`policy` arrives with shared factories; it is not supported yet.'],
     ['library', 'x', '`library` arrives with shared factories; it is not supported yet.'],
     ['defaults', '{}', '`defaults` arrives with shared factories; it is not supported yet.'],
@@ -283,6 +282,57 @@ automations:
   });
 });
 
+describe('repos: (slice 3-B)', () => {
+  const messages = (yaml: string) => parseFactoryYml(yaml).issues.map((issue) => issue.message);
+
+  it('reads repos:', () => {
+    expect(
+      parseFactoryYml('version: 1\nrepos: [sprocket/catalog-portal]\nautomations: []\n').repos,
+    ).toEqual(['sprocket/catalog-portal']);
+    expect(parseFactoryYml('version: 1\nautomations: []\n').repos).toEqual([]);
+  });
+
+  it.each([
+    ['repos: [catalog-portal]', 'is a repository as `owner/name`'],
+    ['repos: [a/b, A/B]', '`A/B` is listed twice in `repos:`.'],
+    ['repos: [A/B, a/b]', '`a/b` is listed twice in `repos:`.'],
+    [
+      `repos: [${Array.from({ length: 51 }, (_, i) => `o/r${i}`).join(', ')}]`,
+      '`repos:` lists at most 50 repositories.',
+    ],
+    // Beyond the plan's rows: not a list, and an entry that is not text.
+    ['repos: sprocket/catalog-portal', '`repos:` lists repositories as `owner/name`'],
+    ['repos: [7]', 'is a repository as `owner/name`'],
+  ])('refuses %s', (yaml, words) =>
+    expect(messages(`version: 1\n${yaml}\nautomations: []\n`)).toContainEqual(
+      expect.stringContaining(words),
+    ),
+  );
+
+  it('points at the entry, loads nothing, as for any problem with the file as a whole', () => {
+    const result = parseFactoryYml(
+      'version: 1\nrepos:\n  - sprocket/catalog-portal\n  - catalog-portal\nautomations: []\n',
+    );
+    expect(result.unreadable).toBe(true);
+    expect(result.repos).toEqual([]);
+    expect(result.issues).toEqual([
+      {
+        message:
+          'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`.',
+        path: 'repos[1]',
+        line: 4,
+        file: 'factory.yml',
+      },
+    ]);
+  });
+
+  it('takes 50, and an empty list', () => {
+    const fifty = Array.from({ length: 50 }, (_, i) => `o/r${i}`).join(', ');
+    expect(parseFactoryYml(`version: 1\nrepos: [${fifty}]\nautomations: []\n`).issues).toEqual([]);
+    expect(parseFactoryYml('version: 1\nrepos: []\nautomations: []\n').repos).toEqual([]);
+  });
+});
+
 describe('parseFactoryYml', () => {
   it('reads factory.yml as the folder does: agent steps kept, every automation and issue with its file', () => {
     const result = parseFactoryYml(`version: 1
@@ -306,6 +356,8 @@ automations:
     expect(result.entryPath('other')).toBeUndefined();
     expect(result.entryNames).toEqual(['investigate', 'bad']);
     expect(result.lineAt(['automations', 0, 'steps', 0, 'agent'])).toBe(6);
+    expect(result.rangeAt(['automations', 0, 'steps', 0])).toMatchObject({ start: 6 });
+    expect(result.rangeAt(['automations', 2])).toBeUndefined();
   });
 
   it('is unreadable when the YAML does not parse or its envelope fails, not for an entry', () => {

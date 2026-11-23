@@ -4,7 +4,7 @@ import { MAX_IF_LENGTH } from './expression';
 import { isStepsEntry } from './schema';
 import { callArguments, interpretedNotice, usesNotices, type CallArgument } from './callArguments';
 import { secretTemplateReason } from './secrets';
-import { laterKeyMessage, type Step } from './steps';
+import type { StepEntry } from './steps';
 import {
   DEFAULT_CALL_TIMEOUT_MS,
   ENTRY_USES_REASON,
@@ -24,7 +24,7 @@ const entry = (...items: string[]) =>
   );
 const issuesOf = (result: ReturnType<typeof entry>) =>
   result.ok ? [] : result.issues.map(({ message, path }) => ({ message, path }));
-const stepsOf = (result: ReturnType<typeof entry>): Step[] => {
+const stepsOf = (result: ReturnType<typeof entry>): StepEntry[] => {
   if (!result.ok) throw new Error(JSON.stringify(result.issues));
   if (!isStepsEntry(result.automation)) throw new Error('not a steps entry');
   return result.automation.steps;
@@ -221,13 +221,19 @@ describe('a uses: step', () => {
       'reads: [brief.handover]',
       'A tool reads nothing from the run: pass what it needs in `with:`.',
     ],
-    ['gate: confirm', laterKeyMessage('gate')],
-    ['repeat: 3', laterKeyMessage('repeat')],
+    ['gate: confirm', 'A step names one thing to do; got uses and gate.'],
     ['colour: red', 'Unrecognized key in a step: colour.'],
     ['toString: x', 'Unrecognized key in a step: toString.'],
   ])('refuses %s beside uses:, at its key', (line, message) => {
     const key = line.split(':')[0];
     expect(issuesOf(call(`  ${line}`))).toEqual([{ message, path: `steps[0].${key}` }]);
+  });
+
+  it('reads repeat: beside uses: as a loop, which takes no uses: of its own (slice 3)', () => {
+    expect(issuesOf(call('  repeat: 3'))).toContainEqual({
+      message: 'Unrecognized key in a loop: uses.',
+      path: 'steps[0].uses',
+    });
   });
 
   it('reads id and if exactly as an agent step does (one reader)', () => {

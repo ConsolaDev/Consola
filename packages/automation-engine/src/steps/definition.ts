@@ -2,6 +2,7 @@ import type {
   AgentDefinition,
   ArgumentTrust,
   CallArgument,
+  EnvironmentDefinition,
   McpServerDefinition,
   Step,
   StepRun,
@@ -9,6 +10,7 @@ import type {
 } from '@consola/factory-spec';
 import type { CheckoutKind } from '../ports';
 import type { ServerFacts } from '../servers/serverFacts';
+import type { WriteBlocks } from '../views';
 
 /**
  * What a step's agent requires, as its run's definition keeps it: the agent
@@ -37,10 +39,49 @@ export interface AgentRequirements {
    */
   mcpServers: Array<{ name: string; tools?: string[]; knownTools?: string[] }>;
   skills: string[];
+  /** A write agent's `tools:` (slice 3-B); absent, the agent is read-only. */
+  tools?: 'edit' | 'write';
+  /** A write agent's environment, as the version covers it; absent on a read-only agent. */
+  environment?: RunEnvironment;
 }
 
-/** An agent file's requirements: its `harness:` as `harnessId`, the rest as written, each absent key absent. */
-export function agentRequirements(agent: AgentDefinition): AgentRequirements {
+/** `environments/<name>.yaml` as a run's definition keeps it: what a write agent's launch holds it to. */
+export interface RunEnvironment {
+  name: string;
+  isolation: 'host' | 'sandbox';
+  network: string[];
+  env: string[];
+  /** `environmentHash`: what the entry's version covers of it. */
+  hash: string;
+}
+
+/** An environment as a run's definition keeps it, each list its own copy. */
+export function runEnvironment(environment: EnvironmentDefinition): RunEnvironment {
+  return {
+    name: environment.name,
+    isolation: environment.isolation,
+    network: [...environment.network],
+    env: [...environment.env],
+    hash: environment.hash,
+  };
+}
+
+/**
+ * An agent file's requirements: its `harness:` as `harnessId`, the rest as
+ * written, each absent key absent. A write agent also carries its `tools`
+ * and the environment it names, from `environments` (slice 3-B); a
+ * read-only agent's requirements are what they were before write agents.
+ */
+export function agentRequirements(
+  agent: AgentDefinition,
+  environments?: Readonly<Record<string, EnvironmentDefinition>>,
+): AgentRequirements {
+  const environment =
+    agent.environment !== undefined &&
+    environments !== undefined &&
+    Object.prototype.hasOwnProperty.call(environments, agent.environment)
+      ? environments[agent.environment]
+      : undefined;
   return {
     name: agent.name,
     hash: agent.hash,
@@ -54,6 +95,10 @@ export function agentRequirements(agent: AgentDefinition): AgentRequirements {
       ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
     })),
     skills: [...agent.skills],
+    ...(agent.tools !== 'read-only' ? { tools: agent.tools } : {}),
+    ...(agent.tools !== 'read-only' && environment
+      ? { environment: runEnvironment(environment) }
+      : {}),
   };
 }
 
@@ -130,13 +175,25 @@ export interface CallView {
 }
 
 /**
+ * A run's definition as main hands it to the approval card: the snapshot,
+ * and its flow lines (`describeFlow`) computed when read, never written to
+ * the run folder.
+ */
+export type RunDefinitionView = RunDefinition & {
+  flow: string[];
+  /** What its write agents can change, read, reach and run (`describeWrites`, slice 3-B Task 21); absent when nothing writes. */
+  writes?: WriteBlocks;
+};
+
+/**
  * What a `steps:` run will do, kept on its run as `result`: which steps, and
  * the item or scope it is about. Light, so history's cap never blanks an
  * approval; what each step says is in the run folder's definition.
  */
 export interface StepsRunPreview {
   kind: 'steps-run';
-  steps: Array<{ id: string; kind: StepRun['kind'] }>;
+  /** Record order: a loop's row (`repeat`), then its steps, each with `loop`, its loop's id. */
+  steps: Array<{ id: string; kind: StepRun['kind']; loop?: string }>;
   /** The item an event run is about. Title and author are the author's own text. */
   item?: { url: string; title: string; author: string; label: string };
   /** A scheduled run's scope. */
@@ -226,4 +283,12 @@ export interface StepDetail {
   call?: CallFile;
   result?: CallResultFile;
   serverLog?: LogTail;
+  /**
+   * What a write step's failed attempt changed, kept as its `changes.patch`
+   * (slice 3-B): the latest attempt's that holds one, its last
+   * `MAX_ARTIFACT_BYTES`. Absent when none does.
+   */
+  changes?: LogTail & { attempt: number };
+  /** Its path artifacts (slice 3-B), each path rendered for the run's item, as the run page titles them. Absent when it has none. */
+  paths?: Array<{ name: string; path: string }>;
 }

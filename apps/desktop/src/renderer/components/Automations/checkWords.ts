@@ -43,9 +43,21 @@ export function pollRunsEmptyWords(
   return `It checks every ${view.check?.every ?? 'so often'}, and ${does} for what is new or changed. Check now looks right away.`;
 }
 
-/** The items a check left out because their repository is not here; null when none. */
-export function skippedWords(skipped: number): string | null {
-  return skipped > 0 ? `${skipped} skipped: their repositories are not in this workspace` : null;
+/**
+ * The items a check left out because their repository is not here; null
+ * when none. `why`, when the engine gives one reason for them all (an own
+ * checkout's repository not cloned, the 3-B code review's F8), is named.
+ */
+export function skippedWords(skipped: number, why?: string): string | null {
+  if (skipped <= 0) return null;
+  return why !== undefined
+    ? `${skipped} skipped: ${why.replace(/\.$/, '')}`
+    : `${skipped} skipped: their repositories are not in this workspace`;
+}
+
+/** Why an entry runs nothing now: its own checkout's repository is not cloned (F8). */
+export function notClonedWords(notCloned: string): string {
+  return `Runs nothing: ${notCloned}`;
 }
 
 /** The banner above the Allow card. */

@@ -120,7 +120,7 @@ export function TeamCard({
                     <Ellipsis size={16} aria-hidden="true" />
                   </button>
                 </DropdownMenu.Trigger>
-                <DropdownMenu.Content align="end" size="1" container={menuHost}>
+                <DropdownMenu.Content align="end" size="2" container={menuHost}>
                   <DropdownMenu.Item onSelect={() => setMode('rename')}>Rename…</DropdownMenu.Item>
                   {!team.first && (
                     <DropdownMenu.Item color="red" onSelect={() => setMode('delete')}>
@@ -191,7 +191,7 @@ export function TeamCard({
                       void run(() => teamsService.removeTeamMember(ws, team.id, personId))
                     }
                   >
-                    <X size={14} aria-hidden="true" />
+                    <X size={16} aria-hidden="true" />
                   </button>
                 )}
               </li>
@@ -205,13 +205,13 @@ export function TeamCard({
           <DropdownMenu.Root>
             <DropdownMenu.Trigger disabled={pending || addable.length === 0}>
               <button type="button" className="settings-button">
-                <UserPlus size={14} aria-hidden="true" />
+                <UserPlus size={16} aria-hidden="true" />
                 {addable.length === 0 ? 'Everyone is in this team' : 'Add member'}
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Content
               align="start"
-              size="1"
+              size="2"
               className="teams-add-menu"
               container={menuHost}
             >

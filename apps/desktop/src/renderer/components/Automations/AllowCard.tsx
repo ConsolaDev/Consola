@@ -10,6 +10,7 @@ import { EntrySource } from './AutomationPipeline';
 import { CallLines, ServerLines } from './CallLines';
 import { allowAgentSections, allowNotes, grantWords } from './checkWords';
 import { useIntent } from './parts';
+import { WritesBlock } from './WritesBlock';
 import { SecretLines, useEntrySecrets } from './SecretLines';
 
 /**
@@ -86,6 +87,16 @@ export function AllowCard({
           </p>
         ))}
         <SecretLines workspaceId={workspaceId} automation={automation.name} />
+        {/* What it writes (slice 3-B): its checkout, its write agents, the commands after them. */}
+        <WritesBlock view={automation} />
+        {/* How each run flows (`describeFlow`): its loops, gates, retries and budget. */}
+        {automation.flow && automation.flow.length > 0 && (
+          <div className="automations-approval-flow" role="group" aria-label="How a run flows">
+            {automation.flow.map((line) => (
+              <p key={line}>{line}</p>
+            ))}
+          </div>
+        )}
       </div>
       <EntrySource
         workspaceId={workspaceId}

@@ -3,7 +3,13 @@ import { automationFileText } from './edit';
 import { parseAutomationEntry } from './entry';
 import { parseFactory, type FactoryFiles, type FactoryParseResult } from './factory';
 import { parseFactorySpec } from './parse';
-import { automationVersion, stableStringify, stepsResolvedBody } from './run';
+import {
+  automationVersion,
+  type RunRecord,
+  stableStringify,
+  stepsResolvedBody,
+  TERMINAL_RUN_STATUSES,
+} from './run';
 import { isStepsEntry, type Automation } from './schema';
 import type { SkillFileEntry } from './skills';
 
@@ -37,6 +43,49 @@ const withArgs = (args: Record<string, unknown>): Automation => ({
   ...tool,
   run: { ...(tool.run as Extract<Automation['run'], { kind: 'tool' }>), with: args },
 });
+
+/**
+ * review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), pasted here because
+ * factory-spec imports nothing from the engine. Its version is pinned at 6dfd57fa0f97c2ff.
+ */
+const PR_A_REVIEW_YAML = String.raw`- name: review-assigned-prs
+  on: { github: [pull_request.review_requested, pull_request.assigned] }
+  filter: { authors_not: ["dependabot[bot]"] }
+  mode: auto
+  steps:
+    - id: fresh
+      run: |
+        reviewed=$(gh api graphql -f url="$PR" -f query='
+          query($url: URI!) { resource(url: $url) { ... on PullRequest {
+            viewerLatestReview { commit { oid } } } } }' \
+          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
+        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
+        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
+      env: { PR: "{{item.url}}" }
+      outputs: { needed: boolean }
+      dry_run: run
+    - id: review
+      if: steps.fresh.needed
+      prompt: >-
+        Review this pull request. Read it with Consola's work_item_context tool, and read the changed files
+        in this folder where it helps. Write your review as your handover, in Markdown, addressed to the
+        author and under 60,000 characters: what it changes, then each finding with its file and line.
+        Then set verdict: approve if you would merge it as it is, request-changes if something must change
+        first, comment otherwise.
+      outputs:
+        verdict: { enum: [approve, comment, request-changes] }
+    - id: publish
+      if: steps.fresh.needed
+      run: |
+        event=COMMENT
+        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        VERDICT: "{{steps.review.verdict}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`;
 
 describe('automationVersion', () => {
   it('is stable across key order and absent values', () => {
@@ -105,47 +154,7 @@ describe('automationVersion', () => {
   });
 
   it('keeps the steps template hash taken at PR A', () => {
-    // review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), pasted here because
-    // factory-spec imports nothing from the engine.
-    const entry = String.raw`- name: review-assigned-prs
-  on: { github: [pull_request.review_requested, pull_request.assigned] }
-  filter: { authors_not: ["dependabot[bot]"] }
-  mode: auto
-  steps:
-    - id: fresh
-      run: |
-        reviewed=$(gh api graphql -f url="$PR" -f query='
-          query($url: URI!) { resource(url: $url) { ... on PullRequest {
-            viewerLatestReview { commit { oid } } } } }' \
-          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
-        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
-        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
-      env: { PR: "{{item.url}}" }
-      outputs: { needed: boolean }
-      dry_run: run
-    - id: review
-      if: steps.fresh.needed
-      prompt: >-
-        Review this pull request. Read it with Consola's work_item_context tool, and read the changed files
-        in this folder where it helps. Write your review as your handover, in Markdown, addressed to the
-        author and under 60,000 characters: what it changes, then each finding with its file and line.
-        Then set verdict: approve if you would merge it as it is, request-changes if something must change
-        first, comment otherwise.
-      outputs:
-        verdict: { enum: [approve, comment, request-changes] }
-    - id: publish
-      if: steps.fresh.needed
-      run: |
-        event=COMMENT
-        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
-        gh api "repos/$REPO/pulls/$NUMBER/reviews" \
-          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
-      env:
-        REPO: "{{item.repo}}"
-        NUMBER: "{{item.number}}"
-        VERDICT: "{{steps.review.verdict}}"
-        BODY_FILE: "{{steps.review.handover.file}}"`;
-    const parsed = parseAutomationEntry(entry);
+    const parsed = parseAutomationEntry(PR_A_REVIEW_YAML);
     if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
     expect(automationVersion(parsed.automation)).toBe('6dfd57fa0f97c2ff');
   });
@@ -416,45 +425,59 @@ describe('stepsResolvedBody', () => {
 
 describe('stepsResolvedBody with servers (5a-2)', () => {
   it('is exactly today’s result when no server is used', () => {
-    expect(stepsResolvedBody({}, {}, { servers: {} })).toBe(stepsResolvedBody({}, {}));
+    expect(stepsResolvedBody({}, {}, undefined, { servers: {} })).toBe(stepsResolvedBody({}, {}));
     expect(stepsResolvedBody({}, {}, undefined)).toBe(stepsResolvedBody({}, {}));
-    expect(stepsResolvedBody({}, {}, { servers: {} })).toBeUndefined();
-    expect(stepsResolvedBody({ a: 'body' }, {}, { servers: {} })).toBe(
+    expect(stepsResolvedBody({}, {}, undefined, { servers: {} })).toBeUndefined();
+    expect(stepsResolvedBody({ a: 'body' }, {}, undefined, { servers: {} })).toBe(
       stepsResolvedBody({ a: 'body' }, {}),
     );
-    expect(stepsResolvedBody({ a: 'body' }, { x: 'h' }, { servers: {} })).toBe(
+    expect(stepsResolvedBody({ a: 'body' }, { x: 'h' }, undefined, { servers: {} })).toBe(
       stepsResolvedBody({ a: 'body' }, { x: 'h' }),
     );
   });
 
   it('holds a server’s hash under servers, each key only when used', () => {
-    expect(stepsResolvedBody({}, {}, { servers: { slack: 'aaaa' } })).toBe(
+    expect(stepsResolvedBody({}, {}, undefined, { servers: { slack: 'aaaa' } })).toBe(
       '{"servers":{"slack":"aaaa"}}',
     );
-    expect(stepsResolvedBody({ review: 'R' }, {}, { servers: { slack: 'aaaa' } })).toBe(
+    expect(stepsResolvedBody({ review: 'R' }, {}, undefined, { servers: { slack: 'aaaa' } })).toBe(
       '{"actions":{"review":"R"},"servers":{"slack":"aaaa"}}',
     );
   });
 
-  it('pins the shape with actions, agents and servers (the merge adds environments)', () => {
+  it('pins the shape with actions, agents and servers, and with environments the four keys', () => {
+    expect(
+      stepsResolvedBody({ review: 'R' }, { briefer: 'h1' }, undefined, {
+        servers: { tracker: 'bbbb', slack: 'aaaa' },
+      }),
+    ).toBe(
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"servers":{"slack":"aaaa","tracker":"bbbb"}}',
+    );
     expect(
       stepsResolvedBody(
         { review: 'R' },
         { briefer: 'h1' },
+        { sandboxed: 'eeee' },
         { servers: { tracker: 'bbbb', slack: 'aaaa' } },
       ),
     ).toBe(
-      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"servers":{"slack":"aaaa","tracker":"bbbb"}}',
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"environments":{"sandboxed":"eeee"},"servers":{"slack":"aaaa","tracker":"bbbb"}}',
+    );
+    // An environment alone keeps slice 3-B's three-key shape.
+    expect(stepsResolvedBody({ review: 'R' }, { briefer: 'h1' }, { sandboxed: 'eeee' })).toBe(
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"environments":{"sandboxed":"eeee"}}',
     );
   });
 
-  it('takes the servers in an options object, never as a third record', () => {
-    // Compiled, never called: the typecheck fails on an unused `@ts-expect-error` if either compiles.
+  it("takes the servers in an options object, never in the environments' slot", () => {
+    // Compiled, never called: the typecheck fails on an unused `@ts-expect-error` if any compiles.
     const typeOnly = (serverHashes: Readonly<Record<string, string>>) => [
-      // @ts-expect-error a record in the third slot is slice 3's environments' type: it must not compile.
-      stepsResolvedBody({}, {}, serverHashes),
+      // @ts-expect-error the servers' options object in the third slot, the environments' record, must not compile.
+      stepsResolvedBody({}, {}, { servers: serverHashes }),
+      // @ts-expect-error a bare record in the options slot is no options object.
+      stepsResolvedBody({}, {}, undefined, serverHashes),
       // @ts-expect-error an options object without `servers` is no options object.
-      stepsResolvedBody({}, {}, {}),
+      stepsResolvedBody({}, {}, undefined, {}),
     ];
     expect(typeof typeOnly).toBe('function');
   });
@@ -580,5 +603,282 @@ describe('the version with agents', () => {
     expect(inYml.automations[0].file).toBe('factory.yml');
     expect(inFile.automations[0].file).toBe('automations/investigate-alerts.yaml');
     expect(versionIn(inFile, 'investigate-alerts')).toBe(versionIn(inYml, 'investigate-alerts'));
+  });
+});
+
+describe('a parked run (slice 3, contract 2)', () => {
+  const SAMPLE_RUN: RunRecord = {
+    id: 'r1',
+    runner: 'local',
+    source: 'personal',
+    automationId: 'review-assigned-prs-gated',
+    actionName: 'steps',
+    actionVersion: 'v1',
+    mode: 'auto',
+    trigger: { kind: 'manual', at: '2026-11-22T09:59:00.000Z', by: 'person' },
+    status: 'running',
+    attribution: {
+      automationId: 'review-assigned-prs-gated',
+      actionName: 'steps',
+      triggerKind: 'manual',
+    },
+    createdAt: '2026-11-22T09:59:00.000Z',
+    updatedAt: '2026-11-22T10:00:00.000Z',
+  };
+
+  it('waiting is open, not terminal (contract 2)', () => {
+    expect(TERMINAL_RUN_STATUSES).toEqual(['completed', 'failed', 'rejected']);
+    const parked: RunRecord = {
+      ...SAMPLE_RUN,
+      status: 'waiting',
+      retryAt: '2026-11-22T10:42:00.000Z',
+      retried: 1,
+      waitingFor: { gate: { automation: 'review-assigned-prs-gated', run: 'r1', step: 'decide' } },
+      steps: [
+        {
+          id: 'decide',
+          kind: 'gate',
+          status: 'waiting',
+          attempt: 1,
+          gate: { askedAt: '2026-11-22T10:00:00.000Z' },
+        },
+        {
+          id: 'polish',
+          kind: 'repeat',
+          status: 'running',
+          attempt: 1,
+          round: 2,
+          max: 3,
+          note: 'x',
+        },
+        {
+          id: 'review',
+          kind: 'agent',
+          status: 'waiting',
+          attempt: 2,
+          round: 2,
+          retryAt: '2026-11-22T10:05:00.000Z',
+          retries: 1,
+          previous: [{ attempt: 1, status: 'completed', round: 1 }],
+        },
+        {
+          id: 'ask',
+          kind: 'gate',
+          status: 'completed',
+          attempt: 2,
+          outputs: { decision: 'approve' },
+          gate: {
+            askedAt: '2026-11-22T10:01:00.000Z',
+            decision: 'approve',
+            by: 'person',
+            at: '2026-11-22T10:02:00.000Z',
+          },
+          previous: [{ attempt: 1, status: 'completed', decision: 'comment' }],
+        },
+      ],
+    };
+    expect(JSON.parse(JSON.stringify(parked))).toEqual(parked);
+  });
+});
+
+describe('the version of what slice 3 adds (Task 5)', () => {
+  /** The parsed entry of `yaml`, written on its own (review M7). */
+  const parsedEntry = (yaml: string): Automation => {
+    const parsed = parseAutomationEntry(yaml);
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    return parsed.automation;
+  };
+  const LOOP_YAML = [
+    '- name: polished',
+    '  on: { github: pull_request.review_requested }',
+    '  mode: auto',
+    '  steps:',
+    '    - id: polish',
+    '      repeat: { max: 3, until: steps.review.findings == 0 }',
+    '      steps:',
+    '        - id: review',
+    '          prompt: Review it.',
+    '          outputs: { findings: integer }',
+    '    - id: decide',
+    '      gate: { ask: Post it? }',
+  ].join('\n');
+
+  it('hashes checkout, budget and on_failure only when written', () => {
+    const base = parsedEntry(PR_A_REVIEW_YAML);
+    expect(automationVersion(base)).toBe('6dfd57fa0f97c2ff');
+    for (const extra of [
+      { checkout: { pr: 'item' as const } },
+      { budget: { usd: 5 } },
+      { onFailure: { retry: 1 } },
+    ])
+      expect(automationVersion({ ...base, ...extra })).not.toBe('6dfd57fa0f97c2ff');
+    expect(automationVersion({ ...base, budget: { usd: 5 } })).not.toBe(
+      automationVersion({ ...base, budget: { usd: 6 } }),
+    );
+    expect(automationVersion({ ...base, onFailure: { retry: 1 } })).not.toBe(
+      automationVersion({ ...base, onFailure: { retry: 2 } }),
+    );
+  });
+
+  it('reads them from the file: the same keys written move the version, and parse to the same hash', () => {
+    const written = parsedEntry(
+      PR_A_REVIEW_YAML.replace(
+        '  mode: auto\n',
+        '  mode: auto\n  checkout: { pr: item }\n  budget: { usd: 5 }\n  on_failure: { retry: 1 }\n',
+      ),
+    );
+    expect(written).toMatchObject({
+      checkout: { pr: 'item' },
+      budget: { usd: 5 },
+      onFailure: { retry: 1 },
+    });
+    const base = parsedEntry(PR_A_REVIEW_YAML);
+    expect(automationVersion(written)).toBe(
+      automationVersion({
+        ...base,
+        checkout: { pr: 'item' },
+        budget: { usd: 5 },
+        onFailure: { retry: 1 },
+      }),
+    );
+  });
+
+  it("moves with a loop's bound and a gate's question, which steps carry", () => {
+    const looped = parsedEntry(LOOP_YAML);
+    expect(automationVersion(parsedEntry(LOOP_YAML.replace('max: 3', 'max: 4')))).not.toBe(
+      automationVersion(looped),
+    );
+    expect(automationVersion(parsedEntry(LOOP_YAML.replace('Post it?', 'Post it now?')))).not.toBe(
+      automationVersion(looped),
+    );
+  });
+});
+
+describe('a run-owned checkout in the version (slice 3-B, only added)', () => {
+  const ENTRY = (() => {
+    const parsed = parseAutomationEntry(
+      '- name: fix\n  on: manual\n  mode: auto\n  scope: app\n  steps:\n    - run: "true"\n',
+    );
+    if (!parsed.ok || !isStepsEntry(parsed.automation)) throw new Error('no entry');
+    const { scope: _scope, ...rest } = parsed.automation;
+    return rest;
+  })();
+
+  it('the checkout is in the version, repos: is not', () => {
+    const a = automationVersion({
+      ...ENTRY,
+      checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}' },
+    });
+    expect(a).not.toBe(automationVersion(ENTRY));
+    expect(
+      automationVersion({
+        ...ENTRY,
+        checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.number}}' },
+      }),
+    ).not.toBe(a);
+    expect(
+      automationVersion({
+        ...ENTRY,
+        checkout: { repo: 'sprocket/catalog-portal', branch: 'fix/{{item.key}}', from: 'release' },
+      }),
+    ).not.toBe(a);
+    // `repos:` lives on the file, not the entry: listing more repositories moves no version.
+    const yml = (repos: string) =>
+      `version: 1\nrepos: [${repos}]\nautomations:\n  - name: fix\n    on: manual\n    mode: auto\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n      - run: "true"\n`;
+    const versionOf = (text: string) => {
+      const [automation] = parseFactorySpec(text).automations;
+      return automationVersion(automation);
+    };
+    expect(versionOf(yml('sprocket/catalog-portal'))).toBe(
+      versionOf(yml('sprocket/catalog-portal, sprocket/other')),
+    );
+  });
+});
+
+describe('stepsResolvedBody with environments (slice 3-B, only added)', () => {
+  it('stepsResolvedBody is unchanged with no environment, and names one when given', () => {
+    expect(stepsResolvedBody({}, { a: 'h' })).toBe(stableStringify({ agents: { a: 'h' } }));
+    expect(stepsResolvedBody({}, { a: 'h' }, { e: 'x' })).toBe(
+      stableStringify({ agents: { a: 'h' }, environments: { e: 'x' } }),
+    );
+  });
+
+  it('is byte for byte what it was with an empty map of environments, and covers an action beside them', () => {
+    expect(stepsResolvedBody({ s: 'b' }, { a: 'h' }, {})).toBe(
+      stepsResolvedBody({ s: 'b' }, { a: 'h' }),
+    );
+    expect(stepsResolvedBody({ s: 'b' }, {}, {})).toBe(stableStringify({ s: 'b' }));
+    expect(stepsResolvedBody({}, {}, {})).toBeUndefined();
+    expect(stepsResolvedBody({ s: 'b' }, { a: 'h' }, { e: 'x' })).toBe(
+      stableStringify({ actions: { s: 'b' }, agents: { a: 'h' }, environments: { e: 'x' } }),
+    );
+    expect(stepsResolvedBody({}, { a: 'h' }, { e: 'x' })).not.toBe(
+      stepsResolvedBody({}, { a: 'h' }, { e: 'y' }),
+    );
+  });
+});
+
+describe('the records of a run-owned checkout (slice 3-B)', () => {
+  const SAMPLE_RUN_3B: RunRecord = {
+    id: 'r1',
+    runner: 'local',
+    source: 'personal',
+    automationId: 'ui-bug-to-pr',
+    actionName: 'steps',
+    actionVersion: 'v1',
+    mode: 'auto',
+    trigger: { kind: 'manual', at: '2026-11-22T09:59:00.000Z', by: 'person' },
+    status: 'running',
+    attribution: { automationId: 'ui-bug-to-pr', actionName: 'steps', triggerKind: 'manual' },
+    createdAt: '2026-11-22T09:59:00.000Z',
+    updatedAt: '2026-11-22T10:00:00.000Z',
+  };
+  it('a run-owned record round-trips, and slice 1 records read as before', () => {
+    const T0 = '2026-11-22T09:00:00.000Z';
+    const run: RunRecord = {
+      ...SAMPLE_RUN_3B,
+      checkout: {
+        cwd: '/w/catalog-portal-run-3f2a91c0',
+        scopeId: 's1',
+        kind: 'run-owned',
+        repo: 'sprocket/catalog-portal',
+        branch: 'fix/SHOP-42',
+        base: 'b',
+        head: 'h',
+        byPerson: [
+          { session: 's1', before: 'h', after: 'i', files: 1, flagged: ['.claude/x'], at: T0 },
+        ],
+        lastHolder: 's1',
+        removed: {
+          commit: 'h',
+          keepRef: 'refs/consola/worktrees/catalog-portal-run-3f2a91c0',
+          at: T0,
+        },
+      },
+      waitingFor: { session: 's1' },
+      steps: [
+        {
+          id: 'fix',
+          kind: 'agent',
+          status: 'completed',
+          attempt: 1,
+          tools: 'write',
+          checkout: { before: 'b', after: 'h', files: 2, flagged: [] },
+          environment: {
+            name: 'sandboxed',
+            isolation: 'sandbox',
+            cliVersion: '2.1.330',
+            passed: ['CI'],
+            missing: ['NPM_TOKEN'],
+          },
+        },
+      ],
+    };
+    expect(JSON.parse(JSON.stringify(run))).toEqual(run);
+    const slice1: RunRecord = {
+      ...SAMPLE_RUN_3B,
+      checkout: { cwd: '/w/catalog-portal-pr-51', scopeId: 's1', head: 'abc' },
+    };
+    expect(JSON.parse(JSON.stringify(slice1))).toEqual(slice1);
   });
 });

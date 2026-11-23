@@ -1,0 +1,143 @@
+/* What the Runs list and a run's page share: a run's status, drawn in the desktop's icon set and
+   colours (cyan at work, yellow only for what waits on a person, green done, red failed, grey
+   queued or stopped), the badge counting a request's automations, and who started a run. */
+
+.runs,
+.run-page {
+  /* The hover as a solid colour, for what must cover the row under it (a badge's ring). */
+  --row-hover-solid: color-mix(in srgb, rgb(17 17 17) 10%, var(--bg));
+}
+
+@media (prefers-color-scheme: dark) {
+  .runs,
+  .run-page {
+    --row-hover-solid: color-mix(in srgb, rgb(255 255 255) 10%, var(--bg));
+  }
+}
+
+.run-status {
+  --badge-ring: var(--bg);
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-3);
+}
+
+.run-status[data-look="running"] {
+  color: var(--cyan);
+}
+
+.run-status[data-look="needs-you"],
+.run-status[data-look="question"] {
+  color: var(--warning);
+}
+
+.run-status[data-look="completed"] {
+  color: var(--success);
+}
+
+.run-status[data-look="failed"] {
+  color: var(--danger);
+}
+
+.run-glyph {
+  display: block;
+  flex: none;
+}
+
+/* A run at work fills as it goes: the pie moves to where the run is now, once per change. */
+.run-glyph-pie {
+  transition: stroke-dasharray 500ms var(--ease-out-quart);
+}
+
+/* A run seen ending while the page was open: its check draws itself, once. */
+.run-glyph[data-ended] path {
+  stroke-dasharray: 10;
+  stroke-dashoffset: 10;
+  animation: run-check 420ms 60ms var(--ease-out-quart) forwards;
+}
+
+.run-glyph[data-ended] circle {
+  transform-origin: 12px 12px;
+  animation: run-check-ring 360ms var(--ease-out-expo) both;
+}
+
+@keyframes run-check {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+@keyframes run-check-ring {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+/* How many automations a request started, on its status's corner, ringed in the row's colour. */
+.run-status-badge {
+  position: absolute;
+  right: -6px;
+  bottom: -5px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 3px;
+  box-sizing: border-box;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-2) 42%, var(--bg));
+  box-shadow: 0 0 0 2px var(--badge-ring);
+  color: var(--bg);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+
+.run-status-badge[data-tone="running"] {
+  background: var(--cyan);
+  color: rgb(3 24 32);
+}
+
+.run-status-badge[data-tone="needs-you"] {
+  background: var(--warning);
+  color: rgb(34 24 4);
+}
+
+.run-status-badge[data-tone="failed"] {
+  background: var(--danger);
+  color: rgb(255 255 255 / 0.96);
+}
+
+/* Who started a run: a person's picture, or a mark for what started it. */
+.run-starter {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.run-starter-trigger {
+  justify-content: center;
+  width: var(--starter-size, 18px);
+  height: var(--starter-size, 18px);
+  border-radius: 50%;
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-glyph-pie {
+    transition: none;
+  }
+
+  .run-glyph[data-ended] path,
+  .run-glyph[data-ended] circle {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}

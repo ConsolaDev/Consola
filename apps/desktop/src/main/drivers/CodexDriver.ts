@@ -214,6 +214,11 @@ export class CodexDriver implements HarnessDriver {
     return { home, threadId, ...(rollout ? { rollout } : {}) };
   }
 
+  /** `CODEX_HOME`: what it pins, else the login environment's, else `~/.codex`. */
+  public profileDir(config: HarnessConfig, loginEnv: NodeJS.ProcessEnv = getLoginEnv()): string {
+    return config.configDir || loginEnv.CODEX_HOME || path.join(os.homedir(), '.codex');
+  }
+
   public resolveBinary(config: HarnessConfig): string {
     if (config.binaryPath) return config.binaryPath;
     const dirs = (getLoginEnv().PATH ?? '').split(path.delimiter).filter(Boolean);

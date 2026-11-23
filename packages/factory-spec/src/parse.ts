@@ -1,7 +1,16 @@
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, formatPath, nodeAt, toIssue, type FactorySpecIssue } from './issues';
+import {
+  closestNode,
+  formatPath,
+  linesAt,
+  nodeAt,
+  toIssue,
+  type FactorySpecIssue,
+  type LineRange,
+} from './issues';
 import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
 import { parseMcpServers, type McpServerDefinition } from './servers';
+import { flatSteps } from './steps';
 import { documentValue } from './yamlValue';
 
 export type { FactorySpecIssue };
@@ -17,6 +26,8 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   unreadable: boolean;
   /** The 1-based line of the node at `path`, or of its nearest ancestor that has one. */
   lineAt(path: Array<string | number>): number | undefined;
+  /** The lines the node at `path` is written on; undefined when there is no node there. */
+  rangeAt(path: Array<string | number>): LineRange | undefined;
   /**
    * Where the entry with this name is in the file, `['automations', <index>]`:
    * the one that loaded, else the first that has the name and failed.
@@ -30,6 +41,8 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   brokenServers: string[];
   /** Warnings about servers that are not issues (an unpinned package), each at its path from the file's root. */
   serverNotices: Array<{ message: string; path: Array<string | number> }>;
+  /** `repos:`, the repositories the factory may write (slice 3-B), as written; none when absent or the file is unreadable. */
+  repos: string[];
 }
 
 const FILE = 'factory.yml';
@@ -61,17 +74,20 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     automations: Automation[],
     issues: FactorySpecIssue[],
     unreadable: boolean,
+    repos: string[] = [],
   ): FactoryYmlResult => ({
     automations,
     issues: issues.map((issue) => ({ ...issue, file: FILE })),
     unreadable,
     lineAt,
+    rangeAt: (path) => linesAt(doc, lineOf, path),
     entryPath: (name) => {
       const index = indexes.get(name) ?? named.get(name);
       return index === undefined ? undefined : ['automations', index];
     },
     entryNames: [...named.keys()],
     ...servers,
+    repos,
   });
 
   if (doc.errors.length > 0) {
@@ -148,7 +164,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     automations.push({ ...parsed.data, ...(line ? { line } : {}), file: FILE });
   });
 
-  return result(automations, issues, false);
+  return result(automations, issues, false, envelope.data.repos ?? []);
 }
 
 /**
@@ -165,9 +181,10 @@ export function parseFactorySpec(text: string): FactorySpecParseResult {
   const automations: Automation[] = [];
   const issues = read.issues.map(withoutFile);
   for (const automation of read.automations) {
+    // A loop's steps too, each at its own line (`steps[i].steps[j].agent`).
     const agentSteps = isStepsEntry(automation)
-      ? automation.steps.flatMap((step, index) =>
-          step.kind === 'agent' && step.agent !== undefined ? [{ agent: step.agent, index }] : [],
+      ? flatSteps(automation.steps).flatMap(({ step, path }) =>
+          step.kind === 'agent' && step.agent !== undefined ? [{ agent: step.agent, path }] : [],
         )
       : [];
     if (agentSteps.length === 0) {
@@ -175,8 +192,8 @@ export function parseFactorySpec(text: string): FactorySpecParseResult {
       continue;
     }
     const base = read.entryPath(automation.name) ?? [];
-    for (const { agent, index } of agentSteps) {
-      const path = [...base, 'steps', index, 'agent'];
+    for (const { agent, path: at } of agentSteps) {
+      const path = [...base, 'steps', ...at, 'agent'];
       const line = read.lineAt(path);
       issues.push({
         message: `\`agent: ${agent}\` names agents/${agent}.md, and this factory.yml is read without its folder.`,

@@ -2,6 +2,7 @@ import { useRef } from 'react';
 import { sameWorkItem, workItemKey, workItemUrl } from '../../../shared/workItems';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
+import { offersFixInSession } from '../../infoPanel/environment';
 import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useInboxStore } from '../../stores/inboxStore';
@@ -108,7 +109,7 @@ export function WorkItemPanel({
         item={cached ?? standInItem(workItem)}
         onClose={onClose}
         currentSessionId={session.id}
-        fixInSession={session.toolPolicy === 'read-only' ? undefined : pasteIntoSession}
+        fixInSession={offersFixInSession(session) ? pasteIntoSession : undefined}
         active={active}
         landmark={false}
         reveal={reveal}

@@ -4,6 +4,7 @@ import { automationsBridge } from '../../../services/automationsBridge';
 import { useAutomationsStore } from '../../../stores/automationsStore';
 import { useNavigationStore } from '../../../stores/navigationStore';
 import { useIntent } from '../../Automations/parts';
+import { sidebarRunWaits } from '../../Automations/presentation';
 import { idOfKey } from '../../../sidebar/entries';
 import type { Entry } from '../../../sidebar/entry';
 import type { RowProps } from '../../../sidebar/rowRegistry';
@@ -15,7 +16,7 @@ export function activateRun(_workspaceId: string, entry: Entry): void {
 }
 
 /**
- * The row for a run waiting for approval: looks its run up by the entry's key,
+ * The row for a run waiting for approval, or for the person at a gate: looks its run up by the entry's key,
  * since an entry carries no payload. A run that is gone from the snapshot has
  * no row.
  */
@@ -58,7 +59,7 @@ export function RunRowBody({
   const detail = preview
     ? [preview.runs, preview.item?.label].filter(Boolean).join(' · ')
     : run.summary;
-  const name = `${title}${detail ? ` — ${detail}` : ''} — waiting for your approval`;
+  const name = `${title}${detail ? ` — ${detail}` : ''} — ${sidebarRunWaits(run)}`;
 
   return (
     <div

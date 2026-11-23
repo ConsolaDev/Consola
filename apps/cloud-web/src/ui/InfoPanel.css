@@ -1,0 +1,181 @@
+/* The desktop's info panel (`components/InfoPanel/styles.css`), in this app's tokens: sections
+   of short rows under a heading that folds them, 26px rows of 12px type with an 11.5px value at
+   their end, a 16px column for every icon so the labels line up. */
+
+.info-panel {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.info-section {
+  padding: 9px 4px 7px;
+  border-bottom: 1px solid var(--line);
+}
+
+.info-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px 3px;
+}
+
+.info-section-heading {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+/* The heading is the disclosure button: it folds the section. */
+.info-section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 1px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.info-section-toggle:hover {
+  color: var(--text);
+}
+
+.info-section-toggle:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.info-section-chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 100ms ease;
+}
+
+.info-section-toggle[aria-expanded="true"] .info-section-chevron {
+  transform: rotate(90deg);
+}
+
+.info-section-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.info-section-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* One row: an icon, what it is about, and a short value at its end. */
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 26px;
+  padding: 4px 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  text-align: left;
+  text-decoration: none;
+}
+
+.info-row[data-tone="muted"] {
+  color: var(--text-3);
+}
+
+.info-row[data-tone="error"],
+.info-row[data-tone="error"] .info-row-icon {
+  color: var(--danger);
+}
+
+.info-row[data-tone="warning"] .info-row-icon,
+.info-row[data-tone="warning"] .info-row-value {
+  color: var(--warning);
+}
+
+/* A row with a page behind it: a link, which is what takes the hover. */
+a.info-row {
+  cursor: pointer;
+}
+
+a.info-row:hover {
+  background: var(--hover);
+}
+
+a.info-row:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.info-row-icon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  color: var(--text-3);
+}
+
+.info-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.info-row-value {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Elsewhere: quiet until the row is pointed at. */
+.info-row-out {
+  flex: none;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+a.info-row:hover .info-row-out,
+a.info-row:focus-visible .info-row-out {
+  opacity: 1;
+}
+
+/* A quiet state: one muted sentence, wrapped. */
+.info-quiet {
+  margin: 0;
+  padding: 4px 8px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .info-section-chevron,
+  .info-row-out {
+    transition: none;
+  }
+}

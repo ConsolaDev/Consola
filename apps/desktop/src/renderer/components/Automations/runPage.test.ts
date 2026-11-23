@@ -12,12 +12,18 @@ import {
   foundNothingToDo,
   endedWhileRunning,
   isInterruptedCommand,
+  leadDetail,
+  loopsOf,
+  rejectedWords,
   retryTargetOf,
   retryWarningOf,
   runRetryTarget,
+  roundsOf,
   runNotes,
   runStages,
   stepBar,
+  stopOffered,
+  traceRows,
   stepState,
   stepTimeline,
   triggerStageWords,
@@ -25,6 +31,7 @@ import {
   workedMs,
   type RunStageState,
 } from './runPage';
+import { rejectedAtGate } from './presentation';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
 const SECOND = 1000;
@@ -798,6 +805,26 @@ describe('runStages for a steps run', () => {
     expect(stepShape(run)).toEqual(['trigger:passed', 'approval:stopped', 'step:a:skipped']);
     expect(msOf(run, 'approval')).toBe(2 * MINUTE);
   });
+
+  it('a waiting run stops at its waiting step', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'fresh', kind: 'run', status: 'completed' }),
+        stepOf({ id: 'review', status: 'completed' }),
+        stepOf({ id: 'decide', kind: 'gate', status: 'waiting', gate: { askedAt: ago(MINUTE) } }),
+        stepOf({ id: 'publish', kind: 'run', status: 'pending' }),
+      ],
+      { status: 'waiting', startedAt: ago(5 * MINUTE) },
+    );
+    expect(runStages(run, NOW).find((stage) => stage.state === 'waiting')?.step?.id).toBe('decide');
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'step:fresh:passed',
+      'step:review:passed',
+      'step:decide:waiting',
+      'step:publish:pending',
+    ]);
+  });
 });
 
 describe('retryTargetOf', () => {
@@ -827,6 +854,46 @@ describe('retryTargetOf', () => {
       ])?.id,
     ).toBe('a');
     expect(retryTargetOf([stepOf({ id: 'a', status: 'completed' })])).toBeUndefined();
+  });
+
+  // Slice 3 (review B1): a failed leaf before its failed loop row, then a failed loop row, then the first not-run.
+  it("is the failed step inside a loop, not the loop's row", () => {
+    const steps = [
+      stepOf({ id: 'fix', status: 'completed' }),
+      stepOf({ id: 'polish', kind: 'repeat', status: 'failed', round: 2, max: 3 }),
+      stepOf({ id: 'review', status: 'completed', round: 2, attempt: 2 }),
+      stepOf({ id: 'address', status: 'failed', round: 2, attempt: 2, error: 'x' }),
+      stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('address');
+  });
+
+  it('is an exhausted loop, whose steps all completed', () => {
+    const steps = [
+      stepOf({ id: 'fix', status: 'completed' }),
+      stepOf({
+        id: 'polish',
+        kind: 'repeat',
+        status: 'failed',
+        round: 3,
+        max: 3,
+        error: 'polish: not clean after 3 rounds',
+      }),
+      stepOf({ id: 'review', status: 'completed', round: 3, attempt: 3 }),
+      stepOf({ id: 'address', status: 'completed', round: 3, attempt: 3 }),
+      stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('polish');
+  });
+
+  it('is the first step not run when a run with a loop ended between steps', () => {
+    const steps = [
+      stepOf({ id: 'fix', status: 'completed' }),
+      stepOf({ id: 'polish', kind: 'repeat', status: 'completed', round: 1, max: 3 }),
+      stepOf({ id: 'review', status: 'completed', round: 1 }),
+      stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+    ];
+    expect(retryTargetOf(steps)?.id).toBe('pr');
   });
 });
 
@@ -913,5 +980,344 @@ describe('triggerStageWords', () => {
   it('keeps Run now for a run by a person', () => {
     const manual = record({ trigger: { kind: 'manual', at: ago(MINUTE), by: 'person' } });
     expect(triggerStageWords(manual, undefined, undefined).kicker).toBe('Run now');
+  });
+});
+
+// Slice 3: gates, loops and waits on the run page.
+describe('a run rejected at a gate', () => {
+  const T1 = ago(5 * MINUTE);
+  const T2 = ago(4 * MINUTE);
+  const gate = (decision?: string) =>
+    stepOf({
+      id: 'decide',
+      kind: 'gate',
+      status: 'completed',
+      gate: { askedAt: T1, ...(decision ? { decision, by: 'person' as const, at: T2 } : {}) },
+    });
+  const rejectedSteps = [
+    stepOf({ id: 'fresh', kind: 'run', status: 'completed' }),
+    stepOf({ id: 'review', status: 'completed' }),
+    gate('reject'),
+    stepOf({ id: 'publish-decided', kind: 'run', status: 'not-run' }),
+  ];
+
+  it('is not turned down, and says where', () => {
+    const run = stepsRecord(rejectedSteps, {
+      status: 'rejected',
+      startedAt: ago(9 * MINUTE),
+      finishedAt: T2,
+    });
+    expect(rejectedAtGate(run)).toBe('decide');
+    expect(rejectedWords(run)).toBe('rejected at `decide` by you, after 2 steps');
+    expect(runStages(run, NOW).find((stage) => stage.state === 'stopped')?.step?.id).toBe('decide');
+    expect(stepShape(run)).toEqual([
+      'trigger:passed',
+      'step:fresh:passed',
+      'step:review:passed',
+      'step:decide:stopped',
+      'step:publish-decided:skipped',
+    ]);
+  });
+
+  it('counts one step as one, and only the agent and command steps that ran', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'fresh', kind: 'run', status: 'skipped' }),
+        stepOf({ id: 'review', status: 'completed' }),
+        // A gate went past is no step that ran.
+        { ...gate('approve'), id: 'first-look' },
+        gate('reject'),
+      ],
+      { status: 'rejected', startedAt: ago(9 * MINUTE) },
+    );
+    expect(rejectedWords(run)).toBe('rejected at `decide` by you, after 1 step');
+  });
+
+  it('counts the steps a loop ran when it is rejected at its exhaustion gate (3-A code review S3)', () => {
+    const rounds = (round: number) =>
+      Array.from({ length: round - 1 }, (_, at) => ({
+        attempt: at + 1,
+        status: 'completed' as const,
+        round: at + 1,
+      }));
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'fresh', kind: 'run', status: 'completed' }),
+        stepOf({
+          id: 'polish',
+          kind: 'repeat',
+          status: 'completed',
+          round: 3,
+          max: 3,
+          gate: { askedAt: T1, decision: 'reject', by: 'person', at: T2 },
+        }),
+        stepOf({ id: 'look', status: 'completed', attempt: 3, round: 3, previous: rounds(3) }),
+        stepOf({ id: 'fix', kind: 'run', status: 'completed', attempt: 3, round: 3 }),
+        stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+      ],
+      { status: 'rejected', startedAt: ago(9 * MINUTE) },
+    );
+    expect(rejectedWords(run)).toBe('rejected at `polish` by you, after 3 steps');
+  });
+
+  it('counts a step of the loop that ran in an earlier round, when a gate inside it is rejected', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'polish', kind: 'repeat', status: 'completed', round: 2, max: 3 }),
+        stepOf({ id: 'look', status: 'completed', attempt: 2, round: 2 }),
+        {
+          ...gate('reject'),
+          id: 'ask',
+          attempt: 2,
+          round: 2,
+          previous: [{ attempt: 1, status: 'completed', round: 1, decision: 'approve' }],
+        },
+        // Not reached in round 2, but it ran in round 1.
+        stepOf({
+          id: 'fix',
+          kind: 'run',
+          status: 'not-run',
+          attempt: 2,
+          round: 2,
+          previous: [{ attempt: 1, status: 'completed', round: 1 }],
+        }),
+        // Never reached in any round.
+        stepOf({
+          id: 'done',
+          kind: 'run',
+          status: 'not-run',
+          attempt: 2,
+          previous: [{ attempt: 1, status: 'not-run' }],
+        }),
+      ],
+      { status: 'rejected', startedAt: ago(9 * MINUTE) },
+    );
+    expect(rejectedWords(run)).toBe('rejected at `ask` by you, after 2 steps');
+  });
+
+  it('a confirm run rejected at a gate passed its approval, even an older record with no approvedAt', () => {
+    const run = stepsRecord(rejectedSteps, {
+      status: 'rejected',
+      mode: 'confirm',
+      startedAt: ago(9 * MINUTE),
+      finishedAt: T2,
+    });
+    expect(stepShape(run).slice(0, 2)).toEqual(['trigger:passed', 'approval:passed']);
+  });
+
+  it('a confirm run turned away after it started passed its approval, even with no approvedAt (3-A code review M6)', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'review', status: 'not-run' }),
+        stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+      ],
+      { status: 'rejected', mode: 'confirm', startedAt: ago(9 * MINUTE), finishedAt: T2 },
+    );
+    expect(stepShape(run).slice(0, 2)).toEqual(['trigger:passed', 'approval:passed']);
+  });
+
+  it('a run rejected before it started is still turned down', () => {
+    const run = stepsRecord(
+      [stepOf({ id: 'review', status: 'not-run' }), stepOf({ id: 'publish', status: 'not-run' })],
+      { status: 'rejected', mode: 'confirm', finishedAt: ago(MINUTE) },
+    );
+    expect(rejectedAtGate(run)).toBeUndefined();
+    expect(rejectedWords(run)).toBeNull();
+    expect(stepShape(run).slice(0, 2)).toEqual(['trigger:passed', 'approval:stopped']);
+  });
+
+  it('a gate answered with a choice is passed, not stopped', () => {
+    const run = stepsRecord([gate('approve')], { status: 'completed', startedAt: ago(MINUTE) });
+    expect(stepShape(run)).toEqual(['trigger:passed', 'step:decide:passed']);
+    expect(rejectedWords(run)).toBeNull();
+  });
+});
+
+describe("a loop's rows", () => {
+  const preview = {
+    kind: 'steps-run' as const,
+    steps: [
+      { id: 'fix', kind: 'run' as const },
+      { id: 'polish', kind: 'repeat' as const },
+      { id: 'review', kind: 'agent' as const, loop: 'polish' },
+      { id: 'address', kind: 'agent' as const, loop: 'polish' },
+      { id: 'pr', kind: 'run' as const },
+    ],
+  };
+  const inRound2Run = stepsRecord(
+    [
+      stepOf({ id: 'fix', kind: 'run', status: 'completed' }),
+      stepOf({ id: 'polish', kind: 'repeat', status: 'running', round: 2, max: 3 }),
+      stepOf({
+        id: 'review',
+        status: 'running',
+        round: 2,
+        attempt: 2,
+        previous: [{ attempt: 1, status: 'completed', round: 1 }],
+      }),
+      stepOf({ id: 'address', status: 'completed', round: 1, attempt: 1 }),
+      stepOf({ id: 'pr', kind: 'run', status: 'pending' }),
+    ],
+    { status: 'running', startedAt: ago(5 * MINUTE) },
+  );
+  const byId = (steps: StepRun[], id: string) => steps.find((step) => step.id === id)!;
+  const shapeOf = (rows: ReturnType<typeof traceRows>) =>
+    rows.map((row) =>
+      row.kind === 'loop'
+        ? ['loop', row.row.id, row.inner.map((inner) => inner.id), row.round, row.max]
+        : ['step', row.row.id],
+    );
+
+  it('names its steps from the preview', () => {
+    expect(loopsOf(preview)).toEqual({ polish: ['review', 'address'] });
+    expect(loopsOf({ steps: [{ id: 'a', kind: 'run' }] })).toEqual({});
+  });
+
+  it("groups a loop's rows under it, each with its rounds", () => {
+    const rows = traceRows(inRound2Run, { polish: ['review', 'address'] });
+    expect(shapeOf(rows)).toEqual([
+      ['step', 'fix'],
+      ['loop', 'polish', ['review', 'address'], 2, 3],
+      ['step', 'pr'],
+    ]);
+    expect(roundsOf(byId(inRound2Run.steps!, 'review'))).toEqual([
+      { round: 1, attempt: 1, status: 'completed' },
+      { round: 2, attempt: 2, status: 'running' },
+    ]);
+    expect(roundsOf(byId(inRound2Run.steps!, 'fix'))).toEqual([]);
+    // Oldest first, however the earlier lines were kept.
+    expect(
+      roundsOf(
+        stepOf({
+          id: 'review',
+          status: 'running',
+          round: 3,
+          attempt: 3,
+          previous: [
+            { attempt: 2, status: 'completed', round: 2 },
+            { attempt: 1, status: 'completed', round: 1 },
+          ],
+        }),
+      ).map((one) => one.round),
+    ).toEqual([1, 2, 3]);
+  });
+
+  it('before round 1 its steps carry no round: the preview still names them', () => {
+    const before = stepsRecord(
+      [
+        stepOf({ id: 'polish', kind: 'repeat', status: 'pending' }),
+        stepOf({ id: 'review', status: 'pending' }),
+        stepOf({ id: 'address', status: 'pending' }),
+        stepOf({ id: 'pr', kind: 'run', status: 'pending' }),
+      ],
+      { status: 'running' },
+    );
+    expect(shapeOf(traceRows(before, loopsOf(preview)))).toEqual([
+      ['loop', 'polish', ['review', 'address'], undefined, undefined],
+      ['step', 'pr'],
+    ]);
+    // An older record with no preview: the rows after it that carry a round.
+    expect(shapeOf(traceRows(inRound2Run, {}))).toEqual([
+      ['step', 'fix'],
+      ['loop', 'polish', ['review', 'address'], 2, 3],
+      ['step', 'pr'],
+    ]);
+  });
+
+  it('offers Retry from the failed step inside a loop, as the engine retries it (review B1)', () => {
+    const run = stepsRecord(
+      [
+        stepOf({ id: 'fix', kind: 'run', status: 'completed' }),
+        stepOf({ id: 'polish', kind: 'repeat', status: 'failed', round: 2, max: 3 }),
+        stepOf({ id: 'review', status: 'completed', round: 2, attempt: 2 }),
+        stepOf({ id: 'address', status: 'failed', round: 2, attempt: 2, error: 'x' }),
+        stepOf({ id: 'pr', kind: 'run', status: 'not-run' }),
+      ],
+      { status: 'failed', startedAt: ago(5 * MINUTE) },
+    );
+    expect(runRetryTarget(run)?.id).toBe('address');
+  });
+});
+
+describe('Stop and the lead on a waiting run (review S1)', () => {
+  it('offers Stop for a running or waiting run only', () => {
+    expect((['running', 'waiting'] as const).map((status) => stopOffered({ status }))).toEqual([
+      true,
+      true,
+    ]);
+    expect(
+      (['queued', 'needs-approval', 'completed', 'failed', 'rejected'] as const).some((status) =>
+        stopOffered({ status }),
+      ),
+    ).toBe(false);
+  });
+
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const RETRY_AT = '2026-11-12T12:42:00.000Z';
+
+  it("words a waiting run's lead: asked at a gate, retries at a time", () => {
+    const atGate = stepsRecord(
+      [
+        stepOf({ id: 'review', status: 'completed' }),
+        stepOf({
+          id: 'decide',
+          kind: 'gate',
+          status: 'waiting',
+          gate: { askedAt: ago(5 * MINUTE) },
+        }),
+      ],
+      { status: 'waiting', startedAt: ago(9 * MINUTE), updatedAt: ago(5 * MINUTE) },
+    );
+    expect(leadDetail(atGate, NOW, undefined)).toBe('asked 5m ago');
+    const retrying = stepsRecord(
+      [stepOf({ id: 'look', status: 'waiting', retryAt: RETRY_AT, retries: 1 })],
+      { status: 'waiting', startedAt: ago(9 * MINUTE) },
+    );
+    expect(leadDetail(retrying, NOW, undefined)).toBe(`retries at ${clock(RETRY_AT)}`);
+    // The whole run's own wait: on the run, its rows as they were.
+    const again = stepsRecord([stepOf({ id: 'look', status: 'failed' })], {
+      status: 'waiting',
+      startedAt: ago(9 * MINUTE),
+      retryAt: RETRY_AT,
+    });
+    expect(leadDetail(again, NOW, undefined)).toBe(`retries at ${clock(RETRY_AT)}`);
+  });
+
+  it("leaves every other status's words as they were", () => {
+    expect(
+      leadDetail(record({ status: 'running', startedAt: ago(2 * MINUTE) }), NOW, undefined),
+    ).toBe('for 2m 0s');
+    expect(leadDetail(record({ status: 'queued', createdAt: ago(3 * MINUTE) }), NOW, 2)).toBe(
+      '2 in line',
+    );
+    expect(
+      leadDetail(record({ status: 'queued', createdAt: ago(3 * MINUTE) }), NOW, undefined),
+    ).toBe('3m ago');
+    expect(
+      leadDetail(record({ status: 'needs-approval', createdAt: ago(7 * MINUTE) }), NOW, undefined),
+    ).toBe('asked 7m ago');
+    expect(
+      leadDetail(
+        record({
+          status: 'failed',
+          startedAt: ago(10 * MINUTE),
+          finishedAt: ago(8 * MINUTE),
+        }),
+        NOW,
+        undefined,
+      ),
+    ).toBe('after 2m 0s · 8m ago');
+    expect(
+      leadDetail(
+        record({
+          status: 'completed',
+          startedAt: ago(10 * MINUTE),
+          finishedAt: ago(9 * MINUTE),
+        }),
+        NOW,
+        undefined,
+      ),
+    ).toBe('in 1m 0s · 9m ago');
   });
 });

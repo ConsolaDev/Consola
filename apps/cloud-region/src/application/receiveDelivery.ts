@@ -2,6 +2,7 @@ import { type OutboxMessage, type ReadResult, readOutboxMessage } from '@consola
 import type { Region } from '../domain/region.js';
 import { copyChangeOf, placeMessage } from '../domain/workspaceCopy.js';
 import type { DeliveryVerifier, WorkspaceCopies } from './ports.js';
+import { readJsonPayload, whatFailed } from './signedPayload.js';
 
 /** What the cell makes of one outbox delivery, in the order it checks. */
 export type DeliveryAnswer =
@@ -23,37 +24,10 @@ export type DeliveryAnswer =
   /** The cell's database did not answer, so the message was not applied. */
   | { kind: 'database-unavailable'; message: OutboxMessage; reason: string };
 
-const UTF8 = new TextDecoder('utf-8', { fatal: true });
-
 /** Reads a checked payload: UTF-8 text, JSON, then a message the contract reads. */
 function readPayload(payload: Uint8Array): ReadResult<OutboxMessage> {
-  let text: string;
-  try {
-    text = UTF8.decode(payload);
-  } catch {
-    return { ok: false, reason: 'the payload is not UTF-8' };
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    return { ok: false, reason: 'the payload is not JSON' };
-  }
-  return readOutboxMessage(value);
-}
-
-/** The innermost cause's first line: what failed, without the query that failed. */
-function whatFailed(error: unknown): string {
-  let current = error;
-  for (
-    let depth = 0;
-    current instanceof Error && current.cause !== undefined && depth < 5;
-    depth++
-  ) {
-    current = current.cause;
-  }
-  const line = current instanceof Error ? current.message.split('\n')[0]?.trim() : undefined;
-  return line || 'an unexpected error';
+  const json = readJsonPayload(payload);
+  return json.ok ? readOutboxMessage(json.value) : json;
 }
 
 /**

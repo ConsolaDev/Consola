@@ -30,5 +30,10 @@ export function desktopWorkItemPort(deps: WorkItemPortDeps): WorkItemPort {
       if (!workspace || workspace.provider?.id !== ref.provider) return false;
       return deps.resolveRepo(workspace, ref.repo) !== null;
     },
+    // A run's own checkout is made from the workspace's clone of its repository (slice 3-B).
+    repoCloned: (workspaceId, repo) => {
+      const workspace = deps.getWorkspace(workspaceId);
+      return workspace !== undefined && deps.resolveRepo(workspace, repo) !== null;
+    },
   };
 }

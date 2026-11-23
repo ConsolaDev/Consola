@@ -62,6 +62,11 @@ export interface DiskFacts {
   /** The name of a workspace folder that is, or lies inside, the tree. */
   scopeFolder: string | null;
   recentlyPrepared: boolean;
+  /**
+   * An automation run holds it as its checkout: working in it, or parked at a
+   * gate or a declared retry, its next step to run there (3-A code review S1).
+   */
+  heldByRun: boolean;
   head?: string | null;
   branch?: string | null;
   dirty?: boolean | null;
@@ -73,6 +78,20 @@ export interface DiskFacts {
   hidden?: HiddenChanges | null;
   locked?: boolean | null;
   processes?: ProcessesInTree | null;
+  /**
+   * A run's own checkout (slice 3-B, plan Call 11): its run, as history has
+   * it. `endedAt` is null while the run is open and undefined once history
+   * no longer has the run (the folder was recognised by its git folder's
+   * config). `rules` are its workspace's, for the sweep; null when cleanup
+   * is off there or no workspace holds its clone. Absent for any other tree.
+   */
+  run?: { endedAt?: number | null; rules?: WorktreeCleanupRules | null };
+  /**
+   * For a run's own checkout: what `gitFolderProblem` found, or null when
+   * its pointer and git folder are as Consola made them. A problem stops
+   * every other git fact being read there (review NS1).
+   */
+  gitFolder?: string | null;
 }
 
 export interface TreeFacts {
@@ -110,9 +129,10 @@ export function judge(facts: TreeFacts, request: JudgeRequest): TreeVerdict {
   const blockers: Blocker[] = [];
   const triggers: CleanupTrigger[] = [];
 
+  const due = treeDue(facts.disk, request);
   for (const user of facts.users) {
     if (request.trigger === 'sweep' || request.targets.has(user.sessionId)) {
-      const own = userBlockers(user, request);
+      const own = userBlockers(user, request, due);
       if (own.blockers.length > 0) blockers.push(...own.blockers);
       else if (own.trigger) triggers.push(own.trigger);
     } else {
@@ -134,7 +154,10 @@ export function judge(facts: TreeFacts, request: JudgeRequest): TreeVerdict {
   );
   const all = [...own, ...disk, ...shared];
   if (facts.users.length === 0 && request.trigger === 'sweep') {
-    all.push({ kind: 'not-due', detail: 'no session uses it' });
+    // A run's own checkout is the run's: its rules decide, with no session on it.
+    if (!due) all.push({ kind: 'not-due', detail: 'no session uses it' });
+    else if ('trigger' in due) triggers.push(due.trigger);
+    else if (due.why !== null) all.push({ kind: 'not-due', detail: due.why });
   }
 
   if (all.length > 0) return { decision: 'keep', tree: facts.tree, sessionIds, blockers: all };
@@ -164,6 +187,8 @@ export function judge(facts: TreeFacts, request: JudgeRequest): TreeVerdict {
 export function userBlockers(
   user: UserFacts,
   request: Pick<JudgeRequest, 'trigger' | 'now'>,
+  /** For a session in a run's own checkout: the tree's rule (`treeDue`), which replaces the session's own. */
+  due?: RunOwnedDue,
 ): { blockers: Blocker[]; trigger?: CleanupTrigger } {
   const blockers: Blocker[] = [];
   const add = (kind: Blocker['kind'], detail: string) =>
@@ -184,12 +209,12 @@ export function userBlockers(
   let trigger: CleanupTrigger | undefined;
   let quietMs = QUIET_PERIOD_MS;
   if (request.trigger === 'sweep') {
-    const due = dueUnder(user, request.now);
-    if ('trigger' in due) {
-      trigger = due.trigger;
-      if (due.quietMs !== undefined) quietMs = due.quietMs;
-    } else {
-      add('not-due', due.why);
+    const rule = due ?? dueUnder(user, request.now);
+    if ('trigger' in rule) {
+      trigger = rule.trigger;
+      if (rule.quietMs !== undefined) quietMs = rule.quietMs;
+    } else if (rule.why !== null) {
+      add('not-due', rule.why);
     }
   }
   // The quiet period is for removing on its own. A person deleting a
@@ -247,6 +272,47 @@ function dueUnder(
   return { why: reasons.join('; ') };
 }
 
+/** Why a run's own checkout may go under the sweep, or why not; `why: null` when the tree itself already keeps it. */
+export type RunOwnedDue = { trigger: CleanupTrigger; quietMs?: number } | { why: string | null };
+
+/**
+ * The sweep's rule for a run's own checkout (slice 3-B): `runFinished` once
+ * its run ended that long ago (the rule's delay replacing the quiet
+ * period, as for a session), `runForgotten` once history has no record of
+ * the run. An open run is kept by `treeBlockers` (`run-open`), so it has no
+ * reason of its own here.
+ */
+export function runOwnedDue(
+  disk: DiskFacts,
+  rules: WorktreeCleanupRules | null,
+  now: number,
+): RunOwnedDue {
+  const ended = disk.run?.endedAt;
+  if (ended === null) return { why: null };
+  if (!rules) return { why: 'cleanup is off for its workspace' };
+  if (ended === undefined) {
+    if (rules.runForgotten === true) return { trigger: 'run-forgotten' };
+    return { why: 'its automation run is no longer in history' };
+  }
+  if (rules.runFinished.enabled) {
+    const afterMs = rules.runFinished.afterMinutes * 60_000;
+    if (now - ended >= afterMs) return { trigger: 'run-finished', quietMs: afterMs };
+    return {
+      why: `its automation run ended ${ago(now - ended)}; removed after ${minutes(rules.runFinished.afterMinutes)}`,
+    };
+  }
+  return { why: 'no cleanup rule applies to it' };
+}
+
+/** The tree's own rule under the sweep, for a run's own checkout; undefined for any other tree or request. */
+export function treeDue(
+  disk: DiskFacts,
+  request: Pick<JudgeRequest, 'trigger' | 'now'>,
+): RunOwnedDue | undefined {
+  if (!disk.run || request.trigger !== 'sweep') return undefined;
+  return runOwnedDue(disk, disk.run.rules ?? null, request.now);
+}
+
 /** What the folder itself says. Anything unread keeps it. */
 export function treeBlockers(disk: DiskFacts): Blocker[] {
   const blockers: Blocker[] = [];
@@ -263,6 +329,11 @@ export function treeBlockers(disk: DiskFacts): Blocker[] {
   if (disk.locked === true) add('locked', 'git has it locked');
   else if (disk.locked === null) add('unknown', 'git could not say whether it is locked');
   if (disk.recentlyPrepared) add('recently-prepared', 'a session is being started in it');
+  if (disk.heldByRun) add('held', 'an automation run is holding it');
+  if (disk.run && disk.run.endedAt === null) add('run-open', 'its automation run is still open');
+  if (typeof disk.gitFolder === 'string') {
+    add('unknown', `its git folder changed (${disk.gitFolder}), so Consola did not read it`);
+  }
 
   const processes = disk.processes;
   if (processes === null || processes?.kind === 'unknown') {
@@ -328,6 +399,8 @@ export function treeBlockers(disk: DiskFacts): Blocker[] {
     'locked',
     'processes',
   ];
+  // A run's own checkout is read only once its git folder was checked.
+  if (disk.run) read.push('gitFolder');
   if (blockers.length === 0 && read.some((key) => disk[key] === undefined)) {
     add('unknown', NOT_FULLY_CHECKED);
   }
@@ -336,7 +409,8 @@ export function treeBlockers(disk: DiskFacts): Blocker[] {
 
 function branchDisposal(facts: TreeFacts, request: JudgeRequest): BranchDisposal {
   const branch = facts.disk.branch;
-  if (!branch) return 'keep';
+  // A run's own checkout's branch is in its own clone, which goes whole; its commit stays in the keep-ref.
+  if (!branch || facts.disk.run) return 'keep';
   switch (request.trigger) {
     case 'tool-stale':
     case 'tool-delete':

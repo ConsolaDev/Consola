@@ -94,10 +94,16 @@ workspace package gets its own job without the workflow naming it, except
 under `vendor/`: the copied t3code packages are checked together, with their
 own scripts, in the `vendor` job. `@consola/agent-ui` has a job of its own,
 like the website, for its browser tests and the checks of its built library.
-The script also holds three rules the package graph cannot see:
+The script also holds four rules the package graph cannot see:
 
 - A change to the desktop checks the website too, because the site's demo
   imports the desktop's renderer by path, not as a dependency.
+- A change to the desktop's or cloud-web's CSS that `@consola/agent-ui`'s
+  page tests read as files (`src/testing/embeddingPages.ts`: the desktop's
+  `global.css` and theme tokens, cloud-web's `ui/styles.css`, and the Radix
+  Themes stylesheet its `package.json` or the lockfile installs) checks
+  agent-ui too. `ci-scope.test.mjs` fails when that module reads a file the
+  rule does not name.
 - A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
   `turbo.json` or `patches/` checks everything.
 - A push to main checks everything.
@@ -142,13 +148,18 @@ parser and Run record that every runner shares.
 
 `packages/sandbox` (`@consola/sandbox`, AGPL-3.0-only) is the one interface
 every runner uses to start and drive sandboxes: create one from a template,
-run a command and stream its output, read and write files, expose a port,
-stop it. E2B is the first provider behind it, invisible to users. Code holds
-`Sandboxes` from `sandboxesFrom(provider)`, which checks every request before a
-provider sees it, and checks a capability (`pausing`, `snapshots`) by its
-member, never by which provider it has. Its core does no I/O, which its
-`boundary.test.ts` proves; every provider passes its contract
-(`src/contract.test.ts`), and its in-memory `FakeProvider` is what other
+with a lifetime, run a command and stream its output, read and write files,
+expose a port, stop it, and reach it again by its id from another process.
+E2B is the first provider behind it (`@consola/sandbox/e2b`, an entry point
+of its own), invisible to users. Code holds `Sandboxes` from
+`sandboxesFrom(provider)`, which checks every request before a provider sees
+it, and checks a capability (`pausing`, `snapshots`, `keepAlive`) by its
+member, never by which provider it has. A sandbox's lifetime is a hard
+maximum and the only thing that stops one whose runner died, so long work
+renews it (`keepAlive`) rather than setting a long one. Its core does no
+I/O, which its `boundary.test.ts` proves; every provider passes its contract
+(`src/contract.test.ts`, against real E2B when `E2B_API_KEY` is set in
+`packages/sandbox/.env`), and its in-memory `FakeProvider` is what other
 packages' tests use. Before changing it, or adding a provider, read
 `packages/sandbox/AGENTS.md`.
 
@@ -187,17 +198,23 @@ Postgres) is the regional cell: one copy per region, configured with its
 region, holding what a workspace has there that is not global. It holds no
 accounts (people are referenced by their global id), and every table carries
 the workspace id. It trusts only `cloud-global`'s token: every request but its
-health check and the outbox's deliveries (signed with the same key) carries a
-cell token, checked with `cloud-global`'s public keys,
+health check, the outbox's deliveries and the GitHub webhook events
+`cloud-global` passes on (both signed with the same key) carries a cell token,
+checked with `cloud-global`'s public keys,
 and the person, workspace and role come from that token alone, never from the
 request. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with one
-exception: `cloud-global` and `cloud-region` both import
+imports from the desktop, the website, another app or `packages/*`, with two
+exceptions. `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
-for a cell, the outbox messages it sends one and how it delivers them. It does
+for a cell, the outbox messages it sends one and how it delivers them, the
+GitHub events it passes on, and a cell's signed request for a GitHub token. It
+does
 no I/O, so any layer of either app may import it; before changing it, read
-`packages/cloud-contract/AGENTS.md`. Setup is in
+`packages/cloud-contract/AGENTS.md`. And `cloud-region` imports
+`packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
+every runner shares, to check the factory files it stores; it does no I/O
+either, so any layer of the cell may import it. Setup is in
 `apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
@@ -426,8 +443,8 @@ a harness switch leaves them alone.
   any process of the person's can read, so this boundary, between sessions
   and between a workspace with agent access on and one with it off, holds
   against mistakes, not against an agent with a shell that goes looking.
-  `browserRefusal` is the one access rule: no tools for a read-only session
-  or a workspace with agent access off. The server is built when the CLI
+  `browserRefusal` is the one access rule: no tools for a session with a
+  tool policy or a workspace with agent access off. The server is built when the CLI
   connects, so turning access on reaches a session at its next start; every
   call asks again, and again once the page answers (`stillAllowed`). An
   agent's navigation goes through `BrowserService` by the person's address
@@ -831,9 +848,11 @@ and always delete the session.
   (skip-worktree, assume-unchanged), ignored with no identical copy in the
   main checkout (rebuildable folders like `node_modules` excepted), a nested
   repository, a lock, a process still running in it (`lsof`; unreadable is
-  unknown), a session on it that is working, waiting, held by a run, open in
-  a window or active within the hour, and any other session still using it
-  through `cwd` or `agentCwd`.
+  unknown), an automation run whose checkout it is, working in it or parked
+  at a gate or a retry with no process there (`heldCheckouts`), a session on
+  it that is working, waiting, held by a run, open in a window or active
+  within the hour, and any other session still using it through `cwd` or
+  `agentCwd`.
 - **The session stays.** For the sweep's rules the session keeps its
   record and `cwd`; the executor writes `Session.removedWorktree` on every
   session of the tree (`WorkspaceService.recordWorktreesRemoved`, its one
@@ -867,6 +886,21 @@ and always delete the session.
   branch or one whose pull request is finished, compare-and-swap at the
   commit that was checked.
 
+A run's own checkout is a tree too, recognised by its run record or its git
+folder's `consola.run`, removed with its git folder by `removeRunClone`
+(never `git worktree remove`) after its branch is fetched into the person's
+clone as a keep-ref, recorded on its sessions and its run, and rebuilt from
+it; never while its run is open. Unlike a linked worktree's, its keep-ref
+stays after a rebuild, for as long as the folder exists: a shared clone's own
+refs keep nothing in the person's clone, so without it a `gc` there would
+drop the rebuilt checkout's commits. Its rules are its run's: an ended run
+(`run-finished`), and, off by default, *Remove a run's own checkout once its
+run is no longer in history* (`runForgotten`); Retry, or opening a step's
+session, rebuilds it. Its keep-ref goes only once no session and no run in
+history names the folder and the folder is gone (`releaseRemovedWorktreeWith`;
+`git for-each-ref refs/consola/worktrees` lists them), and its
+`.consola-cache` is regenerable, never a reason to keep it.
+
 ### Never Type Into a Confirmation Menu
 
 Queued prompts are delivered only when the emulated screen shows an *empty*
@@ -880,12 +914,13 @@ has never trusted the folder asks first, and the person answers.
 An automation's session never needs that guard for its first turn: it runs
 non-interactively (Claude's print mode), with its prompt as an argument, so
 there is no composer and no menu to type into. That happens only in a
-read-only session, and each driver refuses it otherwise
+session with a tool policy (`read-only`, `edit` or `write`), every one of
+which launches `--restricted`, and each driver refuses it otherwise
 (`SessionLaunch.unattended`): print mode skips the trust prompt, and
 without `--restricted` it would load the folder's hooks and settings
 unasked. The run lasts until that process exits. Continuing the session
-afterwards is an ordinary interactive resume, still read-only, where the
-trust prompt is the person's to answer. Lifting the restriction means a
+afterwards is an ordinary interactive resume, still under its policy, where
+the trust prompt is the person's to answer. Lifting the restriction means a
 fork the person starts (`SessionLauncher.forkWithFullTools`), never an edit
 of the session's `toolPolicy`.
 
@@ -916,6 +951,33 @@ anywhere else would destroy someone's work. Once a full-tools session was
 launched there, running or not, Consola never moves it again, for the same
 reason an automation's refresh leaves a trusted worktree alone (above).
 
+An entry with `checkout: { repo, branch }` gets a checkout of its own per run
+instead: `~/.consola/worktrees/<repo>-run-<8>/`, a `git clone --shared` of
+the person's clone whose git folder is `~/.consola/run-git/<repo>-run-<8>.git`,
+outside the checkout, so no step's sandbox can write it (in a linked worktree
+a sandboxed shell can move the clone's branches; in a git folder of its own it
+could plant replace refs and grafts); the checkout holds only a `.git` pointer
+that neither the sandbox nor the file tools may rewrite (canary rows 47 and
+30). `origin` is the real remote, the branch the one the run cut. Consola
+makes it before the first step (`makeRunClone`, under the folder's lock; a
+make a quit cut short is made again by the next start or a Retry, `again`,
+only when the run's record claims that very folder with no commit, no other
+run's names it, both folders are real folders and the git folder names no
+other run), ends the step's own
+processes and commits after every agent step, checks commands leave nothing,
+and resets to a step's `before` for a retry (`engine/node/runCheckout.ts`),
+always naming `GIT_DIR` and `GIT_WORK_TREE` for its own git, with no global or
+system config, replace refs and grafts off, and `gitFolderProblem` and
+`treeProblem` before every write. Neither variable reaches a step's shell, a
+session or a command (they would make `git clone` refuse and aim git in any
+other repository at the run's clone): a step's git finds the folder through
+the pointer, so `gitFolderProblem` also runs before every spawn there, and a
+changed folder starts nothing. A session open there holds the run before its
+next step. `--shared` borrows the person's objects: a `git gc --prune` in
+their clone can break a run's checkout, most likely one parked at a gate.
+Consola's commit runs no git filter, so a changed Git LFS file is committed
+as its content, not as a pointer.
+
 An agent step's tools (`steps/stepTools.ts`) are scoped by the calling
 session's provenance (run, step and attempt), resolved again on every call and
 never taken from a tool's arguments. Writes are refused once that attempt is
@@ -928,6 +990,82 @@ program run a value (`REFUSED_ENV_NAMES`, `REFUSED_ENV_PREFIXES`). Its intent
 a quit mid-command is known after a restart. Such a command is never re-run
 automatically: the restart fails it as interrupted, and Retry warns before it
 runs again.
+
+### What a Write Step Is Held To
+
+An agent file's `tools: edit | write` needs `environment:`
+(`environments/<name>.yaml`, `host` or `sandbox`) and a run's own checkout.
+`ClaudeDriver` compiles it (`claudeWriteAgent.ts`) into `--restricted` and one
+`--settings` holding `sandbox` and `allowedMcpServers` (attention hooks on
+`host` only: the sandbox's proxy refuses them, canary row 39, so a sandboxed
+step shows no live attention); the session's policy and grants are immutable
+and replayed on every launch. A sandboxed session gets `sandboxSessionEnv`'s
+allow-list, and no session with a policy gets the bound account's token
+(`borrowProviderToken`). The shell may not read `denyReadList`: the credential
+files and folders, each agent CLI's default profile (`~/.claude`, `~/.codex`,
+`~/.gemini`), Consola's data (`userData`, the factory root) and every
+harness's effective profile. Those are files: Git's osxkeychain helper, `gh`
+and Claude keep their sign-ins in the keychain, which the shell still reaches
+(row 49), and the card says so (`KEYCHAIN_SIGN_INS_SENTENCE`). `sandbox` is refused on a harness whose own or managed
+settings set `sandbox` (`sandboxSettingsProblem`), and off macOS. It is
+checked by `scripts/claude-steps-canary.mjs` rows 29–50 on a CLI version
+change, never at run time.
+
+The sandbox holds the shell only; the file tools are held by `--restricted`
+(they read and write only the checkout and refuse `.claude/agents`,
+`.claude/skills`, `.husky/` and `.git`, rows 30 and 44,
+`FILE_TOOLS_DENY_CHECKED`; whether they follow a link out of it is row 50's,
+not yet seen, `FILE_TOOLS_LINKS_CHECKED`, and the card says so). A link a
+step leaves that leads out of the checkout (`linkLeadsOut`: an absolute
+target, a `..` above it, or a chain that ends outside) fails the step, so
+none reaches a later step; and what a step changes among the paths agents and
+CI read (`.claude/`, `.github/`, `CLAUDE.md`, `.gitattributes`…) is flagged on
+the run page (`flaggedPaths`). Not contained: the shell's reads of other
+files, the keychain service (`security` reaches it, row 49), the temporary
+folder all sandboxed Claude shells share (`/tmp/claude-<uid>`), other CLI
+versions and other OSes. `git clone` and `git init` do not work in a sandboxed
+shell (row 37). Its package managers read no `~/.npmrc` (denied): pnpm and npm
+fall back to their defaults, so a private registry needs an `.npmrc` in the
+checkout and its host in the environment's `network:`. Their caches sit under
+`.consola-cache` (`npm_config_store_dir` for pnpm 10, `pnpm_config_store_dir`
+from 11), but pnpm 12 locks its store in `/tmp/pnpm-store-operation-locks-<uid>`,
+outside what the sandbox lets the shell write, so its `install` fails there.
+That was seen with `sandbox-exec` (pnpm 10.28.2 and 12.21.0), not yet through
+the CLI's own sandbox, which row 29 asks.
+Consola ends only a step's own processes (its CLI's group, and the descendants
+recorded as its turn ended, while their start time matches) and never signals
+another; a process an agent backgrounds is in neither (row 48), so it is found
+by its working directory, and any process outside Consola's sessions left in
+the checkout fails the step. A step's full-tools continuation waits for its
+run to end, and an item step's forks into `<repo>-<type>-<n>-continue-<8>`.
+Once a full-tools session was launched in a run's own checkout, running or
+not, Retry refuses until that session is deleted (`fullToolsSession`):
+Claude trusts the folder for it, as slice 1's rule for an item's checkout.
+Rerun the canary's rows 29–50 after every CLI upgrade, and record the version
+in `SANDBOX_CHECKED_ON_CLAUDE`.
+
+### A Run Parks at a Gate
+
+A `steps:` run that reaches a `gate:` step, a loop's exhaustion gate, or a
+declared retry's wait is `waiting`: started, open and live, with no process
+and no slot. It still holds its item, so a new revision is held for after it
+(`openStates` reads it as `working`), and its checkout (`checkoutHeld`, by its
+record: `holdsWhileWaiting`), so another run on the item waits, naming the
+gate (`RunRecord.waitingFor.gate`). Only a person answers a gate: the renderer
+calls `automations:answer-gate`, and no MCP tool, conductor tool or step tool
+reaches `answerGate` (`gateAnswerers.test.ts`). Answering accepts nothing and
+approving a run answers none of its gates. A restart changes no `waiting` run
+and leaves a loop's `repeat` row as it was; the engine raises each gate's
+notification again, and a retry wait whose time passed runs at start. A loop
+is one row of its own plus its steps' rows in record order (`flatSteps`), each
+round a new attempt carrying `round`; read an entry's steps through
+`leafSteps`, never `automation.steps`, or a step inside a loop goes unseen.
+Only what cannot have acted retries by itself (`steps/retry.ts`): the
+validator refuses a step's `on_failure` on a step that may have acted, and an
+entry's `on_failure`, accepted on any `steps:` entry, is decided when its run fails
+(`entryMayRetry`: it starts again only if nothing in it acted). The budget is
+checked at every step boundary, and an agent step's first unattended turn in
+a run with a budget gets `--max-budget-usd` for what is left (canary row 40).
 
 ### A Step's Turn Reports Itself
 
@@ -1126,8 +1264,8 @@ Two invariants are load-bearing:
   reason: it is replayed on every relaunch, so a later edit would move a
   conversation onto a different model part-way through. Both are kept immutable
   by being absent from `allowedSessionUpdates`, not by validation. So is a
-  session's `toolPolicy` (`read-only` for every session an automation
-  starts): main replays it from the record on every launch, `TERMINAL_CREATE`
+  session's `toolPolicy` (`read-only`, `edit` or `write`, set only on a
+  session an automation starts): main replays it from the record on every launch, `TERMINAL_CREATE`
   included, and each driver enforces it with its CLI's own flags or refuses to
   launch. The one way the harness and model change is a harness switch (see
   below), which gives the session a new conversation on the new harness in

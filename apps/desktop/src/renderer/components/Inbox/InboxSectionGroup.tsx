@@ -5,6 +5,7 @@ import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
 import type { AttentionMap } from '../../utils/sessionStatus';
+import type { GateMark } from './gateMarks';
 import { InboxRow } from './InboxRow';
 import { isRepoCloned } from './inboxPresentation';
 
@@ -17,6 +18,8 @@ interface InboxSectionGroupProps {
   /** Keyed by workItemKey; computed once by the view, shared by every section. */
   sessionsByItem: Map<string, Session[]>;
   attention: AttentionMap;
+  /** By item URL, the run waiting for the person at a gate on it. */
+  gateMarks: Map<string, GateMark>;
   resolvedRepos: Record<string, string | null> | undefined;
   selectedKey: string | null;
   onSelectItem: (item: InboxItem) => void;
@@ -39,6 +42,7 @@ export function InboxSectionGroup({
   onToggle,
   sessionsByItem,
   attention,
+  gateMarks,
   resolvedRepos,
   selectedKey,
   onSelectItem,
@@ -67,6 +71,7 @@ export function InboxSectionGroup({
                 item={item}
                 sessions={sessionsByItem.get(key) ?? []}
                 attention={attention}
+                gateMark={gateMarks.get(item.url)}
                 cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
                 selected={selectedKey === key}
                 onSelect={onSelectItem}

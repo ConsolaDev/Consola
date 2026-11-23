@@ -42,6 +42,22 @@ const VENDORED = 'vendor/';
  */
 const WEBSITE_DEPLOY = ['vercel.json', '.vercelignore'];
 
+/**
+ * Files of other apps the chat view's page tests read at test time
+ * (packages/agent-ui/src/testing/embeddingPages.ts): the desktop's tokens and
+ * global.css, and cloud-web's own CSS and the Radix Themes stylesheet in its
+ * node_modules, which its package.json (or the lockfile, within its range)
+ * decides. ci-scope.test.mjs checks every file that module reads is here.
+ */
+const AGENT_UI_READS = [
+  'apps/desktop/src/renderer/styles/global.css',
+  'apps/desktop/src/renderer/styles/themes/tokens.css',
+  'apps/desktop/src/renderer/styles/themes/light.css',
+  'apps/cloud-web/src/ui/styles.css',
+  'apps/cloud-web/package.json',
+];
+const LOCKFILE = 'pnpm-lock.yaml';
+
 const matches = (file, pattern) =>
   pattern.endsWith('/') ? file.startsWith(pattern) : file === pattern;
 
@@ -71,6 +87,15 @@ export function scope({ event, changedFiles, affected, all, vendored = [] }) {
   // as files: no app imports another, so the graph cannot say the web app depends on either.
   if (packages.has(CLOUD_GLOBAL) || packages.has(CLOUD_REGION)) packages.add(CLOUD_WEB);
   if (changedFiles.some((file) => WEBSITE_DEPLOY.includes(file))) packages.add(WEBSITE);
+  // The chat view's page tests read the desktop's and cloud-web's CSS as
+  // files, and cloud-web's Radix Themes from its node_modules: a change to
+  // one, or a lockfile change to what cloud-web installs, can break them.
+  if (
+    changedFiles.some((file) => AGENT_UI_READS.includes(file)) ||
+    (changedFiles.includes(LOCKFILE) && packages.has(CLOUD_WEB))
+  ) {
+    packages.add(AGENT_UI);
+  }
   return plan(
     [...packages],
     vendored,

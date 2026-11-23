@@ -186,8 +186,9 @@
   background: var(--color-warning);
 }
 
-/* Waiting for a person: an amber ring, so it does not read as queued. */
-.automations-dot-needs-approval {
+/* Waiting for a person: an amber ring, so it does not read as queued. Parked at a gate or a retry the same. */
+.automations-dot-needs-approval,
+.automations-dot-waiting {
   background: transparent;
   border: 2px solid var(--color-warning);
 }
@@ -758,7 +759,8 @@
   color: var(--color-error);
 }
 
-.automations-run-status-needs-approval {
+.automations-run-status-needs-approval,
+.automations-run-status-waiting {
   color: var(--color-warning);
 }
 
@@ -1429,7 +1431,8 @@
   color: var(--color-error);
 }
 
-.automations-tone-needs-approval {
+.automations-tone-needs-approval,
+.automations-tone-waiting {
   color: var(--color-warning);
 }
 
@@ -1507,8 +1510,9 @@
   background: var(--color-warning);
 }
 
-/* Waiting for a person: hollow, as its dot is a ring. */
-.automations-bar-needs-approval {
+/* Waiting for a person: hollow, as its dot is a ring. Parked at a gate or a retry the same. */
+.automations-bar-needs-approval,
+.automations-bar-waiting {
   background: transparent;
   box-shadow: inset 0 0 0 1.5px var(--color-warning);
 }
@@ -1851,7 +1855,8 @@
 }
 
 .automations-status-icon-queued,
-.automations-status-icon-needs-approval {
+.automations-status-icon-needs-approval,
+.automations-status-icon-waiting {
   color: var(--color-warning);
 }
 
@@ -2106,6 +2111,18 @@
   overflow-wrap: anywhere;
 }
 
+/* A write agent's step (slice 3-B): what it writes with. */
+.automations-node-chip {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
 .automations-node .automations-node-code {
   align-self: flex-start;
   padding: 1px 6px;
@@ -2220,6 +2237,30 @@
 /* A step the working run came through. */
 .automations-node-passed {
   --edge-color: var(--color-info);
+}
+
+/*
+ * A loop: a frame around its steps, drawn as a node of the pipeline (arrows
+ * enter and leave the frame), its own steps joined inside it. Its label is
+ * its bound and its until; its foot says how it ends when that is never met.
+ */
+.automations-node-loop {
+  flex: 2 1 auto;
+  border-style: dashed;
+  background: color-mix(in srgb, var(--color-text-primary) 2%, var(--color-bg-primary));
+  box-shadow: none;
+}
+
+.automations-pipeline-loop {
+  --edge: 28px;
+  padding: var(--space-2) 0;
+  border: none;
+  background: none;
+  overflow: visible;
+}
+
+.automations-pipeline-loop.automations-pipeline-gated {
+  --edge: 96px;
 }
 
 /* Notify: the target only previews, so it is drawn as an outline of a step. */
@@ -3557,8 +3598,22 @@
   border-radius: var(--radius-lg);
 }
 
-.automations-trace-step + .automations-trace-step {
+.automations-trace-step + .automations-trace-step,
+.automations-trace > li + li {
   border-top: 1px solid var(--color-border);
+}
+
+/* A loop: its own row, then the rows of its steps, set in under it. */
+.automations-trace-loop:focus {
+  outline: none;
+}
+
+.automations-trace-loop.automations-flash {
+  animation-name: automations-flash-row;
+}
+
+.automations-trace-inner {
+  margin: 0 var(--space-3) 10px calc(var(--space-3) + 16px + var(--space-3));
 }
 
 .automations-trace-step:focus {
@@ -3689,9 +3744,28 @@
   color: var(--color-info);
 }
 
+/* A gate the person rejected: where the run stopped, by their word, not a failure. */
+.automations-trace-rejected .automations-trace-icon,
+.automations-trace-rejected .automations-trace-outcome {
+  color: var(--color-text-secondary);
+}
+
 .automations-trace-waiting .automations-trace-icon,
-.automations-trace-waiting .automations-trace-outcome {
+.automations-trace-waiting .automations-trace-outcome,
+.automations-trace-asks .automations-trace-icon,
+.automations-trace-asks .automations-trace-outcome,
+.automations-trace-retrying .automations-trace-icon,
+.automations-trace-retrying .automations-trace-outcome {
   color: var(--color-warning);
+}
+
+/* A gate waiting for the person reads as the step that needs them. */
+.automations-trace-asks .automations-trace-head {
+  background: color-mix(in srgb, var(--color-warning) 6%, transparent);
+}
+
+.automations-trace-asks .automations-trace-head:hover {
+  background: color-mix(in srgb, var(--color-warning) 10%, transparent);
 }
 
 .automations-trace-skipped .automations-trace-id,
@@ -4007,6 +4081,45 @@
   min-width: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+/* A step inside a loop: set in under the loop's own row, joined to it by a rule. */
+.automations-approval-step-inner {
+  margin-left: var(--space-4);
+  border-left: 2px solid var(--color-border-strong);
+}
+
+/* How the run flows: its loops, gates, retries and budget, a line each, under its steps. */
+.automations-approval-flow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-approval-flow > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+/* What an entry writes (slice 3-B): its checkout, each write agent's head and sentences, each command after one. */
+.automations-approval-writes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-approval-writes > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.automations-approval-writes-head {
+  margin-top: 4px;
+  color: var(--color-text-primary);
 }
 
 /* An agent's own description, as its file writes it, under its name. */
@@ -4364,4 +4477,84 @@
   flex-direction: column;
   gap: var(--space-2);
   overflow-wrap: anywhere;
+}
+
+/* A gate's card on the run page: its question, the documents it shows, one button per choice and Reject. */
+.automations-gate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.automations-gate-heading {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+}
+
+.automations-gate-heading svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--color-warning);
+}
+
+.automations-gate-material {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.automations-gate-material-label {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-gate-newer {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-warning);
+}
+
+.automations-gate-answered {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-gate-choices {
+  flex-wrap: wrap;
+}
+
+/* A run a person rejected at a gate: said once, at the top, as a failure is. */
+.automations-rejected > svg {
+  color: var(--color-warning);
+}
+
+/* Activity's first group: runs waiting for the person at a gate. */
+.automations-run-waiting .automations-run-day-head {
+  color: var(--color-warning);
+}
+
+/* A queued run held by another run's gate on the same item. */
+.automations-held-by {
+  margin: 0;
+}
+
+/* A run's own checkout, above its steps (slice 3-B). */
+.automations-run-checkout-line {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.automations-run-checkout-people {
+  margin-top: 8px;
 }

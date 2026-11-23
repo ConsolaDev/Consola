@@ -14,6 +14,7 @@
     "auth:generate": "pnpm dlx auth@1.7.27 generate --config src/adapters/auth/cli-config.ts --output src/adapters/persistence/auth-schema.ts --yes",
     "db:generate": "drizzle-kit generate",
     "cell-key:generate": "node scripts/generate-cell-key.mjs",
+    "webhooks:tunnel": "node scripts/webhook-tunnel.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {

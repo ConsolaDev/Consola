@@ -257,6 +257,8 @@ describe('an entry whose secrets are not all bound', () => {
     for (const automation of parseFactorySpec(yaml).automations)
       h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
     await h.service.reload(WORKSPACE_ID);
+    // The grammar is static prose (slice 3-B's sandbox words name the keychain as where sign-ins live).
+    const grammarBefore = h.service.capabilities(WORKSPACE_ID).grammar;
     // A reason can name a reference too: an `env:` binding's variable.
     h.world.secrets.resolveThrows = new SecretReadError(
       'TRACKER_TOKEN',
@@ -280,22 +282,23 @@ describe('an entry whose secrets are not all bound', () => {
     expect(row(h, 'watch-tickets').check!.error).toBe(
       `Couldn't read \`TRACKER_TOKEN\` from its binding ${BIND_HINT}; nothing ran.`,
     );
-    const told = [
-      JSON.stringify(h.service.capabilities(WORKSPACE_ID)),
-      JSON.stringify(h.service.list(WORKSPACE_ID)),
+    const { grammar, ...answer } = h.service.capabilities(WORKSPACE_ID);
+    // The failures added nothing to the static grammar, which is checked below for all but its own keychain words.
+    expect(grammar).toBe(grammarBefore);
+    const told = [JSON.stringify(answer), JSON.stringify(h.service.list(WORKSPACE_ID))];
+    const words = [
+      PAGER_BINDING.label,
+      TRACKER_BINDING.label,
+      'consola/ws-1/personal',
+      'op://',
+      'keychain',
+      '1Password',
+      'STUB_TRACKER_TOKEN',
+      'no such item',
     ];
-    for (const text of told)
-      for (const where of [
-        PAGER_BINDING.label,
-        TRACKER_BINDING.label,
-        'consola/ws-1/personal',
-        'op://',
-        'keychain',
-        '1Password',
-        'STUB_TRACKER_TOKEN',
-        'no such item',
-      ])
-        expect(text).not.toContain(where);
+    for (const text of told) for (const where of words) expect(text).not.toContain(where);
+    for (const where of words.filter((word) => word !== 'keychain'))
+      expect(grammar).not.toContain(where);
   });
 });
 

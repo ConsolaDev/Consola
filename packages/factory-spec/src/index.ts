@@ -19,8 +19,33 @@ export {
   type AgentServer,
   type ParsedAgent,
 } from './agents';
+export {
+  BRANCH_PLACEHOLDERS,
+  branchPlaceholderNames,
+  branchTemplateProblem,
+  cleanBranchPart,
+  refFormatProblem,
+  renderBranch,
+  type BranchValues,
+} from './branchName';
+export {
+  MAX_ENVIRONMENT_ENTRIES,
+  environmentHash,
+  looksLikeCredential,
+  parseEnvironmentFile,
+  type EnvironmentDefinition,
+} from './environments';
+export {
+  MAX_REPOS,
+  REPO_PATTERN,
+  isItemCheckout,
+  isRunOwnedCheckout,
+  type EntryCheckout,
+  type RunOwnedCheckout,
+} from './flow';
 export { cronError, nextCronOccurrence } from './cron';
 export { parseAutomationFile, type AutomationFileResult } from './automationFile';
+export { automationLines, type AutomationLines, type LineRange } from './lines';
 export {
   appendAutomationEntry,
   automationEntryText,
@@ -132,6 +157,7 @@ export {
   CONNECTION_ID_PATTERN,
   EVENT_NAME_PATTERN,
   isStepsEntry,
+  PR_ITEM_NEEDS_PRS,
   type Automation,
   type AutomationMode,
   type CronTrigger,
@@ -146,10 +172,20 @@ export {
   ENV_NAME_PATTERN,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
+  CHECKOUT_CHANGES_REF,
   ENV_PREFIX_EXCEPTIONS,
   GH_IDENTITY_ENV_REASON,
+  flatSteps,
+  GATE_CHOICE_PATTERN,
+  gateChoices,
   isRefusedEnvName,
   LATER_KEYS,
+  leafSteps,
+  MAX_GATE_ASK,
+  MAX_GATE_SHOW,
+  MAX_LOOP_STEPS,
+  MAX_RETRIES,
+  MAX_ROUNDS,
   MAX_COMMAND_TIMEOUT_MS,
   MAX_OUTPUTS,
   MAX_STEPS,
@@ -164,10 +200,15 @@ export {
   TRUSTED_ITEM_FIELDS,
   type AgentStep,
   type CommandStep,
+  type FlatStep,
+  type GateStep,
   type ItemField,
   type ItemFieldTable,
+  type OnExhausted,
+  type RepeatStep,
   type Step,
   type UsesStep,
+  type StepEntry,
 } from './steps';
 export {
   callArguments,

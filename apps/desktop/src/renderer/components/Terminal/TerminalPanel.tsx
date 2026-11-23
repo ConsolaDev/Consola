@@ -16,11 +16,18 @@ interface TerminalPanelProps {
   /** The session record this tab shows, for actions that act on it. */
   sessionId: string;
   /**
-   * Set for a read-only session (every one an automation starts): the
-   * automation that started it, when one did. Its restriction is never
-   * lifted in place — the person continues in a fork of their own.
+   * Set for a session with a policy (every one an automation starts): what
+   * it may do, as `policyLine` says it (`Read-only · started by …`, or a
+   * write step's `writes · sandboxed · …`, slice 3-B), and whether that is
+   * read-only. Its restriction is never lifted in place — the person
+   * continues in a fork of their own.
    */
-  readOnly?: { startedBy?: string };
+  policy?: { line: string; readOnly: boolean };
+  /**
+   * Why **Continue with full tools** is off: a step's session while its run
+   * is open (`continuationBlock`, slice 3-B). Absent when it may continue.
+   */
+  continueBlock?: string;
   cwd: string;
   /** Session ID Consola assigned to this tab. */
   claudeSessionId: string;
@@ -42,7 +49,8 @@ export function TerminalPanel({
   instanceId,
   workspaceId,
   sessionId,
-  readOnly,
+  policy,
+  continueBlock,
   cwd,
   claudeSessionId,
   resume,
@@ -99,14 +107,12 @@ export function TerminalPanel({
        * is empty whenever the session is healthy would spend nearly all
        * of its life taking height from the terminal for nothing.
        */}
-      {(hasExited || readOnly) && (
+      {(hasExited || policy) && (
         <div className="terminal-panel-toolbar">
-          {readOnly && (
+          {policy && (
             <span className="terminal-read-only-label">
               <Lock size={12} />
-              <span>
-                {readOnly.startedBy ? `Read-only · started by ${readOnly.startedBy}` : 'Read-only'}
-              </span>
+              <span>{policy.line}</span>
             </span>
           )}
           {hasExited && (
@@ -115,23 +121,28 @@ export function TerminalPanel({
               className="terminal-restart-button"
               onClick={handleRestart}
               title={
-                readOnly
-                  ? 'Continue this conversation, still read-only'
+                policy
+                  ? policy.readOnly
+                    ? 'Continue this conversation, still read-only'
+                    : 'Continue this conversation, under the policy its step was started with'
                   : 'Claude exited — resume this conversation'
               }
             >
               <RotateCw size={13} />
-              <span>{readOnly ? 'Continue' : 'Restart'}</span>
+              <span>{policy ? 'Continue' : 'Restart'}</span>
             </button>
           )}
-          {readOnly && (
+          {policy && (
             <button
               type="button"
               className="terminal-fork-button"
               onClick={handleFork}
-              // Mid-turn, the conversation is not all written yet.
-              disabled={forking || (isBusy && !hasExited)}
-              title="Continue this conversation in a new session of your own, with your usual tools"
+              // Mid-turn, the conversation is not all written yet; a step's run still owns its checkout.
+              disabled={forking || (isBusy && !hasExited) || continueBlock !== undefined}
+              title={
+                continueBlock ??
+                'Continue this conversation in a new session of your own, with your usual tools'
+              }
             >
               <Unlock size={13} />
               <span>Continue with full tools</span>

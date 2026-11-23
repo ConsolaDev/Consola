@@ -19,6 +19,8 @@ const READ_ONLY_MESSAGE = 'A read-only session cannot use the browser.';
 const ACCESS_OFF_MESSAGE =
   "Agents may not use this workspace's browser; the person turned that off in its settings.";
 
+const STEP_MESSAGE = "A step's session cannot use the browser.";
+
 /**
  * Why a session's agent may not use its workspace's browser now, or null
  * when it may. Asked once when a session's MCP server is built, to decide
@@ -31,6 +33,8 @@ export function browserRefusal(
 ): string | null {
   if (!workspace || !session) return GONE_MESSAGE;
   if (session.toolPolicy === 'read-only') return READ_ONLY_MESSAGE;
+  // A write step's session (slice 3-B): its pages would be a way out of the environment it was compiled for.
+  if (session.toolPolicy !== undefined) return STEP_MESSAGE;
   if (workspace.browserAgentAccess === 'off') return ACCESS_OFF_MESSAGE;
   return null;
 }

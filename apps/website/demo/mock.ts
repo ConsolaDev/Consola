@@ -901,6 +901,7 @@ export function installMock() {
     getStepDetail: async () => null,
     readStepLog: async () => null,
     readArtifact: async () => null,
+    openRunCheckout: automationsUnavailable,
     retry: automationsUnavailable,
     checkServer: async (_workspaceId: string, _name: string, server: string) => ({
       server,
@@ -908,6 +909,8 @@ export function installMock() {
       steps: [],
       problem: 'The demo starts no servers.',
     }),
+    getGate: async () => null,
+    answerGate: automationsUnavailable,
     stop: async () => {},
     addTemplate: automationsUnavailable,
     startAuthoring: automationsUnavailable,

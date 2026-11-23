@@ -32,6 +32,10 @@ export interface UsesStep {
   outputs: Record<string, OutputType>;
   timeoutMs: number;
   dryRun: 'report' | 'run';
+  /** `then: stop`: once it completes, the run ends. Present only when the file writes it. */
+  stop?: true;
+  /** `on_failure: { retry: <n> }`, present only when written; above 0 only with `dry_run: run` (`checkSteps`). */
+  onFailure?: { retry: number };
 }
 
 type Fail = (message: string, path?: Array<string | number>) => void;
@@ -63,7 +67,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Why a step key may not sit beside `uses:`, or undefined. `server`: the step's own, when it names one. */
 function companionProblem(key: string, server: string | undefined): string | undefined {
-  if (key === 'prompt' || key === 'action' || key === 'run')
+  if (key === 'prompt' || key === 'action' || key === 'run' || key === 'gate')
     return `A step names one thing to do; got uses and ${key}.`;
   if (key === 'agent' || key === 'max_turns' || key === 'environment') return NO_AGENT;
   if (key === 'env') return 'A tool takes its values in `with:`.';

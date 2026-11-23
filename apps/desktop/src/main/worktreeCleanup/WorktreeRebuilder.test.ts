@@ -4,10 +4,15 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
-import { keepRefFor, type RemovedWorktree } from '../../shared/worktreeCleanup';
+import {
+  DEFAULT_WORKTREE_CLEANUP_RULES,
+  keepRefFor,
+  type RemovedWorktree,
+} from '../../shared/worktreeCleanup';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { WorktreeService } from '../WorktreeService';
 import { PathLock } from './PathLock';
+import { BRANCH, KEEP_REF, RUN_ID, RunOwnedRig } from './runOwned.test-helpers';
 import { WorktreeRebuilder } from './WorktreeRebuilder';
 
 /**
@@ -263,5 +268,83 @@ describe('WorktreeRebuilder', () => {
     ]);
     expect([first.rebuilt, second.rebuilt].sort()).toEqual([false, true]);
     expect(git(record.path, 'rev-parse', 'HEAD')).toBe(record.commit);
+  });
+});
+
+describe("a run's own checkout, rebuilt (slice 3-B Task 19)", () => {
+  const rigs: RunOwnedRig[] = [];
+  afterAll(() => {
+    for (const made of rigs) made.dispose();
+  });
+  const SWEEP = {
+    request: { trigger: 'sweep' as const, targets: new Set<string>(), now: Date.now() },
+  };
+
+  async function removed(): Promise<{ made: RunOwnedRig; session: Session }> {
+    const made = await new RunOwnedRig().make();
+    rigs.push(made);
+    made.rules = {
+      ...DEFAULT_WORKTREE_CLEANUP_RULES,
+      runFinished: { enabled: true, afterMinutes: 60 },
+    };
+    made.push();
+    const session = made.session();
+    expect(await made.service().remove(made.dir, SWEEP)).toMatchObject({ kind: 'removed' });
+    return { made, session };
+  }
+
+  it("rebuilds it at the recorded commit on its branch, both folders and the pointer, and keeps the keep-ref: a gc in the person's clone leaves it whole (review NB2)", async () => {
+    const { made, session } = await removed();
+    // After the removal the run's commit is in the person's clone only through the keep-ref,
+    // and the rebuilt clone borrows its objects from there.
+    expect(() => made.git(made.source, 'cat-file', '-e', made.head)).not.toThrow();
+    const rebuilt = await made.rebuilder().ensureCheckout(made.workspace, session);
+
+    expect(rebuilt).toEqual({
+      rebuilt: true,
+      notice: `Consola rebuilt this run's checkout on ${BRANCH} at ${made.head.slice(0, 7)}. Dependencies and build output were not restored.`,
+    });
+    expect(made.run('rev-parse', 'HEAD')).toBe(made.head);
+    expect(made.run('symbolic-ref', 'HEAD')).toBe(`refs/heads/${BRANCH}`);
+    expect(fs.readFileSync(path.join(made.dir, '.git'), 'utf8')).toBe(`gitdir: ${made.gitDir}\n`);
+    expect(
+      made.git(made.base, 'config', '--file', path.join(made.gitDir, 'config'), 'consola.run'),
+    ).toBe(RUN_ID);
+    expect(session.removedWorktree).toBeUndefined();
+    expect(made.runRecorded.at(-1)).toEqual({ runId: RUN_ID, removed: null });
+    // Kept, with the folder.
+    expect(made.git(made.source, 'rev-parse', '--verify', KEEP_REF)).toBe(made.head);
+    made.git(made.source, 'reflog', 'expire', '--expire=now', '--all');
+    made.git(made.source, 'gc', '-q', '--prune=now');
+    // The re-check saw `fatal: bad object HEAD` here once the keep-ref went.
+    expect(() => made.run('cat-file', '-e', made.head)).not.toThrow();
+    expect(made.run('status', '--porcelain')).toBe('');
+  });
+
+  it('removes it again after a rebuild, its keep-ref rewritten under the same name', async () => {
+    const { made, session } = await removed();
+    await made.rebuilder().ensureCheckout(made.workspace, session);
+    fs.writeFileSync(path.join(made.dir, 'more.txt'), 'more\n');
+    made.run('add', '-A');
+    made.run('commit', '-q', '-m', 'more');
+    made.push();
+    const next = made.run('rev-parse', 'HEAD');
+    session.lastActiveAt = Date.now() - 5 * 24 * 60 * 60_000;
+    expect(await made.service().remove(made.dir, SWEEP)).toMatchObject({ kind: 'removed' });
+    expect(made.git(made.source, 'rev-parse', '--verify', KEEP_REF)).toBe(next);
+    expect(fs.existsSync(made.dir)).toBe(false);
+  });
+
+  it('a rebuild whose commit is gone from the person’s clone fails in words, keeps the record and makes no folder', async () => {
+    const { made, session } = await removed();
+    made.git(made.source, 'update-ref', '-d', KEEP_REF);
+    made.git(made.source, 'reflog', 'expire', '--expire=now', '--all');
+    made.git(made.source, 'gc', '-q', '--prune=now');
+    await expect(made.rebuilder().ensureCheckout(made.workspace, session)).rejects.toThrow(
+      "Consola could not rebuild this run's checkout:",
+    );
+    expect(session.removedWorktree?.kind).toBe('run-owned');
+    expect(fs.existsSync(made.dir)).toBe(false);
+    expect(fs.existsSync(made.gitDir)).toBe(false);
   });
 });

@@ -26,7 +26,7 @@ beforeEach(async () => {
     { userId: dana.id, role: 'owner' },
   );
   if (made.kind !== 'created') throw new Error('not created');
-  acme = { ...made.workspace, role: 'owner' };
+  acme = { ...made.workspace, role: 'owner', icon: null };
 });
 
 afterEach(async () => {
@@ -49,7 +49,14 @@ describe('describeMe', () => {
       kind: 'signed-in',
       me: {
         user: { id: 'dana', name: 'Dana', email: 'dana@acme.test', image: null },
-        workspace: { id: acme.id, name: 'Acme', slug: 'acme', region: 'eu', role: 'owner' },
+        workspace: {
+          id: acme.id,
+          name: 'Acme',
+          slug: 'acme',
+          region: 'eu',
+          role: 'owner',
+          icon: null,
+        },
       },
     });
   });

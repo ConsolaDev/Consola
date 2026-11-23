@@ -355,6 +355,16 @@ export class RunFolder implements RunFolderPort {
     writeAtomically(path.join(this.confine(dir), file), JSON.stringify(value));
   }
 
+  public writeMaterial(
+    dir: string,
+    file: 'checkout-changes.patch' | 'CLAUDE.md',
+    text: string,
+  ): void {
+    if (file !== 'checkout-changes.patch' && file !== 'CLAUDE.md')
+      throw new Error(`Not a run file: ${JSON.stringify(file)}.`);
+    writeAtomically(path.join(this.confine(dir), file), text);
+  }
+
   /**
    * `turn.json` in the attempt's folder gains `turn` at the end of its
    * `turns`, written atomically. A missing file, or one that is not a

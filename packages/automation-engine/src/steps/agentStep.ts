@@ -1,4 +1,5 @@
 import {
+  leafSteps,
   parseReadRef,
   parseTemplate,
   renderTemplate,
@@ -13,6 +14,7 @@ import { fillActionPlaceholders } from '../support';
 import type { ItemRef } from '../views';
 import { describeReason } from './commandStep';
 import type { RunDefinition } from './definition';
+import { CHECKOUT_REFS } from './runCheckout';
 import { joinNames } from './sequence';
 import { renderStepPrompt, type StepPromptInput } from './stepPrompt';
 
@@ -66,10 +68,16 @@ function readsOf(
   step: AgentStep,
   records: StepRun[],
   earlier: { folder: RunFolderPort; workspaceId: string; previous: { runId: string } | undefined },
+  material: CheckoutMaterial | undefined,
 ): Pick<StepPromptInput, 'reads' | 'noEarlierRun'> {
   const reads: StepPromptInput['reads'] = [];
   let readsPrevious = false;
   for (const entry of step.reads) {
+    // A run's own checkout's changes (slice 3-B): written for this attempt, by its label.
+    if (entry === CHECKOUT_REFS.changes) {
+      if (material?.changes) reads.push({ ref: entry, step: 'checkout', ...material.changes });
+      continue;
+    }
     const ref = parseReadRef(entry);
     if (!ref) continue;
     if (ref.previous) {
@@ -103,7 +111,21 @@ function readsOf(
       ?.artifacts?.find((artifact) => artifact.name === ref.name);
     if (written) reads.push({ ref: entry, step: ref.step, bytes: written.bytes });
   }
+  // The repository's instructions at the run's base, whatever the step declares (slice 3-B).
+  if (material?.claudeMd)
+    reads.push({ ref: CHECKOUT_REFS.claudeMd, step: 'checkout', ...material.claudeMd });
   return { reads, ...(readsPrevious && !earlier.previous ? { noEarlierRun: true as const } : {}) };
+}
+
+/**
+ * What Consola wrote of a run's own checkout into the step's attempt folder
+ * before it starts (slice 3-B Task 15), by size and label: the branch's
+ * changes, when the step declares them, and the repository's `CLAUDE.md` at
+ * its base, when there is one.
+ */
+export interface CheckoutMaterial {
+  changes?: { bytes: number; label: string };
+  claudeMd?: { bytes: number; label: string };
 }
 
 /**
@@ -148,7 +170,7 @@ export type AgentStepLaunch =
  * agent's; undefined when neither writes one, or for a command step.
  */
 export function stepCap(definition: RunDefinition, stepId: string): number | undefined {
-  const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+  const step = leafSteps(definition.automation.steps).find((candidate) => candidate.id === stepId);
   if (step?.kind !== 'agent') return undefined;
   return step.maxTurns ?? definition.agents?.[stepId]?.maxTurns;
 }
@@ -176,6 +198,18 @@ export function stepCap(definition: RunDefinition, stepId: string): number | und
  * definition holds them (`skillHashes`), which the host checks what it
  * builds, and every later launch, against (review M1).
  */
+/**
+ * What is left of a run's budget for its next turn (plan Call 15): the
+ * entry's `budget.usd` less what the run has spent, at least a cent; none
+ * for an entry without a budget. The boundary check stays the guarantee;
+ * this only lets a CLI that can stop a turn there stop it.
+ */
+export function budgetLeft(definition: RunDefinition, run: RunRecord): number | undefined {
+  const usd = definition.automation.budget?.usd;
+  if (usd === undefined) return undefined;
+  return Math.max(0.01, usd - (run.costUsd ?? 0));
+}
+
 export function agentStepLaunch(input: {
   workspaceId: string;
   run: RunRecord;
@@ -189,11 +223,14 @@ export function agentStepLaunch(input: {
   polled: Record<string, unknown> | undefined;
   previous: { runId: string } | undefined;
   folder: RunFolderPort;
+  /** In a run's own checkout: what the step is handed of it (slice 3-B). */
+  checkoutMaterial?: CheckoutMaterial;
 }): AgentStepLaunch {
   const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } =
     input;
   const { checkoutKind, skillsDir, pluginDir } = input;
-  const { steps } = definition.automation;
+  // Every leaf, a loop's included: the step's place among them is what its prompt says ("step 2 of 4").
+  const steps = leafSteps(definition.automation.steps);
   const index = steps.findIndex((candidate) => candidate.id === stepId);
   const step = steps[index];
   const record = run.steps?.find((candidate) => candidate.id === stepId);
@@ -231,7 +268,12 @@ export function agentStepLaunch(input: {
 
   let reads: ReturnType<typeof readsOf>;
   try {
-    reads = readsOf(step, run.steps ?? [], { folder, workspaceId, previous });
+    reads = readsOf(
+      step,
+      run.steps ?? [],
+      { folder, workspaceId, previous },
+      input.checkoutMaterial,
+    );
   } catch (error) {
     return {
       ok: false,
@@ -263,6 +305,16 @@ export function agentStepLaunch(input: {
     outputs: step.outputs,
     artifacts: step.artifacts,
     handover: step.handover,
+    // A write agent's session says what it may change (slice 3-B, Call 17).
+    ...(agent?.tools !== undefined ? { policy: agent.tools } : {}),
+    ...(agent?.environment
+      ? {
+          environment: {
+            isolation: agent.environment.isolation,
+            network: agent.environment.network,
+          },
+        }
+      : {}),
   });
   const name = `${item ? item.title : automation} · ${step.id}`;
   const firstAgentStep = steps.find((candidate) => candidate.kind === 'agent')?.id === step.id;
@@ -272,6 +324,7 @@ export function agentStepLaunch(input: {
   const fired = run.trigger.kind === 'event' || run.trigger.kind === 'poll';
   const askByHand = fired && firstAgentStep && action !== undefined && !retried;
   const maxTurns = stepCap(definition, step.id);
+  const maxBudgetUsd = budgetLeft(definition, run);
   return {
     ok: true,
     request: {
@@ -285,8 +338,10 @@ export function agentStepLaunch(input: {
         scopeId: checkout.scopeId,
         name,
         checkout: checkoutKind,
+        ...(checkoutKind === 'run-owned' ? { checkoutPath: checkout.cwd } : {}),
         ...(pluginDir !== undefined ? { pluginDir } : {}),
         ...(maxTurns !== undefined ? { maxTurns } : {}),
+        ...(maxBudgetUsd !== undefined ? { maxBudgetUsd } : {}),
         ...(agent
           ? {
               agent: {
@@ -298,6 +353,17 @@ export function agentStepLaunch(input: {
                   ...(server.tools !== undefined ? { tools: [...server.tools] } : {}),
                 })),
                 skills: [...agent.skills],
+                ...(agent.tools !== undefined ? { tools: agent.tools } : {}),
+                ...(agent.environment
+                  ? {
+                      environment: {
+                        name: agent.environment.name,
+                        isolation: agent.environment.isolation,
+                        network: [...agent.environment.network],
+                        env: [...agent.environment.env],
+                      },
+                    }
+                  : {}),
                 ...(skillsDir !== undefined
                   ? {
                       skillsDir,

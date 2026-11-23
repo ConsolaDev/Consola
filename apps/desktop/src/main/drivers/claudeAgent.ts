@@ -7,7 +7,13 @@ import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import { CONSOLA_MCP_SERVER } from '../mcp/names';
 import { type ControlRequest, INITIALIZE, requestControl } from './claudeCapabilities';
 import { CLAUDE_SIGN_IN_HINT } from './claudeTurnReader';
-import type { CompileAgentInput, CompiledAgent, McpServerReport } from './HarnessDriver';
+import { fileToolDenyRules, sandboxSettings, sandboxSettingsProblem } from './claudeWriteAgent';
+import type {
+  CompileAgentInput,
+  CompileHost,
+  CompiledAgent,
+  McpServerReport,
+} from './HarnessDriver';
 
 /**
  * A step's agent on Claude: which MCP servers a harness has, asked of its
@@ -207,6 +213,8 @@ export function compileClaudeAgent(
   input: CompileAgentInput & { accountFile: string },
 ): CompiledAgent {
   const { harnessName, agent, checkout, servers, accountFile } = input;
+  const writes = agent.tools !== 'read-only' ? writeAgentProblem(input) : null;
+  if (writes !== null) return { ok: false, problem: writes, about: 'agent' };
   const reported = new Map<string, McpServerReport>();
   for (const server of servers) if (!reported.has(server.name)) reported.set(server.name, server);
   const granted: McpServerReport[] = [];
@@ -236,6 +244,12 @@ export function compileClaudeAgent(
     if (server.source === 'user' && checkout === 'item') {
       return refused(
         `\`${name}\` comes from ${harnessName}'s own settings, and a step on someone else's pull request or issue starts it, or a helper command it runs for its sign-in, inside the author's checkout, where \`npx\`, \`uvx\` or a relative path can run the author's code. On item steps, use a claude.ai connector; this server works in scheduled steps.`,
+      );
+    }
+    // A run's own checkout holds what its earlier steps wrote (slice 3-B), read-only agents' included.
+    if (server.source === 'user' && checkout === 'run-owned') {
+      return refused(
+        `\`${name}\` comes from ${harnessName}'s own settings, and a step in a run's own checkout starts it, or a helper command it runs for its sign-in, inside that checkout, where \`npx\`, \`uvx\` or a relative path can run what is there. A run's checkout holds what earlier steps wrote, and a server started there could run it; use a claude.ai connector.`,
       );
     }
     if (keptByName(server) && !KEPT_BY_NAME.test(name)) {
@@ -331,11 +345,82 @@ export function compileClaudeAgent(
         }
       : {}),
   };
-  return { ok: true, grants, warnings };
+  if (agent.tools === 'read-only') return { ok: true, grants, warnings };
+  return { ok: true, grants: { ...grants, ...writeGrants(input, input.host!) }, warnings };
 }
 
 function refused(problem: string): CompiledAgent {
   return { ok: false, problem };
+}
+
+/** The Global Constraints' words for a write agent whose run's checkout is not its own. */
+export const WRITE_NEEDS_RUN_OWNED =
+  'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9).';
+
+/** How a refusal names a platform `sandbox` is not verified on. */
+function platformName(platform: string): string {
+  if (platform === 'linux') return 'Linux';
+  if (platform === 'win32') return 'Windows';
+  return platform;
+}
+
+/**
+ * Why a write agent (`edit`, `write`) cannot compile here, first match
+ * wins; null when it can: its run's checkout is not run-owned; the host
+ * said nothing of the machine; it names no environment (the format refuses
+ * that first); `sandbox` off macOS; `sandbox` where the person's own
+ * settings set `sandbox` (Call 24). Never a silent downgrade.
+ */
+function writeAgentProblem(input: CompileAgentInput): string | null {
+  const { harnessName, agent, checkout, host } = input;
+  if (checkout !== 'run-owned') return WRITE_NEEDS_RUN_OWNED;
+  if (!host)
+    return `${harnessName} can't hold a write agent to its environment here: Consola was not told this machine's platform, deny list and Claude version.`;
+  const environment = agent.environment;
+  if (!environment)
+    return 'A write agent must name its environment (invariant 9); add `environment: <name>`.';
+  if (environment.isolation === 'sandbox') {
+    if (host.platform !== 'darwin')
+      return `\`isolation: sandbox\` is verified on macOS only so far; this machine runs ${platformName(host.platform)}.`;
+    const settings = sandboxSettingsProblem(host.settingsFiles);
+    if (settings !== null) return settings;
+  }
+  return null;
+}
+
+/**
+ * What a write agent's grants add (Call 14): its policy, its environment,
+ * and, at launch (with its run's checkout), the file tools' deny rules and,
+ * on `sandbox`, the sandbox with the Claude version it was compiled on. At
+ * apply, with no checkout yet, neither: the driver refuses to launch a
+ * write policy whose grants lack them.
+ */
+function writeGrants(input: CompileAgentInput, host: CompileHost): Partial<ClaudeAgentGrants> {
+  const environment = input.agent.environment!;
+  const tools = input.agent.tools as 'edit' | 'write';
+  const checkout = input.checkoutPath;
+  const pluginDir = input.agent.skills.length > 0 ? input.pluginDir : undefined;
+  return {
+    tools,
+    environment: {
+      name: environment.name,
+      isolation: environment.isolation,
+      envNames: [...environment.env],
+    },
+    ...(checkout !== undefined
+      ? {
+          fileDeny: fileToolDenyRules(host.denyRead, checkout),
+          ...(environment.isolation === 'sandbox'
+            ? {
+                sandbox: {
+                  settings: sandboxSettings(environment, host.denyRead, checkout, pluginDir),
+                  cliVersion: host.cliVersion,
+                },
+              }
+            : {}),
+        }
+      : {}),
+  };
 }
 
 // ---------------------------------------------------------------------------

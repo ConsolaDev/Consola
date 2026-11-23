@@ -63,7 +63,7 @@ function wire(ids: string[] = ['ws-1', 'ws-2']) {
     ipc: ipc as never,
     workspaces,
     bindings,
-    automations,
+    runner: automations,
     secretDeps: { store: bindings, programs: secretPrograms({ test: true, env: {} }), loginEnv },
   });
   const call = (channel: string, ...args: unknown[]) =>

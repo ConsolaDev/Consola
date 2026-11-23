@@ -166,7 +166,7 @@ export interface ToolsPort {
  * `scope`, one of the workspace's own folders. What a host compiles an
  * agent's servers for.
  */
-export type CheckoutKind = 'item' | 'scope';
+export type CheckoutKind = 'item' | 'scope' | 'run-owned';
 
 /** A request to start one agent run's session. */
 export interface AgentLaunchRequest {
@@ -210,6 +210,18 @@ export interface AgentLaunchRequest {
     /** `<attempt dir>/plugin`, where the host builds the step's plugin: only when its agent names skills. */
     pluginDir?: string;
     maxTurns?: number;
+    /**
+     * A run-owned step's checkout (slice 3-B): what a write agent's sandbox
+     * and file rules are compiled to name. Present only when `checkout` is
+     * `run-owned`; then it is `cwd`.
+     */
+    checkoutPath?: string;
+    /**
+     * What is left of the run's budget, in US dollars, when its entry has
+     * one (`budget.usd` less what the run has spent, at least a cent): the
+     * host passes it to a CLI that stops a turn there (plan Call 15).
+     */
+    maxBudgetUsd?: number;
     agent?: {
       name: string;
       harnessId?: string;
@@ -225,6 +237,15 @@ export interface AgentLaunchRequest {
        * its skills again only while they still do (review M1).
        */
       skillHashes?: Record<string, string>;
+      /** A write agent's `tools:` (slice 3-B); absent, read-only: the session's policy. */
+      tools?: 'edit' | 'write';
+      /** A write agent's environment, as its run's definition holds it: what its launch holds it to. */
+      environment?: {
+        name: string;
+        isolation: 'host' | 'sandbox';
+        network: string[];
+        env: string[];
+      };
     };
   };
 }
@@ -238,6 +259,15 @@ export interface AgentHarnessQuery {
   skills: readonly string[];
   /** Whose checkout its entry's runs work in: what its servers are checked for (an item's runs start them in the author's). */
   checkout: CheckoutKind;
+  /** A write agent's `tools:` (slice 3-B); absent, read-only. */
+  tools?: 'edit' | 'write';
+  /** A write agent's environment, as its file says it; absent on a read-only agent. */
+  environment?: {
+    name: string;
+    isolation: 'host' | 'sandbox';
+    network: readonly string[];
+    env: readonly string[];
+  };
 }
 
 /** The host's answer of a harness: the workspace's default, or the one an agent names. */
@@ -271,6 +301,12 @@ export interface AgentHarnessAnswer {
    * compiled or prompted from them.
    */
   knownTools?: Readonly<Record<string, readonly string[]>>;
+  /**
+   * The Claude version this harness's CLI said it is, when the host knows it
+   * without asking (slice 3-B Task 21): what the approval card names as
+   * "this Mac runs" beside the version the sandbox was checked on.
+   */
+  cliVersion?: string;
 }
 
 /**
@@ -281,7 +317,14 @@ export interface AgentHarnessAnswer {
 export type LaunchedSession = Pick<
   SessionView,
   'id' | 'name' | 'harnessId' | 'claudeSessionId' | 'cwd' | 'scopeId'
->;
+> & {
+  /**
+   * A write step's launch as the host made it (slice 3-B): the CLI version
+   * it compiled for (`unknown` when it could not be read), and which of its
+   * environment's `env:` names the person's environment had and lacked.
+   */
+  environment?: { cliVersion: string; passed: string[]; missing: string[] };
+};
 
 /** The host's identity of work items: what turns a URL into one, its key, and whether its repository is here. */
 export interface WorkItemPort {
@@ -292,6 +335,8 @@ export interface WorkItemPort {
   urlOf(ref: ItemRef): string;
   /** Whether one of the workspace's scopes holds a clone of the item's repository. */
   inWorkspace(workspaceId: string, ref: ItemRef): boolean;
+  /** Whether one of the workspace's scopes holds a clone of `repo` (`owner/name`): what a run's own checkout is made from (slice 3-B). */
+  repoCloned(workspaceId: string, repo: string): boolean;
 }
 
 /**
@@ -363,6 +408,8 @@ export interface RunFolderPort {
     file: 'command.json' | 'outputs.json' | 'call.json' | 'result.json',
     value: unknown,
   ): void;
+  /** Atomic: what a step reads of its run's own checkout, in its attempt's folder (slice 3-B Task 15). */
+  writeMaterial(dir: string, file: 'checkout-changes.patch' | 'CLAUDE.md', text: string): void;
   /** Atomic: `runs/<run>/<step>/<attempt>/turn.json` gains `turn` at the end of its `turns`. */
   appendTurn(
     workspaceId: string,
@@ -426,6 +473,13 @@ export interface RunningCommand {
    * Rejects only when the command never started: nothing ran.
    */
   readonly result: Promise<CommandResult>;
+  /**
+   * Resolves once nothing is left in the command's process group, which its
+   * result's end signals (SIGTERM, then SIGKILL after the grace): what a
+   * run's own checkout waits for before Consola checks it (slice 3-B, Call 8).
+   * Absent, a host has no group to wait for.
+   */
+  readonly ended?: Promise<void>;
   /** SIGTERM to the whole process group, SIGKILL after the grace. */
   stop(): void;
 }

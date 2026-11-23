@@ -53,8 +53,9 @@ import { browserRefusal, closeConnectionsWithoutAccess } from './browser/browser
 import { isolated } from './browser/isolated';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
-import { exec, execFile } from 'node:child_process';
+import { exec, execFile, execFileSync } from 'node:child_process';
 import { TerminalManager } from './TerminalManager';
 import {
   SessionLauncher,
@@ -90,13 +91,14 @@ import {
 import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
-import { SessionRemover } from './SessionRemover';
+import { releaseRemovedWorktreeWith, SessionRemover } from './SessionRemover';
 import { openingFor } from './harnessSwitch/handoff';
 import { HandoffStore } from './harnessSwitch/HandoffStore';
 import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { WorktreeCleanupService } from './worktreeCleanup';
 import { WorktreeRebuilder } from './worktreeCleanup/WorktreeRebuilder';
+import { treeHeldByRun } from './worktreeCleanup/FactGatherer';
 import { CleanupHistory } from './worktreeCleanup/CleanupHistory';
 import {
   RUN_ENDED_DEBOUNCE_MS,
@@ -111,10 +113,10 @@ import {
   type WorktreeCleanupRules,
 } from '../shared/worktreeCleanup';
 import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
-import { worktreePathLock } from './worktreeCleanup/PathLock';
+import { lockKey, worktreePathLock } from './worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
-import { consolaTools } from './tools/consolaTools';
+import { automationControl, consolaTools } from './tools/consolaTools';
 import { desktopWorkItemPort } from './automations/workItemPort';
 import {
   sessionRecord,
@@ -129,7 +131,19 @@ import {
   harnessesWithServers,
   settledServerTools,
   withKnownTools,
+  writeAgentHost,
+  writeAgentHostNow,
+  type WriteAgentHostDeps,
 } from './automations/agentHarness';
+import { HarnessVersions, UNKNOWN_CLI_VERSION } from './drivers/harnessVersions';
+import {
+  FILE_TOOLS_DENY_CHECKED,
+  FILE_TOOLS_LINKS_CHECKED,
+  HOST_EDIT_CHECKED,
+} from './drivers/claudeWriteAgent';
+import { SANDBOX_CHECKED_ON_CLAUDE } from '../shared/sandboxCheck';
+import { runCheckoutSpawnRefusal, runOwnedCheckoutPort } from './automations/runOwnedCheckout';
+import { scopeIdForPath } from './providers/launchWorkItem';
 import { McpServersCache } from './automations/mcpServersCache';
 import {
   launchAgentRun,
@@ -138,7 +152,9 @@ import {
   type ItemWorktreeDeps,
 } from './automations/launchAgentRun';
 import { entryArgs, openFileArgs, workspaceArg } from './automations/factoryFileArgs';
+import { gateAnswerArgs, gateArgs } from './automations/gateArgs';
 import { openFactoryFile } from './automations/openFactoryFile';
+import { openRunCheckout } from './automations/openRunCheckout';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
@@ -156,12 +172,15 @@ import {
   RunFolder,
   RunHistoryFiles,
   RunStore,
+  describeFlow,
   startCommand,
   stepToolSpecs,
   workspaceDataDir,
   workspaceFactoryPath,
+  type AgentRequirements,
   type AutomationStateFile,
   type ListRunsQuery,
+  type RunDefinitionView,
 } from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
@@ -264,7 +283,7 @@ import type {
 import type { SnoozeWhen } from '../shared/snooze';
 import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
-import { automationsTickMs } from './test-mode';
+import { automationsRetryMs, automationsTickMs } from './test-mode';
 import { noticeTarget } from './automations/noticeTarget';
 
 // One terminal per session tab, kept alive while the session is open
@@ -658,18 +677,19 @@ export function setupIpcHandlers(): boolean {
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
     removeHandoffs: (sessionId) => handoffs.removeAll(sessionId),
-    releaseRemovedWorktree: ({ removedWorktree: removed }) => {
-      if (!removed) return;
-      const stillNamed = workspaces
-        .getAll()
-        .some((workspace) =>
-          workspace.sessions.some((session) => session.removedWorktree?.path === removed.path),
-        );
-      if (stillNamed) return;
-      void worktrees
-        .deleteKeepRef(removed.mainRepo, removed.keepRef)
-        .catch((error) => console.error(`Could not delete ${removed.keepRef}:`, error));
-    },
+    releaseRemovedWorktree: releaseRemovedWorktreeWith({
+      stillNamed: (worktreePath) =>
+        workspaces
+          .getAll()
+          .some((workspace) =>
+            workspace.sessions.some((session) => session.removedWorktree?.path === worktreePath),
+          ),
+      // Slice 3-B (review NB2): a run in history can still rebuild its own checkout.
+      runNames: (worktreePath) =>
+        automations.runOwningCheckout(worktreePath, (a, b) => lockKey(a) === lockKey(b)) !== null,
+      exists: (worktreePath) => fs.existsSync(worktreePath),
+      deleteKeepRef: (mainRepo, ref) => worktrees.deleteKeepRef(mainRepo, ref),
+    }),
   });
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
@@ -1026,11 +1046,53 @@ export function setupIpcHandlers(): boolean {
     };
   };
 
+  /**
+   * The run in history whose own checkout (slice 3-B) is `dir`, by real
+   * path, with the person's clone its record names (null when its
+   * workspace no longer resolves it).
+   */
+  const runOwnedRecordAt = (dir: string) => {
+    const target = lockKey(dir);
+    const run = runStore
+      .runs()
+      .find(
+        (candidate) =>
+          candidate.checkout?.kind === 'run-owned' && lockKey(candidate.checkout.cwd) === target,
+      );
+    if (!run?.checkout) return null;
+    const workspace = workspaces
+      .getAll()
+      .find((candidate) => candidate.id === run.attribution.workspaceId);
+    const repo = run.checkout.repo;
+    const source = workspace && repo ? worktrees.resolveRepo(workspace, repo) : null;
+    return { run, checkout: run.checkout, source };
+  };
+
   const rebuilder = new WorktreeRebuilder({
     lock: worktreePathLock,
     getWorkspaces: () => workspaces.getAll(),
     worktrees,
     clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    // Slice 3-B (review S3): a run's own checkout comes back from its run's record when no
+    // session's names it (a run of only `run:` steps), never anew.
+    runRecordAt: (dir) => {
+      const found = runOwnedRecordAt(dir);
+      const removed = found?.checkout.removed;
+      if (!found || !removed || !found.source || !found.checkout.branch) return undefined;
+      return {
+        path: found.checkout.cwd,
+        mainRepo: found.source,
+        commit: removed.commit,
+        branch: found.checkout.branch,
+        keepRef: removed.keepRef,
+        // The run's record keeps no trigger; only an ended run's checkout is ever removed.
+        trigger: 'run-finished',
+        removedAt: Date.parse(removed.at),
+        kind: 'run-owned',
+        runId: found.run.id,
+      };
+    },
+    clearRunRecord: (runId) => automations.recordCheckoutRemoved(runId, null),
     rebuilt: (removed, result) =>
       cleanupHistory.append({
         action: 'rebuilt',
@@ -1256,6 +1318,9 @@ export function setupIpcHandlers(): boolean {
       located = findSessionByInstanceId(workspaces.getAll(), instanceId);
       if (!located) throw new Error('Session no longer exists.');
     }
+    // Nothing starts in a run's own checkout whose git folder changed (slice 3-B, review NB1).
+    const refused = runCheckoutSpawnRefusal(located.session, worktrees.worktreeRoot);
+    if (refused) throw new Error(refused);
     // Beside the agent, in whichever checkout it works — one it moved
     // itself into included — rather than where it was launched.
     const cwd = checkoutPathForSession(located.workspace, located.session);
@@ -1784,6 +1849,8 @@ export function setupIpcHandlers(): boolean {
   // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
   const launcher = new SessionLauncher(workspaces, harnesses, manager);
   launcher.prepareCheckout = (workspace, session) => rebuilder.ensureCheckout(workspace, session);
+  // A full-tools continuation's first spawn asks too (the 3-B code review's F11).
+  launcher.spawnRefusal = (session) => runCheckoutSpawnRefusal(session, worktrees.worktreeRoot);
 
   // An action run in a work-item session that already exists — a follow-up
   // pass on the same job, in the same tab. Coalesced per session and
@@ -1842,6 +1909,9 @@ export function setupIpcHandlers(): boolean {
     status: sessionStatus,
     isShown: (instanceId) => viewing.isShown(instanceId),
     heldSessionIds: () => new Set(attention.holds().keys()),
+    // A run parked at a gate holds its checkout with no process and settled sessions (3-A code
+    // review S1). Read at call time, once the runner below exists.
+    runHolds: (tree) => treeHeldByRun(tree, automations.heldCheckouts(), worktrees),
     lastActiveAt: (session) => activityOf(session, attentionLedger.get(session.id)),
     ownProcessIds: (sessions) => {
       const agents = new Set<number>();
@@ -1860,6 +1930,8 @@ export function setupIpcHandlers(): boolean {
     stop: (session) => sessionRemover.stop(session),
     recordRemoved: (entries) => workspaces.recordWorktreesRemoved(entries),
     clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    // Slice 3-B (review S3): a run's own checkout's removal is recorded on its run too.
+    recordRunCheckoutRemoved: (runId, removed) => automations.recordCheckoutRemoved(runId, removed),
     rules: {
       rulesFor: cleanupRulesFor,
       // The shelf's own clock: when it went there, if it reads settled now.
@@ -1873,6 +1945,23 @@ export function setupIpcHandlers(): boolean {
         if (!TERMINAL_RUN_STATUSES.includes(run.status)) return null;
         const ended = Date.parse(run.finishedAt ?? run.updatedAt);
         return Number.isFinite(ended) ? ended : null;
+      },
+      // Slice 3-B (plan Call 11): a run's own checkout is recognised by its run record first.
+      runOwnedOf: (tree) => {
+        const found = runOwnedRecordAt(tree);
+        if (!found) return null;
+        const { run } = found;
+        const ended = Date.parse(run.finishedAt ?? run.updatedAt);
+        return {
+          runId: run.id,
+          source: found.source,
+          endedAt: !TERMINAL_RUN_STATUSES.includes(run.status)
+            ? null
+            : Number.isFinite(ended)
+              ? ended
+              : null,
+          ...(run.attribution.workspaceId ? { workspaceId: run.attribution.workspaceId } : {}),
+        };
       },
     },
     pullRequests: {
@@ -2011,7 +2100,8 @@ export function setupIpcHandlers(): boolean {
     snoozer: () => sessionSnoozer,
     snoozes: () => attention.snoozes(),
     isManagedPath: (dir) => worktrees.isManagedPath(dir),
-    automations: () => automations,
+    // Only the members the tools use: never the runner whole (3-A code review S4).
+    automations: () => automationControl(automations),
     // Fetched here, with the token only main holds: a read-only session
     // has none, and this is how it reads the item it is about.
     workItemContext: async (sessionId) => {
@@ -2051,6 +2141,9 @@ export function setupIpcHandlers(): boolean {
   });
   // The tools themselves, for an end-to-end test to put on a server of its own.
   exposeToTests('browserTools', sessionBrowserTools);
+  // Every automation notice, as `notify` below said it: what an end-to-end test cannot see on screen.
+  const automationNotices: Array<{ title: string; body: string }> = [];
+  exposeToTests('automationNotices', automationNotices);
 
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
   // tools for all, plus the group tools for conductors and the browser tools
@@ -2139,6 +2232,102 @@ export function setupIpcHandlers(): boolean {
     const fields = launchFieldsFor(harness);
     return { driver: getDriver(fields.driverId), config: toHarnessConfig(fields) };
   };
+  // What a write agent compiles against (slice 3-B Task 17): this machine, its deny list,
+  // each harness's CLI version (asked once per launch description), the person's settings files.
+  const harnessVersions = new HarnessVersions((fields) =>
+    getDriver(fields.driverId).probeHealth(toHarnessConfig(fields)),
+  );
+  /** By agent name, the Claude version each write agent's harness runs here, as already read; starts nothing. */
+  const cliVersionsOf = (
+    workspaceId: string | undefined,
+    agents: Readonly<Record<string, AgentRequirements>> | undefined,
+  ): Record<string, string> => {
+    const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    const known: Record<string, string> = {};
+    for (const agent of Object.values(agents ?? {})) {
+      if (agent.tools === undefined) continue;
+      const harness = harnesses
+        .getAll()
+        .find((candidate) => candidate.id === (agent.harnessId ?? workspace?.defaultHarnessId));
+      const version = harnessVersions.peek(launchFieldsFor(harness));
+      if (version !== undefined && version !== UNKNOWN_CLI_VERSION) known[agent.name] = version;
+    }
+    return known;
+  };
+  const writeHostDeps: WriteAgentHostDeps = {
+    harnesses: () => harnesses.getAll(),
+    platform: process.platform,
+    home: os.homedir(),
+    userData: app.getPath('userData'),
+    factoryRoot:
+      process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces'),
+    loginEnv: () => getLoginEnv(),
+    versions: harnessVersions,
+    readSettings: (file) => {
+      try {
+        return fs.readFileSync(file, 'utf8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+        throw error;
+      }
+    },
+  };
+  // A run's own checkout (slice 3-B Task 18): made from the person's clone, settled and
+  // committed by the engine's adapter; the step's processes and the sessions there are ours.
+  const runCheckoutProcesses = new ProcessCwdIndex();
+  const runCheckout = runOwnedCheckoutPort({
+    root: worktrees.worktreeRoot,
+    getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+    fetchEnv: async (workspace) => {
+      const provider = workspace.provider;
+      if (!provider) {
+        await loginEnvRetry();
+        return { ...getLoginEnv() };
+      }
+      return composeProviderEnv(getProviderDriver(provider.id), provider.accountLogin);
+    },
+    scopeIdForPath,
+    processes: runCheckoutProcesses,
+    stepProcesses: (sessionId) => automationTerminal(sessionId)?.stepProcesses() ?? null,
+    identify: (pid) => {
+      try {
+        const said = execFileSync('ps', ['-o', 'pgid=,lstart=', '-p', String(pid)], {
+          encoding: 'utf8',
+          timeout: 5_000,
+        });
+        const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(said);
+        return match ? { pgid: Number(match[1]), started: match[2] } : null;
+      } catch {
+        return null;
+      }
+    },
+    liveTerminals: () => {
+      const agents: number[] = [];
+      const shellPids: number[] = [];
+      for (const session of allSessions()) {
+        const agent = manager.get(session.instanceId);
+        const pid = agent && !agent.hasClaudeExited() ? agent.pid() : undefined;
+        const shell = shells.pid(session.instanceId);
+        if (pid !== undefined) agents.push(pid);
+        if (shell !== undefined) shellPids.push(shell);
+      }
+      return { agents, shells: shellPids };
+    },
+    sessions: () =>
+      allSessions().map((session) => ({
+        id: session.id,
+        name: session.name,
+        ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
+        ...(session.agentCwd !== undefined ? { agentCwd: session.agentCwd } : {}),
+        ...(session.toolPolicy !== undefined ? { toolPolicy: session.toolPolicy } : {}),
+        running: isRunning(session),
+      })),
+    kill: (pid, signal) => process.kill(pid, signal),
+    // Task 19: a removed run's checkout comes back from what records its removal, never anew.
+    restoreAt: (dir) => rebuilder.restoreAt(dir),
+    underLock: (dir, work) => worktreePathLock.run(dir, work),
+  });
   const automations = new AutomationService({
     folderFor: (workspaceId) => new FactoryFolder(workspaceDataDir(workspaceId)),
     // Each folder's last applied version, in Consola's own state: what keeps running while a file has a problem.
@@ -2155,6 +2344,8 @@ export function setupIpcHandlers(): boolean {
     now: () => new Date(),
     newId: () => randomUUID(),
     notify: (notice) => {
+      // An end-to-end test reads what was said (`__consolaTest.automationNotices`); nothing else does.
+      if (isTest) automationNotices.push({ title: notice.title, body: notice.body });
       if (!Notification.isSupported()) return;
       const notification = new Notification({ title: notice.title, body: notice.body });
       // Lands on what the notice is about: the session a run started, the
@@ -2190,8 +2381,9 @@ export function setupIpcHandlers(): boolean {
       timer.unref?.();
       return () => clearInterval(timer);
     },
-    // An end-to-end test's faster tick; undefined (the engine's own) outside a test run.
+    // An end-to-end test's faster tick and retry waits; undefined (the engine's own) outside a test run.
     tickMs: automationsTickMs(),
+    retryBackoffMs: automationsRetryMs(),
     inboxSnapshot: (workspaceId) => {
       const snapshot = inbox.getSnapshot(workspaceId);
       return snapshot ? toItemSnapshot(snapshot) : null;
@@ -2210,6 +2402,9 @@ export function setupIpcHandlers(): boolean {
             const { driver, config } = serversOf(harness);
             return mcpServers.get(driver, config);
           },
+          // A write agent's: this machine and its CLI's version, waited for (slice 3-B).
+          writeAgentHost: (harness) => writeAgentHost(writeHostDeps, harness),
+          loginEnv: () => getLoginEnv(),
         },
         request,
       ),
@@ -2239,6 +2434,20 @@ export function setupIpcHandlers(): boolean {
           const { driver, config } = serversOf(harness);
           mcpServers.missing(driver, config, names);
         },
+        // A write agent's machine, at apply: never waits for a CLI version (slice 3-B).
+        host: (harness) => writeAgentHostNow(writeHostDeps, harness),
+        // Its CLI's version for the approval card (Task 21): asked once in the background, as
+        // its servers are, and the entries resolved again once it answers.
+        cliVersion: (harness) => {
+          const fields = launchFieldsFor(harness);
+          const known = harnessVersions.peek(fields);
+          if (known === undefined) {
+            void harnessVersions.get(fields).then((version) => {
+              if (version !== UNKNOWN_CLI_VERSION) void automationService?.syncWorkspaces();
+            });
+          }
+          return known;
+        },
       });
     },
     // What an agent writing automations may name in an agent file's `harness:`,
@@ -2256,6 +2465,15 @@ export function setupIpcHandlers(): boolean {
       allSessions,
     }),
     checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
+    // From here the desktop makes a run's own checkout and holds a write agent to its
+    // environment (Call 2): its compile (Task 17), its launch and its port (Task 18).
+    runCheckout,
+    writeAgents: true,
+    // What the approval card's containment sentences rest on: the canary's verdicts (Task 21).
+    sandboxCheckedOn: SANDBOX_CHECKED_ON_CLAUDE,
+    fileToolsChecked: FILE_TOOLS_DENY_CHECKED,
+    fileToolLinksChecked: FILE_TOOLS_LINKS_CHECKED,
+    hostEditChecked: HOST_EDIT_CHECKED,
     folderExists: (dir) => fs.existsSync(dir),
     // run: steps and poll checks: spawned by the engine's own executor.
     commands: { start: startCommand },
@@ -2344,7 +2562,16 @@ export function setupIpcHandlers(): boolean {
     },
   );
   // Settings › Secrets, the person's only, and a deleted workspace's bindings going with it.
-  registerSecretsIpc({ ipc: ipcMain, workspaces, bindings, automations, secretDeps });
+  registerSecretsIpc({
+    ipc: ipcMain,
+    workspaces,
+    bindings,
+    runner: {
+      reload: (workspaceId) => automations.reload(workspaceId),
+      secretsView: (workspaceId) => automations.secretsView(workspaceId),
+    },
+    secretDeps,
+  });
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS,
     (_event, workspaceId: unknown, name: unknown) => {
@@ -2426,8 +2653,25 @@ export function setupIpcHandlers(): boolean {
     },
   );
   // The reads answer null for a bad argument or something that is not there, and start nothing.
-  ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, (_event, runId: unknown) =>
-    typeof runId === 'string' ? automations.getRunDefinition(runId) : null,
+  // The snapshot with its flow lines, computed here and never written to the run folder (Call 13).
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION,
+    (_event, runId: unknown): RunDefinitionView | null => {
+      const definition = typeof runId === 'string' ? automations.getRunDefinition(runId) : null;
+      if (!definition) return null;
+      // Slice 3-B Task 21: what its write agents can do, on the version each harness runs here as
+      // far as Consola already knows it (opening a card starts nothing).
+      const writes = automations.writesFor(
+        definition.automation,
+        definition.agents,
+        cliVersionsOf(runStore.get(runId as string)?.attribution.workspaceId, definition.agents),
+      );
+      return {
+        ...definition,
+        flow: describeFlow(definition.automation),
+        ...(writes ? { writes } : {}),
+      };
+    },
   );
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL,
@@ -2454,12 +2698,37 @@ export function setupIpcHandlers(): boolean {
       ? automations.readArtifact(runId, { step, name })
       : null;
   });
+  // Open folder: only a run's own checkout, a real folder directly under the root (review M5).
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_OPEN_RUN_CHECKOUT,
+    (_event, runId: unknown): Promise<void> =>
+      openRunCheckout(typeof runId === 'string' ? automations.getRun(runId) : null, {
+        isManagedPath: (dir) => worktrees.isManagedPath(dir),
+        openPath: (dir) => shell.openPath(dir),
+      }),
+  );
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RETRY, (_event, runId: unknown, stepId: unknown) => {
     if (typeof runId !== 'string' || (stepId !== undefined && typeof stepId !== 'string')) {
       throw new Error('Run id, and a step id or none, required.');
     }
     return automations.retry(runId, stepId);
   });
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_GET_GATE,
+    (_event, rawRunId: unknown, rawStepId: unknown) => {
+      const { runId, stepId } = gateArgs(rawRunId, rawStepId);
+      return automations.gateOf(runId, stepId);
+    },
+  );
+  // The one way a gate is answered: the person, from the renderer. No MCP tool, conductor tool or step tool
+  // reaches it (`gateAnswerers.test.ts`).
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_ANSWER_GATE,
+    (_event, rawRunId: unknown, rawStepId: unknown, rawDecision: unknown) => {
+      const { runId, stepId, decision } = gateAnswerArgs(rawRunId, rawStepId, rawDecision);
+      return automations.answerGate(runId, stepId, decision);
+    },
+  );
   ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_STOP, (_event, runId: string) => {
     if (typeof runId !== 'string') throw new Error('Run id required.');
     automations.stop(runId);
@@ -2565,6 +2834,25 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.SESSION_FAN_OUT, (_event, intent: SessionFanOutIntent) =>
     fanOut({ workspaces, launcher }, intent),
   );
+
+  // A step's continuation asks its run first (slice 3-B Task 20): never while the run is
+  // open, and never in an item's automation checkout, which a run must still be able to move.
+  launcher.continuation = {
+    refusal: (runId, stepId) => automations.continuationRefusal(runId, stepId),
+    checkoutOf: (runId) => runStore.get(runId)?.checkout ?? null,
+    continuationFolder: async (workspace, source, commit) => {
+      const item = source.workItem;
+      const clone = item ? worktrees.resolveRepo(workspace, item.repo) : null;
+      if (!item || !clone) {
+        throw new Error(
+          'Consola could not find the clone this step read, so it has nowhere to continue.',
+        );
+      }
+      const dir = worktrees.continuationWorktreePathFor(item, source.id);
+      await worktrees.addContinuationWorktree(clone, dir, commit);
+      return dir;
+    },
+  };
 
   // A read-only session's restriction is never lifted in place: the person
   // continues its conversation in a fork of their own.
@@ -2686,6 +2974,12 @@ export function setupIpcHandlers(): boolean {
     ) {
       throw new Error('Session was deleted before its terminal started.');
     }
+    // Nothing starts in a run's own checkout whose git folder changed, after any rebuild
+    // (slice 3-B, Call 9, review NB1): a step's session reopened, a continuation in it.
+    const runCheckoutRefusal = record
+      ? runCheckoutSpawnRefusal(record, worktrees.worktreeRoot)
+      : null;
+    if (runCheckoutRefusal) throw new Error(runCheckoutRefusal);
 
     return manager.ensure(
       instanceId,
@@ -2756,6 +3050,12 @@ export function setupIpcHandlers(): boolean {
       const cwd =
         located &&
         (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
+      // Nothing starts in a run's own checkout whose git folder changed (slice 3-B, review NB1).
+      const refused = located && runCheckoutSpawnRefusal(located.session, worktrees.worktreeRoot);
+      if (refused) {
+        manager.get(instanceId)?.notice(`It did not start: ${refused}.`);
+        return;
+      }
       manager.get(instanceId)?.restartClaude(cwd ?? undefined, notice);
     })();
   });
@@ -3278,7 +3578,10 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_RUN_CHECKOUT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RETRY);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_GATE);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ANSWER_GATE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_STOP);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);

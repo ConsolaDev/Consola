@@ -1,4 +1,5 @@
-import { generateKeyPairSync } from 'node:crypto';
+import { createHmac, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,15 +10,26 @@ import {
   CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
+  GITHUB_EVENT_TYPE,
+  GITHUB_PAYLOAD_MAX_BYTES,
+  GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
+  GITHUB_TOKEN_REQUEST_TYPE,
+  type GitHubEventMessage,
+  type GitHubTokenAsk,
+  gitHubTokenRequest,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
   readCellTokenClaims,
+  readGitHubEventMessage,
   readOutboxMessage,
 } from '@consola/cloud-contract';
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import {
+  CompactSign,
   calculateJwkThumbprint,
   compactVerify,
   createLocalJWKSet,
@@ -32,7 +44,12 @@ import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
 import { composeApi } from './compose.js';
-import { type CloudConfig, ConfigError, type Ed25519PrivateJwk } from './config.js';
+import {
+  type CloudConfig,
+  ConfigError,
+  type Ed25519PrivateJwk,
+  type Ed25519PublicJwk,
+} from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
 const ACME_CELL = 'http://127.0.0.1:3101';
@@ -43,6 +60,15 @@ const cellKey = generateKeyPairSync('ed25519').privateKey.export({
   format: 'jwk',
 }) as Ed25519PrivateJwk;
 
+// Each region's cell's own key, made for this run only: the cells sign their requests with them.
+const cellPairOf = () => {
+  const { privateKey } = generateKeyPairSync('ed25519');
+  const x = privateKey.export({ format: 'jwk' }).x as string;
+  return { privateKey, publicJwk: { kty: 'OKP', crv: 'Ed25519', x } as Ed25519PublicJwk };
+};
+const euCell = cellPairOf();
+const usCell = cellPairOf();
+
 const config: CloudConfig = {
   databaseUrl: 'pglite:memory',
   authSecret: 'sprocket-test-secret-that-is-long-enough-to-sign-with',
@@ -52,7 +78,9 @@ const config: CloudConfig = {
   cellTokenPrivateKey: cellKey,
   // A cell in each region, which no test reaches unless it starts the outbox's worker.
   cellUrls: { eu: ACME_CELL, us: SPROCKET_CELL },
+  cellPublicKeys: { eu: euCell.publicJwk, us: usCell.publicJwk },
   github: null,
+  githubWebhookSecret: null,
 };
 
 let db: Database;
@@ -303,7 +331,15 @@ describe('workspaces', () => {
     const made = await send('POST', '/api/workspaces', { ...acme, region: 'us' }, login.headers);
     expect(made).toEqual({
       status: 201,
-      body: { id: expect.any(String), name: 'Acme', slug: 'acme', region: 'us', role: 'owner' },
+      body: {
+        id: expect.any(String),
+        name: 'Acme',
+        slug: 'acme',
+        region: 'us',
+        role: 'owner',
+        icon: null,
+        canManage: true,
+      },
     });
     expect((await get('/api/me', login.headers)).body.workspace).toEqual(made.body);
     expect(await get('/api/workspaces', login.headers)).toEqual({
@@ -1295,14 +1331,955 @@ describe('GitHub as a connection', () => {
   });
 });
 
+describe('PUT /api/me/workspace/icon', () => {
+  const path = '/api/me/workspace/icon';
+
+  it('is 401 signed out', async () => {
+    expect(await send('PUT', path, { icon: 'rocket' })).toEqual({
+      status: 401,
+      body: { error: 'signed_out' },
+    });
+  });
+
+  it('is 409 with no workspace open', async () => {
+    const login = await signIn('dana@acme.test', 'Dana Ortiz');
+    expect(await send('PUT', path, { icon: 'rocket' }, login.headers)).toEqual({
+      status: 409,
+      body: { error: 'no_active_workspace' },
+    });
+  });
+
+  it("sets the active workspace's icon for its owner, and every answer then wears it", async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    expect(workspace).toMatchObject({ icon: null, canManage: true });
+
+    const set = await send('PUT', path, { icon: 'emoji-fox' }, dana.headers);
+    expect(set).toEqual({ status: 200, body: { ...workspace, icon: 'emoji-fox' } });
+    expect((await get('/api/me', dana.headers)).body.workspace).toEqual(set.body);
+    expect((await get('/api/workspaces', dana.headers)).body.workspaces).toEqual([set.body]);
+    expect(await storedWorkspaces()).toEqual([
+      { id: workspace.id, name: 'Acme', slug: 'acme', region: 'eu' },
+    ]);
+  });
+
+  it('takes the icon off with null', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await send('PUT', path, { icon: 'rocket' }, dana.headers);
+    expect(await send('PUT', path, { icon: null }, dana.headers)).toEqual({
+      status: 200,
+      body: { ...workspace, icon: null },
+    });
+  });
+
+  it('refuses an icon outside the set, and a body of the wrong shape', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers);
+    for (const icon of ['', 'unicorn', 'https://example.test/logo.png']) {
+      expect(await send('PUT', path, { icon }, dana.headers)).toEqual({
+        status: 400,
+        body: { error: 'icon_unknown' },
+      });
+    }
+    for (const body of [{}, { icon: 7 }]) {
+      expect(await send('PUT', path, body, dana.headers)).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+  });
+
+  it('is 403 for a member, who may see the icon but not change it', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await send('PUT', path, { icon: 'leaf' }, dana.headers);
+    const lee = await signIn('lee@acme.test', 'Lee Park');
+    await db.insert(schema.member).values({
+      id: 'acme-lee',
+      organizationId: workspace.id,
+      userId: lee.user.id,
+      role: 'member',
+      createdAt: new Date(Date.now() + 1000),
+    });
+    await send('PUT', '/api/me/workspace', { workspaceId: workspace.id }, lee.headers);
+
+    expect((await get('/api/me', lee.headers)).body.workspace).toMatchObject({
+      icon: 'leaf',
+      role: 'member',
+      canManage: false,
+    });
+    expect(await send('PUT', path, { icon: 'moon' }, lee.headers)).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    expect((await get('/api/me', dana.headers)).body.workspace.icon).toBe('leaf');
+  });
+
+  it('is 403 for a session whose workspace the person has left', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await db.delete(schema.member).where(eq(schema.member.organizationId, workspace.id));
+    expect(await send('PUT', path, { icon: 'moon' }, dana.headers)).toEqual({
+      status: 403,
+      body: { error: 'not_a_member' },
+    });
+  });
+
+  it('reads a logo it did not write as no icon', async () => {
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const workspace = await makeWorkspace(dana.headers);
+    await db
+      .update(schema.organization)
+      .set({ logo: 'https://example.test/logo.png' })
+      .where(eq(schema.organization.id, workspace.id));
+    expect((await get('/api/me', dana.headers)).body.workspace.icon).toBeNull();
+  });
+});
+
+describe('GitHub tokens for a cell', () => {
+  // A key made for this run only, never one written down, in a folder of its own.
+  const appKey = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
+  let keyFolder: string;
+  let withGitHub: CloudConfig;
+
+  beforeAll(async () => {
+    keyFolder = await mkdtemp(join(tmpdir(), 'consola-github-tokens-'));
+    const privateKeyPath = join(keyFolder, 'app.pem');
+    await writeFile(privateKeyPath, appKey.export({ type: 'pkcs1', format: 'pem' }));
+    withGitHub = {
+      ...config,
+      github: {
+        clientId: 'Iv23liSprocketTest',
+        clientSecret: 'sprocket-test-github-client-secret',
+        slug: 'consola-dev',
+        privateKeyPath,
+      },
+    };
+  });
+
+  afterAll(async () => {
+    await rm(keyFolder, { recursive: true, force: true });
+  });
+
+  /** What each installation covers on GitHub: Acme's 41, Bolt's 42 and Sprocket's 52. */
+  const COVERED: Record<number, { id: number; full_name: string }[]> = {
+    41: [
+      { id: 410, full_name: 'acme/catalog-portal' },
+      { id: 411, full_name: 'acme/api' },
+    ],
+    42: [{ id: 420, full_name: 'bolt/site' }],
+    52: [{ id: 520, full_name: 'sprocket/factory' }],
+  };
+
+  /**
+   * GitHub's answers, as recorded against GitHub on 2026-11-22 with the development app (names
+   * changed): a token minted with `repository_ids` carries exactly those repositories and the
+   * permissions asked, plus metadata read; it reads its own repository (200) and gets 404 for
+   * every other private repository of the same installation; a repository the installation does
+   * not cover is 422; and a revoked token is 401.
+   */
+  const RECORDED = {
+    notFound: {
+      message: 'Not Found',
+      documentation_url: 'https://docs.github.com/rest',
+      status: '404',
+    },
+    notAccessible: {
+      message:
+        'There is at least one repository that does not exist or is not accessible to the parent installation.',
+      documentation_url:
+        'https://docs.github.com/rest/apps/apps#create-an-installation-access-token-for-an-app',
+      status: '422',
+    },
+  };
+
+  let tokens: Map<string, { installationId: number; repositoryIds: number[] }>;
+  let mintBodies: unknown[];
+  let revoked: string[];
+  /** When set, what GitHub answers a narrowed mint instead. */
+  let mintAnswer: ((installationId: number) => Response) | null;
+
+  /** GitHub, as minting talks to it, behind `fetch`, answering as recorded. */
+  function fakeGitHub() {
+    tokens = new Map();
+    mintBodies = [];
+    revoked = [];
+    mintAnswer = null;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      const method = init?.method ?? 'GET';
+      const route = `${method} ${url.origin}${url.pathname}`;
+      const token = new Headers(init?.headers).get('authorization')?.replace('Bearer ', '') ?? '';
+      const mint =
+        /^POST https:\/\/api\.github\.com\/app\/installations\/(\d+)\/access_tokens$/.exec(route);
+      if (mint) {
+        const installationId = Number(mint[1]);
+        const body = JSON.parse(String(init?.body)) as {
+          repository_ids?: number[];
+          permissions: Record<string, string>;
+        };
+        if (!body.repository_ids) {
+          // The metadata token the repositories are listed with.
+          return Response.json(
+            { token: `ghs_listing_${installationId}`, expires_at: '2099-01-01T00:00:00Z' },
+            { status: 201 },
+          );
+        }
+        mintBodies.push(body);
+        if (mintAnswer) return mintAnswer(installationId);
+        const covered = COVERED[installationId] ?? [];
+        const repositories = body.repository_ids.map((id) => covered.find((r) => r.id === id));
+        if (repositories.some((repository) => !repository)) {
+          return Response.json(RECORDED.notAccessible, { status: 422 });
+        }
+        const minted = `ghs_narrowed_${tokens.size + 1}`;
+        tokens.set(minted, { installationId, repositoryIds: body.repository_ids });
+        return Response.json(
+          {
+            token: minted,
+            expires_at: '2099-01-01T00:00:00Z',
+            permissions: { ...body.permissions, metadata: 'read' },
+            repository_selection: 'selected',
+            repositories,
+          },
+          { status: 201 },
+        );
+      }
+      if (route === 'GET https://api.github.com/installation/repositories') {
+        const installationId = Number(token.replace('ghs_listing_', ''));
+        const repositories = (COVERED[installationId] ?? []).map((repository) => ({
+          ...repository,
+          private: true,
+          html_url: `https://github.com/${repository.full_name}`,
+        }));
+        return Response.json({ total_count: repositories.length, repositories });
+      }
+      const read = /^GET https:\/\/api\.github\.com\/repositories\/(\d+)$/.exec(route);
+      if (read) {
+        const scope = tokens.get(token);
+        if (!scope) return Response.json({ message: 'Bad credentials' }, { status: 401 });
+        return scope.repositoryIds.includes(Number(read[1]))
+          ? Response.json({ id: Number(read[1]) })
+          : Response.json(RECORDED.notFound, { status: 404 });
+      }
+      if (route === 'DELETE https://api.github.com/installation/token') {
+        revoked.push(token);
+        tokens.delete(token);
+        return new Response(null, { status: 204 });
+      }
+      throw new Error(`The test made an unexpected request to ${method} ${url}`);
+    });
+  }
+
+  /** A read of a repository by id with `token`, as a cell would make it on GitHub. */
+  async function readRepository(token: string, id: number) {
+    const response = await fetch(`https://api.github.com/repositories/${id}`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    return response.status;
+  }
+
+  let workspaceIds: { acme: string; bolt: string; sprocket: string };
+
+  beforeEach(async () => {
+    ({ app, auth } = await composeApi({ db, config: withGitHub }, [testUtils()]));
+    test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    const lee = await signIn('lee@bolt.test', 'Lee Park');
+    const acmeMade = await makeWorkspace(dana.headers, acme);
+    const sprocketMade = await makeWorkspace(dana.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
+    });
+    const boltMade = await makeWorkspace(lee.headers, { name: 'Bolt', slug: 'bolt', region: 'eu' });
+    workspaceIds = { acme: acmeMade.id, bolt: boltMade.id, sprocket: sprocketMade.id };
+    const holds = (installationId: number, organizationId: string, login: string) => ({
+      installationId,
+      organizationId,
+      accountId: installationId + 9000,
+      accountLogin: login,
+      accountType: 'Organization',
+      connectedAt: new Date(),
+    });
+    await db
+      .insert(schema.githubInstallation)
+      .values([
+        holds(41, acmeMade.id, 'acme'),
+        holds(42, boltMade.id, 'bolt'),
+        holds(52, sprocketMade.id, 'sprocket'),
+      ]);
+    fakeGitHub();
+  });
+
+  /** A request as a cell signs it, with its own key: Acme's catalog portal, to pull, by default. */
+  async function signedBy(
+    cell: { privateKey: KeyObject; publicJwk: Ed25519PublicJwk },
+    ask: Partial<GitHubTokenAsk> = {},
+  ) {
+    const request = gitHubTokenRequest({
+      workspaceId: workspaceIds.acme,
+      installationId: 41,
+      purpose: 'factory-pull',
+      repositoryIds: [410],
+      issuedAt: Math.floor(Date.now() / 1000),
+      ...ask,
+    });
+    const kid = await calculateJwkThumbprint(cell.publicJwk);
+    return new CompactSign(new TextEncoder().encode(JSON.stringify(request)))
+      .setProtectedHeader({ alg: CELL_TOKEN_ALGORITHM, kid, typ: GITHUB_TOKEN_REQUEST_TYPE })
+      .sign(cell.privateKey);
+  }
+
+  /** The cell's call: no session, no origin, the signed request in the body. */
+  async function askForToken(signed: string, headers: HeadersInit = {}) {
+    const response = await app.request('/api/github/tokens', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+      body: JSON.stringify({ request: signed }),
+    });
+    const answer = await answerOf('POST', '/api/github/tokens', response);
+    return { ...answer, headers: response.headers };
+  }
+
+  const storedMints = () => db.select().from(schema.githubTokenMint);
+
+  it('a cell gets a token for one repository, which GitHub lets read that repository alone', async () => {
+    const answer = await askForToken(await signedBy(euCell));
+    expect(answer.status).toBe(201);
+    expect(answer.body).toEqual({
+      token: 'ghs_narrowed_1',
+      expiresAt: Date.parse('2099-01-01T00:00:00Z') / 1000,
+      repositories: [{ id: 410, fullName: 'acme/catalog-portal' }],
+      permissions: { contents: 'read', metadata: 'read' },
+    });
+    expect(answer.headers.get('cache-control')).toBe('no-store');
+    expect(mintBodies).toEqual([{ repository_ids: [410], permissions: { contents: 'read' } }]);
+
+    // As GitHub answers it: the repository it was minted for, and not the installation's other.
+    expect(await readRepository(answer.body.token, 410)).toBe(200);
+    expect(await readRepository(answer.body.token, 411)).toBe(404);
+    expect(await readRepository(answer.body.token, 520)).toBe(404);
+
+    const [record, ...more] = await storedMints();
+    expect(more).toEqual([]);
+    expect(record).toMatchObject({
+      organizationId: workspaceIds.acme,
+      installationId: 41,
+      purpose: 'factory-pull',
+      repositoryIds: [410],
+      permissions: { contents: 'read', metadata: 'read' },
+      expiresAt: new Date('2099-01-01T00:00:00Z'),
+    });
+    expect(JSON.stringify(record)).not.toContain('ghs_');
+  });
+
+  it('gives each purpose its own permissions, and records every mint', async () => {
+    const save = await askForToken(await signedBy(euCell, { purpose: 'factory-save' }));
+    expect(save.body.permissions).toEqual({ contents: 'write', metadata: 'read' });
+    const review = await askForToken(
+      await signedBy(euCell, { purpose: 'review-run', repositoryIds: [411, 410] }),
+    );
+    expect(review.body.permissions).toEqual({
+      contents: 'read',
+      pull_requests: 'write',
+      metadata: 'read',
+    });
+    expect(review.body.repositories).toEqual([
+      { id: 410, fullName: 'acme/catalog-portal' },
+      { id: 411, fullName: 'acme/api' },
+    ]);
+    const us = await askForToken(
+      await signedBy(usCell, {
+        workspaceId: workspaceIds.sprocket,
+        installationId: 52,
+        repositoryIds: [520],
+      }),
+    );
+    expect(us.status).toBe(201);
+    expect(mintBodies).toEqual([
+      { repository_ids: [410], permissions: { contents: 'write' } },
+      { repository_ids: [410, 411], permissions: { contents: 'read', pull_requests: 'write' } },
+      { repository_ids: [520], permissions: { contents: 'read' } },
+    ]);
+    expect((await storedMints()).map((row) => [row.purpose, row.organizationId])).toEqual([
+      ['factory-save', workspaceIds.acme],
+      ['review-run', workspaceIds.acme],
+      ['factory-pull', workspaceIds.sprocket],
+    ]);
+  });
+
+  it('is outside the origin check: its authority is the signature, wherever it comes from', async () => {
+    const elsewhere = await askForToken(await signedBy(euCell), {
+      origin: 'http://localhost:9999',
+    });
+    expect(elsewhere.status).toBe(201);
+    const unsigned = await askForToken('not-signed', { origin: 'http://localhost:9999' });
+    expect(unsigned).toMatchObject({ status: 401, body: { error: 'unsigned' } });
+  });
+
+  it("refuses what no cell signed: a stranger's key, or the cell token a browser holds", async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const stranger = cellPairOf();
+    expect(await askForToken(await signedBy(stranger))).toMatchObject({
+      status: 401,
+      body: { error: 'unsigned' },
+    });
+
+    // Dana, signed in, holds a cell token for Acme; it mints nothing at GitHub.
+    const dana = await signIn('dana.again@acme.test', 'Dana Ortiz');
+    await makeWorkspace(dana.headers, { name: 'Acme Two', slug: 'acme-two', region: 'eu' });
+    const minted = await app.request('/api/cell-token', {
+      method: 'POST',
+      headers: fromBrowser(dana.headers),
+    });
+    const { token } = (await minted.json()) as { token: string };
+    expect(await askForToken(token, fromBrowser(dana.headers))).toMatchObject({
+      status: 401,
+      body: { error: 'unsigned' },
+    });
+    expect(mintBodies).toEqual([]);
+    expect(await storedMints()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      "A request for a GitHub token carried no cell's signature.",
+    );
+  });
+
+  it("never gives one workspace's cell a token for another workspace's installation", async () => {
+    // Bolt's request, signed by the EU cell that serves both, names Acme's installation.
+    expect(
+      await askForToken(
+        await signedBy(euCell, { workspaceId: workspaceIds.bolt, installationId: 41 }),
+      ),
+    ).toMatchObject({ status: 404, body: { error: 'installation_not_found' } });
+    // Acme's request names Bolt's installation and repository.
+    expect(
+      await askForToken(await signedBy(euCell, { installationId: 42, repositoryIds: [420] })),
+    ).toMatchObject({ status: 404, body: { error: 'installation_not_found' } });
+    // The US cell asks for Acme, which is in the EU.
+    expect(await askForToken(await signedBy(usCell))).toMatchObject({
+      status: 403,
+      body: { error: 'other_region' },
+    });
+    expect(mintBodies).toEqual([]);
+    expect(await storedMints()).toEqual([]);
+  });
+
+  it("refuses a repository outside the workspace's installation, before anything is minted", async () => {
+    const answer = await askForToken(
+      await signedBy(euCell, { purpose: 'review-run', repositoryIds: [410, 520] }),
+    );
+    expect(answer).toMatchObject({
+      status: 403,
+      body: { error: 'repository_not_covered', repositoryIds: [520] },
+    });
+    expect(mintBodies).toEqual([]);
+    expect(await storedMints()).toEqual([]);
+  });
+
+  it('refuses a request the contract does not read, or one its purpose does not allow', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const expired = await signedBy(euCell, {
+      issuedAt: Math.floor(Date.now() / 1000) - GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS - 120,
+    });
+    expect(await askForToken(expired)).toMatchObject({
+      status: 400,
+      body: { error: 'unreadable' },
+    });
+    expect(logged).toHaveBeenCalledWith(
+      "A cell's request for a GitHub token was refused: the request has expired.",
+    );
+    expect(
+      await askForToken(
+        await signedBy(euCell, { purpose: 'factory-save', repositoryIds: [410, 411] }),
+      ),
+    ).toMatchObject({
+      status: 400,
+      body: { error: 'invalid_token_request', problems: ['too-many-repositories'] },
+    });
+    expect(await askForToken(await signedBy(euCell, { repositoryIds: [] }))).toMatchObject({
+      status: 400,
+      body: { error: 'invalid_token_request', problems: ['no-repositories'] },
+    });
+
+    const noRequest = await app.request('/api/github/tokens', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ token: 'x' }),
+    });
+    expect(await answerOf('POST', '/api/github/tokens', noRequest)).toEqual({
+      status: 400,
+      body: { error: 'invalid_request' },
+    });
+    const notJson = await app.request('/api/github/tokens', {
+      method: 'POST',
+      headers: { 'content-type': 'application/jose' },
+      body: await signedBy(euCell),
+    });
+    expect(await answerOf('POST', '/api/github/tokens', notJson)).toEqual({
+      status: 415,
+      body: { error: 'unsupported_media_type' },
+    });
+    expect(mintBodies).toEqual([]);
+  });
+
+  it('passes on what GitHub says of the installation and the scope', async () => {
+    mintAnswer = () => Response.json(RECORDED.notAccessible, { status: 422 });
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 403,
+      body: { error: 'scope_refused' },
+    });
+    mintAnswer = () => Response.json({ message: 'Not Found' }, { status: 404 });
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 410,
+      body: { error: 'installation_gone' },
+    });
+    expect(await storedMints()).toEqual([]);
+  });
+
+  it('revokes a token GitHub did not narrow as asked, and hands out nothing', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mintAnswer = () =>
+      Response.json(
+        {
+          token: 'ghs_whole_installation',
+          expires_at: '2099-01-01T00:00:00Z',
+          permissions: { contents: 'read', metadata: 'read' },
+          repository_selection: 'all',
+        },
+        { status: 201 },
+      );
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 503,
+      body: { error: 'github_unavailable' },
+    });
+    expect(revoked).toEqual(['ghs_whole_installation']);
+    expect(await storedMints()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      'GitHub minted a token other than the one asked; it was revoked.',
+    );
+  });
+
+  it('mints nothing when this server has no GitHub App', async () => {
+    ({ app } = await composeApi({ db, config }, [testUtils()]));
+    expect(await askForToken(await signedBy(euCell))).toMatchObject({
+      status: 503,
+      body: { error: 'github_not_configured' },
+    });
+  });
+
+  it('never logs a token, a request or a key', async () => {
+    const logs = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    const good = await signedBy(euCell);
+    await askForToken(good);
+    await askForToken(await signedBy(cellPairOf()));
+    await askForToken(
+      await signedBy(euCell, {
+        issuedAt: Math.floor(Date.now() / 1000) - GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS - 120,
+      }),
+    );
+    mintAnswer = () =>
+      Response.json({ token: 'ghs_wide', expires_at: '2099-01-01T00:00:00Z' }, { status: 201 });
+    await askForToken(await signedBy(euCell));
+
+    const logged = logs
+      .flatMap((spy) => spy.mock.calls)
+      .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+      .join('\n');
+    expect(logged).not.toBe('');
+    for (const secret of [
+      'ghs_',
+      good,
+      good.split('.')[2] ?? '',
+      euCell.privateKey.export({ format: 'jwk' }).d as string,
+      appKey.export({ type: 'pkcs1', format: 'pem' }).toString().split('\n')[1] ?? '',
+    ]) {
+      expect(secret).not.toBe('');
+      expect(logged).not.toContain(secret);
+    }
+  });
+});
+
+describe("GitHub's webhooks", () => {
+  // A secret made up for these tests: the app's real one lives only in .env.
+  const WEBHOOK_SECRET = 'sprocket-test-webhook-secret-0123456789abcdef';
+  const DELIVERY_ID = '72d3162e-cc78-11e3-81ab-4c9367dc0958';
+  const withWebhooks: CloudConfig = { ...config, githubWebhookSecret: WEBHOOK_SECRET };
+
+  /** A payload GitHub sent, as the bytes on disk (`webhookFixtures/`). */
+  const fixture = (name: string) =>
+    readFileSync(
+      new URL(`./adapters/github/webhookFixtures/${name}.json`, import.meta.url),
+      'utf8',
+    );
+
+  const signatureOf = (body: string, secret = WEBHOOK_SECRET) =>
+    `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+
+  type Delivery = {
+    event?: string;
+    deliveryId?: string;
+    /** The signature header: GitHub's over the body unless given; null sends none. */
+    signature?: string | null;
+  };
+
+  /**
+   * GitHub delivering `body` to the webhook URL, as GitHub does: no Origin, no cookie, its event,
+   * its delivery id and its signature over the body's bytes. The answer is checked against the
+   * contract.
+   */
+  async function deliver(body: string, delivery: Delivery = {}) {
+    const headers = new Headers({
+      'content-type': 'application/json',
+      'user-agent': 'GitHub-Hookshot/7c1f5a2',
+      'x-github-hook-installation-target-type': 'integration',
+    });
+    if (delivery.event !== undefined) headers.set('x-github-event', delivery.event);
+    headers.set('x-github-delivery', delivery.deliveryId ?? DELIVERY_ID);
+    const signature = delivery.signature === undefined ? signatureOf(body) : delivery.signature;
+    if (signature !== null) headers.set('x-hub-signature-256', signature);
+    const response = await app.request('/api/github/webhooks', { method: 'POST', headers, body });
+    return answerOf('POST', '/api/github/webhooks', response);
+  }
+
+  /** A fixture with its installation changed, as GitHub would send it for another one. */
+  const through = (name: string, installationId: number) => {
+    const payload = JSON.parse(fixture(name));
+    return JSON.stringify({
+      ...payload,
+      installation: { ...payload.installation, id: installationId },
+    });
+  };
+
+  type Passed = { url: string; type: string | null; body: string };
+
+  /**
+   * The cells, behind `fetch`: each records a delivery once, by workspace and delivery id, as a
+   * cell does, answering 201 the first time and 200 after. `down` makes them refuse to connect.
+   */
+  function cells() {
+    const passed: Passed[] = [];
+    const recorded = new Set<string>();
+    const state = { down: false };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      if (![ACME_CELL, SPROCKET_CELL].includes(url.origin)) {
+        throw new Error(`The test made an unexpected request to ${request.url}`);
+      }
+      if (state.down) {
+        throw new TypeError('fetch failed', {
+          cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+        });
+      }
+      const body = await request.text();
+      passed.push({ url: request.url, type: request.headers.get('content-type'), body });
+      const event = await asACell(body);
+      const key = `${event.workspaceId} ${event.deliveryId}`;
+      const first = !recorded.has(key);
+      recorded.add(key);
+      return Response.json({ recorded: true }, { status: first ? 201 : 200 });
+    });
+    return { passed, state };
+  }
+
+  /** A passed-on event read the way a cell reads it: its signature against the published keys. */
+  async function asACell(body: string): Promise<GitHubEventMessage> {
+    const keys = (await (await app.request(CELL_TOKEN_KEYS_PATH)).json()) as JSONWebKeySet;
+    const { payload, protectedHeader } = await compactVerify(body, createLocalJWKSet(keys), {
+      algorithms: [CELL_TOKEN_ALGORITHM],
+    });
+    expect(protectedHeader).toEqual({
+      alg: CELL_TOKEN_ALGORITHM,
+      kid: keys.keys[0]?.kid,
+      typ: GITHUB_EVENT_TYPE,
+    });
+    const read = readGitHubEventMessage(JSON.parse(new TextDecoder().decode(payload)));
+    if (!read.ok) throw new Error(read.reason);
+    return read.value;
+  }
+
+  function logged() {
+    const spies = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    return () =>
+      spies
+        .flatMap((spy) => spy.mock.calls)
+        .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+        .join('\n');
+  }
+
+  let sprocket: { id: string };
+  let acme: { id: string };
+
+  beforeEach(async () => {
+    ({ app, auth } = await composeApi({ db, config: withWebhooks }, [testUtils()]));
+    test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
+    // Sprocket (US) holds the `sprocket` organisation's installation, 41; Acme (EU) holds 52.
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    sprocket = await makeWorkspace(lee.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
+    });
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    acme = await makeWorkspace(dana.headers);
+    await db.insert(schema.githubInstallation).values([
+      {
+        installationId: 41,
+        organizationId: sprocket.id,
+        accountId: 9001,
+        accountLogin: 'sprocket',
+        accountType: 'Organization',
+        connectedBy: lee.user.id,
+        connectedAt: new Date('2026-11-22T21:00:00Z'),
+      },
+      {
+        installationId: 52,
+        organizationId: acme.id,
+        accountId: 9002,
+        accountLogin: 'acme',
+        accountType: 'Organization',
+        connectedBy: dana.user.id,
+        connectedAt: new Date('2026-11-22T21:00:00Z'),
+      },
+    ]);
+  });
+
+  it("passes a pull request opened on Sprocket's repository to Sprocket's cell, in the US", async () => {
+    const { passed } = cells();
+    const log = logged();
+    const body = fixture('pull_request.opened');
+
+    expect(await deliver(body, { event: 'pull_request' })).toEqual({
+      status: 200,
+      body: { result: 'delivered' },
+    });
+
+    expect(passed.map(({ url, type }) => ({ url, type }))).toEqual([
+      {
+        url: `${SPROCKET_CELL}${GITHUB_EVENT_DELIVERY_PATH}`,
+        type: GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+      },
+    ]);
+    expect(await asACell(passed[0]?.body ?? '')).toEqual({
+      workspaceId: sprocket.id,
+      region: 'us',
+      deliveryId: DELIVERY_ID,
+      event: 'pull_request',
+      installationId: 41,
+      payload: JSON.parse(body),
+    });
+    expect(log()).toContain(
+      `Passed GitHub delivery ${DELIVERY_ID} (pull_request) on to workspace ${sprocket.id}'s cell (us).`,
+    );
+  });
+
+  it("passes Acme's push to Acme's cell, in the EU, and nowhere else", async () => {
+    const { passed } = cells();
+    logged();
+    expect((await deliver(fixture('push'), { event: 'push' })).body).toEqual({
+      result: 'delivered',
+    });
+    expect(passed.map(({ url }) => url)).toEqual([`${ACME_CELL}${GITHUB_EVENT_DELIVERY_PATH}`]);
+    expect(await asACell(passed[0]?.body ?? '')).toMatchObject({
+      workspaceId: acme.id,
+      region: 'eu',
+      event: 'push',
+      installationId: 52,
+    });
+  });
+
+  it('refuses the same delivery a second time as a duplicate, and the cell records it once', async () => {
+    const { passed } = cells();
+    logged();
+    const body = fixture('pull_request.opened');
+    expect((await deliver(body, { event: 'pull_request' })).status).toBe(200);
+    expect(await deliver(body, { event: 'pull_request' })).toEqual({
+      status: 409,
+      body: { error: 'duplicate_delivery' },
+    });
+    // The same event under a new delivery id is a new delivery.
+    const again = await deliver(body, {
+      event: 'pull_request',
+      deliveryId: '8a2b6d10-cc78-11e3-81ab-4c9367dc0958',
+    });
+    expect(again.status).toBe(200);
+    expect(passed).toHaveLength(3);
+  });
+
+  it.each<[string, () => Delivery & { body: string }]>([
+    ['no signature', () => ({ body: fixture('pull_request.opened'), signature: null })],
+    [
+      'a signature made with another secret',
+      () => ({
+        body: fixture('pull_request.opened'),
+        signature: signatureOf(
+          fixture('pull_request.opened'),
+          'acme-webhook-secret-0123456789abcdef',
+        ),
+      }),
+    ],
+    [
+      'a body changed after GitHub signed it',
+      () => ({
+        body: through('pull_request.opened', 52),
+        signature: signatureOf(fixture('pull_request.opened')),
+      }),
+    ],
+    [
+      "GitHub's old SHA-1 signature alone",
+      () => ({
+        body: fixture('pull_request.opened'),
+        signature: `sha1=${createHmac('sha1', WEBHOOK_SECRET).update(fixture('pull_request.opened')).digest('hex')}`,
+      }),
+    ],
+  ])('refuses a delivery with %s, and passes nothing on', async (_what, made) => {
+    const { passed } = cells();
+    const log = logged();
+    const { body, signature } = made();
+    expect(await deliver(body, { event: 'pull_request', signature })).toEqual({
+      status: 401,
+      body: { error: 'bad_signature' },
+    });
+    expect(passed).toEqual([]);
+    expect(log()).toContain(
+      "Refused a webhook delivery: it is not signed with the GitHub App's webhook secret.",
+    );
+    // An unchecked delivery's id is anyone's words, so it is not logged.
+    expect(log()).not.toContain(DELIVERY_ID);
+  });
+
+  it('drops and logs an event through an installation no workspace holds', async () => {
+    const { passed } = cells();
+    const log = logged();
+    expect(await deliver(through('pull_request.opened', 63), { event: 'pull_request' })).toEqual({
+      status: 422,
+      body: { error: 'unknown_installation' },
+    });
+    expect(passed).toEqual([]);
+    expect(log()).toContain(
+      `Dropped GitHub delivery ${DELIVERY_ID} (pull_request): no workspace holds installation 63.`,
+    );
+  });
+
+  it('drops an installation once its workspace disconnects it', async () => {
+    const { passed } = cells();
+    logged();
+    await db
+      .delete(schema.githubInstallation)
+      .where(eq(schema.githubInstallation.installationId, 41));
+    expect((await deliver(fixture('pull_request.opened'), { event: 'pull_request' })).body).toEqual(
+      {
+        error: 'unknown_installation',
+      },
+    );
+    expect(passed).toEqual([]);
+  });
+
+  it("answers GitHub's ping, and passes it to no cell", async () => {
+    const { passed } = cells();
+    logged();
+    expect(await deliver(fixture('ping'), { event: 'ping' })).toEqual({
+      status: 200,
+      body: { result: 'pong' },
+    });
+    expect(passed).toEqual([]);
+  });
+
+  it('refuses a signed delivery whose headers or body are not what GitHub sends', async () => {
+    cells();
+    logged();
+    expect(await deliver(fixture('pull_request.opened'))).toEqual({
+      status: 400,
+      body: { error: 'invalid_delivery' },
+    });
+    expect(await deliver('action=opened', { event: 'pull_request' })).toEqual({
+      status: 400,
+      body: { error: 'invalid_delivery' },
+    });
+  });
+
+  it("answers 502 while the cell is down, and GitHub's Redeliver gets the event through", async () => {
+    const { passed, state } = cells();
+    const log = logged();
+    const body = fixture('pull_request.opened');
+    state.down = true;
+    expect(await deliver(body, { event: 'pull_request' })).toEqual({
+      status: 502,
+      body: { error: 'cell_unavailable' },
+    });
+    expect(log()).toContain(
+      `Could not pass GitHub delivery ${DELIVERY_ID} (pull_request) on to workspace ${sprocket.id}'s cell (us): no connection (ECONNREFUSED).`,
+    );
+
+    // GitHub's Redeliver sends the same delivery, with the same id, once the cell is back.
+    state.down = false;
+    expect((await deliver(body, { event: 'pull_request' })).body).toEqual({ result: 'delivered' });
+    expect(passed).toHaveLength(1);
+  });
+
+  it('refuses a body over what GitHub sends before reading it', async () => {
+    cells();
+    logged();
+    const body = `{"padding":"${'x'.repeat(GITHUB_PAYLOAD_MAX_BYTES)}"}`;
+    expect(await deliver(body, { event: 'pull_request', signature: 'sha256=00' })).toEqual({
+      status: 413,
+      body: { error: 'too_large' },
+    });
+  });
+
+  it('without a webhook secret, refuses every delivery', async () => {
+    ({ app } = await composeApi({ db, config: { ...config, githubWebhookSecret: null } }));
+    const { passed } = cells();
+    logged();
+    expect(await deliver(fixture('pull_request.opened'), { event: 'pull_request' })).toEqual({
+      status: 503,
+      body: { error: 'webhooks_not_configured' },
+    });
+    expect(passed).toEqual([]);
+  });
+
+  it('never logs the secret, a signature or what an event says', async () => {
+    cells();
+    const log = logged();
+    const body = fixture('pull_request.opened');
+    await deliver(body, { event: 'pull_request' });
+    await deliver(body, { event: 'pull_request' });
+    await deliver(through('pull_request.opened', 63), { event: 'pull_request' });
+    await deliver(body, {
+      event: 'pull_request',
+      signature: signatureOf(body, 'acme-webhook-secret-0123456789abcdef'),
+    });
+
+    const lines = log();
+    expect(lines).toContain('Passed GitHub delivery');
+    for (const secret of [
+      WEBHOOK_SECRET,
+      signatureOf(body).slice(7),
+      'Price the catalog',
+      'Lyon',
+    ]) {
+      expect(lines).not.toContain(secret);
+    }
+  });
+});
+
 describe('routes', () => {
   it('are these, and no other', () => {
     // A route with middleware or a body schema is one entry per handler in its chain.
     expect([...new Set(app.routes.map((route) => `${route.method} ${route.path}`))]).toEqual([
       'ALL /api/auth/*',
+      'POST /api/github/tokens',
+      'POST /api/github/webhooks',
       'ALL /api/*',
       'GET /api/me',
       'PUT /api/me/workspace',
+      'PUT /api/me/workspace/icon',
       'GET /api/me/workspace/members',
       'GET /api/workspaces',
       'POST /api/workspaces',
@@ -1364,6 +2341,12 @@ describe('regions', () => {
       { workspaceId: workspace.id, region: 'eu' },
       login.headers,
     );
+    await send(
+      'PUT',
+      '/api/me/workspace/icon',
+      { icon: 'emoji-rocket', region: 'eu', name: 'Moved', slug: 'moved' },
+      login.headers,
+    );
     await app.request('/api/auth/update-session', {
       method: 'POST',
       headers: fromBrowser(login.headers),
@@ -1373,7 +2356,10 @@ describe('regions', () => {
     expect(await storedWorkspaces()).toEqual([
       { id: workspace.id, name: 'Acme', slug: 'acme', region: 'us' },
     ]);
-    expect((await get('/api/me', login.headers)).body.workspace).toEqual(workspace);
+    expect((await get('/api/me', login.headers)).body.workspace).toEqual({
+      ...workspace,
+      icon: 'emoji-rocket',
+    });
   });
 });
 
@@ -1422,13 +2408,17 @@ describe('the organisation from before workspaces', () => {
     expect((await get('/api/me', danaLogin.headers)).body.workspace).toEqual({
       ...sprocket,
       role: 'owner',
+      icon: null,
+      canManage: true,
     });
     expect((await get('/api/workspaces', leeLogin.headers)).body).toEqual({
-      workspaces: [{ ...sprocket, role: 'member' }],
+      workspaces: [{ ...sprocket, role: 'member', icon: null, canManage: false }],
     });
     expect((await get('/api/me', leeLogin.headers)).body.workspace).toEqual({
       ...sprocket,
       role: 'member',
+      icon: null,
+      canManage: false,
     });
     expect(await storedWorkspaces()).toEqual([sprocket]);
   });
@@ -1456,7 +2446,7 @@ describe('the organisation from before workspaces', () => {
     const own = await makeWorkspace(login.headers, acme);
 
     expect((await get('/api/workspaces', login.headers)).body).toEqual({
-      workspaces: [{ ...sprocket, role: 'member' }, own],
+      workspaces: [{ ...sprocket, role: 'member', icon: null, canManage: false }, own],
     });
   });
 });

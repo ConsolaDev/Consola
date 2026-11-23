@@ -43,6 +43,7 @@ import { relativeSince } from '../../../utils/relativeSince';
 import { shortModelName } from '../../../utils/harnessMark';
 import { useCheckoutStore } from '../../../stores/checkoutStore';
 import { hasScopeChoice, filteredScope, useHomeStore } from '../../../stores/homeStore';
+import { policyLine } from '../../../infoPanel/environment';
 import { idOfKey } from '../../../sidebar/entries';
 import type { RowProps } from '../../../sidebar/rowRegistry';
 
@@ -245,15 +246,19 @@ function SessionRowBody({
   // a row whose place in the list doesn't say so.
   const label = sessionLabel(session);
   // An automation's session and the "Continue with full tools" fork of it
-  // share a label, so the lock is what tells them apart.
-  const readOnly = session.toolPolicy === 'read-only';
-  const readOnlyNote = session.automation?.name
-    ? `Read-only · started by ${session.automation.name}`
-    : 'Read-only';
+  // share a label, so the lock is what tells them apart: read-only, or a
+  // write step's (slice 3-B), each as `policyLine` says it.
+  const policyNote = policyLine(session);
+  const readOnly = policyNote !== null;
+  const readOnlyNote = policyNote ?? '';
+  const lockTitle =
+    session.toolPolicy === 'read-only'
+      ? `${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`
+      : `${readOnlyNote}.`;
   const accessibleName = [
     label,
     scopeLabel && `in ${scopeLabel.parent ? `${scopeLabel.parent} / ` : ''}${scopeLabel.label}`,
-    readOnly && 'read-only',
+    readOnly && (session.toolPolicy === 'read-only' ? 'read-only' : 'writes'),
     STATUS_LABELS[displayStatus],
     limitWord,
     !limitWord && woke && `woke: ${WAKE_CAUSE_WORDS[woke]}`,
@@ -435,10 +440,7 @@ function SessionRowBody({
           )
         )}
         {readOnly && (
-          <span
-            className="session-row-mark session-nav-item-read-only"
-            title={`${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`}
-          >
+          <span className="session-row-mark session-nav-item-read-only" title={lockTitle}>
             <Lock size={10} aria-hidden="true" />
           </span>
         )}
@@ -571,10 +573,7 @@ function SessionRowBody({
                 </span>
               )}
               {readOnly && (
-                <span
-                  className="session-nav-item-read-only"
-                  title={`${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`}
-                >
+                <span className="session-nav-item-read-only" title={lockTitle}>
                   <Lock size={10} aria-hidden="true" />
                 </span>
               )}

@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Canned `acli` (Atlassian's CLI) for tests: what north-star §4.1's poll
+# lists and its steps post, without a network or an account.
+#
+#   jira workitem search --json --jql <q>                prints STUB_ACLI_ITEMS' file
+#   jira workitem comment create --key <k> --body <b>   appends `comment <k> <b>` to STUB_ACLI_LOG
+#   jira workitem transition --key <k> --status <s>     appends `transition <k> <s>` to STUB_ACLI_LOG
+#   anything else                                       exits 64: `stub acli: unhandled argv: <argv>`
+#
+# Flags may come in any order after the subcommand; a value's newlines are
+# flattened, so each call is one line of the log.
+set -euo pipefail
+
+unhandled() {
+  echo "stub acli: unhandled argv: $*" >&2
+  exit 64
+}
+
+# The value after `--<name>` among the arguments, or empty.
+value_of() {
+  local name="$1"
+  shift
+  while [[ $# -gt 0 ]]; do
+    if [[ "$1" == "--$name" && $# -gt 1 ]]; then
+      printf '%s' "$2"
+      return 0
+    fi
+    shift
+  done
+}
+
+log_line() {
+  if [[ -n "${STUB_ACLI_LOG:-}" ]]; then
+    printf '%s\n' "$(printf '%s' "$*" | tr '\n' ' ')" >> "$STUB_ACLI_LOG"
+  fi
+}
+
+case "${1:-} ${2:-} ${3:-}" in
+  "jira workitem search")
+    [[ " $* " == *" --json "* && -n "$(value_of jql "$@")" ]] || unhandled "$@"
+    cat "${STUB_ACLI_ITEMS:?set STUB_ACLI_ITEMS}"
+    ;;
+  "jira workitem comment")
+    [[ "${4:-}" == create ]] || unhandled "$@"
+    key="$(value_of key "$@")"
+    body="$(value_of body "$@")"
+    [[ -n "$key" ]] || unhandled "$@"
+    log_line "comment $key $body"
+    ;;
+  "jira workitem transition")
+    key="$(value_of key "$@")"
+    status="$(value_of status "$@")"
+    [[ -n "$key" && -n "$status" ]] || unhandled "$@"
+    log_line "transition $key $status"
+    ;;
+  *)
+    unhandled "$@"
+    ;;
+esac

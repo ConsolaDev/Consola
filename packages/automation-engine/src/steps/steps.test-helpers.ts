@@ -53,6 +53,12 @@ import type {
   WorkspaceView,
 } from '../views';
 import type { CheckoutRequest } from './checkout';
+import {
+  runOwnedDirName,
+  type RunCheckoutPort,
+  type SettleResult,
+  type StepProcesses,
+} from './runCheckout';
 import { maskSecrets } from './commandIO';
 import type { StepToolAnswer } from './stepTools';
 
@@ -194,6 +200,28 @@ export interface StepsHarnessOptions {
   secrets?: { bindings?: Record<string, FakeBinding>; values?: Record<string, string> } | 'none';
   /** This runner's MCP client: the servers it reaches and the transports it offers; `'none'` passes no port. Default: no server, both transports. */
   mcp?: { servers?: Record<string, FakeServer>; transports?: McpTransport[] } | 'none';
+  /** Every declared retry's wait, as the host may set it (Call 7). Default: the engine's backoff. */
+  retryBackoffMs?: number;
+  /**
+   * The host makes runs' own checkouts (slice 3-B): the fake `RunCheckoutPort`
+   * (`world.runCheckouts`). Default: none, as a host without one; every
+   * existing test runs without it.
+   */
+  runCheckouts?: boolean;
+  /**
+   * The host's launch holds an agent that writes to its environment (the
+   * service's `writeAgents`, slice 3-B Call 2). Default: as `runCheckouts`,
+   * so `{ runCheckouts: true, writeAgents: false }` is a host with the port
+   * that cannot launch a write agent.
+   */
+  writeAgents?: boolean;
+  /** The canary's verdicts the host passes the approval card (slice 3-B Task 21). Default: none. */
+  cardVerdicts?: {
+    sandboxCheckedOn?: string | null;
+    fileToolsChecked?: boolean;
+    fileToolLinksChecked?: boolean;
+    hostEditChecked?: boolean;
+  };
 }
 
 /** One server the fake MCP client reaches, by its name in the factory. */
@@ -284,6 +312,17 @@ export interface FakeSecrets {
 /** The desktop's words: where a person binds a name on this runner. */
 export const BIND_HINT = 'on this Mac (Settings › Secrets)';
 
+/** One call the fake `RunCheckoutPort` was asked, by its name. */
+export type RunCheckoutCall =
+  | { make: Parameters<RunCheckoutPort['make']>[0] }
+  | { settle: Parameters<RunCheckoutPort['settle']>[0] }
+  | { settleBetween: Parameters<RunCheckoutPort['settleBetween']>[0] }
+  | { reset: { dir: string; before: string; branch?: string } }
+  | { changes: { dir: string; base: string; head: string; maxBytes: number } }
+  | { showAt: { dir: string; commit: string; path: string; maxBytes: number } }
+  | { endStepProcesses: { dir: string; sessionId?: string } }
+  | { restore: string };
+
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
 export interface StepsWorld {
   /** ws-1, "Sprocket". Edit its actions, scopes or provider, then `service.syncWorkspaces()`. */
@@ -291,7 +330,12 @@ export interface StepsWorld {
   /** ws-1 was deleted: the host no longer lists it. Set it, then `service.syncWorkspaces()`. */
   workspaceDeleted: boolean;
   /** `stepProblem`: its extra arguments override what a step's turn is launched with. */
-  harness: { name: string; problem: string | null; stepProblem?: string | null };
+  harness: {
+    name: string;
+    problem: string | null;
+    stepProblem?: string | null;
+    cliVersion?: string;
+  };
   /**
    * The answer for an agent naming each harness, by id; an agent naming one
    * not here gets the host's unknown-harness words, and one naming none gets
@@ -374,6 +418,52 @@ export interface StepsWorld {
   noTurnToStop?: boolean;
   /** Every broadcast throws this while it is set. */
   broadcastThrows?: unknown;
+  /**
+   * The fake `RunCheckoutPort` (with `runCheckouts: true`): every call but
+   * `folderProblem`'s, in order; each `folderProblem` asked, by folder, apart
+   * (review NB1), so a row that pins `calls` stays as written; the base a
+   * `make` answers; what the next `make` throws; the answers `settle`,
+   * `settleBetween` and `showAt` give, in order (each then its default).
+   * What a step reads of the checkout (`changes`, and `showAt` of the
+   * repository's `CLAUDE.md`) is recorded apart too (`materialReads`,
+   * slice 3-B Task 15), so the rows that pin `calls` stay as written.
+   */
+  runCheckouts: {
+    calls: RunCheckoutCall[];
+    folderChecks: string[];
+    materialReads: RunCheckoutCall[];
+    /** What `changes` answers: this text, whole. Default: empty. */
+    changesText: string;
+    /** What `showAt` of `CLAUDE.md` answers: this text, or missing when unset. */
+    claudeMd?: string;
+    /** Every material read (`changes`, `showAt` of `CLAUDE.md`) waits for this while it is set, after recording the call. */
+    materialGate?: Promise<void>;
+    base: string;
+    makeFails?: unknown;
+    /** Every `make` waits for this while it is set, after recording the call. */
+    makeGate?: Promise<void>;
+    settleAnswers: SettleResult[];
+    betweenAnswers: Array<SettleResult | null>;
+    /** Every `settleBetween` waits for this while it is set, after recording the call. */
+    betweenGate?: Promise<void>;
+    showAnswers: Array<
+      { ok: true; text: string } | { ok: false; reason: 'missing' | 'not-a-file' | 'too-large' }
+    >;
+    /** What the next `restore` throws; absent, it puts the folder back (out of `goneFolders`). */
+    restoreFails?: unknown;
+  };
+  /** While set, every command the engine starts says its process group ends when this resolves (`RunningCommand.ended`). */
+  commandGroupEnded?: Promise<void>;
+  /** What the port's `endStepProcesses` answers (default: clear), after `gate` while it is set. */
+  processes: { end: StepProcesses; gate?: Promise<void> };
+  /** The session the port's `holder` names for a folder, by folder. */
+  holders: Map<string, { sessionId: string; name: string }>;
+  /** The full-tools session the port's `fullToolsSession` names for a folder, by folder (F7). */
+  fullTools: Map<string, { sessionId: string; name: string }>;
+  /** What the port's `folderProblem` answers. Default: none. */
+  folderProblem: (dir: string) => string | null;
+  /** Whether a repository is cloned in a workspace, as `repoCloned` answers. Default: yes. */
+  repoCloned: (workspaceId: string, repo: string) => boolean;
   /** Called inside the fake launch, once its session is on the workspace's record and before it resolves. */
   onLaunch?: (request: AgentLaunchRequest, session: SessionView) => void;
   /** A session's unattended turn ended, as the desktop reports it; then whatever that set going. Exit 0 unless told. */
@@ -417,6 +507,8 @@ export interface StepsHarness {
   folder: RunFolder;
   world: StepsWorld;
   notices: AutomationNotice[];
+  /** For each notice, in the same order, how many lines history had appended when it was pushed (review S5). */
+  noticeAppends: number[];
   /** Replace ws-1's factory.yml and reload it, as the file watcher would. */
   setYaml(yaml: string): Promise<void>;
   /** Each folder's applied version, as the service kept it: the same store across relaunches. */
@@ -568,6 +660,21 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     busyFolders: new Set(),
     goneFolders: new Set(),
     checkouts: { prepared: [], head: CHECKOUT_HEAD },
+    runCheckouts: {
+      calls: [],
+      folderChecks: [],
+      materialReads: [],
+      changesText: '',
+      base: 'b0',
+      settleAnswers: [],
+      betweenAnswers: [],
+      showAnswers: [],
+    },
+    processes: { end: { kind: 'clear' } },
+    holders: new Map(),
+    fullTools: new Map(),
+    folderProblem: () => null,
+    repoCloned: () => true,
     async endTurn(sessionId, outcome = { exitCode: 0 }) {
       current.turnEnded(sessionId, outcome);
       await flush();
@@ -619,6 +726,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     },
   };
   const notices: AutomationNotice[] = [];
+  const noticeAppends: number[] = [];
   // ws-1's factory folder, file by file; every other workspace's is empty.
   const folders = new Map<string, Map<string, string>>([
     [
@@ -755,6 +863,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     return {
       pid: 4242,
       result,
+      ...(world.commandGroupEnded ? { ended: world.commandGroupEnded } : {}),
       stop: () => {
         command.stops++;
       },
@@ -905,17 +1014,22 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
       urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
       inWorkspace: () => true,
+      repoCloned: (workspaceId, repo) => world.repoCloned(workspaceId, repo),
     },
     registry,
     getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
     now: () => clock,
     newId: () => `run-${++id}`,
-    notify: (notice) => notices.push(notice),
+    notify: (notice) => {
+      notices.push(notice);
+      noticeAppends.push(history.appends.length);
+    },
     broadcast: (workspaceId) => {
       if (world.broadcastThrows) throw world.broadcastThrows;
       world.broadcasts.push(workspaceId);
     },
     every: () => () => {},
+    ...(options.retryBackoffMs !== undefined ? { retryBackoffMs: options.retryBackoffMs } : {}),
     inboxSnapshot: (workspaceId) => world.inbox.get(workspaceId) ?? null,
     refreshInbox: async (workspaceId) => {
       world.refreshes.push(workspaceId);
@@ -1026,6 +1140,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     ...(secretsPort ? { secrets: secretsPort } : {}),
     ...(mcpPort ? { mcp: mcpPort } : {}),
     serverGroups: world.serverGroups,
+    ...(options.runCheckouts ? { runCheckout: fakeRunCheckout(world) } : {}),
+    ...((options.writeAgents ?? options.runCheckouts) ? { writeAgents: true as const } : {}),
+    ...options.cardVerdicts,
   });
 
   const launch = async (): Promise<StepsHarness> => {
@@ -1042,6 +1159,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       folder,
       world,
       notices,
+      noticeAppends,
       async setYaml(next) {
         filesOf(WORKSPACE_ID).set('factory.yml', next);
         await service.reload(WORKSPACE_ID);
@@ -1085,4 +1203,76 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     };
   };
   return launch();
+}
+
+/** A run's own checkout folder, as the fake port places it. */
+export const runCheckoutPathFor = (runId: string, repo: string) =>
+  `/w/${runOwnedDirName(repo, runId)}`;
+
+/** The fake `RunCheckoutPort`: it records every call and answers from the world. */
+function fakeRunCheckout(world: StepsWorld): RunCheckoutPort {
+  const { runCheckouts } = world;
+  return {
+    pathFor: runCheckoutPathFor,
+    make: async (request) => {
+      runCheckouts.calls.push({ make: request });
+      if (runCheckouts.makeGate) await runCheckouts.makeGate;
+      if (runCheckouts.makeFails) throw runCheckouts.makeFails;
+      return {
+        cwd: runCheckoutPathFor(request.runId, request.repo),
+        scopeId: 'scope-catalog-portal',
+        base: runCheckouts.base,
+      };
+    },
+    settle: async (request) => {
+      runCheckouts.calls.push({ settle: request });
+      return runCheckouts.settleAnswers.shift() ?? { ok: true, after: 'c1', files: 2, flagged: [] };
+    },
+    settleBetween: async (request) => {
+      runCheckouts.calls.push({ settleBetween: request });
+      if (runCheckouts.betweenGate) await runCheckouts.betweenGate;
+      return runCheckouts.betweenAnswers.length > 0 ? runCheckouts.betweenAnswers.shift()! : null;
+    },
+    reset: async (dir, before, branch) => {
+      runCheckouts.calls.push({
+        reset: { dir, before, ...(branch !== undefined ? { branch } : {}) },
+      });
+    },
+    changes: async (dir, base, head, maxBytes) => {
+      runCheckouts.materialReads.push({ changes: { dir, base, head, maxBytes } });
+      if (runCheckouts.materialGate) await runCheckouts.materialGate;
+      const bytes = Buffer.byteLength(runCheckouts.changesText);
+      const text = Buffer.from(runCheckouts.changesText).subarray(0, maxBytes).toString('utf8');
+      return { text, truncated: bytes > maxBytes, bytes };
+    },
+    showAt: async (dir, commit, path, maxBytes) => {
+      if (path === 'CLAUDE.md') {
+        runCheckouts.materialReads.push({ showAt: { dir, commit, path, maxBytes } });
+        if (runCheckouts.materialGate) await runCheckouts.materialGate;
+        const text = runCheckouts.claudeMd;
+        if (text === undefined) return { ok: false, reason: 'missing' };
+        return Buffer.byteLength(text) > maxBytes
+          ? { ok: false, reason: 'too-large' }
+          : { ok: true, text };
+      }
+      runCheckouts.calls.push({ showAt: { dir, commit, path, maxBytes } });
+      return runCheckouts.showAnswers.shift() ?? { ok: false, reason: 'missing' };
+    },
+    folderProblem: (dir) => {
+      runCheckouts.folderChecks.push(dir);
+      return world.folderProblem(dir);
+    },
+    endStepProcesses: async (request) => {
+      runCheckouts.calls.push({ endStepProcesses: request });
+      if (world.processes.gate) await world.processes.gate;
+      return world.processes.end;
+    },
+    holder: (dir) => world.holders.get(dir) ?? null,
+    fullToolsSession: (dir) => world.fullTools.get(dir) ?? null,
+    restore: async (dir) => {
+      runCheckouts.calls.push({ restore: dir });
+      if (runCheckouts.restoreFails) throw runCheckouts.restoreFails;
+      world.goneFolders.delete(dir);
+    },
+  };
 }

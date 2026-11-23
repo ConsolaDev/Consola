@@ -2,27 +2,49 @@ import { useId, useState, type ReactNode } from 'react';
 import {
   ChevronRight,
   CircleCheck,
+  FolderOpen,
   CircleDashed,
   CircleDot,
   CircleSlash,
   CircleX,
   Clock,
+  Hand,
+  Hourglass,
   LoaderCircle,
+  OctagonX,
+  Repeat,
   RotateCcw,
   ScanSearch,
   Square,
   type LucideIcon,
 } from 'lucide-react';
-import type { AutomationView, RunListEntry, RunRecord, StepRun } from '../../../shared/automations';
+import {
+  isStepsRunPreview,
+  type AutomationView,
+  type RunListEntry,
+  type RunRecord,
+  type StepRun,
+} from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useCallRefs } from './CallDetail';
 import { stepKindLabel } from './callWords';
 import { RunAgainButton, useIntent } from './parts';
+import { checkoutLines } from './runCheckout';
+import { GateCard } from './GateCard';
 import { StepDetail } from './StepDetailView';
 import { StepsApprovalCard } from './StepsApprovalCard';
-import { retryWarningOf, runRetryTarget } from './runPage';
+import {
+  loopsOf,
+  rejectedWords,
+  retryWarningOf,
+  roundsOf,
+  runRetryTarget,
+  stopOffered,
+  traceRows,
+  type TraceRow,
+} from './runPage';
 import {
   durationOf,
   failureWords,
@@ -35,13 +57,16 @@ import {
   turnFacts,
   type StepTone,
 } from './stepDetail';
-import { formatElapsed } from './presentation';
+import { formatElapsed, waitingForWords } from './presentation';
 
 const TONE_ICONS: Record<StepTone, LucideIcon> = {
   passed: CircleCheck,
+  rejected: OctagonX,
   failed: CircleX,
   running: LoaderCircle,
   waiting: Clock,
+  asks: Hand,
+  retrying: Hourglass,
   pending: CircleDot,
   skipped: CircleDashed,
   'not-run': CircleSlash,
@@ -106,6 +131,10 @@ export function StepsRunView({
     run.id,
     steps.some((step) => step.kind === 'uses'),
   );
+  const rows = traceRows(run, isStepsRunPreview(run.result) ? loopsOf(run.result) : {});
+  const rejected = rejectedWords(run);
+  // Held in line by another run that waits for the person at a gate on the same item.
+  const heldBy = run.status === 'queued' ? waitingForWords(run) : null;
 
   const retryTarget = runRetryTarget(run);
   // A command that may have done its work (Consola quit on it, or it was stopped, timed out or killed) asks first.
@@ -137,7 +166,7 @@ export function StepsRunView({
           </button>
         )}
         <div className="automations-lead-actions">
-          {run.status === 'running' && (
+          {stopOffered(run) && (
             <button
               type="button"
               className="dialog-button-secondary automations-small-button"
@@ -209,6 +238,18 @@ export function StepsRunView({
         )}
       </div>
 
+      {rejected && (
+        <div className="automations-annotation automations-rejected" role="note">
+          <Hand size={16} aria-hidden="true" />
+          <div className="automations-annotation-body">
+            <strong>Rejected</strong>
+            <p className="automations-failure-text">{rejected}</p>
+          </div>
+        </div>
+      )}
+
+      {heldBy && <p className="automations-hint automations-held-by">{heldBy}</p>}
+
       {run.status === 'failed' && (
         <FailureNote
           run={run}
@@ -220,6 +261,8 @@ export function StepsRunView({
       )}
 
       {stats}
+
+      <CheckoutBlock workspace={workspace} run={run} />
 
       {run.status === 'needs-approval' ? (
         <section className="automations-detail-section" aria-label="Waiting for your approval">
@@ -251,21 +294,37 @@ export function StepsRunView({
               </button>
             </div>
             <ol className="automations-trace" aria-label="Steps of this run">
-              {steps.map((step) => (
-                <StepRow
-                  key={step.id}
-                  id={rowId(step.id)}
-                  workspace={workspace}
-                  run={run}
-                  step={step}
-                  callRef={callRefs[step.id]}
-                  now={now}
-                  open={isOpen(step.id)}
-                  onToggle={() =>
-                    setChosen((current) => ({ ...current, [step.id]: !isOpen(step.id) }))
-                  }
-                />
-              ))}
+              {rows.map((row) =>
+                row.kind === 'loop' ? (
+                  <LoopRow
+                    key={row.row.id}
+                    loop={row}
+                    rowId={rowId}
+                    workspace={workspace}
+                    run={run}
+                    callRefs={callRefs}
+                    now={now}
+                    isOpen={isOpen}
+                    onToggle={(stepId) =>
+                      setChosen((current) => ({ ...current, [stepId]: !isOpen(stepId) }))
+                    }
+                  />
+                ) : (
+                  <StepRow
+                    key={row.row.id}
+                    id={rowId(row.row.id)}
+                    workspace={workspace}
+                    run={run}
+                    step={row.row}
+                    callRef={callRefs[row.row.id]}
+                    now={now}
+                    open={isOpen(row.row.id)}
+                    onToggle={() =>
+                      setChosen((current) => ({ ...current, [row.row.id]: !isOpen(row.row.id) }))
+                    }
+                  />
+                ),
+              )}
             </ol>
           </section>
         )
@@ -274,9 +333,198 @@ export function StepsRunView({
   );
 }
 
-/** A step opens itself when it is where the run broke or stands now. */
+/**
+ * A run's own checkout, above its steps (slice 3-B Task 22): its repository
+ * and branch, the commit it cut from and the one it is at, Open folder,
+ * the commits people's sessions added during the run with their flagged
+ * paths, and the session holding it. Nothing for any other run. Open
+ * folder is the only thing here that does anything, and only when pressed.
+ */
+function CheckoutBlock({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
+  const ids = useId();
+  const { busy, error, act } = useIntent();
+  const names = Object.fromEntries(
+    workspace.sessions.map((session) => [session.id, session.name] as const),
+  );
+  const checkout = checkoutLines(run, names);
+  if (!checkout) return null;
+  return (
+    <section
+      className="automations-detail-section automations-run-checkout"
+      aria-labelledby={`${ids}-checkout`}
+    >
+      <div className="automations-detail-section-head">
+        <h3 id={`${ids}-checkout`} className="automations-section-title">
+          {checkout.heading}
+        </h3>
+        {!run.checkout?.removed && (
+          <button
+            type="button"
+            className="dialog-button-secondary automations-small-button"
+            disabled={busy !== null}
+            onClick={() => void act('open', () => automationsBridge.openRunCheckout(run.id))}
+          >
+            <FolderOpen size={12} aria-hidden="true" />
+            Open folder
+          </button>
+        )}
+      </div>
+      {checkout.lines.map((line) => (
+        <p key={line} className="automations-run-checkout-line">
+          {line}
+        </p>
+      ))}
+      {checkout.held && (
+        <p className="automations-hint automations-held-by" role="status">
+          {checkout.held}
+        </p>
+      )}
+      {checkout.byPerson.length > 0 && (
+        <div className="automations-run-checkout-people">
+          <h4 className="automations-trace-note-title">Changed by you during the run</h4>
+          <ul className="automations-fact-list">
+            {checkout.byPerson.map((commit, index) => (
+              <li key={`${commit.line}-${index}`}>
+                {commit.line}
+                {commit.flagged.length > 0 && (
+                  <ul className="automations-fact-list">
+                    {commit.flagged.map((flagged) => (
+                      <li key={flagged} className="automations-fact-note">
+                        {flagged}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {error && (
+        <p className="automations-error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** A step opens itself when it is where the run broke or stands now: a gate waiting for the person among them. */
 function opensItself(step: StepRun): boolean {
-  return step.status === 'failed' || step.status === 'running' || step.status === 'queued';
+  return (
+    step.status === 'failed' ||
+    step.status === 'running' ||
+    step.status === 'queued' ||
+    (step.status === 'waiting' && step.gate !== undefined)
+  );
+}
+
+/** A row's kind, as the trace names it. */
+/**
+ * A loop in the trace: its own row (`polish · round 2 of 3`, then how it
+ * ended once it did), opening onto its exhaustion gate's card when it asked
+ * one; under it, the rows of its steps, each with the rounds it ran.
+ */
+function LoopRow({
+  loop,
+  rowId,
+  workspace,
+  run,
+  callRefs,
+  now,
+  isOpen,
+  onToggle,
+}: {
+  loop: Extract<TraceRow, { kind: 'loop' }>;
+  rowId: (stepId: string) => string;
+  workspace: Workspace;
+  run: RunRecord;
+  /** What each call's row names: its tool, from the run's own definition. */
+  callRefs: Readonly<Record<string, string>>;
+  now: Date;
+  isOpen: (stepId: string) => boolean;
+  onToggle: (stepId: string) => void;
+}) {
+  const { row, inner } = loop;
+  const tone = stepTone(row, runIsOver(run.status));
+  const Icon = TONE_ICONS[tone];
+  const id = rowId(row.id);
+  const bodyId = `${id}-body`;
+  const open = isOpen(row.id);
+  const where =
+    loop.round !== undefined && loop.max !== undefined
+      ? `${row.id} · round ${loop.round} of ${loop.max}`
+      : row.id;
+  const outcome = stepOutcome(tone, null);
+  const summary = row.gate && tone === 'asks' ? `waiting for you at ${row.id}` : (row.note ?? null);
+  // The tone and the open state mark the loop's own head only: its steps' rows below keep theirs.
+  return (
+    <li id={id} tabIndex={-1} className="automations-trace-loop">
+      <section aria-label={`Loop ${row.id}`}>
+        <div
+          className={`automations-trace-loop-head automations-trace-${tone} ${open ? 'automations-trace-open' : ''}`}
+        >
+          <button
+            type="button"
+            className="automations-trace-head"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            aria-label={`${where}: ${outcome}`}
+            onClick={() => onToggle(row.id)}
+          >
+            {tone === 'running' ? (
+              <Repeat size={15} className="automations-trace-icon" aria-hidden="true" />
+            ) : (
+              <Icon size={15} className="automations-trace-icon" aria-hidden="true" />
+            )}
+            <span className="automations-trace-main">
+              <span className="automations-trace-name">
+                <span className="automations-trace-id">{where}</span>
+                <span className="automations-trace-kind">Loop</span>
+              </span>
+              {summary && <span className="automations-trace-summary">{summary}</span>}
+            </span>
+            <span className="automations-trace-outcome">{outcome}</span>
+            <ChevronRight size={14} className="automations-trace-chevron" aria-hidden="true" />
+          </button>
+          {open && (
+            <div id={bodyId} className="automations-trace-body">
+              {row.gate ? (
+                <GateCard runId={run.id} step={row} now={now} />
+              ) : (
+                <p className="automations-hint">
+                  {row.note ?? (loop.max !== undefined ? `Up to ${loop.max} rounds.` : null)}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        <ol className="automations-trace automations-trace-inner" aria-label={`Steps of ${row.id}`}>
+          {inner.map((step) => (
+            <StepRow
+              key={step.id}
+              id={rowId(step.id)}
+              workspace={workspace}
+              run={run}
+              step={step}
+              callRef={callRefs[step.id]}
+              now={now}
+              open={isOpen(step.id)}
+              onToggle={() => onToggle(step.id)}
+            />
+          ))}
+        </ol>
+      </section>
+    </li>
+  );
+}
+
+/** A step inside a loop: each round it ran, as `round 1 completed · round 2 running`; null outside a loop. */
+function roundsLine(step: StepRun): string | null {
+  const rounds = roundsOf(step);
+  if (rounds.length === 0) return null;
+  const line = rounds.map((one) => `round ${one.round} ${one.status}`).join(' · ');
+  return line.charAt(0).toUpperCase() + line.slice(1);
 }
 
 /**
@@ -304,10 +552,11 @@ function StepRow({
   open: boolean;
   onToggle: () => void;
 }) {
-  const tone = stepTone(step.status, runIsOver(run.status));
+  const tone = stepTone(step, runIsOver(run.status));
   const ms = durationOf(step, now);
   const outcome = stepOutcome(tone, ms);
-  const summary = stepSummary(step, run, callRef);
+  const summary = stepSummary(step, run, callRef, now);
+  const rounds = roundsLine(step);
   const Icon = TONE_ICONS[tone];
   const bodyId = `${id}-body`;
   const ran = tone === 'passed' || tone === 'failed' || tone === 'running';
@@ -348,7 +597,17 @@ function StepRow({
         </button>
         {open && (
           <div id={bodyId} className="automations-trace-body">
-            <StepDetail key={`${run.id}:${step.id}`} workspace={workspace} run={run} step={step} />
+            {rounds && <p className="automations-hint">{rounds}</p>}
+            {step.kind === 'gate' && step.gate ? (
+              <GateCard key={`${run.id}:${step.id}`} runId={run.id} step={step} now={now} />
+            ) : (
+              <StepDetail
+                key={`${run.id}:${step.id}`}
+                workspace={workspace}
+                run={run}
+                step={step}
+              />
+            )}
           </div>
         )}
       </section>
@@ -374,7 +633,10 @@ function FailureNote({
   canRunAgain: boolean;
   onShow: (stepId: string) => void;
 }) {
-  const failed = steps.find((step) => step.status === 'failed');
+  // A failed step inside a loop before the loop's own row, which fails with it (review S10).
+  const failed =
+    steps.find((step) => step.status === 'failed' && step.kind !== 'repeat') ??
+    steps.find((step) => step.status === 'failed');
   const words = failureWords(failed ? failed.error : run.error);
   const notRun = steps.filter((step) => step.status === 'not-run').map((step) => step.id);
   const scope = retryTarget ? retryScope(steps, retryTarget.id) : null;

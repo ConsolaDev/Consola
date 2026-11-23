@@ -200,6 +200,37 @@ describe('layerCommandEnv', () => {
     });
   });
 
+  it("drops a login environment's git folder variables: a command after a write step pushes the run's own clone, never another (3-B code review F5)", () => {
+    const env = layerCommandEnv(
+      {
+        PATH: '/bin',
+        GIT_DIR: '/h/other/.git',
+        GIT_WORK_TREE: '/h/other',
+        GIT_INDEX_FILE: '/h/other/.git/index',
+        GIT_COMMON_DIR: '/h/other/.git',
+        GIT_OBJECT_DIRECTORY: '/h/other/.git/objects',
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: '/h/other/.git/objects',
+        GIT_AUTHOR_NAME: 'alice',
+      },
+      {},
+      { CONSOLA_BRANCH: 'fix/SHOP-42' },
+    );
+    for (const name of [
+      'GIT_DIR',
+      'GIT_WORK_TREE',
+      'GIT_INDEX_FILE',
+      'GIT_COMMON_DIR',
+      'GIT_OBJECT_DIRECTORY',
+      'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    ])
+      expect(env, name).not.toHaveProperty(name);
+    expect(env).toMatchObject({
+      PATH: '/bin',
+      GIT_AUTHOR_NAME: 'alice',
+      CONSOLA_BRANCH: 'fix/SHOP-42',
+    });
+  });
+
   it('keeps git hooks off whatever env: says', () => {
     const env = layerCommandEnv(
       {},
@@ -289,6 +320,135 @@ describe('describeFailure', () => {
     expect(
       describeFailure(result({ exitCode: null, signal: 'SIGTERM', stopped: true }), 600_000),
     ).toBe('Stopped while running: it may have done its work');
+  });
+});
+
+describe('prepareCommand in a run that owns its checkout (slice 3-B Task 15)', () => {
+  const FACTORY = `version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: write
+    on: manual
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }
+    steps:
+      - id: pr
+        run: ./pr.sh
+`;
+  const AT = '2026-11-15T10:00:00.000Z';
+  const CHECKOUT = '/w/catalog-portal-run-3f2a91c0';
+  let tmp: string;
+  let folder: RunFolder;
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'command-owned-'));
+    folder = new RunFolder((workspaceId) => path.join(tmp, workspaceId));
+  });
+  afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+  function prepared(
+    checkout: RunRecord['checkout'],
+    trigger: RunRecord['trigger'] = { kind: 'manual', at: AT },
+  ) {
+    const automation = parseFactorySpec(FACTORY).automations[0];
+    if (!automation || !isStepsEntry(automation)) throw new Error('FACTORY does not parse');
+    const run: RunRecord = {
+      id: '3f2a91c0-aaaa-bbbb-cccc-000000000000',
+      runner: 'local',
+      source: 'personal',
+      automationId: 'write',
+      actionName: 'steps',
+      actionVersion: 'v1',
+      mode: 'auto',
+      trigger,
+      status: 'running',
+      steps: [{ id: 'pr', kind: 'run', status: 'queued', attempt: 1 }],
+      ...(checkout ? { checkout } : {}),
+      attribution: {
+        automationId: 'write',
+        actionName: 'steps',
+        triggerKind: trigger.kind,
+        workspaceId: 'ws-1',
+      },
+      createdAt: AT,
+      updatedAt: AT,
+    };
+    const result = prepareCommand({
+      run,
+      definition: { automation, version: 'v1', actions: {} },
+      stepId: 'pr',
+      cwd: checkout?.cwd ?? CHECKOUT,
+      workspaceId: 'ws-1',
+      folder,
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+    });
+    if (!result.ok) throw new Error(result.error);
+    return result.command;
+  }
+
+  it("a run-owned run's command gets its branch, base, head and changes, and caches in the checkout, and no git variable (review NB1)", () => {
+    const { variables, dir } = prepared({
+      cwd: CHECKOUT,
+      scopeId: 'scope-portal',
+      kind: 'run-owned',
+      repo: 'sprocket/catalog-portal',
+      branch: 'fix/SHOP-42',
+      base: 'b0',
+      head: 'c1',
+    });
+    expect(variables).toMatchObject({
+      CONSOLA_BRANCH: 'fix/SHOP-42',
+      CONSOLA_BASE: 'b0',
+      CONSOLA_CHECKOUT_HEAD: 'c1',
+      CONSOLA_CHANGES_FILE: path.join(dir, 'checkout-changes.patch'),
+      XDG_CACHE_HOME: `${CHECKOUT}/.consola-cache`,
+      npm_config_cache: `${CHECKOUT}/.consola-cache/npm`,
+      npm_config_store_dir: `${CHECKOUT}/.consola-cache/pnpm-store`,
+      YARN_CACHE_FOLDER: `${CHECKOUT}/.consola-cache/yarn`,
+    });
+    expect(variables.CONSOLA_CHANGES_FILE).toMatch(/checkout-changes\.patch$/);
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+      expect(variables).not.toHaveProperty(name);
+  });
+
+  it("any other run's command keeps what it had: its head only when it has one, and nothing of a run's own checkout", () => {
+    const item = prepared(
+      { cwd: '/w/catalog-portal-pr-51', scopeId: 'scope-portal', kind: 'item', head: 'abc' },
+      { kind: 'event', at: AT, item: { key: 'k', url: 'u', title: 't' } },
+    ).variables;
+    expect(item.CONSOLA_CHECKOUT_HEAD).toBe('abc');
+    for (const name of [
+      'CONSOLA_BRANCH',
+      'CONSOLA_BASE',
+      'CONSOLA_CHANGES_FILE',
+      'XDG_CACHE_HOME',
+      'npm_config_cache',
+      'npm_config_store_dir',
+      'YARN_CACHE_FOLDER',
+    ])
+      expect(item).not.toHaveProperty(name);
+    // The record's kind is the witness: a branch and a base on any other record make it no run's own checkout.
+    const named = prepared(
+      {
+        cwd: '/w/catalog-portal-pr-51',
+        scopeId: 'scope-portal',
+        kind: 'item',
+        head: 'abc',
+        branch: 'fix/x',
+        base: 'b0',
+      },
+      { kind: 'event', at: AT, item: { key: 'k', url: 'u', title: 't' } },
+    ).variables;
+    expect(named).not.toHaveProperty('CONSOLA_BRANCH');
+    expect(named).not.toHaveProperty('XDG_CACHE_HOME');
+    const scope = prepared({
+      cwd: '/code/catalog-portal',
+      scopeId: 'scope-portal',
+      kind: 'scope',
+    }).variables;
+    expect(scope).not.toHaveProperty('CONSOLA_CHECKOUT_HEAD');
+    expect(scope).not.toHaveProperty('CONSOLA_BRANCH');
   });
 });
 

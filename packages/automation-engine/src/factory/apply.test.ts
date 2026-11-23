@@ -15,6 +15,7 @@ import {
   agentIssues,
   agentQuery,
   appliedSkills,
+  entryEnvironmentHashes,
   appliedTexts,
   decideApply,
   describeAppliedAt,
@@ -240,6 +241,18 @@ describe('agentIssues', () => {
       warnings: [],
     });
     expect(plain).not.toHaveBeenCalled();
+  });
+
+  it("asks about an agent that only a loop's step names", () => {
+    const looped = read({
+      ...BASE,
+      'automations/looped.yaml':
+        'on: { cron: "0 7 * * 1-5" }\nscope: api\nsteps:\n  - id: plain\n    prompt: Plain.\n  - id: polish\n    repeat: { max: 2, until: steps.a.ok }\n    steps:\n      - id: a\n        agent: tidier\n        outputs: { ok: boolean }\n',
+    });
+    expect(looped.issues).toEqual([]);
+    const ask = vi.fn((_agent: AgentDefinition, _checkout: CheckoutKind) => answer({}));
+    agentIssues(entry(looped, 'looped'), looped.agents, ask);
+    expect(ask.mock.calls.map(([agent]) => agent.name)).toEqual(['tidier']);
   });
 
   describe('servers (2-C)', () => {
@@ -654,6 +667,112 @@ describe('appliedTexts', () => {
       'agents/reviewer.md': REVIEWER,
     });
     expect(appliedTexts(files(texts), parse, [])).toEqual({});
+  });
+
+  it('keeps environments/<n>.yaml, read back by factoryFilesOf (slice 3-B)', () => {
+    const withEnvironment = { ...texts, 'environments/sandboxed.yaml': 'isolation: sandbox\n' };
+    const kept = appliedTexts(files(withEnvironment), read(withEnvironment));
+    expect(kept).toEqual(withEnvironment);
+    expect(factoryFilesOf(kept).environments).toEqual({ sandboxed: 'isolation: sandbox\n' });
+  });
+});
+
+describe('write agents and their environments (slice 3-B)', () => {
+  const FIXER = '---\nharness: claude-work\ntools: write\nenvironment: sandboxed\n---\nFix it.\n';
+  const SANDBOXED = 'isolation: sandbox\nnetwork: [registry.npmjs.org]\n';
+  const FIX =
+    'version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n  - name: fix\n    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n      - id: fix\n        agent: fixer\n        prompt: Fix it.\n';
+  const WRITING: Record<string, string> = {
+    'factory.yml': FIX,
+    'agents/fixer.md': FIXER,
+    'environments/sandboxed.yaml': SANDBOXED,
+    'environments/other.yaml': 'isolation: host\n',
+    'agents/reviewer.md': REVIEWER,
+    'automations/catalog-review.yaml': CATALOG,
+  };
+  const versionOf = (texts: Record<string, string>, name = 'fix') => {
+    const parse = read(texts);
+    expect(parse.issues).toEqual([]);
+    return fileVersion(entry(parse, name), parse.agents, parse.environments);
+  };
+
+  it('covers the environment its agent names, as the resolved version does', () => {
+    const parse = read(WRITING);
+    const fix = entry(parse, 'fix');
+    expect(fileVersion(fix, parse.agents, parse.environments)).toBe(
+      automationVersion(
+        fix,
+        stepsResolvedBody(
+          {},
+          { fixer: parse.agents.fixer.hash },
+          { sandboxed: parse.environments.sandboxed.hash },
+        ),
+      ),
+    );
+    expect(entryEnvironmentHashes(fix, parse.agents, parse.environments)).toEqual({
+      sandboxed: parse.environments.sandboxed.hash,
+    });
+  });
+
+  it('moves when that environment changes by one byte, and not for another one', () => {
+    const before = versionOf(WRITING);
+    expect(
+      versionOf({ ...WRITING, 'environments/sandboxed.yaml': SANDBOXED.replace('npmjs', 'npmjz') }),
+    ).not.toBe(before);
+    expect(versionOf({ ...WRITING, 'environments/other.yaml': 'isolation: sandbox\n' })).toBe(
+      before,
+    );
+    // An entry whose agents name no environment is as it was.
+    const catalog = entry(read(WRITING), 'catalog-review');
+    expect(fileVersion(catalog, read(WRITING).agents, read(WRITING).environments)).toBe(
+      fileVersion(catalog, read(WRITING).agents),
+    );
+  });
+
+  it('so an environment edit is a changed entry the read asks about', () => {
+    const problemsOf = vi.fn(none);
+    decideApply({
+      read: read({ ...WRITING, 'environments/sandboxed.yaml': 'isolation: sandbox\n' }),
+      applied: { parse: read(WRITING), clean: true },
+      problemsOf,
+    });
+    expect(problemsOf.mock.calls.map(([automation]) => automation.name)).toEqual(['fix']);
+    const unchanged = vi.fn(none);
+    decideApply({
+      read: read(WRITING),
+      applied: { parse: read(WRITING), clean: true },
+      problemsOf: unchanged,
+    });
+    expect(unchanged).not.toHaveBeenCalled();
+  });
+
+  it('a first start keeps the environment file of every agent its entries name, and no other', () => {
+    const parse = read(WRITING);
+    expect(appliedTexts(files(WRITING), parse, [entry(parse, 'fix')])).toEqual({
+      'factory.yml': FIX,
+      'agents/fixer.md': FIXER,
+      'environments/sandboxed.yaml': SANDBOXED,
+    });
+  });
+
+  it("asks the host about a write agent's tools and environment; a read-only agent's query is as before", () => {
+    const parse = read(WRITING);
+    expect(agentQuery(parse.agents.fixer, 'scope', parse.environments)).toEqual({
+      harnessId: 'claude-work',
+      mcpServers: [],
+      skills: [],
+      checkout: 'scope',
+      tools: 'write',
+      environment: {
+        name: 'sandboxed',
+        isolation: 'sandbox',
+        network: ['registry.npmjs.org'],
+        env: [],
+      },
+    });
+    expect(agentQuery(parse.agents.reviewer, 'scope', parse.environments)).toEqual(
+      agentQuery(parse.agents.reviewer, 'scope'),
+    );
   });
 });
 

@@ -32,7 +32,7 @@
   padding: 10px 8px 10px 12px;
   border: 1px solid var(--gray-a6);
   border-radius: 10px;
-  font-size: 12px;
+  font-size: var(--font-size-md);
 }
 
 .connections-notice p {
@@ -68,8 +68,8 @@
   display: grid;
   flex-shrink: 0;
   place-items: center;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: none;
   border-radius: 6px;
@@ -103,14 +103,14 @@
 .connections-group-label {
   margin: 0;
   padding-inline: 2px;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   color: var(--gray-a10);
 }
 
 .connections-group-hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--gray-a9);
 }
 
@@ -148,8 +148,8 @@
   flex-shrink: 0;
   place-items: center;
   box-sizing: border-box;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   border: 1px solid var(--gray-a5);
   border-radius: 10px;
   background: var(--color-background);
@@ -182,16 +182,16 @@
 
 .connections-name {
   overflow: hidden;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   color: var(--gray-12);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .connections-description {
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
   color: var(--gray-a10);
 }
 
@@ -201,8 +201,8 @@
 
 .connections-hint {
   margin-top: 4px;
-  font-size: 11px;
-  line-height: 1.45;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
   color: var(--gray-a9);
 }
 
@@ -221,7 +221,7 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--green-11);
   white-space: nowrap;
 }
@@ -244,11 +244,11 @@
 /* Indented to the service's name, its avatar beside its name and what it covers. */
 .connections-account {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
   align-items: start;
   column-gap: 12px;
   row-gap: 10px;
-  padding: 12px 16px 12px 70px;
+  padding: 14px 16px 14px 74px;
   transition:
     opacity 180ms ease,
     transform 180ms ease,
@@ -264,7 +264,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  left: 70px;
+  left: 74px;
   height: 1px;
   background: var(--gray-a4);
   content: "";
@@ -288,7 +288,7 @@
 
 .connections-meta {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--gray-a10);
 }
 
@@ -304,8 +304,8 @@
   position: relative;
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   overflow: hidden;
   border-radius: 999px;
   background: var(--gray-a3);
@@ -357,13 +357,13 @@
   flex-shrink: 0;
   align-items: center;
   gap: 4px;
-  height: 26px;
-  padding: 0 8px;
+  height: 30px;
+  padding: 0 10px;
   border: none;
   border-radius: 6px;
   background: none;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-md);
   color: var(--gray-a10);
   text-decoration: none;
   white-space: nowrap;
@@ -402,8 +402,8 @@
   align-items: flex-start;
   gap: 6px;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
   color: var(--amber-11);
 }
 
@@ -430,8 +430,8 @@
 .connections-confirm p {
   flex: 1 1 280px;
   margin: 0;
-  font-size: 12px;
-  line-height: 1.45;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
   color: var(--gray-a11);
 }
 
@@ -442,7 +442,7 @@
 
 .connections-error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--red-11);
 }
 
@@ -454,11 +454,11 @@
   gap: 12px;
   box-sizing: border-box;
   width: 100%;
-  padding: 10px 16px 10px 70px;
+  padding: 12px 16px 12px 74px;
   border: none;
   background: none;
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-md);
   color: var(--gray-a11);
   text-align: left;
   cursor: pointer;
@@ -485,8 +485,8 @@
   display: grid;
   place-items: center;
   box-sizing: border-box;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: 1px dashed var(--gray-a7);
   border-radius: 7px;
   transition:
@@ -690,7 +690,7 @@
   }
 
   .connections-account {
-    grid-template-columns: 28px minmax(0, 1fr);
+    grid-template-columns: 32px minmax(0, 1fr);
     padding-left: 16px;
   }
 

@@ -244,7 +244,14 @@ function stageView(
                     ? 'Skipped'
                     : 'Next';
       return {
-        icon: step.kind === 'agent' ? Bot : step.kind === 'uses' ? Plug : SquareTerminal,
+        icon:
+          step.kind === 'agent'
+            ? Bot
+            : step.kind === 'gate'
+              ? Hand
+              : step.kind === 'uses'
+                ? Plug
+                : SquareTerminal,
         kicker: step.kind === 'agent' ? 'Agent step' : stepKindLabel(step.kind),
         title: step.id,
         outcome,

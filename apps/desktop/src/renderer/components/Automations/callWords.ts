@@ -20,8 +20,12 @@ import { formatChangedAt } from '../WorkspaceSettings/secretsWords';
  */
 
 /** What a step is, as the trace row, the pipeline and the run graph label it. */
-export function stepKindLabel(kind: StepRun['kind']): 'Agent' | 'Command' | 'Tool' {
+export function stepKindLabel(
+  kind: StepRun['kind'],
+): 'Agent' | 'Gate' | 'Loop' | 'Tool' | 'Command' {
   if (kind === 'agent') return 'Agent';
+  if (kind === 'gate') return 'Gate';
+  if (kind === 'repeat') return 'Loop';
   return kind === 'uses' ? 'Tool' : 'Command';
 }
 

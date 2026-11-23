@@ -15,9 +15,20 @@ export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 /** A driver's reading of one hook payload: a signal, or null for an event that says nothing about attention. */
 export type ParseHookEvent = (body: unknown) => AttentionSignal | null;
 
+/**
+ * Asked before a hook is answered, for a write step's session only (slice
+ * 3-B, Call 8): its CLI waits on the answer, so it and its children are
+ * still alive. Every other session's hook is answered before its body is read.
+ */
+export type BeforeAnswer = (body: unknown) => Promise<void>;
+
+/** The longest a hook's answer waits on `BeforeAnswer`: the CLI is waiting too. */
+export const BEFORE_ANSWER_LIMIT_MS = 3_000;
+
 interface Registration {
   instanceId: string;
   parse: ParseHookEvent;
+  beforeAnswer?: BeforeAnswer;
 }
 
 /**
@@ -38,7 +49,11 @@ export class AttentionEndpoint {
   private server: http.Server | undefined;
   private port: Promise<number | undefined> | undefined;
 
-  constructor(private readonly onSignal: (instanceId: string, signal: AttentionSignal) => void) {}
+  constructor(
+    private readonly onSignal: (instanceId: string, signal: AttentionSignal) => void,
+    /** How long an answer waits on `BeforeAnswer`; absent, `BEFORE_ANSWER_LIMIT_MS`. For tests. */
+    private readonly beforeAnswerLimitMs: number = BEFORE_ANSWER_LIMIT_MS,
+  ) {}
 
   /** Begin listening. Idempotent; resolves to the port, or undefined when it could not bind. */
   public start(): Promise<number | undefined> {
@@ -62,7 +77,11 @@ export class AttentionEndpoint {
    * The same instance keeps the same URL until `unregister`, so a relaunch in
    * place needs no new registration.
    */
-  public async urlFor(instanceId: string, parse: ParseHookEvent): Promise<string | undefined> {
+  public async urlFor(
+    instanceId: string,
+    parse: ParseHookEvent,
+    beforeAnswer?: BeforeAnswer,
+  ): Promise<string | undefined> {
     const port = await this.start();
     if (port === undefined) return undefined;
     let token = this.tokenOf.get(instanceId);
@@ -70,7 +89,7 @@ export class AttentionEndpoint {
       token = crypto.randomBytes(24).toString('hex');
       this.tokenOf.set(instanceId, token);
     }
-    this.byToken.set(token, { instanceId, parse });
+    this.byToken.set(token, { instanceId, parse, ...(beforeAnswer ? { beforeAnswer } : {}) });
     return `http://127.0.0.1:${port}/attention/${token}`;
   }
 
@@ -105,8 +124,11 @@ export class AttentionEndpoint {
     // waiting on a hook Consola injected must never wait on this process —
     // not for a parse, not for a listener, not for main's event loop. It also
     // leaves one reply per request, which is the only way to be sure a second
-    // one can never be written to an ended response.
-    reply(200);
+    // one can never be written to an ended response. A write step's session
+    // is the one exception (`beforeAnswer`): its answer waits, bounded, for
+    // what must be read while the CLI waits.
+    const { beforeAnswer } = registration;
+    if (!beforeAnswer) reply(200);
 
     const chunks: Buffer[] = [];
     let size = 0;
@@ -126,18 +148,47 @@ export class AttentionEndpoint {
     req.on('error', () => {});
     req.on('end', () => {
       if (oversized) {
+        if (beforeAnswer) reply(200);
         console.warn(`Ignored a hook event of ${size} bytes: larger than this endpoint will read.`);
         return;
       }
+      let body: unknown;
       try {
-        const signal = registration.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
-        if (signal) this.onSignal(registration.instanceId, signal);
+        body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
       } catch (error) {
+        if (beforeAnswer) reply(200);
         console.warn(
           'Ignored an unreadable hook event:',
           error instanceof Error ? error.message : error,
         );
+        return;
       }
+      const signal = () => {
+        try {
+          const parsed = registration.parse(body);
+          if (parsed) this.onSignal(registration.instanceId, parsed);
+        } catch (error) {
+          console.warn(
+            'Ignored an unreadable hook event:',
+            error instanceof Error ? error.message : error,
+          );
+        }
+      };
+      if (!beforeAnswer) {
+        signal();
+        return;
+      }
+      let limit: NodeJS.Timeout | undefined;
+      void Promise.race([
+        beforeAnswer(body).catch(() => {}),
+        new Promise<void>((resolve) => {
+          limit = setTimeout(resolve, this.beforeAnswerLimitMs);
+        }),
+      ]).then(() => {
+        if (limit) clearTimeout(limit);
+        reply(200);
+        signal();
+      });
     });
   }
 

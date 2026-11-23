@@ -38,7 +38,15 @@ export interface CheckState {
    * `error`, which names where a secret is bound (review S1).
    */
   outcome?:
-    | { at: string; items: number; fired: number; skipped: number; baseline: boolean }
+    | {
+        at: string;
+        items: number;
+        fired: number;
+        skipped: number;
+        baseline: boolean;
+        /** Why every item was skipped, when one reason covers them all: an own checkout's repository not cloned (F8). */
+        skippedWhy?: string;
+      }
     | { at: string; error: string; told?: string };
   /**
    * The last successful result, kept in memory only, and the entry's version

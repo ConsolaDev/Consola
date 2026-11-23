@@ -5,6 +5,7 @@ import {
   WORKSPACE_SLUG_MAX,
   type WorkspaceProblem,
 } from './workspace';
+import type { SetIconAnswer } from './workspaceIcons';
 
 const NEEDS_VERIFIED_EMAIL = 'Consola Cloud needs a Google account with a verified email address.';
 const NOT_ANSWERING = 'Consola Cloud’s service isn’t answering. Try again in a moment.';
@@ -98,3 +99,12 @@ export const SLUG_HINT = 'Lowercase letters, digits and dashes. No two workspace
 /** What the create form says under the regions: the one choice that is final. */
 export const REGION_HINT =
   'Pick the one nearest your team. A workspace’s region can’t be changed once it’s created.';
+
+/** What the icon picker says when the icon could not be set. */
+export function messageForIconFailure(
+  answer: Extract<SetIconAnswer, { kind: 'not-allowed' | 'unavailable' }>,
+): string {
+  return answer.kind === 'not-allowed'
+    ? 'Only the workspace’s owners and admins can change its icon.'
+    : NOT_ANSWERING;
+}

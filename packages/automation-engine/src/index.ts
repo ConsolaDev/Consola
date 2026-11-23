@@ -3,7 +3,14 @@
  * `node/`) is pure: no I/O module, no Electron. `node/` holds the adapters that
  * touch the machine, and this file re-exports them.
  */
-export { advanceSeen, forgetFired, markFired, type OpenState, type SeenRecord } from './seenRecord';
+export {
+  advanceSeen,
+  forgetFired,
+  heldRevision,
+  markFired,
+  type OpenState,
+  type SeenRecord,
+} from './seenRecord';
 export {
   filterRuns,
   NO_RUN_FILTER,
@@ -13,11 +20,24 @@ export {
 } from './runFilter';
 export { SNAPSHOT_ENDED_RUNS } from './views';
 export { describeSchedule } from './describeSchedule';
-export { describeEvery, describeRun, describeTriggerAsWritten } from './describeEntry';
+export {
+  describeEvery,
+  describeFlow,
+  describeRun,
+  describeTriggerAsWritten,
+  describeWrites,
+  GIT_CLONE_SENTENCE,
+  KEYCHAIN_SENTENCE,
+  KEYCHAIN_SIGN_INS_SENTENCE,
+  NO_LIVE_ATTENTION_SENTENCE,
+  type WriteVersions,
+} from './describeEntry';
 export type {
+  WriteBlocks,
   AutomationView,
   ServerUseView,
   CheckView,
+  GateView,
   ItemTarget,
   ItemTargetRow,
   ItemTargets,
@@ -65,6 +85,15 @@ export {
   INTERRUPTED_CALL,
   CALL_SETTLE_INTERRUPTED,
 } from './steps/recover';
+export { retryTargetOf } from './steps/stepRecords';
+export { gateMaterialRefs, gateOffer, gateRefusal, renderGateAsk } from './steps/gate';
+export {
+  entryMayRetry,
+  RETRY_BACKOFF_MS,
+  retriesSpentError,
+  retryDelayMs,
+  stepMayRetry,
+} from './steps/retry';
 export type {
   StateFile,
   FactoryFolderRead,
@@ -122,19 +151,47 @@ export {
 export {
   MAX_ARTIFACT_BYTES,
   agentRequirements,
+  runEnvironment,
   type AgentRequirements,
   type CallFile,
   type CallResultFile,
   type CallView,
+  type RunEnvironment,
   type CommandFile,
   type LogTail,
   type RenderedArgument,
   type RunDefinition,
+  type RunDefinitionView,
   type StepDetail,
   type StepsRunPreview,
 } from './steps/definition';
 export type { CheckoutRequest, PreparedCheckout, CheckoutPort } from './steps/checkout';
 export { entryCheckoutKind, entryReadsItems, runCheckoutKind } from './steps/checkout';
+export type {
+  MadeRunCheckout,
+  RunCheckoutPort,
+  RunCheckoutRequest,
+  RunCheckoutStage,
+  SettleRequest,
+  SettleResult,
+  StepProcesses,
+} from './steps/runCheckout';
+export {
+  commitMessage,
+  CONTINUE_AFTER_RUN,
+  FLAGGED_FILE_NAMES,
+  FLAGGED_FOLDER_NAMES,
+  flaggedPaths,
+  folderChangedMessage,
+  leftoverProblem,
+  NO_RUN_CHECKOUTS,
+  NO_WRITE_AGENTS,
+  noWriteAgents,
+  RunCheckoutError,
+  runOwnedDirName,
+  sessionHoldsRetry,
+  fullToolsHoldRetry,
+} from './steps/runCheckout';
 export {
   LOG_CAP_BYTES,
   OUTPUT_FILE_CAP_BYTES,
@@ -143,7 +200,7 @@ export {
   describeFailure,
   maskSecrets,
 } from './steps/commandIO';
-export { withoutGitHooks } from './gitEnv';
+export { withoutGitHooks, withoutRepositoryOverrides } from './gitEnv';
 export {
   describeError,
   agentToolContext,
@@ -156,10 +213,12 @@ export {
   SessionOpenedError,
 } from './support';
 export {
+  ASSIGNED_REVIEWS_GATED_NAME,
   ASSIGNED_REVIEWS_NAME,
   RE_REVIEW_NAME,
   yamlName,
   assignedReviewsEntry,
+  assignedReviewsGatedEntry,
   reReviewEntry,
   EMPTY_FACTORY_FILE,
   factoryTemplate,
@@ -197,6 +256,7 @@ export { pollSource } from './sources/pollSource';
 export { resolvePrevious, previousDocument, NO_EARLIER_RUN } from './sources/previous';
 export {
   AGENT_EXAMPLES,
+  GRAMMAR_EXAMPLES,
   describeCapabilities,
   type AgentCapability,
   type AutomationCapabilities,

@@ -17,20 +17,24 @@ import { useNow } from './parts';
 import {
   agentFacts,
   artifactNote,
+  artifactTitle,
   attemptsLine,
   conditionValues,
   deniedLine,
+  diffMarkdown,
   earlierCosts,
   failureIsExit,
   formatBytes,
   logWasCapped,
   notRunReason,
+  retryLine,
   runIsOver,
   skippedCondition,
   stepTone,
   turnLine,
   variableRows,
   visibleTail,
+  writeRows,
   type StepTone,
 } from './stepDetail';
 
@@ -98,7 +102,7 @@ export function StepDetail({
   const ready = detail.state === 'ready' ? detail.value : null;
   const record = ready?.record ?? step;
   const attempts = attemptsLine(record);
-  const tone = stepTone(record.status, runIsOver(run.status));
+  const tone = stepTone(record, runIsOver(run.status));
   // Failed before it started (its `if:` could not be read, a value it needed was missing): nothing ran to trace.
   const failedEarly = tone === 'failed' && record.startedAt === undefined;
   const ran = (tone === 'passed' || tone === 'failed' || tone === 'running') && !failedEarly;
@@ -132,6 +136,7 @@ export function StepDetail({
           <NotRunFacts run={run} step={record} tone={tone} definition={ready?.step} />
         )}
         {(ran || tone === 'reported') &&
+          record.kind !== 'gate' &&
           (record.kind === 'agent' ? (
             <AgentFacts workspace={workspace} run={run} step={record} detail={ready} />
           ) : record.kind === 'uses' ? (
@@ -145,8 +150,10 @@ export function StepDetail({
               reported={tone === 'reported'}
             />
           ))}
+        <WriteFacts step={record} />
+        <ChangesFact changes={ready?.changes} />
         <OutputsFact step={record} />
-        <ArtifactsFact runId={run.id} step={record} />
+        <ArtifactsFact runId={run.id} step={record} paths={ready?.paths} />
       </dl>
     </div>
   );
@@ -182,7 +189,9 @@ function NotRunFacts({
   const values = condition ? conditionValues(condition, run.steps ?? []) : [];
   return (
     <>
-      <Fact label={tone === 'pending' || tone === 'waiting' ? 'Waits' : 'Why'}>
+      <Fact
+        label={tone === 'pending' || tone === 'waiting' || tone === 'retrying' ? 'Waits' : 'Why'}
+      >
         {tone === 'skipped' ? (
           condition ? (
             <>
@@ -212,10 +221,21 @@ function NotRunFacts({
           <p className="automations-fact-text">
             For a free agent slot. A few automation sessions work at once; the rest start in order.
           </p>
+        ) : tone === 'retrying' ? (
+          <>
+            <p className="automations-fact-text">
+              To try again by itself: it {step.error ? 'failed' : 'stopped'}, and its file lets it
+              retry.
+            </p>
+            <p className="automations-fact-text">{retryLine(step, definition)}</p>
+            {step.error && (
+              <p className="automations-fact-text automations-fact-bad">{step.error}</p>
+            )}
+          </>
         ) : tone === 'pending' ? (
           <p className="automations-fact-text">It starts once the steps before it are done.</p>
         ) : (
-          <p className="automations-fact-text">{notRunReason(run)}</p>
+          <p className="automations-fact-text">{notRunReason(run, step)}</p>
         )}
       </Fact>
       {definition && <WouldRun definition={definition} />}
@@ -223,9 +243,16 @@ function NotRunFacts({
   );
 }
 
-/** What a step that did not run would have run: its command and variables as written, its call, or its prompt. */
+/** What a step that did not run would have run: its command and variables as written, its call, or its prompt; a gate's question. */
 function WouldRun({ definition }: { definition: Definition }) {
   if (definition.kind === 'uses') return <WouldCall definition={definition} />;
+  if (definition.kind === 'gate') {
+    return (
+      <Fact label="Would ask">
+        <p className="automations-fact-text">{definition.ask}</p>
+      </Fact>
+    );
+  }
   if (definition.kind === 'run') {
     const env = Object.entries(definition.env);
     return (
@@ -259,6 +286,60 @@ function WouldRun({ definition }: { definition: Definition }) {
         </p>
       ) : (
         <pre className="automations-prompt automations-fact-pre">{definition.prompt ?? ''}</pre>
+      )}
+    </Fact>
+  );
+}
+
+/**
+ * A step in a run's own checkout (slice 3-B): its environment and how it is
+ * held, the Claude version it ran under, the variables it got and lacked,
+ * its commits and flagged paths. Nothing for any other step.
+ */
+function WriteFacts({ step }: { step: StepRun }) {
+  return (
+    <>
+      {writeRows(step).map(([label, value]) => (
+        <Fact key={label} label={label}>
+          <p className="automations-fact-text">{value}</p>
+        </Fact>
+      ))}
+    </>
+  );
+}
+
+/**
+ * What a write step's failed attempt changed, kept as its `changes.patch`
+ * and never committed (slice 3-B): opens in place as a diff, in the
+ * sanitizing renderer. Nothing when no attempt kept one.
+ */
+function ChangesFact({ changes }: { changes: StepDetailData['changes'] }) {
+  const [open, setOpen] = useState(false);
+  if (!changes) return null;
+  return (
+    <Fact label="Changes it made">
+      <button
+        type="button"
+        className="automations-link-button"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      >
+        changes.patch
+      </button>{' '}
+      <span className="automations-fact-note">
+        {formatBytes(changes.bytes)} · attempt {changes.attempt}, kept and not committed
+        {changes.truncated ? ' · showing its end' : ''}
+      </span>
+      {open && (
+        <div className="automations-step-artifact">
+          <div className="automations-answer">
+            <MarkdownRenderer
+              content={diffMarkdown(changes.text)}
+              enableCommandHighlighting={false}
+              resolveImageSrc={dropImage}
+            />
+          </div>
+        </div>
       )}
     </Fact>
   );
@@ -406,7 +487,11 @@ function AgentFacts({
           ) : (
             <span className="automations-fact-text">Session removed</span>
           )}
-          <span className="automations-fact-note">A read-only session</span>
+          <span className="automations-fact-note">
+            {step.tools === undefined
+              ? 'A read-only session'
+              : `A session that writes, ${step.environment?.isolation === 'sandbox' ? 'sandboxed' : 'on host, a convention'}`}
+          </span>
         </div>
       </Fact>
       <TurnFact step={step} />
@@ -449,7 +534,16 @@ function AgentFacts({
 }
 
 /** Artifacts by name and size, and what each is for; one opens in place, in the sanitizing renderer. */
-function ArtifactsFact({ runId, step }: { runId: string; step: StepRun }) {
+function ArtifactsFact({
+  runId,
+  step,
+  paths,
+}: {
+  runId: string;
+  step: StepRun;
+  /** Its path artifacts' paths (slice 3-B), for their titles. */
+  paths?: StepDetailData['paths'];
+}) {
   const [open, setOpen] = useState<{
     name: string;
     read: Read<{ content: string; bytes: number } | null>;
@@ -495,7 +589,7 @@ function ArtifactsFact({ runId, step }: { runId: string; step: StepRun }) {
                 aria-expanded={open?.name === artifact.name}
                 onClick={() => toggle(artifact.name)}
               >
-                {artifact.name}
+                {artifactTitle(artifact.name, paths)}
               </button>{' '}
               <span className="automations-fact-note">
                 {formatBytes(artifact.bytes)}

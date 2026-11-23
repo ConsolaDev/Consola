@@ -304,7 +304,7 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
     await expect(empty).toContainText('Automations');
     await expect(empty.getByRole('button', { name: 'New automation' })).toBeVisible();
     // The templates are offered right there, below it.
-    await expect(empty.locator('.automations-template')).toHaveCount(5);
+    await expect(empty.locator('.automations-template')).toHaveCount(6);
     await expect(
       empty.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' }),
     ).toBeVisible();

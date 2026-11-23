@@ -28,10 +28,12 @@ import {
   connectionIdFor,
   connectionServices,
   forgetStoredSession,
+  restoreStoredPass,
   runInConnection,
 } from './connection.ts';
 import { hostHttpOrigin } from './hostAddress.ts';
-import { forgetUnheldSessions, holdSession } from './storedSessions.ts';
+import { copyInjectedStyles } from './injectedStyles.ts';
+import { forgetUnheldSessions, heldByAnotherPage, holdSession } from './storedSessions.ts';
 import { I18nProvider } from '~/i18n/I18nProvider';
 import { startI18n } from '~/i18n/runtime';
 import { AppAtomRegistryProvider, appAtomRegistry } from '~/rpc/atomRegistry';
@@ -87,11 +89,43 @@ const hostRegistration = (hostUrl: string, sessionId: string, pass: string) => {
  * platform registration at once, so each change hands it all of them: two chats on one page keep
  * both.
  */
-const registered = new Map<string, BearerConnectionRegistration>();
+const registered = new Map<
+  string,
+  Array<{ readonly owner: object; readonly registration: BearerConnectionRegistration }>
+>();
+
+/**
+ * Two chats can show one session, and t3 keeps one registration (and one stored pass) per
+ * session, so the chats share it, counted by owner. The newest pass wins: a chat that registers
+ * (mounting, or renewing its pass) goes last, and the last one is what t3 is handed. Removing a
+ * chat leaves the others' registration in place, and t3 drops the session (and its stored pass)
+ * only when its last chat goes. A chat left on an older pass that the host refuses renews it
+ * through its own `onPassExpired`.
+ */
+const addRegistration = (
+  sessionId: string,
+  owner: object,
+  registration: BearerConnectionRegistration,
+) => {
+  const rest = (registered.get(sessionId) ?? []).filter((entry) => entry.owner !== owner);
+  registered.set(sessionId, [...rest, { owner, registration }]);
+};
+
+/** Returns the registration the chat held, if any. */
+const removeRegistration = (sessionId: string, owner: object) => {
+  const entries = registered.get(sessionId) ?? [];
+  const removed = entries.find((entry) => entry.owner === owner);
+  const rest = entries.filter((entry) => entry.owner !== owner);
+  if (rest.length === 0) registered.delete(sessionId);
+  else registered.set(sessionId, rest);
+  return removed?.registration;
+};
 
 /** Hands t3 the registrations of every mounted chat. Fails with t3's cause, as text. */
 const reconcileHosts = async (): Promise<void> => {
-  const registrations = [...registered.values()];
+  const registrations = [...registered.values()].map(
+    (entries) => entries[entries.length - 1]!.registration,
+  );
   const exit = await runInConnection(
     Effect.gen(function* () {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
@@ -105,7 +139,10 @@ const passOf = ({ credential }: BearerConnectionRegistration): string[] =>
   credential._tag === 'BearerConnectionCredential' ? [credential.token] : [];
 
 /** The passes of every mounted chat's registration. */
-const registeredPasses = (): string[] => [...registered.values()].flatMap(passOf);
+const registeredPasses = (): string[] =>
+  [...registered.values()].flatMap((entries) =>
+    entries.flatMap(({ registration }) => passOf(registration)),
+  );
 
 /**
  * Logs a failure of the chat's own, which the page would otherwise never see, with `passes`
@@ -184,6 +221,8 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
   const answeredPass = useRef<string | null>(null);
   // Whether this page holds the session (`storedSessions.ts`): it registers it only then.
   const [held, setHeld] = useState(false);
+  // Which chat owns a registration of the session, when another chat shows it too.
+  const owner = useRef({}).current;
 
   useEffect(() => setPass(props.pass), [props.pass]);
 
@@ -197,13 +236,13 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
       setProblem({ kind: 'connection-failed' });
       return;
     }
-    registered.set(sessionId, registration);
+    addRegistration(sessionId, owner, registration);
     forgetUnheldSessionsOnce();
     reconcileHosts().catch((error) => {
       logFailure("could not register the host with t3's connection.", error, registeredPasses());
       setProblem({ kind: 'connection-failed' });
     });
-  }, [held, hostUrl, sessionId, pass]);
+  }, [held, hostUrl, sessionId, pass, owner]);
 
   // t3's connection runtime, and the page's hold on the session, stay until the registration is
   // removed, which removes its pass.
@@ -226,10 +265,22 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
     );
     return () => {
       unmounted = true;
-      const removed = registered.get(sessionId);
-      registered.delete(sessionId);
+      const removed = removeRegistration(sessionId, owner);
       const passes = [...registeredPasses(), ...(removed === undefined ? [] : passOf(removed))];
+      // The last chat of the session in this page: t3 is about to delete the pass, which is stored
+      // for the whole origin. Another window that shows the session still needs it, so it is
+      // asked before this page lets go (the page's own hold is still there).
+      const lastOfSession = removed !== undefined && !registered.has(sessionId);
+      const keptBy = lastOfSession
+        ? heldByAnotherPage(sessionId).catch(() => false)
+        : Promise.resolve(false);
       reconcileHosts()
+        .then(async () => {
+          const [token] = removed === undefined ? [] : passOf(removed);
+          if (token === undefined || !(await keptBy)) return;
+          const exit = await runInConnection(restoreStoredPass(sessionId, token));
+          if (exit._tag === 'Failure') throw new Error(Cause.pretty(exit.cause));
+        })
         .catch((error) =>
           logFailure("could not remove the host from t3's connection.", error, passes),
         )
@@ -238,7 +289,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
           releaseRuntime();
         });
     };
-  }, [sessionId]);
+  }, [sessionId, owner]);
 
   // A refusal counts only once t3 has tried this pass: the state it reports first can still be
   // the refusal of the pass this one replaced. A pass `onPassExpired` just answered that is
@@ -414,7 +465,8 @@ function useChatDark(root: RefObject<HTMLElement | null>): boolean {
 /**
  * t3's popups are Base UI portals at the end of `<body>`, outside the chat. While the chat is
  * mounted, each is marked as the chat's (`styles.css` styles inside it) and given the chat's
- * theme. A page that uses Base UI itself would see its own portals marked too.
+ * theme. A page that uses Base UI itself would see its own portals marked too, and then they
+ * would be styled as the chat's, under its guard: none of the page's own CSS would reach them.
  */
 function useMarkedPortals(dark: boolean) {
   useEffect(() => {
@@ -451,6 +503,12 @@ function useChatRouter(sessionId: string) {
   return router;
 }
 
+/**
+ * One session's chat. `AgentChat` keys it by host and session, so a new `sessionId` (or
+ * `hostUrl`) on a mounted chat starts it again: the old session's registration goes, and the new
+ * one's hold, pass and registration start from nothing, so it is registered only once this page
+ * holds it, and with the new pass (`AgentChat.sessionChange.browser.test.tsx`).
+ */
 function SessionChat(props: AgentChatProps) {
   const problem = useHostConnection(props);
   const router = useChatRouter(props.sessionId);
@@ -479,6 +537,8 @@ export function AgentChat(props: AgentChatProps): JSX.Element {
   const root = useRef<HTMLDivElement>(null);
   const dark = useChatDark(root);
   useMarkedPortals(dark);
+  // Before the first paint, so the composer never shows a frame without its editor styles.
+  useLayoutEffect(copyInjectedStyles, []);
   return (
     <div ref={root} className="consola-agent-ui">
       <div className={dark ? 'consola-agent-ui-theme dark' : 'consola-agent-ui-theme'}>

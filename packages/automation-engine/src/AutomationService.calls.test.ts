@@ -348,7 +348,7 @@ describe('the version of an entry that calls a server (5a-2 Task 6, Task 5’s e
     expect(before.brief).toBe(
       automationVersion(
         automation,
-        stepsResolvedBody({}, {}, { servers: { slack: serverHash(SLACK_DEFINITION) } }),
+        stepsResolvedBody({}, {}, undefined, { servers: { slack: serverHash(SLACK_DEFINITION) } }),
       ),
     );
     await h.setYaml(factory(SLACK.replace('[--stdio]', '[--stdio, -v]'), BRIEF, QUIET));

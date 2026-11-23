@@ -15,7 +15,7 @@ const GONE = 'That file is not there any more.';
 /** macOS's own `open`, by its path: never whatever `open` a PATH (a dev shell's, say) finds first. */
 const MAC_OPEN = '/usr/bin/open';
 const OWN_FILES =
-  "Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md and skills/<name>/SKILL.md.";
+  "Open shows only the factory's own files: factory.yml, automations/<name>.yaml, agents/<name>.md, skills/<name>/SKILL.md and environments/<name>.yaml.";
 
 function errorCode(error: unknown): string | undefined {
   return (error as NodeJS.ErrnoException | undefined)?.code;

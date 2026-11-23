@@ -8,12 +8,13 @@ import { describe, expect, it } from 'vitest';
 /**
  * Keeps the dependency rule: imports point inward only. `domain` holds rules and types,
  * `application` the use cases and the ports they need, `adapters/*` what implements those ports
- * with a library, and the composition ring (`compose.ts`, `main.ts`, `startupError.ts`) wires
- * them together. `config.ts` is shared configuration that any adapter may read. `domain` and
+ * with a library, and the composition ring (`compose.ts`, `main.ts`, `startupError.ts`, and
+ * `seed.ts`, the local demo seed's entry) wires them together. `config.ts` is shared configuration that any adapter may read. `domain` and
  * `application` also reach no global that touches the machine (`process`, `fetch`, timers).
  * Test files are exempt from the layer rules, since they wire real pieces together the way the
  * ring does. The cell holds no accounts, so no file, tests included, imports Better Auth. Of the
- * workspace's packages, only the contract the cell shares with `cloud-global` may be imported.
+ * workspace's packages, only the contract the cell shares with `cloud-global` and the factory
+ * schema every runner shares may be imported.
  */
 
 const SRC = dirname(fileURLToPath(import.meta.url));
@@ -54,7 +55,7 @@ const HTTP_LIBRARIES = ['hono', '@hono/*'];
 const TOKEN_LIBRARIES = ['jose'];
 
 const ADAPTERS = ['adapters/persistence', 'adapters/http', 'adapters/token', 'adapters/clock'];
-const RING = ['compose', 'main', 'startupError'];
+const RING = ['compose', 'main', 'startupError', 'seed'];
 
 const LAYERS: Layer[] = [
   {
@@ -106,16 +107,26 @@ const LAYERS: Layer[] = [
 ];
 
 /**
- * The one workspace package any file may import, from any layer: the contract the cell shares
- * with `cloud-global` (`packages/cloud-contract`). It does no I/O, which its own boundary test
- * proves, so `domain` and `application` may import it, and it is the only package they may. Only
- * its entry point counts: a path inside it is refused like any other workspace package.
+ * A workspace package any file may import, from any layer: the contract the cell shares with
+ * `cloud-global` (`packages/cloud-contract`). It does no I/O, which its own boundary test proves,
+ * so `domain` and `application` may import it; it and `FACTORY_SPEC` are the only packages they
+ * may. Only its entry point counts: a path inside it is refused like any other workspace package.
  */
 const CLOUD_CONTRACT = '@consola/cloud-contract';
 
 /**
+ * The factory files' schema and parser every runner shares (`packages/factory-spec`, MIT), with
+ * which the cell checks the factory files it stores. It reads texts handed to it and does no I/O,
+ * so it is allowed where the contract is, on the same terms: any layer, its entry point alone.
+ */
+const FACTORY_SPEC = '@consola/factory-spec';
+
+/** The workspace packages any file may import, from any layer, by their entry point alone. */
+const SHARED_PACKAGES = [CLOUD_CONTRACT, FACTORY_SPEC];
+
+/**
  * What every file, tests included, may never import: another app or a workspace package but the
- * contract (`consola` is the desktop app's name), and Better Auth, since accounts live in
+ * shared ones (`consola` is the desktop app's name), and Better Auth, since accounts live in
  * `cloud-global` and a cell holds none.
  */
 const NEVER = ['@consola/*', 'consola', 'better-auth', '@better-auth/*'];
@@ -289,7 +300,7 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
-    if (specifier === CLOUD_CONTRACT) return false;
+    if (SHARED_PACKAGES.includes(specifier)) return false;
     if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
@@ -409,7 +420,7 @@ describe('the dependency rule', () => {
     ['config.ts', './application/ports.js', false],
     ['config.ts', './adapters/http/app.js', false],
     ['compose.ts', './adapters/http/app.js', true],
-    ['compose.ts', '@consola/factory-spec', false],
+    ['compose.ts', '@consola/factory-spec', true],
     ['compose.ts', 'better-auth', false],
     ['adapters/persistence/x.ts', '@better-auth/drizzle-adapter', false],
     ['domain/x.ts', '../../../cloud-global/src/domain/joinRule.js', false],
@@ -428,21 +439,28 @@ describe('the dependency rule', () => {
     ['compose.ts', '@consola/cloud-contracts', false],
     ['domain/x.ts', '../../../../packages/cloud-contract/src/region.js', false],
     ['compose.ts', 'consola', false],
+    ['domain/x.ts', '@consola/factory-spec', true],
+    ['application/x.ts', '@consola/factory-spec', true],
+    ['adapters/http/x.ts', '@consola/factory-spec', true],
+    ['x.test.ts', '@consola/factory-spec', true],
+    ['domain/x.ts', '@consola/factory-spec/dist/factory.js', false],
+    ['domain/x.ts', '../../../../packages/factory-spec/src/factory.js', false],
   ])('%s importing %s is allowed: %s', (file, specifier, allowed) => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],
     );
   });
 
-  it('the checker refuses every workspace package but the contract, wherever it is imported', () => {
+  it('the checker refuses every workspace package but the shared ones, wherever it is imported', () => {
     const packages = workspacePackages();
     expect(packages).toContain(CLOUD_CONTRACT);
+    expect(packages).toContain(FACTORY_SPEC);
     expect(packages).toContain('@consola/cloud-region');
     expect(packages.length).toBeGreaterThan(5);
     // The ring refuses no package of its own and tests are exempt from the layer rules, so only
     // NEVER stands between them and a workspace package.
     for (const file of ['compose.ts', 'adapters/http/x.ts', 'domain/x.ts', 'x.test.ts']) {
-      for (const name of packages.filter((p) => p !== CLOUD_CONTRACT)) {
+      for (const name of packages.filter((p) => !SHARED_PACKAGES.includes(p))) {
         expect(violationsOf(file, `import x from '${name}';`)).toEqual([`${file} imports ${name}`]);
       }
     }

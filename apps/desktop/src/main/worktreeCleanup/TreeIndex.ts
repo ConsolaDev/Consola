@@ -32,6 +32,20 @@ export function indexTrees(
   return trees;
 }
 
+/**
+ * The index with every run's own checkout (slice 3-B) that no session
+ * uses added, with no users: such a folder is its run's, and its run's
+ * rules decide it (`policy.runOwnedDue`). `runOwned` is what
+ * `FactGatherer.runOwnedTrees` recognised.
+ */
+export function withRunOwnedTrees(
+  trees: Map<string, TreeUser[]>,
+  runOwned: ReadonlyArray<{ tree: string }>,
+): Map<string, TreeUser[]> {
+  for (const { tree } of runOwned) if (!trees.has(tree)) trees.set(tree, []);
+  return trees;
+}
+
 /** The Consola worktrees one session uses: its own checkout's first. */
 export function treesOfSession(
   session: Session,

@@ -6,9 +6,11 @@ import {
   envProblem,
   exitCodeProblem,
   exposedUrlProblem,
+  lifetimeProblem,
   nameProblem,
   pathProblem,
   portProblem,
+  sandboxIdProblem,
 } from './rules';
 
 describe('the request rules', () => {
@@ -20,6 +22,9 @@ describe('the request rules', () => {
     [{ template: 7 }, /template/],
     [null, /template/],
     [{ template: 'base', env: { '1X': 'a' } }, /not a variable name/],
+    [{ template: 'base', lifetimeSeconds: 3600 }, null],
+    [{ template: 'base', lifetimeSeconds: 0 }, /lifetime/],
+    [{ template: 'base', lifetimeSeconds: '60' }, /lifetime/],
   ])('create options %j: %s', (options, problem) => {
     const found = createOptionsProblem(options as never);
     if (problem === null) expect(found).toBeNull();
@@ -90,6 +95,34 @@ describe('the request rules', () => {
     [Number.NaN, false],
   ])('port %j is a port: %s', (port, valid) => {
     expect(portProblem(port) === null).toBe(valid);
+  });
+
+  it.each([
+    [1, true],
+    [300, true],
+    [86_400, true],
+    [0, false],
+    [-1, false],
+    [1.5, false],
+    [Number.POSITIVE_INFINITY, false],
+    [Number.NaN, false],
+    [2 ** 60, false],
+    ['60', false],
+    [undefined, false],
+  ])('lifetime %j is one: %s', (lifetime, valid) => {
+    expect(lifetimeProblem(lifetime) === null).toBe(valid);
+  });
+
+  it.each([
+    ['sbx-1', null],
+    ['', /Attaching needs the id of a sandbox/],
+    ['   ', /Attaching needs the id/],
+    [7, /Attaching needs the id/],
+    [undefined, /Attaching needs the id/],
+  ])('sandbox id %j: %s', (sandboxId, problem) => {
+    const found = sandboxIdProblem('Attaching', sandboxId);
+    if (problem === null) expect(found).toBeNull();
+    else expect(found).toMatch(problem);
   });
 });
 

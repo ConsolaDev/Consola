@@ -148,16 +148,8 @@ describe('ids', () => {
   });
 });
 
+// `environment` left this table with write steps (slice 3-B): its words are below.
 const STEP_KEYS: Record<string, string> = {
-  gate: 'write steps',
-  repeat: 'write steps',
-  on_exhausted: 'write steps',
-  // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this table is never awaited.
-  then: 'write steps',
-  on_failure: 'write steps',
-  checkout: 'write steps',
-  environment: 'write steps',
-  budget: 'write steps',
   wait: 'waiting runs',
   concurrency: 'waiting runs',
 };
@@ -179,6 +171,17 @@ describe("refuses later slices' keys with a reason", () => {
     const issue = only(result);
     expect(issue.path).toMatch(new RegExp(`${key}$`));
     expect(issue.message).toBe(`\`${key}\` arrives with ${arrives}; it is not supported yet.`);
+  });
+
+  it.each([
+    ['gate', 'A gate is a step; put it in `steps:`.'],
+    ['then', '`then:` goes on a step.'],
+    ['repeat', 'A loop is a step; put it in `steps:`.'],
+    ['on_exhausted', '`on_exhausted` goes on a `repeat` block.'],
+  ])('entry key %s says where it goes', (key, message) => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    ${key}: x\n`));
+    expect(issue.path).toMatch(new RegExp(`${key}$`));
+    expect(issue.message).toBe(message);
   });
 
   it('says what to use instead of inputs on a step', () => {
@@ -320,7 +323,6 @@ describe('agent', () => {
 
   it("keeps the later slices' words and inputs' own on an agent step", () => {
     for (const [key, arrives] of [
-      ['gate', 'write steps'],
       ['wait', 'waiting runs'],
       ['callable', 'callable automations'],
     ]) {
@@ -1217,7 +1219,7 @@ describe('across steps', () => {
 function stepOf(result: ReturnType<typeof parseFactorySpec>, index: number): Step {
   const automation = result.automations[0];
   if (!automation || !isStepsEntry(automation)) throw new Error(JSON.stringify(result.issues));
-  return automation.steps[index];
+  return automation.steps[index] as Step;
 }
 
 describe('previous', () => {
@@ -1591,5 +1593,212 @@ describe('stepItemFieldProblems', () => {
     ).toEqual([
       '`item.ts`: github items have no field `ts` (they have: key, url, repo, title, author, number, type)',
     ]);
+  });
+
+  it("reads a gate's question as a prompt", () => {
+    const automation = entry(['- id: decide\n  gate: { ask: "Approve #{{item.number}}?" }']).result
+      .automations[0];
+    if (!automation || !isStepsEntry(automation)) throw new Error('steps');
+    expect(stepItemFields(automation.steps)).toEqual([
+      { step: 'decide', field: 'number', where: 'prompt' },
+    ]);
+    // A gate naming an untrusted field never parses, so it is built by hand, as `agentStep` is.
+    const gate: Step = {
+      id: 'decide',
+      named: true,
+      kind: 'gate',
+      ask: '{{item.title}}?',
+      show: [],
+    };
+    expect(problems(gate)).toEqual([
+      'item.title: it is text someone else wrote; the step gets it below its prompt as data.',
+    ]);
+  });
+});
+
+describe('what a step may say about writing (slice 3-B)', () => {
+  /** A run-owned entry on an event: its items have a key and a number. */
+  const OWNED = `${REVIEW}    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.number}}" }\n`;
+  const owned = (...items: string[]) =>
+    one(
+      `${OWNED}    steps:\n${items.map((item) => `      ${item.replace(/\n/g, '\n      ')}`).join('\n')}\n`,
+    );
+  const messages = (result: ReturnType<typeof one>) => result.issues.map((issue) => issue.message);
+  const PATH_WORDS = (path: string) =>
+    `\`${path}\` is not a path in the checkout: no leading \`/\`, no \`..\`, nothing under \`.git/\` or \`.claude/\`, not \`.mcp.json\`, at most 200 characters.`;
+
+  it('reads a path artifact, its name among the artifacts', () => {
+    const step = firstStep<AgentStep>(
+      owned(
+        '- prompt: x\n  artifacts: [notes, { name: spec, path: "docs/specs/{{item.key}}.md" }]',
+      ),
+    );
+    expect(step).toMatchObject({
+      artifacts: ['notes', 'spec'],
+      pathArtifacts: [{ name: 'spec', path: 'docs/specs/{{item.key}}.md' }],
+    });
+  });
+
+  it('a step without one parses as before: no pathArtifacts key', () => {
+    const step = firstStep<AgentStep>(owned('- prompt: x\n  artifacts: [notes]'));
+    expect(Object.prototype.hasOwnProperty.call(step, 'pathArtifacts')).toBe(false);
+  });
+
+  it.each([
+    '/etc/x',
+    '../x',
+    'a/../b',
+    '.git/config',
+    '.GIT/config',
+    '.git',
+    '.claude/settings.json',
+    '.claude',
+    'docs/.claude/x.md',
+    '.mcp.json',
+    'x'.repeat(201),
+    'docs/{{item.title}}.md',
+    'docs/{{run.id}}.md',
+    'docs/{{item.key}.md',
+    'docs/}x.md',
+    'docs\\x.md',
+    '',
+    'docs/',
+    'a//b',
+    './a.md',
+  ])('refuses the path %j, at its artifacts', (path) => {
+    const result = owned(
+      `- prompt: x\n  artifacts: [{ name: spec, path: ${JSON.stringify(path)} }]`,
+    );
+    expect(result.automations).toEqual([]);
+    expect(result.issues).toEqual([
+      expect.objectContaining({
+        path: 'automations[0].steps[0].artifacts',
+        message: PATH_WORDS(path),
+      }),
+    ]);
+  });
+
+  it('takes 200 characters, a dotfile that is none of those, and both placeholders', () => {
+    for (const path of [
+      'x'.repeat(200),
+      '.github/notes.md',
+      'docs/{{item.key}}-{{item.number}}.md',
+      'a/.claudex/b.md',
+    ])
+      expect(
+        owned(`- prompt: x\n  artifacts: [{ name: spec, path: ${JSON.stringify(path)} }]`).issues,
+      ).toEqual([]);
+  });
+
+  it.each([
+    [
+      '[{ name: spec }]',
+      'Expected an artifact as a name, or `{ name, path }` for a file in the checkout, e.g. `{ name: spec, path: docs/spec.md }`.',
+    ],
+    [
+      '[{ name: spec, path: a.md, kind: x }]',
+      'Expected an artifact as a name, or `{ name, path }` for a file in the checkout, e.g. `{ name: spec, path: docs/spec.md }`.',
+    ],
+    [
+      '[{ name: spec, path: 7 }]',
+      'Expected an artifact as a name, or `{ name, path }` for a file in the checkout, e.g. `{ name: spec, path: docs/spec.md }`.',
+    ],
+    [
+      '[{ name: Spec, path: a.md }]',
+      'Use lowercase letters, digits and dashes, starting with a letter, e.g. notes.',
+    ],
+    [
+      '[{ name: handover, path: a.md }]',
+      "A handover is Consola's own document; a file in the checkout needs a name of its own.",
+    ],
+    ['[notes, { name: notes, path: a.md }]', '`notes` is listed twice.'],
+  ])('refuses %s', (list, words) => {
+    expect(messages(owned(`- prompt: x\n  artifacts: ${list}`))).toContain(words);
+  });
+
+  it("a path's item placeholders follow the items, as a branch's do", () => {
+    const daily = one(
+      `${DAILY}    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }\n    steps:\n      - prompt: x\n        artifacts: [{ name: spec, path: "docs/{{item.key}}.md" }]\n`,
+    );
+    expect(messages(daily)).toEqual([
+      '`{{item.key}}`: a schedule has no item, so there is no `item` to read',
+    ]);
+    const keyed = (file: string) =>
+      one(
+        `    on: { poll: { every: 10m, run: "echo []", key: .key } }\n    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }\n    steps:\n      - prompt: x\n        artifacts: [{ name: spec, path: "${file}" }]\n`,
+      );
+    expect(messages(keyed('docs/{{item.number}}.md'))).toEqual([
+      "A poll's items have no number; use `{{item.key}}`.",
+    ]);
+    expect(keyed('docs/{{item.key}}.md').issues).toEqual([]);
+    expect(
+      owned('- prompt: x\n  artifacts: [{ name: spec, path: "docs/{{item.number}}.md" }]').issues,
+    ).toEqual([]);
+  });
+
+  it.each([
+    [{ prompt: 'x', environment: 'sandboxed' }, "An agent's environment is in its agent file."],
+    [{ agent: 'fixer', environment: 'sandboxed' }, "An agent's environment is in its agent file."],
+    [
+      { run: '"true"', environment: 'sandboxed' },
+      '`environment:` on a command arrives with sandboxed commands; it is not supported yet.',
+    ],
+    [{ id: 'checkout', run: '"true"' }, '`checkout` is reserved; name this step something else.'],
+    [{ id: 'checkout', prompt: 'x' }, '`checkout` is reserved; name this step something else.'],
+  ])('refuses %j', (raw, words) => {
+    const yaml = Object.entries(raw)
+      .map(([key, value]) => `${key}: ${value}`)
+      .join('\n  ');
+    const issue = only(steps(`- ${yaml}`));
+    expect(issue.message).toBe(words);
+  });
+
+  it('refuses checkout as a loop id and a gate id', () => {
+    expect(only(steps('- id: checkout\n  gate: { ask: Go? }')).message).toBe(
+      '`checkout` is reserved; name this step something else.',
+    );
+    expect(
+      only(
+        steps(
+          '- id: checkout\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      prompt: x\n      outputs: { done: boolean }',
+        ),
+      ).message,
+    ).toBe('`checkout` is reserved; name this step something else.');
+  });
+
+  it('refuses environment: on the automation, saying where it goes', () => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    environment: x\n`));
+    expect(issue.path).toBe('automations[0].environment');
+    expect(issue.message).toBe("An agent's environment is in its agent file.");
+  });
+
+  it("checkout.changes needs a run-owned checkout, in reads: and in a gate's show:", () => {
+    const NEEDS =
+      "`checkout.changes` is a run's own checkout's diff; it needs `checkout: { repo, branch }`.";
+    const scoped = (...items: string[]) =>
+      one(
+        `    on: manual\n    scope: app\n    steps:\n${items.map((item) => `      ${item.replace(/\n/g, '\n      ')}`).join('\n')}\n`,
+      );
+    expect(scoped('- id: review\n  prompt: x\n  reads: [checkout.changes]').issues).toEqual([
+      expect.objectContaining({ path: 'automations[0].steps[0].reads[0]', message: NEEDS }),
+    ]);
+    expect(scoped('- id: decide\n  gate: { ask: Go?, show: [checkout.changes] }').issues).toEqual([
+      expect.objectContaining({ path: 'automations[0].steps[0].gate.show[0]', message: NEEDS }),
+    ]);
+    expect(
+      one(
+        `${REVIEW}    checkout: { pr: item }\n    steps:\n      - id: review\n        prompt: x\n        reads: [checkout.changes]\n`,
+      ).issues.map((i) => i.message),
+    ).toEqual([NEEDS]);
+    const ok = owned(
+      '- id: review\n  prompt: x\n  reads: [checkout.changes]',
+      '- id: decide\n  gate: { ask: Go?, show: [checkout.changes, review.handover] }',
+      '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  on_exhausted: { gate: { ask: Stop?, show: [checkout.changes] } }\n  steps:\n    - id: look\n      prompt: x\n      outputs: { done: boolean }',
+    );
+    expect(ok.issues).toEqual([]);
+    const [automation] = ok.automations;
+    if (!automation || !isStepsEntry(automation)) throw new Error('not a steps entry');
+    expect(automation.steps[1]).toMatchObject({ show: ['checkout.changes', 'review.handover'] });
+    expect(automation.steps[0]).toMatchObject({ reads: ['checkout.changes'] });
   });
 });

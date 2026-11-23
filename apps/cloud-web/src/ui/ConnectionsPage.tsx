@@ -165,7 +165,7 @@ function Notice({
         aria-label="Dismiss"
         onClick={onDismiss}
       >
-        <X size={14} aria-hidden="true" />
+        <X size={16} aria-hidden="true" />
       </button>
     </div>
   );
@@ -261,7 +261,7 @@ function GitHubGroup({
                 >
                   {pending ? (
                     <>
-                      <LoaderCircle className="connections-spin" size={14} aria-hidden="true" />
+                      <LoaderCircle className="connections-spin" size={16} aria-hidden="true" />
                       Opening GitHub…
                     </>
                   ) : (
@@ -324,9 +324,9 @@ function GitHubGroup({
             >
               <span className="connections-add-icon" aria-hidden="true">
                 {pending ? (
-                  <LoaderCircle className="connections-spin" size={14} />
+                  <LoaderCircle className="connections-spin" size={16} />
                 ) : (
-                  <Plus size={14} />
+                  <Plus size={16} />
                 )}
               </span>
               {pending ? 'Opening GitHub…' : 'Connect another account'}
@@ -401,7 +401,7 @@ function Installation({
   const note =
     repositories.kind === 'gone' ? (
       <p className="connections-warning">
-        <TriangleAlert size={13} aria-hidden="true" />
+        <TriangleAlert size={14} aria-hidden="true" />
         {INSTALLATION_GONE}
       </p>
     ) : repositories.kind === 'unavailable' ? (
@@ -436,7 +436,7 @@ function Installation({
           rel="noreferrer"
         >
           Choose repositories
-          <ArrowUpRight className="connections-arrow" size={13} aria-hidden="true" />
+          <ArrowUpRight className="connections-arrow" size={14} aria-hidden="true" />
         </a>
         {canManage && !asking && (
           <button
@@ -485,7 +485,7 @@ function Installation({
                   onClick={() => void disconnect()}
                 >
                   {pending && (
-                    <LoaderCircle className="connections-spin" size={14} aria-hidden="true" />
+                    <LoaderCircle className="connections-spin" size={16} aria-hidden="true" />
                   )}
                   {pending ? 'Disconnecting…' : `Disconnect ${account.login}`}
                 </button>
@@ -516,7 +516,7 @@ function AccountAvatar({ account, gone }: { account: GitHubAccount; gone: boolea
       className={organization ? 'connections-avatar organization' : 'connections-avatar'}
       data-gone={gone || undefined}
     >
-      <Icon size={14} aria-hidden="true" />
+      <Icon size={16} aria-hidden="true" />
       {shown !== 'failed' && (
         <img
           src={avatarUrl(account, 64)}
@@ -608,7 +608,7 @@ function LoadFailed({ onRetry }: { onRetry: () => Promise<void> }) {
           >
             <RotateCw
               className={pending ? 'connections-spin' : undefined}
-              size={14}
+              size={16}
               aria-hidden="true"
             />
             Try again

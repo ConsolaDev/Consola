@@ -1,15 +1,18 @@
 import {
   CELL_TOKEN_ALGORITHM,
   CELL_TOKEN_KEYS_PATH,
+  GITHUB_TOKEN_REQUEST_TYPE,
   WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
 import { createRoute, z } from '@hono/zod-openapi';
+import { TOKEN_REQUEST_PROBLEMS } from '../../domain/gitHubTokens.js';
 import { REGIONS } from '../../domain/region.js';
 import {
   WORKSPACE_NAME_MAX,
   WORKSPACE_PROBLEMS,
   WORKSPACE_SLUG_MAX,
 } from '../../domain/workspace.js';
+import { WORKSPACE_ICONS } from '../../domain/workspaceIcon.js';
 
 /**
  * The API's contract: every route Consola serves (Better Auth's `/api/auth/*` aside), what it
@@ -39,6 +42,14 @@ export const MyWorkspace = z
     slug: z.string(),
     region: z.enum(REGIONS),
     role: z.enum(WORKSPACE_ROLES),
+    icon: z.union([z.enum(WORKSPACE_ICONS), z.null()]).openapi({
+      description:
+        'The icon the workspace wears, by the desktop app’s ids; null for none, which shows ' +
+        'its initial.',
+    }),
+    canManage: z.boolean().openapi({
+      description: 'Whether the person may change how the workspace looks (an owner or admin).',
+    }),
   })
   .openapi('MyWorkspace', { description: 'A workspace as one of its members sees it.' });
 
@@ -104,6 +115,46 @@ export const putActiveWorkspace = createRoute({
       failure('workspace_not_found'),
       'No workspace of the person’s has that id, whether or not one exists.',
     ),
+    415: unsupportedMediaType,
+  },
+});
+
+export const WorkspaceIconChange = z
+  .object({ icon: z.union([z.string(), z.null()]) })
+  .openapi('WorkspaceIconChange', {
+    description: 'An icon from the desktop app’s set, or null to take the icon off.',
+  });
+
+export const putActiveWorkspaceIcon = createRoute({
+  method: 'put',
+  path: '/api/me/workspace/icon',
+  summary: "Set or clear my active workspace's icon",
+  description:
+    'Only an owner or an admin of the workspace may. It changes the icon alone, never the ' +
+    'workspace’s name, slug or region.',
+  request: body(WorkspaceIconChange),
+  responses: {
+    200: json(MyWorkspace, 'The workspace, wearing the icon it was given.'),
+    400: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('icon_unknown'), failure('invalid_request')]),
+        },
+      },
+      description: 'The icon is not one of the set, or the body is not what the route takes.',
+    },
+    401: signedOut,
+    403: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('not_a_member'), failure('not_allowed'), failure('bad_origin')]),
+        },
+      },
+      description:
+        'The person is not in the workspace, is a member who may not change it, or the change ' +
+        'did not come from the web app.',
+    },
+    409: json(failure('no_active_workspace'), 'The session has no active workspace.'),
     415: unsupportedMediaType,
   },
 });
@@ -387,6 +438,72 @@ export const getGitHubCallback = createRoute({
   },
 });
 
+// GitHub's webhooks (14.2). GitHub calls this route, with no session: it is in the contract so
+// that every answer it gives is declared, typed and checked like any other route's.
+
+/** The path the GitHub App's webhook URL ends in, on the tunnel's address in development. */
+export const GITHUB_WEBHOOK_PATH = '/api/github/webhooks';
+
+export const postGitHubWebhook = createRoute({
+  method: 'post',
+  path: GITHUB_WEBHOOK_PATH,
+  summary: 'Receive one of the GitHub App’s webhook deliveries',
+  description:
+    'The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is ' +
+    'outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes ' +
+    'and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, ' +
+    'compared in constant time) before anything else is read; `X-GitHub-Event` names the ' +
+    'event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it ' +
+    'sends a delivery again. The event is passed on, signed, to the cell of the workspace that ' +
+    'holds its installation, which records each delivery once. Nothing of it is kept here.',
+  responses: {
+    200: json(
+      z.strictObject({ result: z.enum(['delivered', 'pong']) }).openapi('GitHubWebhookReceived', {
+        description:
+          '`delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, ' +
+          'passed on to no cell.',
+      }),
+      'Received.',
+    ),
+    400: json(
+      failure('invalid_delivery'),
+      'Signed, but a header or the body is not what GitHub sends.',
+    ),
+    401: json(
+      failure('bad_signature'),
+      'No `X-Hub-Signature-256`, or not GitHub’s signature over this body.',
+    ),
+    409: json(
+      failure('duplicate_delivery'),
+      'The workspace’s cell had this delivery already: sent again, or replayed. Nothing changed.',
+    ),
+    413: json(failure('too_large'), 'Over the 25 MB GitHub puts in a delivery at most.'),
+    422: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('unknown_installation'), failure('no_installation')]),
+        },
+      },
+      description:
+        'Dropped: the event came through an installation no workspace holds, or through none.',
+    },
+    502: json(
+      failure('cell_unavailable'),
+      'The workspace’s cell did not take the event. GitHub’s Redeliver sends it again.',
+    ),
+    503: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('webhooks_not_configured'), failure('cell_not_configured')]),
+        },
+      },
+      description:
+        'This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`), or no cell for the ' +
+        'workspace’s region.',
+    },
+  },
+});
+
 export const deleteGitHubInstallation = createRoute({
   method: 'delete',
   path: '/api/connections/github/installations/{installationId}',
@@ -424,6 +541,117 @@ export const deleteGitHubInstallation = createRoute({
   },
 });
 
+// GitHub tokens for a cell (14.3): the one route a cell calls, signed by the cell, not a browser.
+
+export const GitHubTokenRequestBody = z
+  .object({
+    request: z.string().openapi({
+      description:
+        `The request, signed by the cell: a JWS in compact serialization whose payload is the ` +
+        `contract's \`GitHubTokenRequest\` as JSON, with \`alg\` \`${CELL_TOKEN_ALGORITHM}\`, the ` +
+        `cell's key's \`kid\` and \`typ\` \`${GITHUB_TOKEN_REQUEST_TYPE}\` in its protected header.`,
+    }),
+  })
+  .openapi('GitHubTokenRequestBody');
+
+const access = z.enum(['read', 'write']);
+
+export const GitHubToken = z
+  .strictObject({
+    token: z.string().openapi({ description: 'An installation token. Never log or store it.' }),
+    expiresAt: z.number().int().openapi({ description: 'In whole seconds since the epoch.' }),
+    repositories: z
+      .array(z.strictObject({ id: z.number().int(), fullName: z.string() }))
+      .openapi({ description: 'Exactly the repositories asked for, as GitHub names them now.' }),
+    permissions: z
+      .strictObject({
+        contents: access.optional(),
+        pull_requests: access.optional(),
+        metadata: z.literal('read').optional(),
+      })
+      .openapi({
+        description:
+          "Exactly the purpose's permissions, and the metadata read GitHub gives every token.",
+      }),
+  })
+  .openapi('GitHubToken', {
+    description: 'A GitHub token narrowed to a workspace’s repositories, for an hour at most.',
+  });
+
+export const postGitHubToken = createRoute({
+  method: 'post',
+  path: '/api/github/tokens',
+  summary: 'Mint a GitHub token for a cell, narrowed to repositories and a purpose',
+  description:
+    'Called by a regional cell, never a browser: the request is signed with the key configured ' +
+    'for the cell’s region, so it sits outside the origin check and carries no session. The ' +
+    'workspace must hold the installation and be in that cell’s region, and the installation ' +
+    'must cover every repository. The purpose fixes the permissions. Every token minted is ' +
+    'recorded; the token itself is not, and no cache keeps the answer (`Cache-Control: no-store`).',
+  request: body(GitHubTokenRequestBody),
+  responses: {
+    201: json(GitHubToken, 'The token, narrowed as asked.'),
+    400: {
+      content: {
+        'application/json': {
+          schema: z.union([
+            failure('invalid_request'),
+            failure('unreadable'),
+            z
+              .strictObject({
+                error: z.literal('invalid_token_request'),
+                problems: z.array(z.enum(TOKEN_REQUEST_PROBLEMS)),
+              })
+              .openapi('InvalidTokenRequest', {
+                description: 'Every problem with the repositories asked for, in rule order.',
+              }),
+          ]),
+        },
+      },
+      description:
+        'The body is not `{ request }`, the signed request is none the contract reads (expired, ' +
+        'say), or its repositories break the purpose’s rules.',
+    },
+    401: json(failure('unsigned'), 'No cell’s key checks the request.'),
+    403: {
+      content: {
+        'application/json': {
+          schema: z.union([
+            failure('other_region'),
+            z
+              .strictObject({
+                error: z.literal('repository_not_covered'),
+                repositoryIds: z.array(z.number().int()),
+              })
+              .openapi('RepositoryNotCovered', {
+                description:
+                  'The repositories, by their GitHub ids, the installation does not cover.',
+              }),
+            failure('scope_refused'),
+          ]),
+        },
+      },
+      description:
+        'The workspace is in another region than the cell, the installation does not cover a ' +
+        'repository, or GitHub refused the scope (a permission the app was not granted).',
+    },
+    404: json(
+      failure('installation_not_found'),
+      'The workspace holds no installation with that id, whether or not another does.',
+    ),
+    410: json(failure('installation_gone'), 'GitHub no longer has the installation.'),
+    415: unsupportedMediaType,
+    503: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('github_not_configured'), failure('github_unavailable')]),
+        },
+      },
+      description: 'This server has no GitHub App, or GitHub did not answer as it should.',
+    },
+  },
+});
+
 export const getHealth = createRoute({
   method: 'get',
   path: '/api/health',
@@ -438,6 +666,7 @@ export const getHealth = createRoute({
 export const ROUTES = [
   getMe,
   putActiveWorkspace,
+  putActiveWorkspaceIcon,
   getActiveWorkspaceMembers,
   listWorkspaces,
   postWorkspace,
@@ -448,4 +677,8 @@ export const ROUTES = [
   getGitHubCallback,
   deleteGitHubInstallation,
   getHealth,
+  // Registered before every other route, outside the origin check: a cell calls the first, and
+  // GitHub the second, each signing what it sends instead of carrying a session.
+  postGitHubToken,
+  postGitHubWebhook,
 ];

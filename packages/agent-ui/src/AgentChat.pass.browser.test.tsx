@@ -12,8 +12,18 @@ afterEach(() => {
 
 const REFUSED_PASS = 'a-pass-the-host-refuses';
 
-/** Time for t3 to try a pass, be refused, and stay there. */
-const settle = () => new Promise((settled) => setTimeout(settled, 2_500));
+/**
+ * The refusal stays: `holds` is read again and again, each time after the notice is up (so t3 has
+ * tried the pass and been refused), and fails the moment it does not. The reads are the wait; no
+ * fixed sleep stands in for t3's retries, which a loaded machine would stretch past it.
+ */
+const staysRefused = async (holds: () => void | Promise<void>) => {
+  for (let reads = 0; reads < 10; reads++) {
+    await expect.element(notice()).toBeVisible();
+    await holds();
+    await new Promise((done) => setTimeout(done, 100));
+  }
+};
 
 /** AgentChat's notice over t3's view. */
 const notice = () => page.getByRole('alert');
@@ -24,9 +34,7 @@ it("without onPassExpired, a refused pass shows that the host refused the chat's
 
   await expect.element(notice()).toMatchTextContent(/The host refused this chat's pass/);
   await expect.element(notice()).toMatchTextContent(/It has expired or was revoked\./);
-  await settle();
-  expect(answerOf(assistantText).query()).toBeNull();
-  await expect.element(notice()).toBeVisible();
+  await staysRefused(() => expect(answerOf(assistantText).query()).toBeNull());
 });
 
 it('asks once when the new pass is refused too, and says so', async () => {
@@ -36,9 +44,10 @@ it('asks once when the new pass is refused too, and says so', async () => {
 
   await expect.poll(() => onPassExpired.mock.calls.length, { timeout: 30_000 }).toBe(1);
   await expect.element(notice()).toMatchTextContent(/The host refused this chat's pass/);
-  await settle();
-  expect(onPassExpired).toHaveBeenCalledTimes(1);
-  expect(answerOf(assistantText).query()).toBeNull();
+  await staysRefused(() => {
+    expect(onPassExpired).toHaveBeenCalledTimes(1);
+    expect(answerOf(assistantText).query()).toBeNull();
+  });
 });
 
 it('says so, and logs why, when onPassExpired fails', async () => {

@@ -15,6 +15,7 @@ import {
 import { PROVIDER_META } from '../../../shared/providers';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useAttentionStore } from '../../stores/attentionStore';
@@ -25,6 +26,7 @@ import { InboxItemPane } from './InboxItemPane';
 import { InboxRow } from './InboxRow';
 import { InboxSectionGroup } from './InboxSectionGroup';
 import { InboxSetup } from './InboxSetup';
+import { gateMarksByItem } from './gateMarks';
 import { ProviderBindingPanel } from '../Provider';
 import { ViewTabs } from './ViewTabs';
 import { filterByRepos, filterByUpdated, reposInSnapshot } from './inboxFilters';
@@ -80,6 +82,9 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
   const resolvedRepos = useInboxStore((state) => state.resolvedRepos[workspace.id]);
   const refresh = useInboxStore((state) => state.refresh);
   const attention = useAttentionStore((state) => state.attention);
+  // A run waiting for the person at a gate on an item marks that item's row.
+  const automationRuns = useAutomationsStore((state) => state.snapshots[workspace.id]?.runs);
+  const gateMarks = useMemo(() => gateMarksByItem(automationRuns ?? []), [automationRuns]);
   const filter = useSettingsStore((state) => state.inboxFilterFor(workspace.id));
   const setInboxRepoFilter = useSettingsStore((state) => state.setInboxRepoFilter);
   const setInboxUpdatedFilter = useSettingsStore((state) => state.setInboxUpdatedFilter);
@@ -259,6 +264,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                     onToggle={() => toggleSection(section)}
                     sessionsByItem={sessionsByItem}
                     attention={attention}
+                    gateMarks={gateMarks}
                     resolvedRepos={resolvedRepos}
                     selectedKey={selectedKey}
                     onSelectItem={selectItem}
@@ -277,6 +283,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                         item={item}
                         sessions={sessionsByItem.get(key) ?? []}
                         attention={attention}
+                        gateMark={gateMarks.get(item.url)}
                         cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
                         selected={selectedKey === key}
                         onSelect={selectItem}

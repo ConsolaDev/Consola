@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import type { RunDefinition } from '../../../shared/automations';
-import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
+import {
+  approvalAgent,
+  approvalNotes,
+  approvalSkills,
+  definitionEntries,
+  definitionLeaves,
+  definitionRows,
+  dryRunCommands,
+  gateChoicesWords,
+  loopFoot,
+  writeBlocks,
+} from './approvalCard';
 
 type Step = RunDefinition['automation']['steps'][number];
 
@@ -90,6 +101,90 @@ describe('dryRunCommands with calls (5a-2)', () => {
         definitionOf(command('fetch', 'run'), call('post', 'report'), call('lookup', 'run')),
       ),
     ).toEqual(['fetch', 'lookup']);
+  });
+});
+
+const loop = (id: string, ...steps: Step[]): Step =>
+  ({
+    id,
+    kind: 'repeat',
+    named: true,
+    max: 3,
+    until: 'steps.review.findings == 0',
+    steps,
+  }) as unknown as Step;
+
+describe('a definition with a loop (slice 3)', () => {
+  it('names the commands of an entry whose only command is inside a loop', () => {
+    const definition = definitionOf(
+      agent('review'),
+      loop('polish', agent('again'), command('check', 'run')),
+    );
+    expect(approvalNotes(definition, null)).toEqual([
+      'Its commands run as you (your logins, the bound GitHub account).',
+    ]);
+    expect(dryRunCommands(definition)).toEqual(['check']);
+  });
+
+  it('walks the tree in record order, and its leaves in file order', () => {
+    const definition = definitionOf(
+      command('fresh'),
+      loop('polish', agent('review'), command('check')),
+      command('pr'),
+    );
+    expect(
+      definitionEntries(definition.automation.steps).map(({ step, loop: block }) => [
+        step.id,
+        block,
+      ]),
+    ).toEqual([
+      ['fresh', undefined],
+      ['polish', undefined],
+      ['review', 'polish'],
+      ['check', 'polish'],
+      ['pr', undefined],
+    ]);
+    expect(definitionLeaves(definition.automation.steps).map((step) => step.id)).toEqual([
+      'fresh',
+      'review',
+      'check',
+      'pr',
+    ]);
+  });
+
+  it("lists a loop's steps under it", () => {
+    // North-star §4.1's steps, as the approval card draws them.
+    const SECTION_41_AUTOMATION = definitionOf(
+      agent('triage'),
+      command('not-ours'),
+      agent('fix'),
+      loop('polish', agent('review'), agent('address')),
+      command('pr'),
+      command('ticket'),
+    ).automation;
+    expect(
+      definitionRows(SECTION_41_AUTOMATION).map(({ step, depth }) => [step.id, depth]),
+    ).toEqual([
+      ['triage', 0],
+      ['not-ours', 0],
+      ['fix', 0],
+      ['polish', 0],
+      ['review', 1],
+      ['address', 1],
+      ['pr', 0],
+      ['ticket', 0],
+    ]);
+  });
+
+  it("words a loop's foot by how it ends, and a gate's choices with Reject last", () => {
+    expect(loopFoot('fail')).toBe('then fails');
+    expect(loopFoot('continue')).toBe('then goes on');
+    expect(loopFoot('gate')).toBe('then asks you');
+    expect(loopFoot(undefined)).toBe('then fails');
+    expect(gateChoicesWords(['approve', 'request-changes'])).toBe(
+      'Approve, Request changes or Reject',
+    );
+    expect(gateChoicesWords(undefined)).toBe('Approve or Reject');
   });
 });
 
@@ -244,5 +339,47 @@ describe('approvalSkills (review M4)', () => {
       expect(approvalSkills(gone)).toEqual({
         problem: "Its skills can't be shown from this run's folder.",
       });
+  });
+});
+
+describe('writeBlocks (slice 3-B Task 21)', () => {
+  it("lists the checkout, each agent's head and sentences, the commands and the variables, in that order", () => {
+    expect(
+      writeBlocks({
+        writes: {
+          checkout: 'Cuts `fix/<ticket>` from sprocket/catalog-portal’s default branch.',
+          agents: [
+            {
+              agent: 'ui-bugfixer',
+              head: 'ui-bugfixer · claude-work',
+              sentences: ['One.', 'Two.'],
+            },
+            { agent: 'docs', head: 'docs · claude-work', sentences: ['Three.'] },
+          ],
+          commands: ['`pr` · on host, after ui-bugfixer: …'],
+          variables: 'Passes from your environment: CI.',
+        },
+      }),
+    ).toEqual([
+      {
+        kind: 'checkout',
+        text: 'Cuts `fix/<ticket>` from sprocket/catalog-portal’s default branch.',
+      },
+      { kind: 'head', agent: 'ui-bugfixer', text: 'ui-bugfixer · claude-work' },
+      { kind: 'sentence', agent: 'ui-bugfixer', text: 'One.' },
+      { kind: 'sentence', agent: 'ui-bugfixer', text: 'Two.' },
+      { kind: 'head', agent: 'docs', text: 'docs · claude-work' },
+      { kind: 'sentence', agent: 'docs', text: 'Three.' },
+      { kind: 'command', text: '`pr` · on host, after ui-bugfixer: …' },
+      { kind: 'variables', text: 'Passes from your environment: CI.' },
+    ]);
+  });
+
+  it('shows nothing for a view that writes nothing, and only what a view has', () => {
+    expect(writeBlocks({})).toEqual([]);
+    expect(writeBlocks({ writes: { agents: [], commands: [] } })).toEqual([]);
+    expect(
+      writeBlocks({ writes: { checkout: 'Cuts `x/<run>`.', agents: [], commands: [] } }),
+    ).toEqual([{ kind: 'checkout', text: 'Cuts `x/<run>`.' }]);
   });
 });

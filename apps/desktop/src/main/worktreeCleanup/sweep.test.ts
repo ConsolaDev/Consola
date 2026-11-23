@@ -13,7 +13,9 @@ import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { PullRequestQuery, PullRequestState } from '../providers/pullRequests';
 import { WorktreeService } from '../WorktreeService';
 import { WorktreeCleanupService } from '.';
+import { treeHeldByRun } from './FactGatherer';
 import { PathLock } from './PathLock';
+import { KEEP_REF, RunOwnedRig } from './runOwned.test-helpers';
 
 /**
  * The rules applied across workspaces, against real git: what a sweep
@@ -51,6 +53,8 @@ class Rig {
   readonly worktrees = new WorktreeService(this.root);
   global: WorktreeCleanupRules = SETTLED;
   readonly shown = new Set<string>();
+  /** The folders an automation run holds as its checkout, as the engine names them. */
+  readonly heldByRuns = new Set<string>();
   readonly settledAt = new Map<string, number>();
   readonly prs = new Map<string, PullRequestState[]>();
   lookups = 0;
@@ -142,6 +146,7 @@ class Rig {
       status: () => 'exited',
       isShown: (instanceId) => this.shown.has(instanceId),
       heldSessionIds: () => new Set(),
+      runHolds: (tree) => this.heldByRuns.has(tree),
       lastActiveAt: (session) => session.lastActiveAt,
       ownProcessIds: () => ({ agents: new Set(), shells: new Set() }),
       worktrees: this.worktrees,
@@ -220,6 +225,39 @@ describe('sweep', () => {
     ]);
     await rig.service().sweep();
     expect(fs.existsSync(shown) && fs.existsSync(active)).toBe(true);
+  });
+
+  it('keeps the checkout of a run parked at a gate, its step session settled for days (3-A code review S1)', async () => {
+    const dir = rig.tree('consola/parked');
+    rig.session('look', dir, 'ws-1', {
+      automation: { name: 'review-gated', runId: 'run-1', step: { id: 'look', attempt: 1 } },
+    });
+    rig.heldByRuns.add(dir);
+    const preview = await rig.service().scan();
+    expect(preview.removable).toBe(0);
+    expect(preview.entries.map((entry) => entry.reason)).toEqual([
+      'An automation run is holding it',
+    ]);
+    expect((await rig.service().sweep()).removed).toEqual([]);
+    expect(fs.existsSync(dir)).toBe(true);
+    // Answered and ended, the run lets go: the rule removes it.
+    rig.heldByRuns.delete(dir);
+    expect((await rig.service().sweep()).removed.map((entry) => entry.tree)).toEqual([dir]);
+  });
+
+  it("reads a run's checkout through the tree's own resolution (3-A code review S1)", () => {
+    const dir = rig.tree('consola/parked');
+    const other = rig.tree('consola/other');
+    // The run names its checkout as it built the path: here through a link to the root.
+    const linked = path.join(rig.base, 'linked-root');
+    fs.symlinkSync(rig.root, linked);
+    const named = path.join(linked, path.basename(dir));
+    expect(treeHeldByRun(dir, [dir], rig.worktrees)).toBe(true);
+    expect(treeHeldByRun(dir, [named], rig.worktrees)).toBe(true);
+    fs.mkdirSync(path.join(dir, 'src'));
+    expect(treeHeldByRun(dir, [path.join(named, 'src')], rig.worktrees)).toBe(true);
+    expect(treeHeldByRun(dir, [other], rig.worktrees)).toBe(false);
+    expect(treeHeldByRun(dir, [], rig.worktrees)).toBe(false);
   });
 
   it('keeps a worktree shared with a session whose workspace is Off', async () => {
@@ -366,6 +404,21 @@ describe('deleting a session', () => {
     expect(fs.existsSync(dir)).toBe(true);
   });
 
+  it('keeps the checkout a run holds when its step session is deleted (3-A code review S1)', async () => {
+    rig.global = ON;
+    const dir = rig.tree('consola/parked');
+    const step = rig.session('look', dir, 'ws-1', {
+      automation: { name: 'review-gated', runId: 'run-1', step: { id: 'look', attempt: 1 } },
+    });
+    rig.heldByRuns.add(dir);
+    expect(await rig.service().previewDelete(rig.workspaces[0], step)).toEqual({
+      worktree: 'Its worktree stays: an automation run is holding it.',
+    });
+    const { final } = await remove(step);
+    expect(final).toMatchObject({ worktree: 'kept' });
+    expect(fs.existsSync(dir)).toBe(true);
+  });
+
   it('deletes the branch of a session whose worktree a rule already removed', async () => {
     const dir = rig.tree('consola/session-z');
     const session = rig.session('Settled', dir);
@@ -379,5 +432,74 @@ describe('deleting a session', () => {
     const { outcome } = await remove(session);
     expect(outcome).toMatchObject({ branch: 'deleted' });
     expect(git(rig.clone, 'branch', '--list', 'consola/session-z')).toBe('');
+  });
+});
+
+describe("the sweep and a run's own checkout (slice 3-B Task 19)", () => {
+  const rigs: RunOwnedRig[] = [];
+  afterAll(() => {
+    for (const made of rigs) made.dispose();
+  });
+  async function forgotten(): Promise<RunOwnedRig> {
+    const made = await new RunOwnedRig().make();
+    rigs.push(made);
+    made.push();
+    // History dropped its run: only the folder's own config says whose it is.
+    made.record = null;
+    return made;
+  }
+
+  it('the history rule is off by default, and removes one once the person turns it on', async () => {
+    const made = await forgotten();
+    made.rules = DEFAULT_WORKTREE_CLEANUP_RULES;
+    expect(await made.service().sweep()).toMatchObject({ removed: [], kept: [] });
+    // Another rule on, this one off: kept, and Preview says why.
+    made.rules = {
+      ...DEFAULT_WORKTREE_CLEANUP_RULES,
+      runFinished: { enabled: true, afterMinutes: 0 },
+    };
+    expect((await made.service().sweep()).removed).toEqual([]);
+    expect((await made.service().scan()).entries).toEqual([
+      {
+        tree: made.dir,
+        sessions: [],
+        decision: 'keep',
+        reason: 'Its automation run is no longer in history',
+      },
+    ]);
+    expect(fs.existsSync(made.dir)).toBe(true);
+
+    made.rules = { ...DEFAULT_WORKTREE_CLEANUP_RULES, runForgotten: true };
+    const report = await made.service().sweep();
+    expect(report.removed).toEqual([
+      {
+        tree: made.dir,
+        sessions: [],
+        decision: 'remove',
+        reason: 'Its automation run is no longer in history',
+        trigger: 'run-forgotten',
+      },
+    ]);
+    expect(fs.existsSync(made.dir)).toBe(false);
+    expect(made.git(made.source, 'rev-parse', '--verify', KEEP_REF)).toBe(made.head);
+  });
+
+  it('never touches one whose run is open, nor one in a workspace whose cleanup is off', async () => {
+    const made = await forgotten();
+    made.record = { endedAt: null };
+    made.rules = {
+      ...DEFAULT_WORKTREE_CLEANUP_RULES,
+      runFinished: { enabled: true, afterMinutes: 0 },
+      runForgotten: true,
+    };
+    expect((await made.service().scan()).entries[0]).toMatchObject({
+      decision: 'keep',
+      reason: 'Its automation run is still open',
+    });
+    expect((await made.service().sweep()).removed).toEqual([]);
+    made.record = null;
+    made.rules = null;
+    expect(await made.service().sweep()).toMatchObject({ removed: [], kept: [] });
+    expect(fs.existsSync(made.dir)).toBe(true);
   });
 });

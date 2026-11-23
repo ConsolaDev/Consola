@@ -21,6 +21,19 @@ export function automationsTickMs(
 }
 
 /**
+ * The wait every declared automation retry takes in an end-to-end test
+ * (`CONSOLA_AUTOMATIONS_RETRY_MS`), instead of 1, 5 and 15 minutes, so a
+ * retry finishes in seconds: honoured only in a test run, and only as a
+ * whole number of at least 500 ms. Anything else is undefined, the engine's.
+ */
+export function automationsRetryMs(
+  raw = process.env.CONSOLA_AUTOMATIONS_RETRY_MS,
+  test = isTest,
+): number | undefined {
+  return automationsTickMs(raw, test);
+}
+
+/**
  * The folder "Open in" looks for apps in during a test run, for an
  * end-to-end test that says which apps are installed
  * (`CONSOLA_OPEN_IN_APPLICATIONS`, a folder of empty bundles): honoured only

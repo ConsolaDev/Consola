@@ -1,6 +1,18 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { GitHubEventMessage, WorkspaceRole } from '@consola/cloud-contract';
+import type { Factory, FactoryChange, FactoryFile, FactoryVersion } from '../domain/factory.js';
+import type {
+  CheckedRun,
+  Phase,
+  PhaseCounts,
+  RequestFacts,
+  RunCursor,
+  RunSummary,
+  RunTrigger,
+  StepRecord,
+} from '../domain/run.js';
+import type { ApprovalDecision, RunAnswer } from '../domain/runApproval.js';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
 
@@ -33,9 +45,9 @@ export type Clock = {
   nowSeconds(): number;
 };
 
-/** What checking an outbox delivery's signature found. */
+/** What checking the signature of a delivery from `cloud-global` (a message, an event) found. */
 export type DeliveryCheck =
-  /** Signed by one of `cloud-global`'s keys, as an outbox message: its payload, still unread. */
+  /** Signed by one of `cloud-global`'s keys, with the verifier's `typ`: its payload, unread. */
   | { kind: 'verified'; payload: Uint8Array }
   /** Not a delivery `cloud-global` signed. `reason` says why, for the log, never the body. */
   | { kind: 'unsigned'; reason: string }
@@ -45,8 +57,9 @@ export type DeliveryCheck =
 export type DeliveryVerifier = {
   /**
    * Checks a delivery's body, a compact JWS, with `cloud-global`'s public keys: the key its
-   * header names by `kid`, `CELL_TOKEN_ALGORITHM` alone, and `typ` `OUTBOX_MESSAGE_TYPE`. It
-   * never throws, and never lets a delivery through when the keys cannot be had.
+   * header names by `kid`, `CELL_TOKEN_ALGORITHM` alone, and the one `typ` the verifier takes
+   * (`OUTBOX_MESSAGE_TYPE` for the outbox, `GITHUB_EVENT_TYPE` for GitHub's events). It never
+   * throws, and never lets a delivery through when the keys cannot be had.
    */
   verify(delivery: string): Promise<DeliveryCheck>;
 };
@@ -77,6 +90,17 @@ export type WorkspaceCopies = {
   applyAfter(step: CopyStep): Promise<'applied' | 'moved'>;
 };
 
+/** The GitHub events `cloud-global` passed on, each kept for its workspace. */
+export type GitHubEventStore = {
+  /**
+   * Records the event for its workspace, unless the cell already has one with its delivery id
+   * there (`recorded-before`, and nothing changes) or holds nothing of the workspace yet
+   * (`workspace-pending`, its `workspace.created` not applied). Throws when the database does
+   * not answer.
+   */
+  record(event: GitHubEventMessage): Promise<'recorded' | 'recorded-before' | 'workspace-pending'>;
+};
+
 /**
  * A workspace's teams. Every call is scoped by the workspace's id, and a team of another
  * workspace is one the store does not have (`not-found`). Every call throws when the database
@@ -96,8 +120,14 @@ export type TeamStore = {
     teamId: string,
     name: string,
   ): Promise<Team | 'not-found' | 'name-taken'>;
-  /** Deletes a team and every place in it, unless it is the first team, which stays. */
-  remove(workspaceId: string, teamId: string): Promise<'removed' | 'not-found' | 'first-team'>;
+  /**
+   * Deletes a team and every place in it, unless it is the first team or owns a factory, which
+   * stay.
+   */
+  remove(
+    workspaceId: string,
+    teamId: string,
+  ): Promise<'removed' | 'not-found' | 'first-team' | 'owns-factories'>;
   /**
    * Makes the person a member of the team, if they are a member of the workspace in the cell's
    * copy (`not-a-member` when not). A person already in it stays as they are.
@@ -109,4 +139,141 @@ export type TeamStore = {
   ): Promise<Team | 'not-found' | 'not-a-member'>;
   /** Takes the person out of the team. Someone not in it changes nothing. */
   removeMember(workspaceId: string, teamId: string, personId: string): Promise<Team | 'not-found'>;
+};
+
+/** What saving a factory's files found. */
+export type FactorySave =
+  | { kind: 'saved'; version: FactoryVersion }
+  | { kind: 'not-found' }
+  /** The factory's latest version is no longer the one the files were saved from. */
+  | { kind: 'moved'; latestVersion: number };
+
+/**
+ * A workspace's factories and the versions of their files. Every call is scoped by the
+ * workspace's id, and a factory of another workspace is one the store does not have. Every call
+ * throws when the database does not answer.
+ */
+export type FactoryStore = {
+  /** The workspace's factories, by name whatever its case. */
+  list(workspaceId: string): Promise<Factory[]>;
+  /** One factory, or null when the workspace has no factory with that id. */
+  get(workspaceId: string, factoryId: string): Promise<Factory | null>;
+  /**
+   * Makes a factory owned by the team, its files stored here, with a first version that holds no
+   * files, saved by `personId`. `name-taken` when another factory of the workspace has the name,
+   * in any case; `team-not-found` when the workspace has no such team.
+   */
+  create(
+    workspaceId: string,
+    input: { name: string; teamId: string; personId: string },
+  ): Promise<Factory | 'name-taken' | 'team-not-found'>;
+  /**
+   * Renames the factory, moves it to another team of the workspace, or both, in one statement:
+   * all of it or none. What `change` leaves out stays; its versions stay as they are.
+   * `not-found` when the workspace has no such factory, `name-taken` when another of its
+   * factories has the name, in any case, and `team-not-found` when it has no such team. A team
+   * being deleted at the same moment is one or the other: the move finds it gone, or the delete
+   * finds it owns the factory.
+   */
+  change(
+    workspaceId: string,
+    factoryId: string,
+    change: FactoryChange,
+  ): Promise<Factory | 'not-found' | 'name-taken' | 'team-not-found'>;
+  /** One version of a factory's files, its files by path, or null when there is no such version. */
+  version(workspaceId: string, factoryId: string, version: number): Promise<FactoryVersion | null>;
+  /**
+   * Saves `files` as the factory's next version, saved by `personId`, if its latest version is
+   * still `baseVersion`: a compare-and-set, so of two saves from one version only the first
+   * lands, and the other is `moved`, with nothing changed.
+   */
+  save(
+    workspaceId: string,
+    factoryId: string,
+    input: { baseVersion: number; files: readonly FactoryFile[]; personId: string },
+  ): Promise<FactorySave>;
+};
+
+/**
+ * Which of a workspace's top-level runs the list reads. Only runs of `factoryIds` are ever read:
+ * the use case names the factories the caller sees, narrowed by the query's factory and team.
+ */
+export type RunFilter = {
+  readonly factoryIds: readonly string[];
+  /** Started one of these ways; empty: any way. */
+  readonly triggers: readonly RunTrigger[];
+  /** Automation runs of this name, and requests that started one; null: any. */
+  readonly automation: string | null;
+  /** Started by this person, by global id; null: by anyone or nothing. */
+  readonly startedBy: string | null;
+  /** Held by the title or the automation's name, in any case; null: no such filter. */
+  readonly q: string | null;
+};
+
+/** One page of the list: runs newest first, and where the next page starts, if there is one. */
+export type RunPage = { runs: RunSummary[]; next: RunCursor | null };
+
+/** What recording a run found. */
+export type RunRecording =
+  | 'recorded'
+  /** The workspace holds a newer record of the run (a later `updatedAt`): nothing changed. */
+  | 'stale'
+  /** The workspace has no such factory, or the factory no such version. */
+  | 'factory-not-found'
+  /** The run names a parent the workspace does not hold as a request of the same factory. */
+  | 'parent-not-found'
+  /** The run is held already with another factory, kind or parent, which never change. */
+  | 'identity-changed';
+
+/** One run, with what its page shows beside it. */
+export type RunFound = {
+  run: RunSummary;
+  /** The request that started it: always of the same factory, so seen whenever the run is. */
+  parent: { id: string; title: string } | null;
+  /** As recorded: what each step was asked is the use case's to read. */
+  steps: StepRecord[];
+  request: (RequestFacts & { text: string }) | null;
+  /** A request's runs, in the order it started them. */
+  children: RunSummary[];
+};
+
+/**
+ * A workspace's runs, as its runners record them (`domain/run.ts`). Every call is scoped by the
+ * workspace's id, and a run of another workspace is one the store does not have. Every call
+ * throws when the database does not answer.
+ */
+export type RunStore = {
+  /**
+   * Stores a checked run, or replaces the workspace's record of it unless that one is newer
+   * (`stale`). A request's stored phase rolls up its children's (`requestPhase`), and recording a
+   * child rolls its request's up again, in the same transaction.
+   */
+  record(workspaceId: string, run: CheckedRun): Promise<RunRecording>;
+  /** A page of top-level runs in one of `phases` (empty: any), newest first, after `after`. */
+  list(
+    workspaceId: string,
+    filter: RunFilter,
+    page: { phases: readonly Phase[]; after: RunCursor | null; limit: number },
+  ): Promise<RunPage>;
+  /** How many top-level runs the filter keeps, in each phase. */
+  count(workspaceId: string, filter: RunFilter): Promise<PhaseCounts>;
+  /** The automations the factories' runs ran, children's included: distinct, by name. */
+  automations(
+    workspaceId: string,
+    factoryIds: readonly string[],
+  ): Promise<{ factoryId: string; name: string }[]>;
+  /** One run, or null when the workspace has none with that id. */
+  get(workspaceId: string, runId: string): Promise<RunFound | null>;
+  /** The answer given to a run's request to be approved at `version`, or null while none was. */
+  answerOf(workspaceId: string, runId: string, version: number): Promise<RunAnswer | null>;
+  /**
+   * Records `personId`'s answer to a run's request to be approved at `version`, unless that
+   * version has one: the first answer stands (`already-answered`), and nothing changes. The run
+   * itself is not changed. `not-found` when the workspace has no such run.
+   */
+  answer(
+    workspaceId: string,
+    runId: string,
+    answer: { version: number; decision: ApprovalDecision; personId: string },
+  ): Promise<RunAnswer | 'already-answered' | 'not-found'>;
 };

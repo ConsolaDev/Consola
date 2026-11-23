@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { withoutGitHooks } from './gitEnv';
+import { withoutGitHooks, withoutRepositoryOverrides } from './gitEnv';
 
 let root: string;
 beforeEach(() => {
@@ -94,5 +94,22 @@ describe('withoutGitHooks', () => {
       GIT_CONFIG_KEY_1: 'core.hooksPath',
       GIT_CONFIG_VALUE_1: '/dev/null',
     });
+  });
+});
+
+describe('withoutRepositoryOverrides (moved from the desktop, slice 3-B)', () => {
+  it('drops every variable that aims git at another repository, and keeps the rest', () => {
+    const env = {
+      PATH: '/usr/bin',
+      GIT_DIR: '/x/.git',
+      GIT_WORK_TREE: '/x',
+      GIT_INDEX_FILE: '/x/index',
+      GIT_COMMON_DIR: '/x/common',
+      GIT_OBJECT_DIRECTORY: '/x/objects',
+      GIT_ALTERNATE_OBJECT_DIRECTORIES: '/y/objects',
+      GIT_TERMINAL_PROMPT: '0',
+    };
+    expect(withoutRepositoryOverrides(env)).toEqual({ PATH: '/usr/bin', GIT_TERMINAL_PROMPT: '0' });
+    expect(env.GIT_DIR).toBe('/x/.git');
   });
 });
