@@ -633,16 +633,20 @@ The browser tests run in Vitest's browser mode (Playwright, Chromium; `pnpm --fi
 @consola/agent-ui exec playwright install chromium` once). A global setup
 (`src/testing/hostSession.ts`) starts `@consola/host`'s replay entry
 (`src/testing/replaySession.ts`, t3's recorded Claude `simple` fixture) trusting a key pair made
-for the run (`src/testing/passKeys.ts`, so a test can ask for a pass of any lifetime with the
-`signHostPass` command; `watchSockets` and `openedSockets` record the sockets the page opens),
-and sends the fixture's message through t3's RPC client, on a machine of its own: a temporary
-home, no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI
-call saw another home or a config folder. Each browser test file deletes t3's IndexedDB first,
-so what it shows comes from the host. Files run one at a time. `watchPageNoise` and
-`takePageNoise` record what the page's console says at warning level or above and every
-response of 400 or more; `AgentChat.console.browser.test.tsx` expects none from mount until the
-thread shows. t3's client makes each socket with the page's `WebSocket` (Effect's
-`layerWebSocketConstructorGlobal`), so a test can stand one in for it:
-`AgentChat.droppedOpen.browser.test.tsx` drops the first socket as it asks for the thread.
-(Playwright's `routeWebSocket` cannot: it is an init script, which never reaches the test's
-frame, already loaded.)
+for the run (`src/testing/passKeys.ts`, which signs passes as the cell does, in the runner
+protocol's shape; `watchSockets` and `openedSockets` record the sockets the page opens), and
+sends the fixture's message through t3's RPC client, on a machine of its own: a temporary home,
+no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI call saw
+another home or a config folder. A pass lives five minutes at most (the protocol's
+`PASS_MAX_LIFETIME_SECONDS`), and a run on a loaded machine can take longer, so no pass is
+shared across tests: each test is handed one of its own, signed as it starts (`host().pass`,
+`src/testing/render.tsx`), and can ask for others, of any lifetime up to that cap, with the
+`signHostPass` command. Each browser test file deletes t3's IndexedDB first, so what it shows
+comes from the host. Files run one at a time. `watchPageNoise` and `takePageNoise` record what
+the page's console says at warning level or above and every response of 400 or more;
+`AgentChat.console.browser.test.tsx` expects none from mount until the thread shows. t3's client
+makes each socket with the page's `WebSocket` (Effect's `layerWebSocketConstructorGlobal`), so a
+test can stand one in for it: `AgentChat.droppedOpen.browser.test.tsx` drops the first socket as
+it asks for the thread. (Playwright's `routeWebSocket` cannot: it is an init script, which never
+reaches the test's frame, already loaded.) `watchSockets` and `watchPageNoise` listen once to
+each page Playwright hands them.

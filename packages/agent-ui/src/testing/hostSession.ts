@@ -5,7 +5,9 @@
  * host's own test entry, `consola-host session` replaying t3's recorded Claude `simple` fixture
  * (`@consola/host`'s `src/testing/replaySession.ts`), with its first message already sent, so the
  * fixture's answer is in the thread before `AgentChat` connects. It trusts a key pair made for the
- * run (`passKeys.ts`), so a test can ask for a pass of any lifetime (`signHostPass`).
+ * run (`passKeys.ts`): each test is handed a pass of its own, signed as it starts (`render.tsx`'s
+ * `host()`), and can ask for others, of any lifetime up to the protocol's five minutes
+ * (`signHostPass`).
  *
  * Both processes run on a machine of their own, as the host's tests do (`@consola/host`'s
  * `AGENTS.md`, "Tests"): a temporary home, no CLI or API-key variable, and a `PATH` of fake
@@ -27,7 +29,7 @@ import {
   readCalls,
   writeFakeClis,
 } from '@consola/host/src/testing/machine.ts';
-import type { HostSession } from './hostSessionKey.ts';
+import type { ProvidedHost } from './hostSessionKey.ts';
 import { PASS_MAX_LIFETIME_SECONDS } from '@consola/host/src/testing/cellPass.ts';
 import { signPass, writePassKeys } from './passKeys.ts';
 import { HOST_SESSION_KEY } from './hostSessionKey.ts';
@@ -45,9 +47,9 @@ const ASSISTANT_TEXT = 'fixture simple ok';
 const THREAD_TITLE = 'Sprocket replay title';
 const START_TIMEOUT_MS = 60_000;
 /**
- * The pass the tests share: the longest a pass may live (`PASS_MAX_LIFETIME_SECONDS`, five
- * minutes), so the whole run must fit in it; a test that needs one later signs its own
- * (`signHostPass`).
+ * How long a pass for the tests' host lives: the longest a pass may (`PASS_MAX_LIFETIME_SECONDS`,
+ * five minutes). The setup's own pass sends the fixture's message; each test signs one as it
+ * starts (`render.tsx`), so no pass has to outlast the run.
  */
 const PASS_LIFETIME_SECONDS = PASS_MAX_LIFETIME_SECONDS;
 
@@ -166,9 +168,9 @@ export default async function setup(project: TestProject) {
       throw new Error(`A CLI ran outside the tests' machine: ${JSON.stringify(escaped)}`);
     }
   };
-  let pass: string;
   try {
-    pass = signPass(keys.privateKeyFile, SESSION_ID, PASS_LIFETIME_SECONDS);
+    // Only for the fixture's message: each test signs its own (`render.tsx`).
+    const pass = signPass(keys.privateKeyFile, SESSION_ID, PASS_LIFETIME_SECONDS);
     await withTimeout(
       Promise.race([
         started,
@@ -186,10 +188,10 @@ export default async function setup(project: TestProject) {
     await teardown();
     throw error;
   }
-  const session: HostSession = {
+  const session: ProvidedHost = {
     hostUrl: `http://127.0.0.1:${port}`,
-    pass,
     passKeyFile: keys.privateKeyFile,
+    passLifetimeSeconds: PASS_LIFETIME_SECONDS,
     sessionId: SESSION_ID,
     assistantText: ASSISTANT_TEXT,
     threadTitle: THREAD_TITLE,

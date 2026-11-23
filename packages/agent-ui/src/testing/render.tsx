@@ -1,17 +1,47 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, inject, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, inject, vi } from 'vite-plus/test';
 import { page, server } from 'vite-plus/test/browser';
 import type { AgentChatProps } from '../index.ts';
-import { HOST_SESSION_KEY, type HostSession } from './hostSessionKey.ts';
+import { HOST_SESSION_KEY, type HostSession, type ProvidedHost } from './hostSessionKey.ts';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;
 }
 
-/** The replay host `hostSession.ts` started (Vitest's provided values are untyped here). */
-export const host = (): HostSession =>
-  (inject as unknown as (key: string) => HostSession)(HOST_SESSION_KEY);
+/** What `hostSession.ts` provides (Vitest's provided values are untyped here). */
+const provided = (): ProvidedHost =>
+  (inject as unknown as (key: string) => ProvidedHost)(HOST_SESSION_KEY);
+
+/** The command `vite.config.ts` defines: a pass signed with the key the host trusts. */
+type PassCommands = {
+  signHostPass(privateKeyFile: string, sessionId: string, lifetimeSeconds: number): Promise<string>;
+};
+
+/** The running test's pass, signed as it starts (below); none outside a test. */
+let testPass: string | undefined;
+
+/**
+ * Every test is handed a pass of its own, signed as it starts and living as long as a pass may
+ * (five minutes), so a test never meets the expiry of a pass signed for the whole run, however
+ * long the run takes: a test runs for at most `testTimeout` (`vite.config.ts`, a minute).
+ */
+beforeEach(async () => {
+  const { passKeyFile, sessionId, passLifetimeSeconds } = provided();
+  const { signHostPass } = server.commands as unknown as PassCommands;
+  testPass = await signHostPass(passKeyFile, sessionId, passLifetimeSeconds);
+});
+afterEach(() => {
+  testPass = undefined;
+});
+
+/** The replay host `hostSession.ts` started, with the running test's own pass. */
+export const host = (): HostSession => {
+  if (testPass === undefined) {
+    throw new Error('host() is called inside a test: its pass is signed as the test starts.');
+  }
+  return { ...provided(), pass: testPass };
+};
 
 /**
  * Watches `console.error`, `warn`, `log` and `info` (calls still go through) until the spies
