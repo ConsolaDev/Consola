@@ -6502,10 +6502,8 @@ export class AutomationService {
     });
     const session = connected.ok ? connected.session : undefined;
     const closing = () => (session ? session.close() : Promise.resolve({ survivors: 0 }));
-    if (this.abandoned.has(handle)) {
-      void closing();
-      return;
-    }
+    // A quit, a stop, a run that ended: nothing more is written, the session closed. (A quit
+    // let go of its handle and set `started` false in one turn, so `running()` covers it.)
     if (!running()) {
       letGo();
       void closing();
@@ -6588,11 +6586,8 @@ export class AutomationService {
       timeoutMs: step.timeoutMs,
       signal: controller.signal,
     });
-    // A quit let go of it: its step keeps its intent, for the next start to fail as interrupted.
-    if (this.abandoned.has(handle)) {
-      void closing();
-      return;
-    }
+    // A quit (its step keeps its intent, for the next start to fail as interrupted), a stop
+    // or a run that ended: nothing more is written, the session closed.
     if (!running()) {
       letGo();
       void closing();
