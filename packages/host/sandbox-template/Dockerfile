@@ -29,10 +29,10 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 # Node 26.13.1, the official build, checked against its published SHA-256.
+# Unpacked whole: its licence and the notices of the packages npm bundles stay.
 RUN curl -fsSLo /tmp/node.tar.xz https://nodejs.org/dist/v26.13.1/node-v26.13.1-linux-x64.tar.xz \
  && echo "5c063e46bab0fbc1c17cc445d7ff129cbdcd0471be6ed83b6ab864f8143bc864  /tmp/node.tar.xz" | sha256sum -c - \
  && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --no-same-owner \
-      --exclude=CHANGELOG.md --exclude=LICENSE --exclude=README.md \
  && rm /tmp/node.tar.xz \
  && test "$(node --version)" = v26.13.1
 
@@ -43,7 +43,9 @@ RUN curl -fsSLo /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v2.1
  && install -m 0755 /tmp/gh_2.105.0_linux_amd64/bin/gh /usr/local/bin/gh \
  && rm -rf /tmp/gh.tar.gz /tmp/gh_2.105.0_linux_amd64
 
-# The Claude Code CLI and the Codex CLI, from npm.
+# The Claude Code CLI and the Codex CLI, from npm. Claude Code is newer than the
+# 2.1.321 the bundled Agent SDK names: the host gives the SDK this CLI's path, and
+# 2.1.330 is the one Consola's desktop checks (README.md, "Claude Code's version").
 RUN npm install --global --no-audit --no-fund @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0 \
  && npm cache clean --force
 

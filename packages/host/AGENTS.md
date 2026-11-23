@@ -1039,6 +1039,13 @@ build it and its id), from a bundle rather than from source.
     `linux-x64-gnu` builds and pnpm's patch to fff-node
     (`patches/@ff-labs__fff-node@0.11.0.patch`, which points its CommonJS entry
     at the async search methods t3 calls).
+  - **Absent on purpose:** `@napi-rs/keyring`, which t3's Antigravity driver
+    requires the same way (`antigravityUsageLimits.ts`) to read Antigravity's
+    sign-in from the system keyring. The host never hydrates that driver (a
+    sandbox runs claude or codex), so nothing reaches the require, and the
+    template does not install it. `bundle.test.ts` lists every package the
+    bundle requires as it runs (its `createRequire` calls, which the metafile
+    does not show, and its `__require`s) and fails on any it does not name.
   - **Stubbed:** `@t3tools/provider-cursor/server*` (`CURSOR_STUBS`), so the
     Cursor SDK is never in it ("The Cursor SDK is in the runtime's module
     graph"). Each stub has the exports its importers read as they load, and
@@ -1089,12 +1096,15 @@ build it and its id), from a bundle rather than from source.
   and run it from a temporary folder holding the two files and the run-time
   packages (the workspace's own), with `NODE_PATH` taken out of its
   environment: pnpm sets it for the test runner, and with it a bundle finds
-  packages in the workspace's store that no sandbox has. There it runs to
-  `ready` and `dev-pass` against fake CLIs and exits 0 on SIGTERM, fails to
-  start without the run-time packages, and its history worker reads a Claude
-  conversation. They check the Dockerfile's instructions, versions and patch
-  against the workspace's, and run the start script under `sh` with stand-ins
-  for `git`, `node` and `codex`.
+  packages in the workspace's store that no sandbox has. There a claude and a
+  codex session each run to `ready` and `dev-pass` against fake CLIs and exit
+  0 on SIGTERM, it fails to start without the run-time packages, and its
+  history worker reads a Claude conversation. They list what the bundle
+  requires as it runs (above), check the Dockerfile's instructions, versions
+  and patch against the workspace's (Node unpacked whole, and a Claude Code no
+  older than the one the bundled SDK names, `sandbox-template/README.md`), and
+  run the start script under `sh` with stand-ins for `git`, `node` and
+  `codex`.
 
 ## Running it
 

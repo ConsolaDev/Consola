@@ -19,6 +19,12 @@
  *   (`createRequire(import.meta.url)`), so from beside the bundle: the host loads `fff-node` as it
  *   starts. Both are external, and the template installs them under `/opt/consola/node_modules`,
  *   with their `linux-x64-gnu` builds and t3's patch to `fff-node` (`patches/`).
+ * - `@napi-rs/keyring`, which t3's Antigravity driver requires the same way, to read
+ *   Antigravity's sign-in from the system keyring (`antigravityUsageLimits.ts`). The template
+ *   leaves it out on purpose: the host never hydrates that driver (a sandbox runs claude or
+ *   codex), so nothing reaches the require. `ws`'s optional `bufferutil` and `utf-8-validate`,
+ *   required inside a `try`, are left out too. `bundle.test.ts` fails on a run-time require
+ *   it does not name.
  * - The Cursor SDK (`@cursor/sdk`), which is never in the bundle: t3's orchestration reaches
  *   `@t3tools/provider-cursor/server*` statically (`AGENTS.md`, "The Cursor SDK is in the
  *   runtime's module graph"), so those modules are stubbed (`CURSOR_STUBS`), and the build fails

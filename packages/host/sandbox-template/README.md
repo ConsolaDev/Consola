@@ -13,7 +13,7 @@ the Claude Agent SDK, so neither is ever published, shared or released (root
 
 | Program | Version | From |
 | --- | --- | --- |
-| Node | 26.13.1 | nodejs.org's `linux-x64` build, checked against its SHA-256 |
+| Node | 26.13.1 | nodejs.org's `linux-x64` build, checked against its SHA-256, unpacked whole |
 | git | the base image's distribution's | `apt` |
 | GitHub's CLI (`gh`) | 2.105.0 | its `linux_amd64` release, checked against its SHA-256 |
 | Claude Code (`claude`) | 2.1.330 | npm, `@anthropic-ai/claude-code` |
@@ -44,10 +44,27 @@ E2B runs commands with no login shell, so a profile's `PATH` is never read.
 has as the template is built: the build's log prints every version (its last
 `RUN`).
 
+Node is unpacked whole into `/usr/local`, so its `LICENSE` and the licence
+notices inside the packages npm bundles (`lib/node_modules/npm/node_modules`)
+stay in the image.
+
 It writes no t3 settings (`settings.json` in the host's state folder): a
 provider's launch arguments there would override the host's approval mode
 (`AGENTS.md`, "The host never starts a CLI in full access"). The host keeps its
 state in a temporary folder of its own.
+
+### Claude Code's version
+
+Claude Code is 2.1.330, while the Agent SDK the bundle holds (0.3.321) names
+2.1.321 (its `claudeCodeVersion`): the CLI its own native build would have
+been, which the workspace drops. The host always gives the SDK the path of the
+template's `claude` (`pathToClaudeCodeExecutable`), so 2.1.330 is what runs. It
+is the version Consola's desktop drives the same CLI on (its stream-json
+fixtures and `apps/desktop/scripts/claude-steps-canary.mjs` were recorded on
+it), and it is at or above every `minVersion` t3's model manifest asks of
+Claude Code (2.1.321 at most). `bundle.test.ts` fails should the template's
+version fall below the SDK's or the manifest's. Move it once the desktop's
+canary passes on the new version.
 
 ## The start script
 

@@ -175,6 +175,43 @@ type Metafile = {
  */
 const OPTIONAL_REQUIRES = ['bufferutil', 'utf-8-validate'];
 
+/**
+ * Required at run time and never installed: t3's Antigravity driver reads Antigravity's sign-in
+ * from the system keyring with it (`antigravityUsageLimits.ts`). The host never hydrates that
+ * driver (a sandbox runs claude or codex), so nothing in it reaches the require.
+ */
+const ABSENT_ON_PURPOSE = ['@napi-rs/keyring'];
+
+/**
+ * Every module a bundled file requires by name as it runs, which esbuild leaves as calls in it
+ * and its metafile does not list in full: `__require("…")` (a CommonJS `require` of a module it
+ * did not bundle), and a call of each function made with `createRequire`, as t3 loads a package
+ * from beside the running file (`requireForFff("@ff-labs/fff-node")`). A call written inside a
+ * string (ajv's generated code) is not one.
+ */
+const runTimeRequiresOf = (text: string): string[] => {
+  const escaped = (name: string) => name.replaceAll('$', '\\$');
+  const makers = new Set(['createRequire']);
+  for (const [, alias] of text.matchAll(/\bcreateRequire\s+as\s+([\w$]+)/g)) {
+    if (alias !== undefined) makers.add(alias);
+  }
+  const made = new RegExp(
+    `(?:^|[^\\w$.])([\\w$]+)\\s*=\\s*(?:/\\*\\s*@__PURE__\\s*\\*/\\s*)?(?:[\\w$]+\\.)?(?:${[...makers].map(escaped).join('|')})\\(`,
+    'g',
+  );
+  const requirers = new Set(['__require']);
+  for (const [, name] of text.matchAll(made)) if (name !== undefined) requirers.add(name);
+  const targets = new Set<string>();
+  for (const name of requirers) {
+    const call = new RegExp(
+      `(?:^|[^\\w$.'"\`])${escaped(name)}\\(\\s*(["'\`])([^"'\`]+)\\1\\s*\\)`,
+      'g',
+    );
+    for (const [, , target] of text.matchAll(call)) if (target !== undefined) targets.add(target);
+  }
+  return [...targets].sort();
+};
+
 /** Where `name` is installed for t3's server (the lifted `t3` package), as a real path. */
 const installedFor = (from: string, name: string): string =>
   dirname(realpathSync(createRequire(join(from, 'package.json')).resolve(`${name}/package.json`)));
@@ -249,16 +286,48 @@ describe('the host bundle', () => {
     expect(inputs.some((input) => input.includes('@anthropic-ai/claude-agent-sdk/'))).toBe(true);
   });
 
-  it(
-    'runs from a folder of its own to ready and dev-pass against fake CLIs, and exits 0 on SIGTERM',
-    async () => {
+  it("requires as it runs only Node's modules, the packages the template installs beside it, ws's optional helpers, and Antigravity's keyring, which it never reaches", () => {
+    const requiredBy = (file: string) =>
+      runTimeRequiresOf(readFileSync(file, 'utf8')).filter((name) => !isBuiltin(name));
+    expect(requiredBy(BUNDLE)).toEqual(
+      [...RUN_TIME_PACKAGES, ...OPTIONAL_REQUIRES, ...ABSENT_ON_PURPOSE].sort(),
+    );
+    expect(requiredBy(HISTORY_WORKER)).toEqual([]);
+    // The template installs the first, and leaves out the rest.
+    for (const name of [...OPTIONAL_REQUIRES, ...ABSENT_ON_PURPOSE]) {
+      expect(readFileSync(join(TEMPLATE, 'Dockerfile'), 'utf8')).not.toContain(name);
+    }
+  });
+
+  it('reads what a bundle requires as it runs, however esbuild names the function', () => {
+    expect(
+      runTimeRequiresOf(
+        [
+          'import { createRequire as __consolaCreateRequire } from "node:module";',
+          'import { createRequire as sX } from "node:module";',
+          'const require = __consolaCreateRequire(import.meta.url);',
+          'var a = __require("bufferutil");',
+          'requireForFff = NodeModule4.createRequire(import.meta.url);',
+          '({ FileFinder } = requireForFff("@ff-labs/fff-node"));',
+          'var iX = sX(import.meta.url);',
+          "iX('ffi-rs');",
+          'Uj.code = \'require("ajv/dist/runtime/uri").default\';',
+          'other("not-a-require");',
+        ].join('\n'),
+      ),
+    ).toEqual(['@ff-labs/fff-node', 'bufferutil', 'ffi-rs']);
+  });
+
+  it.each(['claude', 'codex'])(
+    'runs a %s session from a folder of its own to ready and dev-pass against fake CLIs, and exits 0 on SIGTERM',
+    async (harness) => {
       const opt = optFolder();
       const cwd = folder('consola-host-bundle-acme-');
       const host = startNode(join(opt, 'consola-host.mjs'), [
         'session',
         '--dev',
         '--harness',
-        'claude',
+        harness,
         '--cwd',
         cwd,
         '--port',
@@ -415,6 +484,54 @@ describe('the consola-session template', () => {
     expect(dockerfile()).toMatch(
       /COPY consola-host\.mjs claude-history-worker\.mjs \/opt\/consola\//,
     );
+  });
+
+  it("unpacks Node whole, so the licence notices in it, npm's own packages' among them, stay", () => {
+    const node = /^RUN curl [^\n]*node-v[^\n]*(?:\n [^\n]*)*/m.exec(dockerfile())?.[0] ?? '';
+    expect(node).toContain('tar -xJf /tmp/node.tar.xz');
+    expect(node).not.toContain('--exclude');
+  });
+
+  it('pins a Claude Code no older than the one the bundled Agent SDK names, nor than any model t3 offers needs', () => {
+    const claudeCode = /@anthropic-ai\/claude-code@(\d+\.\d+\.\d+)\s/.exec(dockerfile())?.[1];
+    const server = join(PACKAGE, 'node_modules', 't3');
+    const sdk = JSON.parse(
+      readFileSync(
+        join(
+          dirname(
+            realpathSync(
+              createRequire(join(server, 'package.json')).resolve('@anthropic-ai/claude-agent-sdk'),
+            ),
+          ),
+          'package.json',
+        ),
+        'utf8',
+      ),
+    ) as { readonly claudeCodeVersion: string };
+    const minimums: string[] = [];
+    const visit = (value: unknown): void => {
+      if (typeof value !== 'object' || value === null) return;
+      const { claudeCode } = value as { readonly claudeCode?: { readonly minVersion?: unknown } };
+      if (typeof claudeCode?.minVersion === 'string') minimums.push(claudeCode.minVersion);
+      for (const each of Object.values(value)) visit(each);
+    };
+    visit(JSON.parse(readFileSync(join(server, 'src', 'provider', 'model-manifest.json'), 'utf8')));
+    expect(minimums.length).toBeGreaterThan(0);
+    const parts = (version: string) => version.split('.').map(Number);
+    const atLeast = (version: string, floor: string) => {
+      const [a, b] = [parts(version), parts(floor)];
+      for (let index = 0; index < 3; index += 1) {
+        if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0);
+      }
+      return true;
+    };
+    expect(claudeCode).toBeDefined();
+    for (const floor of [sdk.claudeCodeVersion, ...minimums]) {
+      expect(atLeast(claudeCode ?? '0.0.0', floor), `${claudeCode} against ${floor}`).toBe(true);
+    }
+    // The README says why it is not the SDK's own.
+    const readme = readFileSync(join(TEMPLATE, 'README.md'), 'utf8');
+    expect(readme).toContain(sdk.claudeCodeVersion);
   });
 
   it("writes no t3 settings, whose launch arguments would override the host's approval mode", () => {
@@ -578,12 +695,15 @@ describe('consola-session-start', () => {
       const scripted = scriptMachine();
       writeCloningGit(scripted);
       writeRecordingNode(scripted);
+      writeScript(scripted.bin, 'codex', [scripted.record('codex'), 'exit 0']);
 
       const ran = runScript(scripted, { CONSOLA_SESSION_IDLE_MINUTES: undefined });
       expect(ran.status, ran.stderr).toBe(0);
       // Stdout is the host's; the script says nothing there.
       expect(ran.stdout).toBe('');
       expect(scripted.argsOf('node')).toEqual(hostArgs(scripted, 'claude'));
+      // A Claude session signs no Codex in.
+      expect(scripted.argsOf('codex')).toBeNull();
       expect(
         readFileSync(join(scripted.workspace, '.consola', 'pass-public-key.pem'), 'utf8'),
       ).toBe(`${PASS_PUBLIC_KEY.trimEnd()}\n`);
