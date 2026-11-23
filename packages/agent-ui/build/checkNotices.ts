@@ -1,12 +1,23 @@
 // @effect-diagnostics nodeBuiltinImport:off - A build script: it reads the built file.
 /**
- * CI's check of `dist/THIRD-PARTY-NOTICES` (`bundleGuards.ts` writes it): it exists, names
- * every package with a licence, has no unknown one, and holds the full text for each licence that
- * needs it, including `heic-to` (LGPL-3.0) and `@betteroffice/fonts` (OFL).
+ * CI's check of `dist/THIRD-PARTY-NOTICES` (`bundleGuards.ts` writes it): it exists, every entry
+ * names a known licence and carries a licence text (its own, or the same text as an entry above
+ * it, by name), and it lists what every build bundles: `heic-to` (LGPL-3.0) and
+ * `@betteroffice/fonts` (OFL), with those licences' texts, and t3code's own notice.
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { ENTRY_MARK, needsFullText } from './bundleGuards.ts';
+import { ENTRY_MARK, MIN_LICENSE_TEXT } from './bundleGuards.ts';
+
+/** What an entry says instead of a text an entry above it carries (`sameTextAs`). */
+const SAME_TEXT = /^\(The same licence text as for (.+), above\.\)$/;
+
+/** An entry's name without its version or where it is from: `heic-to@1.5.2` is `heic-to`. */
+const nameOf = (title: string) =>
+  title.replace(/ \(.*\)$/, '').replace(/^(@?[^@\s]+)@[^@\s]+$/, '$1');
+
+/** Bundled by every build of the chat, so listed in every notices file. */
+const REQUIRED = ['heic-to', '@betteroffice/fonts', 't3code'];
 
 /** What is wrong with a notices file, one sentence each; empty when it is whole. */
 export const problemsIn = (notices: string): string[] => {
@@ -14,22 +25,31 @@ export const problemsIn = (notices: string): string[] => {
   const entries = notices.split(ENTRY_MARK).slice(1);
   if (entries.length === 0) return ['It lists no package.'];
   const seen = new Set<string>();
+  const texts = new Map<string, string>();
   for (const entry of entries) {
-    const [name = '', licenseLine = '', ...rest] = entry.split('\n');
-    seen.add(name.replace(/@[^@]*$/, ''));
+    const [title = '', licenseLine = '', ...rest] = entry.split('\n');
+    seen.add(nameOf(title));
     const license = licenseLine.replace(/^License: /, '');
     if (!licenseLine.startsWith('License: ') || /^(unknown|unlicensed|none)/i.test(license)) {
-      problems.push(`${name} has no known licence.`);
-    } else if (needsFullText(license) && rest.join('\n').trim().length < 200) {
-      problems.push(`${name} is ${license} and its entry has no licence text.`);
+      problems.push(`${title} has no known licence.`);
+      continue;
     }
+    const body = rest.join('\n').trim();
+    const same = SAME_TEXT.exec(body);
+    const text = same === null ? body : (texts.get(same[1] ?? '') ?? '');
+    if (text.length < MIN_LICENSE_TEXT) {
+      problems.push(`${title} is ${license} and its entry has no licence text.`);
+      continue;
+    }
+    texts.set(title, text);
   }
-  for (const required of ['heic-to', '@betteroffice/fonts']) {
+  for (const required of REQUIRED) {
     if (!seen.has(required)) problems.push(`${required} is bundled but not listed.`);
   }
-  const text = notices;
-  if (!/GNU LESSER GENERAL PUBLIC LICENSE/i.test(text)) problems.push('No LGPL text is included.');
-  if (!/SIL OPEN FONT LICENSE/i.test(text)) problems.push('No OFL text is included.');
+  if (!/GNU LESSER GENERAL PUBLIC LICENSE/i.test(notices)) {
+    problems.push('No LGPL text is included.');
+  }
+  if (!/SIL OPEN FONT LICENSE/i.test(notices)) problems.push('No OFL text is included.');
   return problems;
 };
 
@@ -46,6 +66,6 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   for (const problem of problems) process.stderr.write(`${problem}\n`);
   if (problems.length > 0) process.exit(1);
   process.stdout.write(
-    'notices: every bundled package is listed, with the text its licence needs.\n',
+    'notices: every bundled package and copied file is listed, each with its licence text.\n',
   );
 }

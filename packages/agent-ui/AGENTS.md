@@ -562,11 +562,30 @@ an installed package first, so it is never asked. `build/bundleGuards.test.ts` b
 through the package's own `vite.config.ts`, with fake SDKs installed, so a guard moved out of
 the resolver's way fails it.
 `dist/THIRD-PARTY-NOTICES` is written by the same build (`thirdPartyNotices`) from the modules it
-bundled, t3's workers' included: one entry per package with its licence, and the full text for
-the GPL family and OFL (`heic-to` is LGPL-3.0, `@betteroffice/fonts` OFL-1.1). The build fails on
-a bundled package with an unknown licence or with such a licence and no text, and `pnpm --filter
-@consola/agent-ui check:notices` (CI) checks the file as built. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting
-workers and its translations), loaded only when used.
+bundled, t3's workers' included, and each entry carries its licence and its licence text (MIT,
+ISC and BSD require the copyright and permission notice with every copy, Apache-2.0 a copy of
+the licence, LGPL and OFL their whole text; a text an entry above already carries is named
+instead of repeated):
+- one entry per package: from `node_modules`, Tailwind (whose preflight and theme the
+  stylesheet holds), and t3code's copied `@t3tools/*` packages (`vendor/t3code`, under t3's
+  `LICENSE`). The text is the package's own `LICENSE`, `COPYING` or `NOTICE` files and
+  `LICENSES/` folder; for a package that ships none (four today), its licence's SPDX text with
+  the copyright line its readme or `author` names (`build/spdxTexts.ts`, MIT and ISC only);
+- t3code's own entry, for its code copied into `src/t3/`, with t3's `LICENSE`;
+- one for each third-party file bundled from t3's copy (`COPIED_MATERIAL`): Ghostty's
+  libghostty-vt (the terminal's `.wasm`, with Ghostty's `LICENSE`, `build/licenses/ghostty.txt`)
+  and the Symbols Nerd Font (with t3's copy of its notice).
+
+The build fails on a bundled package with an unknown licence, one with no text to carry (no
+licence file, and no SPDX text or no copyright holder to write one from), a text too short to
+be a licence, and a file bundled from t3's copy that is neither t3's code nor in
+`COPIED_MATERIAL`; `pnpm --filter @consola/agent-ui check:notices` (CI) checks the file as
+built: every entry has a known licence and a text, and it lists `heic-to` (LGPL-3.0),
+`@betteroffice/fonts` (OFL-1.1) and t3code. An embedder that bundles `dist/` into its own
+deploy (cloud-web, later the desktop) ships `dist/THIRD-PARTY-NOTICES` and `LICENSE` with it:
+its own licence tooling sees `@consola/agent-ui` as one MIT package and cannot see the packages
+inside `dist/`. `dist/` is large (t3's lazy office, PDF, HEIC and syntax-highlighting workers
+and its translations), loaded only when used.
 
 ## The dev page
 

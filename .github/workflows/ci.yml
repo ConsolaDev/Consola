@@ -201,8 +201,9 @@ jobs:
       - name: Built stylesheet
         run: pnpm --filter @consola/agent-ui check:css
       # dist/THIRD-PARTY-NOTICES, written from the modules the build bundled:
-      # every package listed with its licence, the full text for LGPL (heic-to)
-      # and OFL (@betteroffice/fonts), and no unknown licence
+      # every package and every third-party file of t3's copy listed with its
+      # licence and its licence text, LGPL (heic-to), OFL (@betteroffice/fonts)
+      # and t3code's own among them, and no unknown licence
       # (packages/agent-ui/build/bundleGuards.ts).
       - name: Third-party notices
         run: pnpm --filter @consola/agent-ui check:notices

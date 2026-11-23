@@ -1,18 +1,20 @@
 // @effect-diagnostics nodeBuiltinImport:off - A build test: it writes a fixture and builds it.
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite-plus';
 import { afterAll, describe, expect, it } from 'vite-plus/test';
 import {
-  needsFullText,
+  copiedNoticesFor,
   ENTRY_MARK,
   noticesFor,
   packageDirOf,
   renderNotices,
+  sameTextAs,
 } from './bundleGuards.ts';
 import { problemsIn } from './checkNotices.ts';
+import { T3_APP_VERSION } from './t3Version.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'agent-ui-guards-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -154,39 +156,138 @@ describe('third-party notices', () => {
     }
     return dir;
   };
-  const manifest = (name: string, license?: string) =>
-    JSON.stringify({ name, version: '1.2.3', ...(license === undefined ? {} : { license }) });
+  const manifest = (name: string, license?: string, extra: Record<string, unknown> = {}) =>
+    JSON.stringify({
+      name,
+      version: '1.2.3',
+      ...(license === undefined ? {} : { license }),
+      ...extra,
+    });
 
-  it('finds the package a module belongs to, scoped and pnpm-nested', () => {
+  /** t3code's packages, copied into `vendor/t3code`, and t3's own notice there. */
+  const T3_TREE = fileURLToPath(new URL('../../../vendor/t3code/', import.meta.url));
+  const T3_LICENSE = readFileSync(join(T3_TREE, 'LICENSE'), 'utf8').trim();
+  /** This package's own sources, where t3's web app is copied (`src/t3/`). */
+  const OWN_SOURCES = fileURLToPath(new URL('../src/', import.meta.url));
+
+  it('finds the package a module belongs to, scoped, pnpm-nested and copied from t3code', () => {
     expect(packageDirOf('/a/node_modules/.pnpm/x@1/node_modules/@s/pkg/dist/i.js?v=1')).toBe(
       '/a/node_modules/.pnpm/x@1/node_modules/@s/pkg',
     );
     expect(packageDirOf('/a/node_modules/pkg/index.js')).toBe('/a/node_modules/pkg');
+    expect(packageDirOf('/r/vendor/t3code/packages/contracts/src/index.ts')).toBe(
+      '/r/vendor/t3code/packages/contracts',
+    );
+    expect(packageDirOf('/r/vendor/t3code/packages/shared/node_modules/effect/dist/index.js')).toBe(
+      '/r/vendor/t3code/packages/shared/node_modules/effect',
+    );
     expect(packageDirOf('/a/src/own.ts')).toBeNull();
     expect(packageDirOf('\0virtual')).toBeNull();
   });
 
-  it('needs full text for GPL, LGPL and OFL only', () => {
-    expect(['LGPL-3.0', 'GPL-3.0-only', '(Apache-2.0 AND OFL-1.1)'].map(needsFullText)).toEqual([
-      true,
-      true,
-      true,
-    ]);
-    expect(['MIT', 'Apache-2.0', 'ISC'].map(needsFullText)).toEqual([false, false, false]);
-  });
+  /** A licence's terms, long enough to be one (`MIN_LICENSE_TEXT`). */
+  const terms = 'Permission is hereby granted, free of charge. '.repeat(6);
 
-  it('lists a permissive package without text and an LGPL one with it', () => {
-    const mit = dependency('mit-pkg', { 'package.json': manifest('mit-pkg', 'MIT') });
+  it("carries every package's own licence text, permissive or not", () => {
+    const mitText = `MIT License\n\nCopyright (c) 2020 Acme\n\n${terms}`;
+    const lgplText = `GNU LESSER GENERAL PUBLIC LICENSE\n\n${terms}`;
+    const mit = dependency('mit-pkg', {
+      'package.json': manifest('mit-pkg', 'MIT'),
+      LICENSE: mitText,
+    });
     const lgpl = dependency('lgpl-pkg', {
       'package.json': manifest('lgpl-pkg', 'LGPL-3.0'),
-      LICENSE: 'GNU LESSER GENERAL PUBLIC LICENSE text',
+      'COPYING.LESSER': lgplText,
     });
     const notices = noticesFor([mit, lgpl]);
     expect(notices.map((n) => [n.name, n.license, n.text])).toEqual([
-      ['lgpl-pkg', 'LGPL-3.0', 'GNU LESSER GENERAL PUBLIC LICENSE text'],
-      ['mit-pkg', 'MIT', undefined],
+      ['lgpl-pkg', 'LGPL-3.0', lgplText.trim()],
+      ['mit-pkg', 'MIT', mitText.trim()],
     ]);
-    expect(renderNotices(notices)).toContain('GNU LESSER GENERAL PUBLIC LICENSE text');
+    expect(renderNotices(notices)).toContain('Copyright (c) 2020 Acme');
+  });
+
+  it('fails on a licence file too short to be a licence', () => {
+    const pointer = dependency('pointer-pkg', {
+      'package.json': manifest('pointer-pkg', 'MIT'),
+      LICENSE: 'MIT, see the readme.',
+    });
+    expect(() => noticesFor([pointer])).toThrow(
+      /pointer-pkg@1.2.3's licence text is 20 characters, too short to be one/,
+    );
+  });
+
+  it("falls back to the licence's SPDX text, with the copyright its readme or author names", () => {
+    const readme = dependency('readme-mit', {
+      'package.json': manifest('readme-mit', 'MIT', { author: 'Someone Else' }),
+      'README.md': '# readme-mit\n\n## License\n\nCopyright (c) 2010-2016 Sprocket Works\n',
+    });
+    const author = dependency('author-isc', {
+      'package.json': manifest('author-isc', 'ISC', { author: { name: 'Acme Tools' } }),
+    });
+    const [isc, mit] = noticesFor([readme, author]);
+    expect(mit?.text).toContain('Copyright (c) 2010-2016 Sprocket Works');
+    expect(mit?.text).toContain('Permission is hereby granted, free of charge');
+    expect(isc?.text).toContain('Copyright (c) Acme Tools');
+    expect(isc?.text).toContain('Permission to use, copy, modify, and/or distribute');
+  });
+
+  it('fails on a package with no licence text and no SPDX text to fall back to, or no holder', () => {
+    const apache = dependency('bare-apache', {
+      'package.json': manifest('bare-apache', 'Apache-2.0', { author: 'Acme' }),
+    });
+    const anonymous = dependency('bare-mit', { 'package.json': manifest('bare-mit', 'MIT') });
+    expect(() => noticesFor([apache])).toThrow(
+      /bare-apache@1.2.3 is Apache-2.0, ships no licence text/,
+    );
+    expect(() => noticesFor([anonymous])).toThrow(
+      /bare-mit@1.2.3 ships no licence text and names no copyright holder/,
+    );
+  });
+
+  it("gives t3code's copied packages t3's notice and version", () => {
+    const notices = noticesFor([
+      join(T3_TREE, 'packages', 'client-runtime'),
+      join(T3_TREE, 'packages', 'contracts'),
+    ]);
+    const runtime = notices.find((n) => n.name === '@t3tools/client-runtime');
+    const contracts = notices.find((n) => n.name === '@t3tools/contracts');
+    expect([contracts?.name, contracts?.license, contracts?.text]).toEqual([
+      '@t3tools/contracts',
+      'MIT',
+      T3_LICENSE,
+    ]);
+    expect([runtime?.name, runtime?.version, runtime?.text]).toEqual([
+      '@t3tools/client-runtime',
+      T3_APP_VERSION,
+      T3_LICENSE,
+    ]);
+  });
+
+  it("lists t3's copied code and the third-party files bundled from its copy", () => {
+    const notices = copiedNoticesFor([
+      join(OWN_SOURCES, 't3/components/ChatView.tsx'),
+      `${join(OWN_SOURCES, 't3/terminal/ghostty/vendor/ghostty-vt.wasm')}?url`,
+      `${join(OWN_SOURCES, 't3/terminal/ghostty/fonts/SymbolsNerdFontMono-Regular.woff2')}?url`,
+      join(OWN_SOURCES, 'AgentChat.tsx'),
+    ]);
+    expect(notices.map((n) => [n.name, n.license])).toEqual([
+      ["Ghostty's libghostty-vt", 'MIT'],
+      ['Symbols Nerd Font Mono', 'MIT'],
+      ['t3code', 'MIT'],
+    ]);
+    const [ghostty, font, t3] = notices;
+    expect(ghostty?.text).toContain('Copyright (c) 2024 Mitchell Hashimoto, Ghostty contributors');
+    expect(font?.text).toContain('Copyright (c) 2014 Ryan L McIntyre');
+    expect(t3?.text).toBe(T3_LICENSE);
+  });
+
+  it("fails on a file from t3's copy that is neither t3's code nor a known third-party file", () => {
+    expect(() =>
+      copiedNoticesFor([`${join(OWN_SOURCES, 't3/terminal/sprocket.wasm')}?url`]),
+    ).toThrow(
+      /t3\/terminal\/sprocket\.wasm is bundled from t3's copy, and its licence is not known/,
+    );
   });
 
   it('fails on an unknown licence', () => {
@@ -194,33 +295,41 @@ describe('third-party notices', () => {
     expect(() => noticesFor([none])).toThrow(/no-license@1.2.3 declares no known licence/);
   });
 
-  it('fails on an LGPL package with no licence text, and a GPL one', () => {
-    const lgpl = dependency('bare-lgpl', { 'package.json': manifest('bare-lgpl', 'LGPL-3.0') });
-    const gpl = dependency('bare-gpl', { 'package.json': manifest('bare-gpl', 'GPL-3.0-only') });
-    expect(() => noticesFor([lgpl])).toThrow(
-      /bare-lgpl@1.2.3 is LGPL-3.0 and ships no licence text/,
-    );
-    expect(() => noticesFor([gpl])).toThrow(/bare-gpl@1.2.3 is GPL-3.0-only/);
-  });
-
   it("includes an OFL package's LICENSES folder", () => {
     const fonts = dependency('fonts-pkg', {
       'package.json': manifest('fonts-pkg', '(Apache-2.0 AND OFL-1.1)'),
-      LICENSE: 'Apache License',
+      LICENSE: `Apache License\n\n${terms}`,
       'LICENSES/OFL-A.txt': 'SIL OPEN FONT LICENSE A',
     });
     const [notice] = noticesFor([fonts]);
     expect(notice?.text).toContain('SIL OPEN FONT LICENSE A');
+  });
+
+  it('writes a text shared by several packages once, and points the others at it', () => {
+    const text = `Apache License\n${'Version 2.0 '.repeat(30)}`.trim();
+    const notices = noticesFor([
+      dependency('apache-a', { 'package.json': manifest('apache-a', 'Apache-2.0'), LICENSE: text }),
+      dependency('apache-b', { 'package.json': manifest('apache-b', 'Apache-2.0'), LICENSE: text }),
+    ]);
+    const rendered = renderNotices(notices);
+    expect(rendered.split(text)).toHaveLength(2);
+    expect(rendered).toContain(sameTextAs('apache-a@1.2.3'));
   });
 });
 
 describe('checkNotices', () => {
   const long = 'x'.repeat(300);
   const entry = (name: string, license: string, text = '') =>
-    `${ENTRY_MARK}${name}@1.0.0\nLicense: ${license}\n${text}\n`;
+    `${ENTRY_MARK}${name}\nLicense: ${license}\n${text}\n`;
   const whole =
-    entry('heic-to', 'LGPL-3.0', `GNU LESSER GENERAL PUBLIC LICENSE ${long}`) +
-    entry('@betteroffice/fonts', '(Apache-2.0 AND OFL-1.1)', `SIL OPEN FONT LICENSE ${long}`);
+    entry('heic-to@1.0.0', 'LGPL-3.0', `GNU LESSER GENERAL PUBLIC LICENSE ${long}`) +
+    entry(
+      '@betteroffice/fonts@1.0.0',
+      '(Apache-2.0 AND OFL-1.1)',
+      `SIL OPEN FONT LICENSE ${long}`,
+    ) +
+    entry('t3code@0.1.11', 'MIT', `MIT License ${long}`) +
+    entry('lru_map@0.4.1', 'MIT', `MIT License ${long}`);
 
   it('accepts a whole file', () => {
     expect(problemsIn(whole)).toEqual([]);
@@ -233,15 +342,37 @@ describe('checkNotices', () => {
     );
   });
 
+  it('fails a permissive entry without its text, or with only its name', () => {
+    expect(problemsIn(whole + entry('saxes@6.0.0', 'ISC'))).toContain(
+      'saxes@6.0.0 is ISC and its entry has no licence text.',
+    );
+    expect(problemsIn(whole + entry('tiny@1.0.0', 'MIT', 'MIT'))).toContain(
+      'tiny@1.0.0 is MIT and its entry has no licence text.',
+    );
+  });
+
+  it('accepts an entry that points at an earlier one with the same text, and only then', () => {
+    expect(problemsIn(whole + entry('same@1.0.0', 'MIT', sameTextAs('lru_map@0.4.1')))).toEqual([]);
+    expect(problemsIn(whole + entry('lost@1.0.0', 'MIT', sameTextAs('nowhere@1.0.0')))).toContain(
+      'lost@1.0.0 is MIT and its entry has no licence text.',
+    );
+  });
+
   it('fails an unknown licence', () => {
-    expect(problemsIn(whole + entry('mystery', 'UNKNOWN'))).toContain(
+    expect(problemsIn(whole + entry('mystery@1.0.0', 'UNKNOWN'))).toContain(
       'mystery@1.0.0 has no known licence.',
     );
   });
 
-  it('fails when heic-to is not listed', () => {
+  it("fails when heic-to or t3code's own notice is not listed", () => {
     expect(
-      problemsIn(entry('@betteroffice/fonts', 'OFL-1.1', `SIL OPEN FONT LICENSE ${long}`)),
+      problemsIn(
+        entry('@betteroffice/fonts@1.0.0', 'OFL-1.1', `SIL OPEN FONT LICENSE ${long}`) +
+          entry('t3code@0.1.11', 'MIT', `MIT License ${long}`),
+      ),
     ).toContain('heic-to is bundled but not listed.');
+    expect(problemsIn(whole.replace(/t3code@0\.1\.11/, 'other@1.0.0'))).toContain(
+      't3code is bundled but not listed.',
+    );
   });
 });
