@@ -74,6 +74,11 @@ const MACHINE_GLOBALS = [
 const RUNNER_PROTOCOL = '@consola/runner-protocol';
 /** The sandbox interface (`sandboxesFrom`) and its fake: the outer rings run sandboxes with it. */
 const SANDBOX = '@consola/sandbox';
+/**
+ * The E2B provider, an entry point of its own so nothing else loads E2B's SDK: only the wiring
+ * builds it, from the runner's key (`productionProvider`).
+ */
+const SANDBOX_E2B = '@consola/sandbox/e2b';
 
 const LAYERS: Layer[] = [
   {
@@ -122,13 +127,13 @@ const LAYERS: Layer[] = [
     noGlobals: [],
     consola: [],
   },
-  // The one wiring file, where everything meets.
+  // The one wiring file, where everything meets, and the one place a real provider is made.
   {
     at: 'bin',
     reaches: ['core', 'runtime', 'adapters'],
     refuses: [TEST_KITS],
     noGlobals: [],
-    consola: [RUNNER_PROTOCOL, SANDBOX],
+    consola: [RUNNER_PROTOCOL, SANDBOX, SANDBOX_E2B],
   },
 ];
 
@@ -527,6 +532,15 @@ describe('the dependency rule', () => {
     ['bin.test.ts', '@consola/sandbox', true],
     ['core/x.test.ts', '@consola/sandbox', false],
     ['x.test.ts', '@consola/runner-protocol', false],
+    // E2B's provider is made in the wiring alone.
+    ['bin.ts', '@consola/sandbox/e2b', true],
+    ['bin.test.ts', '@consola/sandbox/e2b', true],
+    ['core/x.ts', '@consola/sandbox/e2b', false],
+    ['runtime/x.ts', '@consola/sandbox/e2b', false],
+    ['adapters/x.ts', '@consola/sandbox/e2b', false],
+    ['testing/x.ts', '@consola/sandbox/e2b', false],
+    ['adapters/x.test.ts', '@consola/sandbox/e2b', false],
+    ['main.ts', '@consola/sandbox/e2b', false],
     ...[
       'core/x.ts',
       'runtime/x.ts',

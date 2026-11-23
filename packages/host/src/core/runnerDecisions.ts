@@ -17,7 +17,7 @@ import {
 } from '@consola/runner-protocol';
 import { type HostLine, readHostLine } from './hostLine.ts';
 
-/** The template a session's sandbox starts from (the session template, CON-93). */
+/** The template a session's sandbox starts from (`sandbox-template/`, built on E2B under this name). */
 export const SESSION_TEMPLATE = 'consola-session';
 
 /** The command a session's sandbox runs: the template's start script, which runs the host. */
@@ -31,15 +31,16 @@ export const HARNESS_API_KEYS: Readonly<Record<Harness, string>> = {
 
 /**
  * Every variable of the runner's environment that holds a secret: its own secret, the git token,
- * and each harness's API key (`E2B_API_KEY` joins it when the runner wires E2B). It is the one list: the runner takes
- * their values out of everything it logs or reports (`secretValuesOf`), and never logs any of
- * them. A new secret the runner reads joins it (`bin.test.ts` checks the host's source for one
- * missing).
+ * each harness's API key, and the key of the E2B account its sandboxes run on. It is the one
+ * list: the runner takes their values out of everything it logs or reports (`secretValuesOf`),
+ * and never logs any of them. A new secret the runner reads joins it (`bin.test.ts` checks the
+ * host's source for one missing).
  */
 export const RUNNER_SECRET_VARIABLES: ReadonlyArray<string> = [
   'CONSOLA_RUNNER_SECRET',
   'GIT_TOKEN',
   ...Object.values(HARNESS_API_KEYS),
+  'E2B_API_KEY',
 ];
 
 /** The values `env` gives `RUNNER_SECRET_VARIABLES`, the empty ones left out. */
@@ -451,6 +452,28 @@ export function sandboxEnvFor(
   const apiKey = secrets.apiKeys[start.harness];
   if (apiKey !== undefined && apiKey !== '') env[HARNESS_API_KEYS[start.harness]] = apiKey;
   return env;
+}
+
+/**
+ * How long a session's sandbox may outlive the runner's last word: it is created with this
+ * lifetime and renewed (`keepAlive`) every `SANDBOX_LEASE_RENEW_SECONDS` while the runner holds
+ * the session, so its provider stops it this long after a runner that died last renewed it.
+ */
+export const SANDBOX_LEASE_SECONDS = 10 * 60;
+/** How often the runner renews a sandbox's lease: three renewals can fail before it runs out. */
+export const SANDBOX_LEASE_RENEW_SECONDS = 3 * 60;
+
+/**
+ * The lifetime to give a session's sandbox now, as it is made or its lease renewed, in the
+ * whole seconds a provider takes: the lease, or what is left of the session's lifetime cap
+ * (`remainingMs`) once that is shorter, so its provider stops it by the cap even should the
+ * runner's own stop then fail (a stop is asked once). Without a lease (`null`: a provider that
+ * cannot renew one) it is all that is left of the cap. A second at least, the provider's grain,
+ * when the cap is under one away and its own stop is due.
+ */
+export function sandboxLifetimeSeconds(remainingMs: number, leaseSeconds: number | null): number {
+  const remaining = Math.floor(remainingMs / 1_000);
+  return Math.max(1, leaseSeconds === null ? remaining : Math.min(leaseSeconds, remaining));
 }
 
 /** The first wait before dialling the cell again, and the longest. */

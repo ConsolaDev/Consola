@@ -6,7 +6,8 @@
  * how its command ends becomes the session's end, said once. Every sandbox is stopped: on the
  * cell's stop, after the host's `exit` line and a grace, at the lifetime cap, when the command
  * ends, as soon as the session's end is said while its command runs on (a failed clone), and when
- * the runner stops (`stopAll`).
+ * the runner stops (`stopAll`). And its provider stops it should the runner not: each sandbox is
+ * leased for `SANDBOX_LEASE_SECONDS` and renewed while the runner holds it, never past the cap.
  */
 import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
@@ -25,11 +26,14 @@ import {
   offerRefusal,
   type RunnerOffer,
   readSessionLine,
+  SANDBOX_LEASE_RENEW_SECONDS,
+  SANDBOX_LEASE_SECONDS,
   SESSION_START_ARGV,
   SESSION_TEMPLATE,
   StderrTail,
   type SandboxSecrets,
   sandboxEnvFor,
+  sandboxLifetimeSeconds,
   scrubSecrets,
   scrubUpdate,
   updateForExit,
@@ -93,6 +97,8 @@ export type SandboxSessionsOptions = {
   readonly shutdownStopTimeout?: Duration.Input;
   /** `SANDBOX_CALL_TIMEOUT` unless a test shortens it. */
   readonly callTimeout?: Duration.Input;
+  /** `SANDBOX_LEASE_RENEW_SECONDS` unless a test shortens it. */
+  readonly leaseRenewEvery?: Duration.Input;
   /** Where every update goes: the cell's socket. Each is scrubbed of the secrets first. */
   readonly report: (update: SessionUpdate) => Effect.Effect<void>;
   /** A line for the runner's own log. Scrubbed of the secrets, and never the environment. */
@@ -180,6 +186,11 @@ export const makeSandboxSessions = (
     const stopTimeout = options.stopTimeout ?? SANDBOX_STOP_TIMEOUT;
     const shutdownStopTimeout = options.shutdownStopTimeout ?? SHUTDOWN_STOP_TIMEOUT;
     const callTimeout = options.callTimeout ?? SANDBOX_CALL_TIMEOUT;
+    const leaseRenewEvery =
+      options.leaseRenewEvery ?? Duration.seconds(SANDBOX_LEASE_RENEW_SECONDS);
+    /** A provider that renews a lifetime leases its sandboxes; any other gets the whole cap. */
+    const keepAlive = options.sandboxes.keepAlive;
+    const leaseSeconds = keepAlive === undefined ? null : SANDBOX_LEASE_SECONDS;
     const log = (message: string) => options.log(scrubSecrets(message, options.secretValues));
 
     /** Returns at the shutdown's deadline, once the runner began stopping; never before. */
@@ -373,20 +384,52 @@ export const makeSandboxSessions = (
         );
       });
 
+    /**
+     * Renews the lease of the session's sandbox every `leaseRenewEvery` (never past the cap,
+     * `capAtMs`) until the runner asks it to stop. A renewal that fails is logged; the next is
+     * asked on time, and the lease runs out only after three in a row.
+     */
+    const renewLease = (session: Held, sandbox: Sandbox, capAtMs: number): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        if (keepAlive === undefined) return;
+        const { sessionId } = session.start;
+        while (true) {
+          yield* Effect.sleep(leaseRenewEvery);
+          if (session.stopAsked || (yield* Deferred.isDone(session.stopSignal))) return;
+          const nowMs = yield* Clock.currentTimeMillis;
+          const seconds = sandboxLifetimeSeconds(capAtMs - nowMs, leaseSeconds);
+          yield* withinCallTimeout(
+            () => keepAlive.renew(sandbox, seconds),
+            `it did not answer ${withinCallTimeoutText}`,
+          ).pipe(
+            Effect.catchTag('SandboxCallFailed', (error) =>
+              log(`session ${sessionId}: its sandbox's lease was not renewed: ${error.problem}`),
+            ),
+          );
+        }
+      });
+
     const runSession = (session: Held): Effect.Effect<void> => {
       const { sessionId } = session.start;
       return Effect.gen(function* () {
         const refusal = offerRefusal(options.offer, session.start);
         if (refusal !== null) return yield* failedWith(session, refusal);
+        const capAtMs = (yield* Clock.currentTimeMillis) + Duration.toMillis(options.maxLifetime);
         yield* Effect.sleep(options.maxLifetime).pipe(
           Effect.andThen(Deferred.succeed(session.stopSignal, { kind: 'lifetime' })),
           Effect.forkChild,
+        );
+        // Its provider's own stop: the lease, renewed below, never past the cap.
+        const lifetimeSeconds = sandboxLifetimeSeconds(
+          capAtMs - (yield* Clock.currentTimeMillis),
+          leaseSeconds,
         );
         const sandbox = yield* withinCallTimeout(
           () =>
             options.sandboxes.create({
               template: SESSION_TEMPLATE,
               env: sandboxEnvFor(session.start, options.secrets, options.idleMinutes),
+              lifetimeSeconds,
             }),
           `The sandbox was not made ${withinCallTimeoutText}.`,
           // Made after all: nothing will use it, and nothing else would stop it.
@@ -402,6 +445,7 @@ export const makeSandboxSessions = (
         );
         session.sandbox = sandbox;
         yield* log(`session ${sessionId}: sandbox ${sandbox.id} created`);
+        yield* renewLease(session, sandbox, capAtMs).pipe(Effect.forkChild);
 
         // A stop that came while the sandbox was being made: nothing is started in it.
         if (yield* Deferred.isDone(session.stopSignal)) {

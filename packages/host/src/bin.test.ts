@@ -25,6 +25,7 @@ import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
 import * as Queue from 'effect/Queue';
 import * as Stream from 'effect/Stream';
+import { E2BProvider } from '@consola/sandbox/e2b';
 import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { type WebSocket, WebSocketServer } from 'ws';
@@ -37,6 +38,7 @@ import {
   isRunnerCommand,
   parseRunnerArgs,
   parseSessionArgs,
+  productionProvider,
   StartFailed,
   temporaryStateDir,
   UsageError,
@@ -1287,5 +1289,27 @@ describe('parseRunnerArgs', () => {
     expect(error).toBeInstanceOf(StartFailed);
     expect(error.message).toMatch(/printable characters with no space/);
     expect(error.message).not.toContain('sprocket secret');
+  });
+});
+
+describe('productionProvider', () => {
+  it("is E2B's, with the key the runner's environment holds, and none without one", () => {
+    expect(productionProvider({ E2B_API_KEY: 'e2b_sprocket_0123456789' })).toBeInstanceOf(
+      E2BProvider,
+    );
+    expect(productionProvider({})).toBeNull();
+    expect(productionProvider({ E2B_API_KEY: '' })).toBeNull();
+    expect(productionProvider({ E2B_API_KEY: '  ' })).toBeNull();
+  });
+
+  it('holds E2B_API_KEY among the secrets the runner scrubs', () => {
+    expect(RUNNER_SECRET_VARIABLES).toContain('E2B_API_KEY');
+    const args = Effect.runSync(
+      parseRunnerArgs(
+        ['runner', '--cell-url', 'wss://eu.cells.sprocket.test/api/runner', '--runner-id', 'r-1'],
+        { ...RUNNER_ENV, E2B_API_KEY: 'e2b_sprocket_0123456789' },
+      ),
+    );
+    expect(args.secretValues).toContain('e2b_sprocket_0123456789');
   });
 });

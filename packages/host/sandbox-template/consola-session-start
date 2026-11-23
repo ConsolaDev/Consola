@@ -1,0 +1,82 @@
+#!/bin/sh
+# consola-session-start: what a consola-session sandbox runs for one session
+# (packages/host/AGENTS.md, "The `runner` command"). It clones the session's
+# repository into /workspace/repo, signs Codex in when the session runs on it,
+# then becomes the session's host, `consola-host session`, from its bundle.
+#
+# Its variables are the ones the runner gives a sandbox (sandboxEnvFor):
+# CONSOLA_SESSION_ID, CONSOLA_HARNESS, CONSOLA_REPOSITORY,
+# CONSOLA_PASS_PUBLIC_KEY, CONSOLA_SESSION_IDLE_MINUTES, GIT_TOKEN (for a
+# repository that needs one) and the harness's API key. CONSOLA_WORKSPACE moves
+# /workspace, for this script's tests (src/bundle.test.ts); the runner never
+# sets it.
+#
+# Stdout belongs to the runner, which reads it as JSON lines: the script prints
+# one line only, `clone-failed`, when the clone fails, and then exits 1. What
+# else it has to say goes to stderr. The git token never reaches a command
+# line, a URL, the repository's config or a message.
+set -eu
+
+fail() {
+  printf 'consola-session-start: %s\n' "$1" >&2
+  exit 1
+}
+
+for name in CONSOLA_SESSION_ID CONSOLA_HARNESS CONSOLA_REPOSITORY CONSOLA_PASS_PUBLIC_KEY; do
+  eval "value=\${$name-}"
+  [ -n "$value" ] || fail "$name is not set."
+done
+
+workspace="${CONSOLA_WORKSPACE:-/workspace}"
+repo="$workspace/repo"
+key_file="$workspace/.consola/pass-public-key.pem"
+
+# Asked for github.com's credentials, git runs this, and it answers with
+# $GIT_TOKEN as the environment holds it then: the token is written nowhere.
+helper='!f() { test "$1" = get && test -n "${GIT_TOKEN-}" || return 0; printf "%s\n" username=x-access-token "password=$GIT_TOKEN"; }; f'
+
+# The whole URL, so a repository whose owner starts with "-" is never an option.
+if ! output=$(GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
+  -c "credential.https://github.com.helper=$helper" \
+  clone --quiet -- "https://github.com/$CONSOLA_REPOSITORY.git" "$repo" 2>&1); then
+  # git's own words, on one line, with the token (as it is and URL-encoded) taken out.
+  CONSOLA_CLONE_OUTPUT="$output" node -e '
+    const token = process.env.GIT_TOKEN || "";
+    let said = process.env.CONSOLA_CLONE_OUTPUT || "";
+    if (token !== "") {
+      for (const form of [token, encodeURIComponent(token)]) said = said.split(form).join("[redacted]");
+    }
+    said = said.split("\n").map((line) => line.trim()).filter((line) => line !== "").join(" ");
+    const message = `Could not clone ${process.env.CONSOLA_REPOSITORY}: ${said || "git clone failed."}`;
+    process.stdout.write(`${JSON.stringify({ type: "exit", reason: "clone-failed", message })}\n`);
+  ' || :
+  exit 1
+fi
+
+# The repository keeps the helper, for the session's own fetches and pushes; an
+# empty helper first, so no helper of the machine's is asked, or stores the token.
+git -C "$repo" config credential.helper ''
+git -C "$repo" config credential.https://github.com.helper "$helper"
+git -C "$repo" config user.name 'Consola session'
+git -C "$repo" config user.email session@consola.invalid
+
+# The key the host checks every pass with (a public key).
+mkdir -p "$workspace/.consola"
+key=$(printf '%s' "$CONSOLA_PASS_PUBLIC_KEY")
+printf '%s\n' "$key" > "$key_file"
+
+# Codex reads no API key from the environment: it signs in once, from stdin.
+if [ "$CONSOLA_HARNESS" = codex ]; then
+  [ -n "${OPENAI_API_KEY-}" ] || fail 'OPENAI_API_KEY is not set, so Codex cannot sign in.'
+  printf '%s' "$OPENAI_API_KEY" | codex login --with-api-key >&2 ||
+    fail 'Codex could not sign in with OPENAI_API_KEY (codex login --with-api-key).'
+fi
+
+exec node /opt/consola/consola-host.mjs session \
+  --session-id "$CONSOLA_SESSION_ID" \
+  --harness "$CONSOLA_HARNESS" \
+  --cwd "$repo" \
+  --bind 0.0.0.0 \
+  --port 7420 \
+  --pass-public-key "$key_file" \
+  --idle-minutes "${CONSOLA_SESSION_IDLE_MINUTES:-10}"
