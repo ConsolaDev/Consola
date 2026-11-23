@@ -75,6 +75,29 @@ describe('unboundOf', () => {
     });
   });
 
+  it('names a command inside a repeat: loop (the merge with slice 3)', () => {
+    const loop = entry(
+      [
+        '- name: loop-page',
+        '  on: manual',
+        '  scope: api',
+        '  steps:',
+        '    - id: polish',
+        '      repeat: { max: 3, until: steps.check.clean }',
+        '      steps:',
+        '        - id: check',
+        '          run: page "$PAGER_TOKEN"',
+        '          secrets: [PAGER_TOKEN]',
+        '          outputs: { clean: boolean }',
+      ].join('\n'),
+    );
+    expect(unboundOf(loop, portBinding(), 'ws-1')).toEqual({
+      problem: 'needs `PAGER_TOKEN` bound on this Mac (Settings › Secrets)',
+      unbound: ['PAGER_TOKEN'],
+    });
+    expect(unboundOf(loop, portBinding('PAGER_TOKEN'), 'ws-1')).toBeNull();
+  });
+
   it("counts a check's name", () => {
     const watch = entry(
       [

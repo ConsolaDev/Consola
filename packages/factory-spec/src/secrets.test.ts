@@ -311,6 +311,47 @@ describe('the names an entry uses', () => {
     });
   });
 
+  it('sees a command and a call inside a repeat: loop (the merge with slice 3)', () => {
+    const LOOP = entry(
+      [
+        '- name: loop-page',
+        '  on: manual',
+        '  scope: api',
+        '  steps:',
+        '    - id: polish',
+        '      repeat: { max: 3, until: steps.check.clean }',
+        '      steps:',
+        '        - id: check',
+        '          run: page "$PAGER_TOKEN"',
+        '          secrets: [PAGER_TOKEN]',
+        '          dry_run: run',
+        '          outputs: { clean: boolean }',
+        '        - id: post',
+        '          uses: slack#chat_post_message',
+        '          with: { channel: "#ops" }',
+      ].join('\n'),
+    );
+    const slack: McpServerDefinition = {
+      name: 'slack',
+      transport: 'stdio',
+      command: '/usr/local/bin/slack-mcp',
+      args: [],
+      env: {},
+      secrets: ['SLACK_BOT_TOKEN'],
+    };
+    expect(secretUsesOf(LOOP)).toEqual([
+      { name: 'PAGER_TOKEN', automation: 'loop-page', step: 'check' },
+    ]);
+    expect(secretNamesOf(LOOP)).toEqual(['PAGER_TOKEN']);
+    expect(secretNamesOf(LOOP, { runOnly: true })).toEqual(['PAGER_TOKEN']);
+    expect(secretNamesOf(LOOP, { runOnly: true, dryRun: true })).toEqual(['PAGER_TOKEN']);
+    expect(secretUsesOf(LOOP, { slack }).map(({ name, step }) => [name, step])).toEqual([
+      ['PAGER_TOKEN', 'check'],
+      ['SLACK_BOT_TOKEN', 'post'],
+    ]);
+    expect(secretNamesOf(LOOP, { servers: { slack } })).toEqual(['PAGER_TOKEN', 'SLACK_BOT_TOKEN']);
+  });
+
   it('is empty for an entry that names none', () => {
     const prompt = entry(
       '- name: p\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n  run: { prompt: "x" }',

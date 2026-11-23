@@ -935,3 +935,99 @@ describe("a check's secrets", () => {
     );
   });
 });
+
+// --- with slice 3's loops, gates and retry waits (the merge) ---------------------
+
+describe("a run's secrets, with slice 3's loops, gates and retry waits (the merge)", () => {
+  const CHECK =
+    '- id: polish\n  repeat: { max: 2, until: steps.check.clean }\n  steps:\n    - id: check\n      run: page --service api\n      secrets: [PAGER_TOKEN]\n      outputs: { clean: boolean }';
+  const LOOPED = file(entryOf('looped', CHECK));
+
+  it("a command inside a repeat: loop needs its names bound, is read once, and every round's spec carries them", async () => {
+    const unbound = await stepsHarness({ yaml: LOOPED });
+    expect(unbound.service.list(WORKSPACE_ID)[0].problem).toBe(NEEDS_PAGER);
+
+    const h = await accepted(LOOPED);
+    const runId = await runNow(h, 'looped');
+    expect(h.world.secrets.resolved).toEqual([['PAGER_TOKEN']]);
+    const [first] = h.world.commands;
+    expect(first.spec.env.PAGER_TOKEN).toBe(PAGER_VALUE);
+    for (const form of maskFormsOf(PAGER_VALUE)) expect(first.spec.secrets).toContain(form);
+    await first.end({ outputs: 'clean=false\n' });
+    expect(h.world.commands).toHaveLength(2);
+    const second = h.world.commands[1];
+    expect(second.spec.env.PAGER_TOKEN).toBe(PAGER_VALUE);
+    for (const form of maskFormsOf(PAGER_VALUE)) expect(second.spec.secrets).toContain(form);
+    await second.end({ outputs: 'clean=true\n' });
+    expect(h.store.get(runId)!.status).toBe('completed');
+    // Once for the run, not once per round.
+    expect(h.world.secrets.resolved).toEqual([['PAGER_TOKEN']]);
+    const pager = h.service
+      .snapshot(WORKSPACE_ID)
+      .secrets!.find((view) => view.name === 'PAGER_TOKEN')!;
+    expect(pager.uses).toContainEqual(
+      expect.objectContaining({ automation: 'looped', step: 'check' }),
+    );
+  });
+
+  it('a gate park lets the values go, and answering reads them again before the next step', async () => {
+    const yaml = file(
+      entryOf(
+        'gated',
+        '- id: first\n  run: page --service api\n  secrets: [PAGER_TOKEN]',
+        '- id: decide\n  gate: { ask: Page again? }',
+        '- id: second\n  run: page --again\n  secrets: [PAGER_TOKEN]',
+      ),
+    );
+    const h = await accepted(yaml);
+    const runId = await runNow(h, 'gated');
+    expect(h.world.secrets.resolved).toEqual([['PAGER_TOKEN']]);
+    await h.world.commands[0].end();
+    expect(h.store.get(runId)!.status).toBe('waiting');
+    expect(heldBy(h).held(runId)).toBeUndefined();
+    h.service.answerGate(runId, 'decide', 'approve');
+    await h.flush();
+    expect(h.world.secrets.resolved).toEqual([['PAGER_TOKEN'], ['PAGER_TOKEN']]);
+    expect(h.world.commands).toHaveLength(2);
+    expect(h.world.commands[1].spec.env.PAGER_TOKEN).toBe(PAGER_VALUE);
+    await h.world.commands[1].end();
+    expect(h.store.get(runId)!.status).toBe('completed');
+    expect(heldBy(h).held(runId)).toBeUndefined();
+  });
+
+  it('an entry-level retry wait lets the values go, and the retry reads them again', async () => {
+    const yaml = file(
+      '  - name: retrying\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    on_failure: { retry: 1 }\n    steps:\n      - id: page\n        run: page --service api\n        secrets: [PAGER_TOKEN]\n        dry_run: run\n',
+    );
+    const h = await accepted(yaml);
+    const runId = await runNow(h, 'retrying');
+    expect(h.world.secrets.resolved).toEqual([['PAGER_TOKEN']]);
+    await h.world.commands[0].end({ result: { exitCode: 1 } });
+    expect(h.store.get(runId)).toMatchObject({ status: 'waiting', retryAt: expect.any(String) });
+    expect(heldBy(h).held(runId)).toBeUndefined();
+    h.advance(60_000);
+    await h.tick();
+    await h.flush();
+    expect(h.world.secrets.resolved).toEqual([['PAGER_TOKEN'], ['PAGER_TOKEN']]);
+    expect(h.world.commands).toHaveLength(2);
+    expect(h.world.commands[1].spec.env.PAGER_TOKEN).toBe(PAGER_VALUE);
+  });
+
+  it("a quit while a loop's round runs its command empties that round's $CONSOLA_OUTPUT at the next start", async () => {
+    const h = await accepted(LOOPED);
+    const runId = await runNow(h, 'looped');
+    await h.world.commands[0].end({ outputs: 'clean=false\n' });
+    expect(stepOf(h, runId, 'check')).toMatchObject({ status: 'running', attempt: 2 });
+    const out = attemptFile(h, runId, 'check', 'outputs.env', 2);
+    fs.appendFileSync(out, `note=${PAGER_VALUE.split('\n')[0]}\n`);
+    const again = await h.relaunch();
+    expect(stepOf(again, runId, 'check')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_COMMAND,
+      attempt: 2,
+    });
+    expect(fs.readFileSync(out, 'utf8')).toBe('');
+    for (const text of filesUnder(again.folder.runDir(WORKSPACE_ID, runId)).values())
+      for (const form of maskFormsOf(PAGER_VALUE)) expect(text).not.toContain(form);
+  });
+});

@@ -52,7 +52,10 @@ describe('parseEnvironmentFile', () => {
     ['', '`isolation:` is `host` or `sandbox`.'],
     ['isolation: container', '`isolation: container` arrives with the headless runner (slice 7).'],
     ['isolation: sandbox\nimage: node:26', '`image` arrives with the headless runner (slice 7).'],
-    ['isolation: sandbox\nsecrets: [x]', '`secrets` arrives with connections as data (slice 5).'],
+    [
+      'isolation: sandbox\nsecrets: [x]',
+      '`secrets` in an environment arrives with sandboxed commands, the only steps they would reach; until then, a command names its secrets on its step (`secrets:` beside `run:`).',
+    ],
     [
       'isolation: host\nnetwork: [a.com]',
       'On `host` a step has your whole network and environment',

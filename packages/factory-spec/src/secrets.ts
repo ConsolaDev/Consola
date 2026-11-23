@@ -18,7 +18,7 @@ import {
 } from './envNames';
 import type { Automation } from './schema';
 import type { McpServerDefinition } from './servers';
-import type { CommandStep, UsesStep } from './steps';
+import type { CommandStep, StepEntry, UsesStep } from './steps';
 import { secretPathProblem } from './template';
 
 export const MAX_SECRET_NAME_LENGTH = 64;
@@ -130,9 +130,11 @@ type Servers = Readonly<Record<string, McpServerDefinition>>;
 
 /** The entry's command steps and calls. On `main` an entry's steps are flat; slice 3's nested steps walk `leafSteps` here. */
 function commandsAndCalls(automation: Automation): Array<CommandStep | UsesStep> {
-  return (automation.steps ?? []).filter(
-    (step): step is CommandStep | UsesStep => step.kind === 'run' || step.kind === 'uses',
-  );
+  // Every leaf, a loop's steps included: `leafSteps`' walk, written here, since `steps.ts` imports this file.
+  const entries: readonly StepEntry[] = automation.steps ?? [];
+  return entries
+    .flatMap((step) => (step.kind === 'repeat' ? step.steps : [step]))
+    .filter((step): step is CommandStep | UsesStep => step.kind === 'run' || step.kind === 'uses');
 }
 
 /** The factory server a call names, when `servers` defines it (`consola` and an unknown name: none). */

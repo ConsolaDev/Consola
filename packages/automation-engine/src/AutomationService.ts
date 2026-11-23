@@ -4453,6 +4453,8 @@ export class AutomationService {
     const written = [
       ...(this.stepsOf(run.id).find((step) => step.id === record.id)?.artifacts ?? []),
     ];
+    // Text from the checkout can hold a value a command printed: masked, as every file Consola writes there is.
+    const masks = this.masksOf(run.id);
     for (const { name, text } of read) {
       const { bytes } = this.deps.runFolder.writeArtifact(
         workspaceId,
@@ -4460,7 +4462,7 @@ export class AutomationService {
         record.id,
         record.attempt,
         name,
-        text,
+        maskSecrets(text, masks),
       );
       const at = written.findIndex((artifact) => artifact.name === name);
       if (at === -1) written.push({ name, bytes });

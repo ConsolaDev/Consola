@@ -9,7 +9,7 @@
  * Consola's or the harness's own, is refused; so, until commands run in an
  * environment (3-C), is one that looks like a credential, since an
  * environment passes one to its commands only. `container`, `image` and
- * `setup` (slice 7) and `secrets` (slice 5) are refused with what they
+ * `setup` (slice 7) and `secrets` (slice 3-C) are refused with what they
  * arrive with. The hash is the file's say, not its spelling: what the
  * version of every entry whose agent names it covers.
  */
@@ -43,7 +43,8 @@ const KEYS = ['isolation', 'network', 'env', 'description'];
 const LATER: Readonly<Record<string, string>> = {
   image: '`image` arrives with the headless runner (slice 7).',
   setup: '`setup` arrives with the headless runner (slice 7).',
-  secrets: '`secrets` arrives with connections as data (slice 5).',
+  secrets:
+    '`secrets` in an environment arrives with sandboxed commands, the only steps they would reach; until then, a command names its secrets on its step (`secrets:` beside `run:`).',
 };
 
 const ISOLATION = '`isolation:` is `host` or `sandbox`.';
