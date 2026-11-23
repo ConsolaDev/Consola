@@ -1840,6 +1840,8 @@ export function setupIpcHandlers(): boolean {
   // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
   const launcher = new SessionLauncher(workspaces, harnesses, manager);
   launcher.prepareCheckout = (workspace, session) => rebuilder.ensureCheckout(workspace, session);
+  // A full-tools continuation's first spawn asks too (the 3-B code review's F11).
+  launcher.spawnRefusal = (session) => runCheckoutSpawnRefusal(session, worktrees.worktreeRoot);
 
   // An action run in a work-item session that already exists — a follow-up
   // pass on the same job, in the same tab. Coalesced per session and

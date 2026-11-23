@@ -1209,6 +1209,48 @@ describe("a step's full-tools continuation (slice 3-B Task 20)", () => {
     expect(terminals.startHeadless).not.toHaveBeenCalled();
   });
 
+  it("asks the run checkout's git-folder check for the folder it forks in, after any rebuild, and starts nothing when it refuses (3-B code review F11)", async () => {
+    // As cleanup left it: removed, so the fork's launch rebuilds it first, then asks.
+    const source = stepSession({
+      removedWorktree: {
+        path: targetDir,
+        mainRepo: scopeDir,
+        commit: 'a'.repeat(40),
+        branch: null,
+        keepRef: 'refs/consola/worktrees/x',
+        trigger: 'settled',
+        removedAt: 0,
+      },
+    });
+    const { launcher, workspaces, terminals } = launcherFor(source, {
+      kind: 'run-owned',
+      cwd: targetDir,
+      head: 'c'.repeat(40),
+    });
+    const order: string[] = [];
+    launcher.prepareCheckout = vi.fn(async () => {
+      order.push('rebuild');
+      return {};
+    });
+    const asked: Array<Pick<Session, 'cwd' | 'agentCwd'>> = [];
+    let refusal: string | null = "the step changed this checkout's git folder";
+    launcher.spawnRefusal = (session) => {
+      order.push('check');
+      asked.push(session);
+      return refusal;
+    };
+    await expect(launcher.forkWithFullTools('ws-1', STEP_ID)).rejects.toThrow(
+      "the step changed this checkout's git folder",
+    );
+    expect(order).toEqual(['rebuild', 'check']);
+    expect(asked).toEqual([{ cwd: targetDir }]);
+    expect(workspaces.createSession).not.toHaveBeenCalled();
+    expect(terminals.startHeadless).not.toHaveBeenCalled();
+    refusal = null;
+    await launcher.forkWithFullTools('ws-1', STEP_ID);
+    expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({ cwd: targetDir });
+  });
+
   it('forks a run-owned step in its own folder once the run ended', async () => {
     const source = stepSession({
       workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 42 },

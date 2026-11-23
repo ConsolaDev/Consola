@@ -191,6 +191,15 @@ export class SessionLauncher {
   /** Set at wiring time; optional so unit tests need no runner. */
   public continuation?: StepContinuation;
 
+  /**
+   * Set at wiring time (`runCheckoutSpawnRefusal`): why nothing may start in
+   * a session's folder, a run's own checkout whose git folder changed, or
+   * null. Asked by a full-tools continuation before its first spawn, after
+   * any rebuild (review NB1, the 3-B code review's F11), as `TERMINAL_CREATE`,
+   * `TERMINAL_RESTART` and a shell ask it in main.
+   */
+  public spawnRefusal?: (session: Pick<Session, 'cwd' | 'agentCwd'>) => string | null;
+
   constructor(
     private readonly workspaces: SessionRecordStore,
     private readonly harnesses: HarnessRecordStore,
@@ -462,6 +471,9 @@ export class SessionLauncher {
       await this.prepareCheckout?.(workspace, source);
     }
     const cwd = elsewhere ?? source.cwd;
+    // The folder the fork starts in, as it is now: a run's own checkout whose git folder changed starts nothing.
+    const refused = cwd !== undefined ? this.spawnRefusal?.({ cwd }) : null;
+    if (refused) throw new Error(refused);
     return this.launchSession(workspaceId, {
       name: `${source.name} (full tools)`,
       workspaceId,

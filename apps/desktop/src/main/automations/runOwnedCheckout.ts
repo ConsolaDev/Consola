@@ -254,9 +254,10 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
  * review NB1): its `cwd` or `agentCwd` is one (a direct child of the
  * worktree root whose git folder is at `runCloneGitDirFor`), and its pointer
  * or git folder is not as Consola made them. Null otherwise. Asked by
- * `TERMINAL_CREATE`, `TERMINAL_RESTART` and a shell opened beside the
- * session, after any rebuild, before anything is spawned: a step's
- * session reopened, a full-tools continuation in it.
+ * `TERMINAL_CREATE`, `TERMINAL_RESTART`, a shell opened beside the session
+ * and a full-tools continuation's first spawn (`SessionLauncher.spawnRefusal`,
+ * the 3-B code review's F11), after any rebuild, before anything is
+ * spawned: a step's session reopened, a full-tools continuation in it.
  */
 export function runCheckoutSpawnRefusal(
   session: { cwd?: string; agentCwd?: string },

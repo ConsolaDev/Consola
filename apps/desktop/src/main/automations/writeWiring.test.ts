@@ -59,6 +59,10 @@ describe("main's wiring of write steps", () => {
     expect(restart.indexOf('runCheckoutSpawnRefusal')).toBeGreaterThan(
       restart.indexOf('rebuildForLaunch'),
     );
+    // A full-tools continuation's first spawn too (the 3-B code review's F11): the launcher asks it.
+    expect(ipc).toMatch(
+      /\n {2}launcher\.spawnRefusal = \(session\) => runCheckoutSpawnRefusal\(session, worktrees\.worktreeRoot\);\n/,
+    );
     const shell = between('const shellCwd = async', 'return cwd;');
     expect(shell).toMatch(/runCheckoutSpawnRefusal\(located\.session, worktrees\.worktreeRoot\)/);
     expect(shell.indexOf('runCheckoutSpawnRefusal')).toBeGreaterThan(
