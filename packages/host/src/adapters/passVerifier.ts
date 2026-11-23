@@ -1,20 +1,19 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import { compactVerify, importSPKI } from 'jose';
-import { checkPassClaims, type PassClaims, type PassRefusal } from '../core/pass.ts';
+import {
+  checkPassClaims,
+  type PassClaims,
+  type PassLifetime,
+  type PassRefusal,
+  readPass,
+} from '../core/pass.ts';
 
 /** The one signature a pass may carry: EdDSA over Ed25519. jose refuses every other, `none` too. */
 const PASS_ALGORITHM = 'EdDSA';
 
-/** A session pass's claims as signed: the shape `checkPassClaims` judges, nothing assumed. */
-const PassClaimsSchema = Schema.Struct({
-  sub: Schema.String,
-  ws: Schema.String,
-  sid: Schema.String,
-  iat: Schema.Number,
-  exp: Schema.Number,
-});
-const decodeClaims = Schema.decodeUnknownEffect(Schema.fromJsonString(PassClaimsSchema));
+/** A pass's payload as JSON, nothing assumed: `readPass` reads it. */
+const decodePayload = Schema.decodeUnknownEffect(Schema.fromJsonString(Schema.Unknown));
 
 /**
  * A pass the host would not take. It carries the reason only: never the pass, its claims or the
@@ -61,15 +60,17 @@ export const parsePassKey = (publicKeyPem: string): Effect.Effect<PassKey, PassK
 const refuse = (reason: PassRefusal) => new PassRejected({ reason });
 
 /**
- * Verifies a session pass against a parsed key: a compact JWS signed with EdDSA, whose payload is
- * a pass's claims; then judges those claims with `checkPassClaims`. jose checks only the
- * signature and the algorithm, so the claims have one judge.
+ * Verifies a session pass against a parsed key: a compact JWS signed with EdDSA, whose header and
+ * payload `readPass` takes for a pass (`typ` `PASS_TYPE`, the protocol's claims, a lifetime within
+ * the cap, or a dev pass's for a `dev` host); then judges its claims with `checkPassClaims`. jose
+ * checks only the signature and the algorithm, so the claims have one reader and one judge.
  */
 export const verifyPassWith = (
   token: string,
   key: PassKey,
   sessionId: string,
   nowSeconds: number,
+  lifetime: PassLifetime = 'cell',
 ): Effect.Effect<PassClaims, PassRejected> =>
   Effect.gen(function* () {
     if (token === '') return yield* refuse('missing');
@@ -77,9 +78,11 @@ export const verifyPassWith = (
       try: () => compactVerify(token, key.key, { algorithms: [PASS_ALGORITHM] }),
       catch: () => refuse('invalid'),
     });
-    const claims = yield* decodeClaims(new TextDecoder().decode(verified.payload)).pipe(
+    const payload = yield* decodePayload(new TextDecoder().decode(verified.payload)).pipe(
       Effect.mapError(() => refuse('invalid')),
     );
+    const claims = readPass(verified.protectedHeader.typ, payload, lifetime);
+    if (claims === null) return yield* refuse('invalid');
     const verdict = checkPassClaims(claims, sessionId, nowSeconds);
     if (!verdict.ok) return yield* refuse(verdict.reason);
     return claims;
@@ -94,8 +97,9 @@ export const verifyPass = (
   publicKeyPem: string,
   sessionId: string,
   nowSeconds: number,
+  lifetime: PassLifetime = 'cell',
 ): Effect.Effect<PassClaims, PassRejected> =>
   parsePassKey(publicKeyPem).pipe(
     Effect.mapError(() => refuse('invalid')),
-    Effect.flatMap((key) => verifyPassWith(token, key, sessionId, nowSeconds)),
+    Effect.flatMap((key) => verifyPassWith(token, key, sessionId, nowSeconds, lifetime)),
   );

@@ -30,6 +30,7 @@ import {
   resolveRemoteWebSocketConnectionUrl,
 } from '@t3tools/client-runtime/authorization';
 import { fetchRemoteEnvironmentDescriptor } from '@t3tools/client-runtime/environment';
+import { PASS_AUDIENCE, PASS_MAX_LIFETIME_SECONDS, PASS_TYPE } from '@consola/runner-protocol';
 import { decodeJwt, SignJWT } from 'jose';
 import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
@@ -47,6 +48,7 @@ import {
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
+import { signCellPass } from '../testing/cellPass.ts';
 import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
 import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
 import { HOST_SCOPES } from './hostHttp.ts';
@@ -100,19 +102,34 @@ const makeKeys = (): Keys => {
   return { publicKeyPem: publicKey.export({ type: 'spki', format: 'pem' }).toString(), privateKey };
 };
 
-/** A pass for `sessionId`, valid for ten minutes (or `lifetimeSeconds`), as the cell signs one. */
-const signPass = Effect.fn('signPass')(function* (
-  keys: Keys,
-  sessionId: string,
-  lifetimeSeconds = 600,
-) {
+/** A pass for `sessionId` as the cell signs one, for the protocol's longest (or `lifetimeSeconds`). */
+const signPass = (keys: Keys, sessionId: string, lifetimeSeconds?: number) =>
+  signCellPass(keys.privateKey, sessionId, lifetimeSeconds);
+
+/**
+ * Passes signed by the cell's key that break the protocol's contract one way each: another
+ * audience, no `typ`, and a lifetime one second over `PASS_MAX_LIFETIME_SECONDS`.
+ */
+const offContractPasses = Effect.fn('offContractPasses')(function* (keys: Keys, sessionId: string) {
   const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  return yield* Effect.promise(() =>
-    new SignJWT({ sub: 'person-acme-1', ws: 'workspace-sprocket', sid: sessionId })
-      .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' })
+  const claims = {
+    aud: PASS_AUDIENCE,
+    sub: 'person-acme-1',
+    ws: 'workspace-sprocket',
+    sid: sessionId,
+  };
+  const sign = (payload: Record<string, unknown>, typ: string | null, lifetime: number) =>
+    new SignJWT(payload)
+      .setProtectedHeader(typ === null ? { alg: 'EdDSA' } : { alg: 'EdDSA', typ })
       .setIssuedAt(now)
-      .setExpirationTime(now + lifetimeSeconds)
-      .sign(keys.privateKey),
+      .setExpirationTime(now + lifetime)
+      .sign(keys.privateKey);
+  return yield* Effect.promise(() =>
+    Promise.all([
+      sign({ ...claims, aud: 'consola-cell' }, PASS_TYPE, 60),
+      sign(claims, null, 60),
+      sign(claims, PASS_TYPE, PASS_MAX_LIFETIME_SECONDS + 1),
+    ]),
   );
 });
 
@@ -342,6 +359,22 @@ describe('serveHost', () => {
       // The key's own text (a PEM's base64 line) appears nowhere in the error.
       expect(JSON.stringify(error)).not.toContain(publicKeyPem.split('\n')[1] ?? publicKeyPem);
     }
+  });
+
+  it('refuses to listen as a dev host anywhere but loopback, so its long pass stays on this machine', async () => {
+    const exit = await listenHost({
+      port: 0,
+      host: '0.0.0.0',
+      sessionId: 'session-sprocket-dev',
+      publicKeyPem: makeKeys().publicKeyPem,
+      dev: true,
+      // Never reached: the address is checked before anything is served.
+      runtime: {} as ThreadHandle,
+    }).pipe(Effect.scoped, Effect.runPromiseExit);
+    expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+    expect(Cause.pretty(Exit.isFailure(exit) ? exit.cause : Cause.empty)).toContain(
+      'A --dev host listens only on loopback, not on 0.0.0.0.',
+    );
   });
 
   it(
@@ -720,7 +753,7 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
   it(
     'refuses a pass as t3 refuses a bearer token (401, invalid) and reads no session from it',
     () =>
-      withServedReplay('simple', ({ handle, prompt, keys, port }) =>
+      withServedReplay('simple', ({ spec, handle, prompt, keys, port }) =>
         Effect.gen(function* () {
           const httpBaseUrl = `http://127.0.0.1:${port}`;
           const ticketFor = (bearerToken: string) =>
@@ -741,6 +774,14 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
             _tag: 'EnvironmentAuthInvalidError',
             reason: 'invalid_credential',
           });
+          // A pass is the protocol's alone: another audience, no type, or a lifetime over the cap
+          // is no pass, whatever key signed it.
+          for (const offContract of yield* offContractPasses(keys, spec.sessionId)) {
+            expect(yield* ticketFor(offContract)).toMatchObject({
+              _tag: 'EnvironmentAuthInvalidError',
+              reason: 'invalid_credential',
+            });
+          }
           for (const refused of ['not-a-pass', anotherSessions]) {
             const session = yield* asT3Client(
               fetchRemoteSessionState({ httpBaseUrl, bearerToken: refused }),

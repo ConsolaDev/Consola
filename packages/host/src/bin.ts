@@ -45,6 +45,7 @@ import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
 import { type HostListening, listenHost } from './adapters/rpcServer.ts';
 import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
+import { isLoopback } from './core/bind.ts';
 import { isIdle } from './core/idle.ts';
 import {
   cellUrlProblem,
@@ -63,13 +64,6 @@ export const DEFAULT_PORT = 7420;
 /** Only this machine, unless the caller asks for more: the host never binds wider by itself. */
 export const DEFAULT_BIND = '127.0.0.1';
 
-/**
- * Whether `bind` names this machine's loopback only: `localhost`, `::1` or an address in
- * `127.0.0.0/8`. A `--dev` host lets anyone holding the pass it prints in, so it listens nowhere
- * else.
- */
-export const isLoopback = (bind: string): boolean =>
-  bind === 'localhost' || bind === '::1' || /^127(\.(25[0-5]|2[0-4]\d|1?\d?\d)){3}$/.test(bind);
 /** Spec §8.2: a session stops after ten minutes without a turn or a connected client. */
 export const DEFAULT_IDLE_MINUTES = 10;
 /** The longest a runner lets a session's sandbox run, whatever it does: eight hours. */
@@ -339,6 +333,7 @@ export const runSession = (
       host: args.bind,
       sessionId: args.spec.sessionId,
       publicKeyPem: access.publicKeyPem,
+      dev: access.devPass !== null,
       runtime: handle,
     }).pipe(
       Effect.catchTag('HostListenError', (error) =>

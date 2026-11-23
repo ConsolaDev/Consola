@@ -68,7 +68,8 @@ import {
 import { rpcInitialItems } from 't3/rpcInitialItems.ts';
 import { redactServerSettingsForClient } from 't3/serverSettings.ts';
 import { withOutputWindow } from 't3/terminal/OutputProtocol.ts';
-import { passCloseCode } from '../core/pass.ts';
+import { isLoopback } from '../core/bind.ts';
+import { type PassLifetime, passCloseCode } from '../core/pass.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import { serveHostHttp } from './hostHttp.ts';
 import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from './passVerifier.ts';
@@ -141,6 +142,11 @@ export interface HostServerOptions {
   readonly sessionId: string;
   /** The cell's Ed25519 public key, as an SPKI PEM, that every pass is signed by. */
   readonly publicKeyPem: string;
+  /**
+   * A `--dev` host (`bin.ts`): its key pair is its own, and it takes the long pass it signed with
+   * it (`PassLifetime` `dev`). Only on loopback: `listenHost` refuses one bound anywhere else.
+   */
+  readonly dev?: boolean;
   readonly runtime: ThreadHandle;
 }
 
@@ -698,6 +704,7 @@ const app = Effect.fn('host.app')(function* (
 ) {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const url = new URL(request.url, 'http://consola-host.invalid');
+  const lifetime: PassLifetime = options.dev === true ? 'dev' : 'cell';
   // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
   if (url.pathname !== WS_PATH) {
     return yield* serveHostHttp(
@@ -706,7 +713,7 @@ const app = Effect.fn('host.app')(function* (
         auth: HOST_AUTH,
         verify: (pass) =>
           Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
-            verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000)),
+            verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000), lifetime),
           ),
       },
       url.pathname,
@@ -719,7 +726,7 @@ const app = Effect.fn('host.app')(function* (
   // A pass in `pass`, or the ticket t3's client was issued for it, which is the pass.
   const pass =
     url.searchParams.get(PASS_QUERY_PARAM) ?? url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '';
-  return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds).pipe(
+  return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds, lifetime).pipe(
     Effect.matchEffect({
       onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),
       onSuccess: (claims) =>
@@ -760,6 +767,12 @@ export const listenHost = (
   options: HostServerOptions,
 ): Effect.Effect<HostListening, HostListenError | PassKeyInvalid, Scope.Scope> =>
   Effect.gen(function* () {
+    // A dev host's long pass never reaches a public address (`bin.ts` refuses the flags first).
+    if (options.dev === true && !isLoopback(options.host)) {
+      return yield* Effect.die(
+        new Error(`A --dev host listens only on loopback, not on ${options.host}.`),
+      );
+    }
     // The key is parsed once, before the port is bound: a key that does not parse fails the
     // start, rather than refusing every pass as it arrives.
     const key = yield* parsePassKey(options.publicKeyPem);

@@ -21,7 +21,7 @@ import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Queue from 'effect/Queue';
-import { decodeJwt, SignJWT } from 'jose';
+import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { type WebSocket, WebSocketServer } from 'ws';
 import { DEV_PASS_SECONDS } from './adapters/devPass.ts';
@@ -44,6 +44,7 @@ import {
 } from './core/runnerDecisions.ts';
 import { isolateMachine } from './testing/machine.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from './testing/replay.ts';
+import { signCellPass } from './testing/cellPass.ts';
 import { connectT3Client, hostSocketUrl } from './testing/t3Client.ts';
 
 /**
@@ -269,17 +270,8 @@ const takenPort = Effect.acquireRelease(
   }),
 );
 
-/** A pass for `sessionId` signed with `privateKey`, valid for ten minutes, as the cell signs one. */
-const signPass = Effect.fn('signPass')(function* (privateKey: KeyObject, sessionId: string) {
-  const now = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  return yield* Effect.promise(() =>
-    new SignJWT({ sub: 'person-acme-1', ws: 'workspace-sprocket', sid: sessionId })
-      .setProtectedHeader({ alg: 'EdDSA', typ: 'JWT' })
-      .setIssuedAt(now)
-      .setExpirationTime(now + 600)
-      .sign(privateKey),
-  );
-});
+/** A pass for `sessionId` signed with `privateKey` as the cell signs one. */
+const signPass = (privateKey: KeyObject, sessionId: string) => signCellPass(privateKey, sessionId);
 
 describe('consola-host session', () => {
   it(

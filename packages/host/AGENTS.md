@@ -13,8 +13,9 @@ Consola session and serves t3's chat RPC to a browser.
 Imports point inward only; `src/boundary.test.ts` fails on any that does not.
 
 - `src/core/` holds the pure decisions and the types they speak of: which
-  commands are offered (`decideCommand`), whether a session pass's claims hold
-  (`checkPassClaims`), when the host is idle (`isIdle`: no client, no running
+  commands are offered (`decideCommand`), what a session pass is and whether its
+  claims hold (`readPass`, `checkPassClaims`), which addresses are loopback
+  (`isLoopback`), when the host is idle (`isIdle`: no client, no running
   turn, nothing done for the idle minutes) and `SessionSpec`. No
   `node:` builtin, no `effect/process`, `ws` or `jose`, and no global that
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
@@ -39,6 +40,7 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   replays one of t3's recorded fixtures), `t3Client.ts` (t3's RPC client,
   connected as `@t3tools/client-runtime` connects it), `replaySession.ts`
   (the session command over a replay, which `bin.test.ts` starts with node),
+  `cellPass.ts` (a pass signed as the cell's `passSigner` signs one),
   `localProvider.ts` (a `SandboxProvider` whose sandboxes are a temporary
   folder and a `replaySession.ts` process, its ports `http://127.0.0.1:<port>`)
   and `replayRunner.ts` (the runner command over it).
@@ -196,8 +198,17 @@ handlers are host glue that calls the helpers `ws.ts` calls
   was issued, which is the pass), is verified (`verifyPassWith`) before
   anything else is answered:
   a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
-  ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), whose
-  payload decodes as a pass's claims; then `checkPassClaims` judges them. A
+  ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), that
+  `readPass` takes for a pass: its header's `typ` is `PASS_TYPE` and its
+  payload the protocol's claims, read by `@consola/runner-protocol`'s
+  `readPassClaims` (`aud` `PASS_AUDIENCE`, the fields it names and no other,
+  a lifetime of `PASS_MAX_LIFETIME_SECONDS`, 300 s, or less). So a pass is
+  exactly what the cell's `passSigner` signs (`passVerifier.test.ts` signs one
+  with `passClaims` and that header), and another audience, no `typ`, or a
+  longer life is `invalid`. Then `checkPassClaims` judges the time and the
+  session: `exp <= now` is expired, 60 s of clock skew for `iat` only, `sid`
+  first. A `--dev` host alone takes its own longer pass (`PassLifetime`
+  `dev`, below). A
   refused WebSocket is upgraded and closed with `passCloseCode`: `4403` for a
   pass signed by the cell's key that names another session (`sid` is checked
   first, so that pass may also have expired), `4401` for every other refusal
@@ -661,11 +672,26 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   stdout. The key is read and checked before any CLI starts.
 - **`--dev`** stands in for the cell: an Ed25519 key pair made in memory
   (`adapters/devPass.ts`), whose private key is never returned, printed or
-  written, and one pass signed with it: `sub` `dev`, `ws` `local` (names no
+  written, and one pass signed with it as the cell signs one (EdDSA, `typ`
+  `PASS_TYPE`, `aud` `PASS_AUDIENCE`): `sub` `dev`, `ws` `local` (names no
   person or workspace has), `sid` the session id, `iat` now, `exp` twelve hours
-  later. `--pass-public-key` is ignored and `--session-id` defaults to
-  `dev-session`. It listens on loopback only: `--dev` with a `--bind` other than
-  `localhost`, `::1` or a `127.0.0.0/8` address is a start failure (`isLoopback`). Without `--dev`, `--pass-public-key` is required.
+  later (`DEV_PASS_SECONDS`). `--pass-public-key` is ignored and `--session-id`
+  defaults to `dev-session`. It listens on loopback only: `--dev` with a
+  `--bind` other than `localhost`, `::1` or a `127.0.0.0/8` address is a start
+  failure (`isLoopback`, `core/bind.ts`), and `listenHost` refuses a `dev`
+  host bound anywhere else too. Without `--dev`, `--pass-public-key` is
+  required.
+
+  **Why a dev pass outlives the cap.** A cell's pass lives five minutes at
+  most, and the cell signs a new one when the page asks (`onPassExpired`). The
+  dev page has no cell to ask, so a five-minute dev pass would need a renewal
+  path of its own: an endpoint on the host that signs passes, which is a new
+  way in. So `--dev` is exempt from the lifetime cap and from nothing else: its
+  pass carries the cell's `typ` and `aud`, is read by the protocol's rules but
+  the cap (`readPass` with `PassLifetime` `dev`, held to `DEV_PASS_SECONDS`),
+  and is taken only by the host that made the key, on loopback. A host started
+  with `--pass-public-key` takes the protocol's lifetime and no other, whatever
+  a pass says.
 - **State.** t3's state and settings live in `--state-dir`
   (`<dir>/userdata/settings.json`), or in a temporary folder removed at exit.
   The tests pass one whose settings turn update checks off, so a host they
