@@ -453,6 +453,13 @@ interface PreparedCall {
   rendered: RenderedArgument[];
 }
 
+/** A call's start (`startCall`): its signal, the handle a stop, a quit or a deleted workspace reaches, and letting go of it. */
+interface StartedCall {
+  controller: AbortController;
+  handle: RunningStep;
+  letGo(): void;
+}
+
 /** Resolves once `signal` aborts (at once when it has). */
 function abortedOf(signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
@@ -6096,9 +6103,64 @@ export class AutomationService {
       args: rendered.args,
       rendered: rendered.rendered,
     };
-    if (run.dryRun && step.dryRun === 'report') await this.reportCall(call);
-    else if (target === 'consola') await this.callInProcess(call);
-    else await this.callServer(call, target);
+    if (run.dryRun && step.dryRun === 'report') {
+      // Awaited, as it starts nothing: its preview runs while the step is still queued, so a
+      // pass of the line that went on past it would start it a second time.
+      await this.reportCall(call);
+      return;
+    }
+    // Only the start is waited for (review B1): from it the step runs and holds its command
+    // slot, the line goes on, and the call's own end settles it, as a command's does.
+    const started = this.startCall(runId, stepId);
+    const calling =
+      target === 'consola'
+        ? this.callInProcess(call, started)
+        : this.callServer(call, target, started);
+    void calling.catch((error: unknown) => {
+      this.callThrew(runId, error);
+      started.letGo();
+    });
+  }
+
+  /**
+   * A call's start, all of it before anything is awaited: its step running
+   * (it holds a command slot from now) and its handle where a stop, a quit
+   * or a deleted workspace reaches it. What `startUsesStep` waits for.
+   */
+  private startCall(runId: string, stepId: string): StartedCall {
+    const controller = new AbortController();
+    const handle: RunningStep = {
+      stop: () => controller.abort(this.abandoned.has(handle) ? 'quit' : 'stop'),
+    };
+    this.writeSteps(runId, withCallStarted(this.stepsOf(runId), stepId, this.iso()));
+    // The running step now holds the slot its run was let in with.
+    this.admitted.delete(runId);
+    this.runningCommands.set(runId, handle);
+    this.broadcastRun(runId);
+    return {
+      controller,
+      handle,
+      letGo: () => {
+        if (this.runningCommands.get(runId) === handle) this.runningCommands.delete(runId);
+      },
+    };
+  }
+
+  /**
+   * A call that threw past its own handling (a port that broke its word, a
+   * write outside its tries): logged, masked with the run's values, and its
+   * run failed while it still runs, as `settleCall`'s fallback does; the
+   * failure stops its handle, which ends its server. Nothing awaits a call,
+   * so nothing may escape it. A quit records nothing more.
+   */
+  private callThrew(runId: string, error: unknown): void {
+    const reason = maskSecrets(describeError(error), this.masksOf(runId));
+    console.error(`Run ${runId}'s call failed outside its own handling: ${reason}`);
+    try {
+      if (this.started && this.stillRunning(runId)) this.failRun(runId, reason);
+    } catch (failing) {
+      console.error(`Run ${runId} could not be recorded as failed.`, failing);
+    }
   }
 
   /** The masks of every value the run holds: what each string a call writes is masked with. */
@@ -6185,32 +6247,20 @@ export class AutomationService {
   }
 
   /**
-   * A Consola tool, called in process: the step running (it holds a command
-   * slot from now), its handle where a stop, a quit or a deleted workspace
-   * reaches it, its arguments validated, `call.json`, the intent on disk,
-   * then the call, bounded by its `timeout:` (Call 27). A stop or the
-   * timeout after the intent settles it at once as may-or-may-not, and what
-   * the tool returns later is dropped. After every await nothing is written
-   * unless the step still runs (review S3); a quit records nothing more.
+   * A Consola tool, called in process, once `startCall` started its step:
+   * its arguments validated, `call.json`, the intent on disk, then the call,
+   * bounded by its `timeout:` (Call 27). A stop or the timeout after the
+   * intent settles it at once as may-or-may-not, and what the tool returns
+   * later is dropped. After every await nothing is written unless the step
+   * still runs (review S3); a quit records nothing more.
    */
-  private async callInProcess(call: PreparedCall): Promise<void> {
+  private async callInProcess(call: PreparedCall, started: StartedCall): Promise<void> {
     const { runId, stepId, attempt, workspaceId, step } = call;
-    const controller = new AbortController();
-    const handle: RunningStep = {
-      stop: () => controller.abort(this.abandoned.has(handle) ? 'quit' : 'stop'),
-    };
-    const letGo = () => {
-      if (this.runningCommands.get(runId) === handle) this.runningCommands.delete(runId);
-    };
+    const { controller, handle, letGo } = started;
     const fail = (error: string) => {
       letGo();
       this.settleStep(runId, stepId, { status: 'failed', error });
     };
-    this.writeSteps(runId, withCallStarted(this.stepsOf(runId), stepId, this.iso()));
-    // The running step now holds the slot its run was let in with.
-    this.admitted.delete(runId);
-    this.runningCommands.set(runId, handle);
-    this.broadcastRun(runId);
     const tool = this.deps.registry.get(step.tool);
     if (!tool) {
       fail(`there is no Consola tool named "${step.tool}". Nothing was sent.`);
@@ -6388,27 +6438,25 @@ export class AutomationService {
   }
 
   /**
-   * A factory server's tool, called once, in the spec's order: the step
-   * running (a command slot), its handle where a stop, a quit or a deleted
-   * workspace reaches it; the server reached with the run's own values (its
-   * group recorded durably as soon as it exists); the tool, its arguments
-   * and its declared outputs checked; `call.json`; the intent on disk; the
-   * send; the answer on disk; the outputs and `output`; the session closed;
-   * one settle. Anything that fails before the intent says nothing was sent,
-   * and nothing after the send is sent again (decision 26). After every
-   * await nothing is written unless the step still runs (review S3), the
-   * session closed first; a quit records nothing more.
+   * A factory server's tool, called once, in the spec's order, once
+   * `startCall` started its step (a command slot): the server reached with
+   * the run's own values (its group recorded durably as soon as it exists);
+   * the tool, its arguments and its declared outputs checked; `call.json`;
+   * the intent on disk; the send; the answer on disk; the outputs and
+   * `output`; the session closed; one settle. Anything that fails before the
+   * intent says nothing was sent, and nothing after the send is sent again
+   * (decision 26). After every await nothing is written unless the step
+   * still runs (review S3), the session closed first; a quit records nothing
+   * more.
    */
-  private async callServer(call: PreparedCall, server: McpServerDefinition): Promise<void> {
+  private async callServer(
+    call: PreparedCall,
+    server: McpServerDefinition,
+    started: StartedCall,
+  ): Promise<void> {
     const { runId, stepId, attempt, workspaceId, step } = call;
     const mcp = this.deps.mcp;
-    const controller = new AbortController();
-    const handle: RunningStep = {
-      stop: () => controller.abort(this.abandoned.has(handle) ? 'quit' : 'stop'),
-    };
-    const letGo = () => {
-      if (this.runningCommands.get(runId) === handle) this.runningCommands.delete(runId);
-    };
+    const { controller, handle, letGo } = started;
     const running = () => this.started && this.stepRunning(runId, stepId, attempt);
     const recorded = () => this.stepsOf(runId).find((record) => record.id === stepId)?.call;
     // A group recorded for this attempt is ended by the adapter whenever the step ends: the settle says so.
@@ -6420,11 +6468,6 @@ export class AutomationService {
       letGo();
       this.settleStep(runId, stepId, { status: 'failed', error }, { also });
     };
-    this.writeSteps(runId, withCallStarted(this.stepsOf(runId), stepId, this.iso()));
-    // The running step now holds the slot its run was let in with.
-    this.admitted.delete(runId);
-    this.runningCommands.set(runId, handle);
-    this.broadcastRun(runId);
     if (!mcp) {
       fail(
         `this runner can't call MCP servers, so \`${step.uses}\` can't run here. Nothing was sent.`,

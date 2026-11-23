@@ -7,7 +7,7 @@ import {
 } from '@consola/factory-spec';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
 import { z } from 'zod';
 import type { EngineToolContext, McpCallOutcome } from './ports';
 import { maskFormsOf } from './secrets/values';
@@ -2052,5 +2052,182 @@ describe('Check server (5a-2 Task 9)', () => {
     await again.flush();
     expect(again.world.mcp.orphans).toEqual([{ pgid: 4243, startedAt: '' }]);
     expect(again.world.serverGroups.stored?.groups).toHaveLength(1);
+  });
+});
+
+/*
+ * Review B1: a call is a step in the command lane like a command. The line
+ * waits for its start only; its end settles it on its own, so a slow server
+ * never holds every other run on the Mac.
+ */
+describe('the line while a call runs (review B1)', () => {
+  /** One agent step (the agent lane). */
+  const SECOND = `  - name: second\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: think\n        prompt: Think.\n`;
+  /** One command (the command lane). */
+  const THIRD = `  - name: third\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: look\n        run: git log -1\n`;
+
+  /** A call (Consola's own tool, or `slack`'s) running and held until `gate` is released, with `second` and `third` beside it. */
+  async function holding(target: 'consola' | 'server', options: StepsHarnessOptions = {}) {
+    const gate = held();
+    if (target === 'consola') {
+      const spy = newSpy();
+      spy.gate = gate.promise;
+      const yaml = factory('', tidy('auto').split('automations:\n')[1], SECOND, THIRD);
+      const h = await accepted(yaml, spy, options);
+      const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+      await h.flush();
+      return { h, gate, call: () => stepOf(h, run.id, 'clean') };
+    }
+    const answer = async () => {
+      await gate.promise;
+      return POSTED;
+    };
+    const yaml = factory(SLACK, BRIEF, SECOND, THIRD);
+    const { h, post } = await posting(slack({ answer }), { yaml, ...options });
+    return { h, gate, call: post };
+  }
+
+  /** Catches every rejection nothing handled, for the rest of the test. */
+  function escapes(): unknown[] {
+    const escaped: unknown[] = [];
+    const listener = (reason: unknown) => escaped.push(reason);
+    process.on('unhandledRejection', listener);
+    onTestFinished(() => {
+      process.off('unhandledRejection', listener);
+    });
+    return escaped;
+  }
+
+  it.each(['consola', 'server'] as const)(
+    'lets an agent step and a command start while a %s call is held',
+    async (target) => {
+      const { h, gate, call } = await holding(target);
+      expect(call().status).toBe('running');
+      const second = (await h.service.trigger(WORKSPACE_ID, 'second'))!;
+      const third = (await h.service.trigger(WORKSPACE_ID, 'third'))!;
+      await h.flush();
+      expect(stepOf(h, second.id, 'think')).toMatchObject({
+        status: 'running',
+        sessionId: expect.any(String),
+      });
+      expect(stepOf(h, third.id, 'look').status).toBe('running');
+      expect(h.world.commands).toHaveLength(1);
+      // Both started while the call was still held.
+      expect(call().status).toBe('running');
+      gate.release();
+      await h.flush();
+      expect(call().status).toBe('completed');
+    },
+  );
+
+  it.each(['consola', 'server'] as const)(
+    "counts a held %s call in the command lane's cap, while the agent lane goes on",
+    async (target) => {
+      const { h, gate, call } = await holding(target, { maxConcurrentCommands: 1 });
+      const second = (await h.service.trigger(WORKSPACE_ID, 'second'))!;
+      const third = (await h.service.trigger(WORKSPACE_ID, 'third'))!;
+      await h.flush();
+      // The line went on past the call: the agent step started.
+      expect(stepOf(h, second.id, 'think').status).toBe('running');
+      // The command waits for the slot the call holds.
+      expect(h.store.get(third.id)?.status).toBe('queued');
+      expect(h.world.commands).toEqual([]);
+      gate.release();
+      await h.flush();
+      expect(call().status).toBe('completed');
+      expect(stepOf(h, third.id, 'look').status).toBe('running');
+      expect(h.world.commands).toHaveLength(1);
+    },
+  );
+
+  it('fails the run of a call that throws once it started, and nothing escapes (in process)', async () => {
+    const escaped = escapes();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const spy = newSpy();
+    const h = await accepted(tidy('auto'), spy);
+    const attemptDir = h.folder.attemptDir.bind(h.folder);
+    vi.spyOn(h.folder, 'attemptDir').mockImplementation((ws, runId, step, attempt) => {
+      if (step === 'clean') throw new Error('the run folder went away');
+      return attemptDir(ws, runId, step, attempt);
+    });
+    const run = (await h.service.trigger(WORKSPACE_ID, 'tidy'))!;
+    await h.flush();
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'failed',
+      error: 'the run folder went away',
+    });
+    expect(stepOf(h, run.id, 'clean')).toMatchObject({
+      status: 'failed',
+      error: 'the run folder went away',
+    });
+    expect(spy.runs).toEqual([]);
+    expect(escaped).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(run.id));
+  });
+
+  it('fails the run of a server call that throws past its answer, masked, ends its server, and nothing escapes', async () => {
+    const escaped = escapes();
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    // An adapter that breaks its word: `call` never rejects.
+    const { h, run, post } = await posting(
+      slack({
+        answer: () => {
+          throw new Error(`the adapter broke its word over ${BOT_VALUE}`);
+        },
+      }),
+    );
+    await h.flush();
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'failed',
+      error: 'the adapter broke its word over ***',
+    });
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: 'the adapter broke its word over ***',
+    });
+    expect(post().call?.intentAt).toBeDefined();
+    // Its server is ended: the call's signal, which its connection follows, was aborted.
+    expect(h.world.mcp.callSignals[0].reason).toBe('stop');
+    expect(escaped).toEqual([]);
+    expect(JSON.stringify(logged.mock.calls)).not.toContain(BOT_VALUE);
+    expect(logged).toHaveBeenCalledWith(expect.stringContaining(run.id));
+  });
+
+  it('records nothing for a call that throws after a quit, or after its run ended', async () => {
+    const escaped = escapes();
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    let gate = held();
+    const throwing = () =>
+      slack({
+        answersThroughAbort: true,
+        answer: async () => {
+          await gate.promise;
+          throw new Error('the adapter broke its word');
+        },
+      });
+    const quit = await posting(throwing());
+    expect(quit.post().status).toBe('running');
+    quit.h.service.shutdown();
+    const lines = quit.h.history.appends.length;
+    const before = structuredClone(quit.h.store.get(quit.run.id));
+    gate.release();
+    await quit.h.flush();
+    expect(quit.h.store.get(quit.run.id)).toEqual(before);
+    expect(quit.h.history.appends).toHaveLength(lines);
+
+    gate = held();
+    const ended = await posting(throwing());
+    fs.rmSync(path.join(ended.h.folder.runDir(WORKSPACE_ID, ended.run.id), 'definition.json'));
+    await ended.h.service.syncWorkspaces();
+    expect(ended.h.store.get(ended.run.id)?.status).toBe('failed');
+    const failed = structuredClone(ended.h.store.get(ended.run.id));
+    const endedLines = ended.h.history.appends.length;
+    const notices = ended.h.notices.length;
+    gate.release();
+    await ended.h.flush();
+    expect(ended.h.store.get(ended.run.id)).toEqual(failed);
+    expect(ended.h.history.appends).toHaveLength(endedLines);
+    expect(ended.h.notices).toHaveLength(notices);
+    expect(escaped).toEqual([]);
   });
 });

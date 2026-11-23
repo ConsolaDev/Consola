@@ -1071,6 +1071,12 @@ for, which accepts nothing).
   answer, then the outputs, the settle and the close. The intent is written
   before the send and the answer after it; anything that fails before the
   intent says `Nothing was sent.`
+- **A call is in the command lane, and the line waits only for its start.**
+  `startCall` marks its step running and keeps its handle before anything is
+  awaited; the call then runs on its own and its end settles it, as a
+  command's does, so a slow server holds up no other run. Only a dry run's
+  report is awaited, since its preview runs while the step is still queued.
+  A throw past the call's own handling fails its run (`callThrew`).
 - **After the send, only a result without `isError` says what happened.** A
   timeout, a stop, a closed connection, an unreadable or oversized answer and
   an `isError` result all read "may or may not have happened", and nothing
