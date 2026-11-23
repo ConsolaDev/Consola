@@ -41,11 +41,12 @@ export interface AutomationView {
   target: string;
   /**
    * A `steps:` entry's steps in file order, as its pipeline draws them, problem or not.
-   * `summary` is "Prompt", "Review action", an agent-only step's agent, or a command's first line.
+   * `summary` is "Prompt", "Review action", an agent-only step's agent, a command's first line, or a call's
+   * `<server>#<tool>`.
    */
   steps?: Array<{
     id: string;
-    kind: 'agent' | 'run';
+    kind: 'agent' | 'run' | 'uses';
     if?: string;
     summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;

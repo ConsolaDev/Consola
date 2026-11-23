@@ -222,6 +222,7 @@ function NotRunFacts({
 
 /** What a step that did not run would have run: its command and variables as written, or its prompt. */
 function WouldRun({ definition }: { definition: Definition }) {
+  if (definition.kind === 'uses') return null;
   if (definition.kind === 'run') {
     const env = Object.entries(definition.env);
     return (

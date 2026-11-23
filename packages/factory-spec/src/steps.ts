@@ -29,6 +29,7 @@ import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
 import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
+import { parseUsesStep, type UsesStep } from './uses';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
@@ -83,7 +84,9 @@ export interface CommandStep extends StepCommon {
   secrets?: string[];
 }
 
-export type Step = AgentStep | CommandStep;
+export type { UsesStep } from './uses';
+
+export type Step = AgentStep | CommandStep | UsesStep;
 
 /**
  * Keys a later slice owns, with what each arrives with. One table for steps
@@ -102,8 +105,6 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   budget: 'write steps',
   wait: 'waiting runs',
   concurrency: 'waiting runs',
-  uses: 'connections as data',
-  with: 'connections as data',
   callable: 'callable automations',
   inputs: 'callable automations',
 };
@@ -340,43 +341,13 @@ function checkTemplate(text: string, path: Array<string | number>, fail: Fail): 
   return false;
 }
 
-function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
-  const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
-  if (!isRecord(raw)) {
-    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.');
-    return null;
-  }
-  let ok = true;
-  const bad: Fail = (message, path) => {
-    ok = false;
-    failAt(message, path);
-  };
-
-  // Keys: later slices', then strangers.
-  for (const key of Object.keys(raw)) {
-    if (ALL_KEYS.has(key)) continue;
-    if (key === 'inputs')
-      bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
-    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
-    else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
-      bad(laterKeyMessage(key), [key]);
-    else bad(`Unrecognized key in a step: ${key}.`, [key]);
-  }
-
-  const present = ONE_OF.filter((key) => key in raw);
-  if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
-    bad(
-      present.length === 0
-        ? 'A step has one of `prompt`, `action`, `agent` or `run`.'
-        : `A step names one thing to do; got ${present.join(' and ')}.`,
-    );
-    return null;
-  }
-  // An agent step's instruction: its prompt, its action, or none (the agent's body alone).
-  const kind: 'prompt' | 'action' | 'run' | 'agent' = present.length > 0 ? present[0] : 'agent';
-
-  // Id.
-  let id = `step-${index + 1}`;
+/** A step's `id` (or `step-<n>`) and its `if:`, each refused at its key. Shared by every kind of step. */
+function parseIdAndIf(
+  raw: Record<string, unknown>,
+  position: number,
+  bad: Fail,
+): { id: string; named: boolean; condition?: string } {
+  let id = `step-${position + 1}`;
   let named = false;
   if ('id' in raw) {
     const given = raw.id;
@@ -413,6 +384,53 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
       else condition = given;
     }
   }
+  return { id, named, ...(condition !== undefined ? { condition } : {}) };
+}
+
+function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
+  const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
+  if (!isRecord(raw)) {
+    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.');
+    return null;
+  }
+  if ('uses' in raw)
+    return parseUsesStep(raw, failAt, {
+      idAndIf: (given, bad) => parseIdAndIf(given, index, bad),
+      outputs: parseOutputs,
+      timeout: parseTimeout,
+      laterKey: (key) =>
+        Object.prototype.hasOwnProperty.call(LATER_KEYS, key) ? laterKeyMessage(key) : undefined,
+    });
+  let ok = true;
+  const bad: Fail = (message, path) => {
+    ok = false;
+    failAt(message, path);
+  };
+
+  // Keys: later slices', then strangers.
+  for (const key of Object.keys(raw)) {
+    if (ALL_KEYS.has(key)) continue;
+    if (key === 'inputs')
+      bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
+    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
+    else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
+      bad(laterKeyMessage(key), [key]);
+    else bad(`Unrecognized key in a step: ${key}.`, [key]);
+  }
+
+  const present = ONE_OF.filter((key) => key in raw);
+  if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
+    bad(
+      present.length === 0
+        ? 'A step has one of `prompt`, `action`, `agent` or `run`.'
+        : `A step names one thing to do; got ${present.join(' and ')}.`,
+    );
+    return null;
+  }
+  // An agent step's instruction: its prompt, its action, or none (the agent's body alone).
+  const kind: 'prompt' | 'action' | 'run' | 'agent' = present.length > 0 ? present[0] : 'agent';
+
+  const { id, named, condition } = parseIdAndIf(raw, index, bad);
 
   // outputs (a command may name its stdout instead).
   let outputs: Record<string, OutputType> = {};
@@ -747,6 +765,7 @@ function exprTypeOf(type: OutputType, step: string, name: string): ExprType {
 
 /** The documents a step writes: its declared artifacts and handover, or a command's stdout. */
 function artifactsOf(step: Step): string[] {
+  if (step.kind === 'uses') return [];
   return step.kind === 'agent' ? ['handover', ...step.artifacts] : step.stdout ? ['output'] : [];
 }
 
@@ -936,11 +955,13 @@ export function stepItemFields(
       }
     }
     const texts: Array<[string, 'prompt' | 'env']> =
-      step.kind === 'run'
-        ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
-        : step.prompt !== undefined
-          ? [[step.prompt, 'prompt']]
-          : [];
+      step.kind === 'uses'
+        ? []
+        : step.kind === 'run'
+          ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
+          : step.prompt !== undefined
+            ? [[step.prompt, 'prompt']]
+            : [];
     for (const [text, where] of texts) {
       for (const ref of templatePaths(text)) {
         if (ref.root === 'item') found.push({ step: step.id, field: ref.field, where });
@@ -1044,11 +1065,13 @@ export function stepItemFieldProblems(
         problems.push(...ifItemProblems(parsed.expr, (name, text) => lookup(name, text)?.type));
     }
     const texts: Array<[string, 'prompt' | 'env']> =
-      step.kind === 'run'
-        ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
-        : step.prompt !== undefined
-          ? [[step.prompt, 'prompt']]
-          : [];
+      step.kind === 'uses'
+        ? []
+        : step.kind === 'run'
+          ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
+          : step.prompt !== undefined
+            ? [[step.prompt, 'prompt']]
+            : [];
     for (const [text, where] of texts) {
       for (const ref of templatePaths(text)) {
         if (ref.root !== 'item') continue;

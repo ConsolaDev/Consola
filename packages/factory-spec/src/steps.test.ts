@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseFactorySpec, parseFactoryYml } from './parse';
 import { isStepsEntry } from './schema';
 import { AGENT_SECRETS_REASON, ENTRY_SECRETS_REASON, secretTemplateReason } from './secrets';
+import { ENTRY_USES_REASON } from './uses';
 import {
   ENV_PREFIX_EXCEPTIONS,
   GH_IDENTITY_ENV_REASON,
@@ -159,15 +160,12 @@ const STEP_KEYS: Record<string, string> = {
   budget: 'write steps',
   wait: 'waiting runs',
   concurrency: 'waiting runs',
-  uses: 'connections as data',
-  with: 'connections as data',
 };
 const ENTRY_KEYS: Record<string, string> = {
   ...STEP_KEYS,
   callable: 'callable automations',
   inputs: 'callable automations',
 };
-delete ENTRY_KEYS.with; // an entry's `with:` keeps today's message
 
 describe("refuses later slices' keys with a reason", () => {
   it.each(Object.entries(STEP_KEYS))('step key %s arrives with %s', (key, arrives) => {
@@ -192,6 +190,21 @@ describe("refuses later slices' keys with a reason", () => {
   it("keeps an entry's with: message", () => {
     const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    with: x\n`));
     expect(issue.message).toContain('Move `with:` under `run:`');
+  });
+
+  it('takes uses: as a step, and with: only beside it', () => {
+    const result = steps('- uses: slack#chat_post_message\n  with: { channel: C0SUPPORT1 }');
+    expect(result.issues).toEqual([]);
+    expect(firstStep<{ kind: string }>(result).kind).toBe('uses');
+    const issue = only(command('  with: { channel: C0SUPPORT1 }'));
+    expect(issue.path).toBe('automations[0].steps[0].with');
+    expect(issue.message).toBe('Unrecognized key in a step: with.');
+  });
+
+  it('refuses uses: on an entry: it is a step', () => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    uses: slack#x\n`));
+    expect(issue.path).toBe('automations[0].uses');
+    expect(issue.message).toBe(ENTRY_USES_REASON);
   });
 
   it('refuses a stranger by name', () => {
@@ -308,7 +321,6 @@ describe('agent', () => {
     for (const [key, arrives] of [
       ['gate', 'write steps'],
       ['wait', 'waiting runs'],
-      ['uses', 'connections as data'],
       ['callable', 'callable automations'],
     ]) {
       expect(only(inFolder(`- agent: investigator\n  ${key}: x`)).message).toBe(

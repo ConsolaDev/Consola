@@ -208,7 +208,7 @@ function ApprovalStep({
           <Folded label={agent.file} text={agent.body} />
         </>
       )}
-      {step.kind === 'agent' ? (
+      {step.kind === 'uses' ? null : step.kind === 'agent' ? (
         step.action !== undefined ? (
           <>
             <div className="automations-approval-field">

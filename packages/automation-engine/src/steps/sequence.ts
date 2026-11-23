@@ -117,11 +117,13 @@ function dependenciesOf(
     }
   }
   const texts =
-    step.kind === 'agent'
-      ? step.prompt === undefined
-        ? []
-        : [step.prompt]
-      : Object.values(step.env);
+    step.kind === 'uses'
+      ? []
+      : step.kind === 'agent'
+        ? step.prompt === undefined
+          ? []
+          : [step.prompt]
+        : Object.values(step.env);
   const templates: Reference[] = [];
   for (const text of texts) {
     for (const path of templatePaths(text)) {

@@ -42,7 +42,7 @@ export interface RunStage {
   /** For a `step` stage: the step this node is, as the record has it. */
   step?: {
     id: string;
-    kind: 'agent' | 'run';
+    kind: StepRun['kind'];
     status: StepRunStatus;
     skipped?: string;
     error?: string;

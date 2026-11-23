@@ -166,4 +166,12 @@ export {
   type ItemField,
   type ItemFieldTable,
   type Step,
+  type UsesStep,
 } from './steps';
+export {
+  DEFAULT_CALL_TIMEOUT_MS,
+  ENTRY_USES_REASON,
+  MAX_CALL_TIMEOUT_MS,
+  USES_REF_PATTERN,
+  usesTexts,
+} from './uses';

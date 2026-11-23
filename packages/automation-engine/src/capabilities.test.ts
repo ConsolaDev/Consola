@@ -545,11 +545,15 @@ describe('what an agent writing an entry is told of secrets', () => {
     ).toEqual([{ name: 'PAGER_TOKEN', bound: true }]);
   });
 
-  it('no longer lists secrets as arriving with connections as data', () => {
+  it('no longer lists secrets, uses or with as arriving with connections as data', () => {
     const line = grammar()
       .grammar.split('\n')
       .find((candidate) => candidate.startsWith('Not supported yet, refused with a reason:'))!;
-    expect(line).toContain('`uses`, `with` arrive with connections as data');
+    expect(line).not.toContain('`uses`, `with` arrive with connections as data');
+    expect(line).not.toContain('connections as data');
     expect(line).not.toContain('`secrets`');
+    // The other later keys are still listed.
+    expect(line).toContain('`gate`');
+    expect(line).toContain('`wait`, `concurrency` arrive with waiting runs');
   });
 });

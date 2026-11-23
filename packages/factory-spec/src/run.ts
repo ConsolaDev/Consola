@@ -47,7 +47,7 @@ export type StepRunStatus =
  */
 export interface StepRun {
   id: string;
-  kind: 'agent' | 'run';
+  kind: 'agent' | 'run' | 'uses';
   status: StepRunStatus;
   /** 1-based: the nth time this step ran in this run; names its folder. */
   attempt: number;
@@ -85,6 +85,21 @@ export interface StepRun {
     stdoutBytes?: number;
     stderrBytes?: number;
     truncated?: boolean;
+  };
+  /** A `uses:` step's call; each field only once it is true. */
+  call?: {
+    /** A stdio server's process group, written durably as soon as it is spawned; `ended` once Consola ended it. */
+    server?: { pgid: number; startedAt: string; ended?: true };
+    /** Written durably right before `tools/call` is sent. */
+    intentAt?: string;
+    /** Written durably as soon as an answer came back. */
+    resultAt?: string;
+    isError?: true;
+    /** A result without `isError`: the call did what it does. */
+    landed?: true;
+    resultBytes?: number;
+    /** Processes it started still alive after it was ended. */
+    survivors?: number;
   };
   /**
    * Earlier executions of this step, oldest first; `costUsd` and `turns` are

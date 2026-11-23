@@ -108,7 +108,7 @@ export interface RunDefinition {
  */
 export interface StepsRunPreview {
   kind: 'steps-run';
-  steps: Array<{ id: string; kind: 'agent' | 'run' }>;
+  steps: Array<{ id: string; kind: StepRun['kind'] }>;
   /** The item an event run is about. Title and author are the author's own text. */
   item?: { url: string; title: string; author: string; label: string };
   /** A scheduled run's scope. */

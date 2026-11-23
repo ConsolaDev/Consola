@@ -79,13 +79,15 @@ export function describeSteps(
       ...(step.if !== undefined ? { if: step.if } : {}),
       ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
       summary:
-        step.kind === 'run'
-          ? commandSummary(step.run)
-          : step.action !== undefined
-            ? actionRuns(step.action)
-            : step.prompt === undefined && agent
-              ? agent.words
-              : 'Prompt',
+        step.kind === 'uses'
+          ? step.uses
+          : step.kind === 'run'
+            ? commandSummary(step.run)
+            : step.action !== undefined
+              ? actionRuns(step.action)
+              : step.prompt === undefined && agent
+                ? agent.words
+                : 'Prompt',
       ...(agent ? { agent: agent.words, agentFile: agent.file } : {}),
       ...(agent?.servers && agent.servers.length > 0 ? { servers: agent.servers } : {}),
       ...(agent?.skills && agent.skills.length > 0 ? { skills: agent.skills } : {}),
