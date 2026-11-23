@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { scope } from './ci-scope.mjs';
 
@@ -138,4 +139,58 @@ test('a change to the chat view alone runs its job and nothing vendored', () => 
     vendored,
   });
   assert.deepEqual(jobs(result), { agentUi: true, vendor: false, packages: [] });
+});
+
+// The chat view's page tests read the desktop's and cloud-web's CSS as files
+// (packages/agent-ui/src/testing/embeddingPages.ts), which the graph cannot see.
+const onChatView = (changedFiles, affected) =>
+  scope({ event: 'pull_request', changedFiles, affected, all: withOwnJobs, vendored });
+
+test("a change to the desktop's CSS the chat view's page tests read checks the chat view", () => {
+  for (const file of [
+    'apps/desktop/src/renderer/styles/global.css',
+    'apps/desktop/src/renderer/styles/themes/tokens.css',
+    'apps/desktop/src/renderer/styles/themes/light.css',
+  ]) {
+    const result = onChatView([file], ['consola']);
+    assert.equal(result.agentUi, true, file);
+    assert.equal(result.desktop, true, file);
+  }
+});
+
+test("a change to cloud-web's CSS, or to the Radix Themes it installs, checks the chat view", () => {
+  for (const changedFiles of [
+    ['apps/cloud-web/src/ui/styles.css'],
+    ['apps/cloud-web/package.json', 'pnpm-lock.yaml'],
+    // A lockfile-only update within cloud-web's range moves the Radix Themes stylesheet too.
+    ['pnpm-lock.yaml'],
+  ]) {
+    const result = onChatView(changedFiles, ['@consola/cloud-web']);
+    assert.deepEqual(jobs(result), {
+      agentUi: true,
+      vendor: false,
+      packages: ['@consola/cloud-web'],
+    });
+  }
+});
+
+test("a change to the desktop or cloud-web elsewhere leaves the chat view's job out", () => {
+  assert.equal(onChatView(['apps/desktop/src/main/index.ts'], ['consola']).agentUi, false);
+  assert.equal(onChatView(['apps/cloud-web/src/main.tsx'], ['@consola/cloud-web']).agentUi, false);
+  assert.equal(onChatView(['pnpm-lock.yaml'], ['consola']).agentUi, false);
+});
+
+test("every file of another app the chat view's page tests read is in the rule", () => {
+  const pages = readFileSync(
+    new URL('../../packages/agent-ui/src/testing/embeddingPages.ts', import.meta.url),
+    'utf8',
+  );
+  const read = [...pages.matchAll(/read\('\.\.\/\.\.\/(apps\/[^']+)'\)/g)].map((match) => match[1]);
+  assert.ok(read.length >= 4, `found only ${read.length} reads in embeddingPages.ts`);
+  for (const file of read) {
+    // A file in an app's node_modules is what its package.json (and the lockfile) installs.
+    const changed = file.replace(/^(apps\/[^/]+)\/node_modules\/.*$/, '$1/package.json');
+    const app = changed.startsWith('apps/desktop/') ? 'consola' : '@consola/cloud-web';
+    assert.equal(onChatView([changed], [app]).agentUi, true, `${file} (as ${changed})`);
+  }
 });
