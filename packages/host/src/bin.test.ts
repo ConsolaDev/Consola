@@ -55,13 +55,18 @@ import { connectHost } from './testing/t3Client.ts';
 const machine = isolateMachine();
 
 const SRC = dirname(fileURLToPath(import.meta.url));
-/** The command as Track B's runner starts it. */
-const BIN = join(SRC, 'bin.ts');
+/** The command as Track B's runner starts it: the package's bin. */
+const BIN = join(SRC, 'main.ts');
 /** The same command, its Claude driver replaying one of t3's fixtures (test-only). */
 const REPLAY_ENTRY = join(SRC, 'testing', 'replaySession.ts');
 /** The runner, its sandboxes local processes of `replaySession.ts` (test-only). */
 const REPLAY_RUNNER = join(SRC, 'testing', 'replayRunner.ts');
 
+/**
+ * How long after spawning a test signals a host it means to catch loading: past Node's own start
+ * (tens of milliseconds), well before the program it loads has (seconds; `main.ts`).
+ */
+const EARLY_SIGNAL_MS = 400;
 /** Starting node, loading t3 and hydrating its drivers takes seconds; under load, more. */
 const LINE_TIMEOUT = Duration.seconds(60);
 const TEST_TIMEOUT_MS = 150_000;
@@ -333,6 +338,32 @@ describe('consola-host session', () => {
         host.signal('SIGTERM');
         expect(yield* host.exited).toEqual({ code: 0, signal: null });
         expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'exits 0, not by the signal, on a SIGTERM that comes while it is still loading, before ready',
+    () =>
+      Effect.gen(function* () {
+        const cwd = yield* tempFolder('consola-host-bin-acme-');
+        const host = yield* startHost(BIN, [
+          'session',
+          '--dev',
+          '--harness',
+          'claude',
+          '--cwd',
+          cwd,
+          '--port',
+          '0',
+        ]);
+        // Node runs the entry within this, and loading the program it imports takes seconds.
+        yield* Effect.sleep(Duration.millis(EARLY_SIGNAL_MS));
+        host.signal('SIGTERM');
+        expect(yield* host.exited).toEqual({ code: 0, signal: null });
+        // Stopped before it was ready: nothing on stdout, and no failure on stderr.
+        expect(host.printed).toEqual([]);
+        expect(host.stderr()).not.toMatch(/did not stop in time|Error/);
       }).pipe(Effect.scoped, Effect.runPromise),
     TEST_TIMEOUT_MS,
   );

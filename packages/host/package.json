@@ -6,7 +6,7 @@
   "license": "AGPL-3.0-only",
   "type": "module",
   "bin": {
-    "consola-host": "./src/bin.ts"
+    "consola-host": "./src/main.ts"
   },
   "scripts": {
     "typecheck": "effect-tsgo tsrs --noEmit",

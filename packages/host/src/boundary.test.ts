@@ -113,6 +113,15 @@ const LAYERS: Layer[] = [
     testSeams: true,
     consola: [RUNNER_PROTOCOL, SANDBOX],
   },
+  // The bin: signal handlers first, then the program, loaded from `bin.ts` alone. No package,
+  // so its handlers are in place before anything loads.
+  {
+    at: 'main',
+    reaches: ['bin'],
+    refuses: [ANY_PACKAGE],
+    noGlobals: [],
+    consola: [],
+  },
   // The one wiring file, where everything meets.
   {
     at: 'bin',
@@ -492,6 +501,12 @@ describe('the dependency rule', () => {
     ['bin.ts', './runtime/threads.ts', true],
     ['bin.ts', './adapters/ws.ts', true],
     ['bin.ts', '@consola/factory-spec', false],
+    ['main.ts', './bin.ts', true],
+    ['main.ts', './core/pass.ts', false],
+    ['main.ts', './adapters/ws.ts', false],
+    ['main.ts', 'effect', false],
+    ['main.ts', 'node:process', false],
+    ['main.ts', '@consola/runner-protocol', false],
     ['adapters/x.ts', '@consola/automation-engine', false],
     ['core/x.test.ts', '../adapters/ws.ts', true],
     ['x.test.ts', '@consola/factory-spec', false],

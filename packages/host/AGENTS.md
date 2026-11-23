@@ -32,6 +32,10 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   stdout (`stdoutEvents.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
   and its socket to the cell (`cellSocket.ts`). It may import `core/` and
   `runtime/`.
+- `src/main.ts` is the bin: it listens for SIGTERM and SIGINT, then imports
+  `bin.ts` and calls its `main` ("Signals", below). It imports no package and
+  nothing else (its `LAYERS` row reaches `bin` alone), so its listeners are
+  there before anything loads.
 - `src/bin.ts` is the only wiring: it parses the command line, builds the
   adapters and hands them the runtime (`consola-host session`, below), or a
   sandbox provider (`consola-host runner`, below).
@@ -627,8 +631,8 @@ refuses them anywhere else.
 
 ## The `session` command
 
-`src/bin.ts` is the package's `consola-host` bin, run by Node 26 straight from
-source (type stripping; no build step):
+`src/main.ts` is the package's `consola-host` bin (it loads `src/bin.ts`), run by
+Node 26 straight from source (type stripping; no build step):
 
 ```
 consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> --cwd <dir>
@@ -671,7 +675,14 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   thread and its history (t3's in-memory SQLite) go with it.
 - **Signals.** SIGTERM and SIGINT interrupt the program: its scope closes (the
   server, the thread, the provider session and the CLI it runs), then the
-  process exits 0 (1, with a message, if that takes over 15 seconds).
+  process exits 0 (1, with a message, if that takes over 15 seconds). That
+  holds from the first moment: loading the program takes seconds, and the bin
+  (`main.ts`) listens for both before it loads anything, so a signal that
+  comes meanwhile never ends the process by the signal. Node hands it over
+  when its event loop next turns: while loading, nothing has started and the
+  process exits 0; after, the program's handlers have it, as above
+  (`bin.test.ts` signals a host 400 ms after spawning it, before `ready`, and
+  sees exit 0). Task 7's bundle keeps this entry.
 - **Start failures** (a bad flag, a key file that cannot be read or is not an
   Ed25519 public key, `--cwd` not a folder, a port taken): a message on stderr
   (`consola-host: …`, with the usage for a bad flag), exit 1, nothing on
@@ -703,8 +714,8 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   The tests pass one whose settings turn update checks off, so a host they
   start asks no one online.
 
-`runSession(args, runtimeFor)` takes the runtime as a parameter; the entry at
-the bottom of `bin.ts` passes `ThreadRuntime.layer`. `testing/replaySession.ts`
+`runSession(args, runtimeFor)` takes the runtime as a parameter; `main`
+(which `main.ts` calls) passes `ThreadRuntime.layer`. `testing/replaySession.ts`
 runs the same `sessionCommand` and `runHostProcess` over `layerForTests` with
 the Claude replay driver, checking out the fixture's workspace as `--cwd`.
 `bin.test.ts` starts both with node under the test's machine (fake CLIs on the
@@ -852,7 +863,7 @@ provider, and `cellSocket.test.ts` the socket against a `ws` server.
 ```bash
 pnpm --filter @consola/host test        # vp test run (Vite+), config in vite.config.ts
 pnpm --filter @consola/host typecheck   # effect-tsgo, hoisted by publicHoistPattern
-node packages/host/src/bin.ts session --dev --harness claude --cwd <folder>   # from the repo root
+node packages/host/src/main.ts session --dev --harness claude --cwd <folder>   # from the repo root
 ```
 
 ### Running it with the chat
@@ -861,7 +872,7 @@ node packages/host/src/bin.ts session --dev --harness claude --cwd <folder>   # 
 the person's own signed-in `claude`. Two commands, from the repository root, in two terminals:
 
 ```bash
-node packages/host/src/bin.ts session --dev --session-id demo-1 --harness claude --cwd <folder>
+node packages/host/src/main.ts session --dev --session-id demo-1 --harness claude --cwd <folder>
 pnpm --filter @consola/agent-ui dev      # http://localhost:5176
 ```
 

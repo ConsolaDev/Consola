@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // @effect-diagnostics nodeBuiltinImport:off - The wiring reads the command line, the key file and the folders it is given.
 /**
  * `consola-host session`: runs one Consola session's thread and serves it to t3's chat UI.
@@ -19,8 +18,8 @@
  * exits 0 after `{"type":"exit","reason":"idle"}`, or on SIGTERM or SIGINT once the session has
  * stopped; 1, with a message on stderr and nothing on stdout, when it cannot start.
  *
- * This is the host's only wiring: `runSession` takes the runtime as a parameter, and the entry at
- * the bottom passes the production one. A test entry (`testing/replaySession.ts`) runs the same
+ * This is the host's only wiring: `runSession` takes the runtime as a parameter, and `main`
+ * (which the bin, `main.ts`, calls) passes the production one. A test entry (`testing/replaySession.ts`) runs the same
  * command over a replaying runtime; nothing here can reach a test seam.
  */
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
@@ -665,11 +664,15 @@ export const runHostProcess = <E>(
   );
 };
 
-if (import.meta.main) {
-  const argv = process.argv.slice(2);
+/**
+ * The host's process for `argv`: the runner, or a session on the production runtime. `main.ts`,
+ * the bin, calls it once it has loaded this module, its early signal handlers swapped for
+ * `runHostProcess`'s.
+ */
+export const main = (argv: ReadonlyArray<string>): void => {
   if (isRunnerCommand(argv)) {
     runHostProcess(runnerCommand(argv, process.env, productionProvider), 'runner');
   } else {
     runHostProcess(sessionCommand(argv, ThreadRuntime.layer));
   }
-}
+};
