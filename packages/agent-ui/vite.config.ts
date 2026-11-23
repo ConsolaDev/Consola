@@ -55,9 +55,10 @@ const withheldDeviceModels = (): Plugin => ({
   },
 });
 
-/** The address of every WebSocket the tests' page opened since `watchSockets` was first called. */
+/** The address of every WebSocket the tests' page opened since `watchSockets` first saw each page. */
 const openedSockets: string[] = [];
-let watchingSockets = false;
+/** The pages already watched: one listener each, whichever page a test file's browser hands over. */
+const watchedPages = new WeakSet<object>();
 
 /**
  * Vitest's browser mode, as t3 runs its `*.browser.test.tsx` files: Playwright's Chromium. One
@@ -90,8 +91,8 @@ const browser = () => ({
     }: {
       page: { on(event: 'websocket', listener: (socket: { url(): string }) => void): void };
     }) => {
-      if (watchingSockets) return;
-      watchingSockets = true;
+      if (watchedPages.has(page)) return;
+      watchedPages.add(page);
       page.on('websocket', (socket) => openedSockets.push(socket.url()));
     },
     /** Every address `watchSockets` recorded. */
