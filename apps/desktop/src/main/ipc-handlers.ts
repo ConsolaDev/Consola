@@ -90,7 +90,7 @@ import {
 import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
-import { SessionRemover } from './SessionRemover';
+import { releaseRemovedWorktreeWith, SessionRemover } from './SessionRemover';
 import { openingFor } from './harnessSwitch/handoff';
 import { HandoffStore } from './harnessSwitch/HandoffStore';
 import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
@@ -112,7 +112,7 @@ import {
   type WorktreeCleanupRules,
 } from '../shared/worktreeCleanup';
 import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
-import { worktreePathLock } from './worktreeCleanup/PathLock';
+import { lockKey, worktreePathLock } from './worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { automationControl, consolaTools } from './tools/consolaTools';
@@ -661,18 +661,19 @@ export function setupIpcHandlers(): boolean {
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
     removeHandoffs: (sessionId) => handoffs.removeAll(sessionId),
-    releaseRemovedWorktree: ({ removedWorktree: removed }) => {
-      if (!removed) return;
-      const stillNamed = workspaces
-        .getAll()
-        .some((workspace) =>
-          workspace.sessions.some((session) => session.removedWorktree?.path === removed.path),
-        );
-      if (stillNamed) return;
-      void worktrees
-        .deleteKeepRef(removed.mainRepo, removed.keepRef)
-        .catch((error) => console.error(`Could not delete ${removed.keepRef}:`, error));
-    },
+    releaseRemovedWorktree: releaseRemovedWorktreeWith({
+      stillNamed: (worktreePath) =>
+        workspaces
+          .getAll()
+          .some((workspace) =>
+            workspace.sessions.some((session) => session.removedWorktree?.path === worktreePath),
+          ),
+      // Slice 3-B (review NB2): a run in history can still rebuild its own checkout.
+      runNames: (worktreePath) =>
+        automations.runOwningCheckout(worktreePath, (a, b) => lockKey(a) === lockKey(b)) !== null,
+      exists: (worktreePath) => fs.existsSync(worktreePath),
+      deleteKeepRef: (mainRepo, ref) => worktrees.deleteKeepRef(mainRepo, ref),
+    }),
   });
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
@@ -1029,11 +1030,53 @@ export function setupIpcHandlers(): boolean {
     };
   };
 
+  /**
+   * The run in history whose own checkout (slice 3-B) is `dir`, by real
+   * path, with the person's clone its record names (null when its
+   * workspace no longer resolves it).
+   */
+  const runOwnedRecordAt = (dir: string) => {
+    const target = lockKey(dir);
+    const run = runStore
+      .runs()
+      .find(
+        (candidate) =>
+          candidate.checkout?.kind === 'run-owned' && lockKey(candidate.checkout.cwd) === target,
+      );
+    if (!run?.checkout) return null;
+    const workspace = workspaces
+      .getAll()
+      .find((candidate) => candidate.id === run.attribution.workspaceId);
+    const repo = run.checkout.repo;
+    const source = workspace && repo ? worktrees.resolveRepo(workspace, repo) : null;
+    return { run, checkout: run.checkout, source };
+  };
+
   const rebuilder = new WorktreeRebuilder({
     lock: worktreePathLock,
     getWorkspaces: () => workspaces.getAll(),
     worktrees,
     clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    // Slice 3-B (review S3): a run's own checkout comes back from its run's record when no
+    // session's names it (a run of only `run:` steps), never anew.
+    runRecordAt: (dir) => {
+      const found = runOwnedRecordAt(dir);
+      const removed = found?.checkout.removed;
+      if (!found || !removed || !found.source || !found.checkout.branch) return undefined;
+      return {
+        path: found.checkout.cwd,
+        mainRepo: found.source,
+        commit: removed.commit,
+        branch: found.checkout.branch,
+        keepRef: removed.keepRef,
+        // The run's record keeps no trigger; only an ended run's checkout is ever removed.
+        trigger: 'run-finished',
+        removedAt: Date.parse(removed.at),
+        kind: 'run-owned',
+        runId: found.run.id,
+      };
+    },
+    clearRunRecord: (runId) => automations.recordCheckoutRemoved(runId, null),
     rebuilt: (removed, result) =>
       cleanupHistory.append({
         action: 'rebuilt',
@@ -1868,6 +1911,8 @@ export function setupIpcHandlers(): boolean {
     stop: (session) => sessionRemover.stop(session),
     recordRemoved: (entries) => workspaces.recordWorktreesRemoved(entries),
     clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    // Slice 3-B (review S3): a run's own checkout's removal is recorded on its run too.
+    recordRunCheckoutRemoved: (runId, removed) => automations.recordCheckoutRemoved(runId, removed),
     rules: {
       rulesFor: cleanupRulesFor,
       // The shelf's own clock: when it went there, if it reads settled now.
@@ -1881,6 +1926,23 @@ export function setupIpcHandlers(): boolean {
         if (!TERMINAL_RUN_STATUSES.includes(run.status)) return null;
         const ended = Date.parse(run.finishedAt ?? run.updatedAt);
         return Number.isFinite(ended) ? ended : null;
+      },
+      // Slice 3-B (plan Call 11): a run's own checkout is recognised by its run record first.
+      runOwnedOf: (tree) => {
+        const found = runOwnedRecordAt(tree);
+        if (!found) return null;
+        const { run } = found;
+        const ended = Date.parse(run.finishedAt ?? run.updatedAt);
+        return {
+          runId: run.id,
+          source: found.source,
+          endedAt: !TERMINAL_RUN_STATUSES.includes(run.status)
+            ? null
+            : Number.isFinite(ended)
+              ? ended
+              : null,
+          ...(run.attribution.workspaceId ? { workspaceId: run.attribution.workspaceId } : {}),
+        };
       },
     },
     pullRequests: {
@@ -2202,27 +2264,8 @@ export function setupIpcHandlers(): boolean {
         running: isRunning(session),
       })),
     kill: (pid, signal) => process.kill(pid, signal),
-    // Task 19: a removed run's checkout comes back from what its run recorded, never anew.
-    removedRecord: (dir) => {
-      const run = runStore
-        .runs()
-        .find(
-          (candidate) =>
-            candidate.checkout?.kind === 'run-owned' &&
-            path.resolve(candidate.checkout.cwd) === path.resolve(dir),
-        );
-      const checkout = run?.checkout;
-      const workspace = workspaces
-        .getAll()
-        .find((candidate) => candidate.id === run?.attribution.workspaceId);
-      if (!run || !checkout?.removed || !checkout.repo || !checkout.branch || !workspace)
-        return null;
-      const source = worktrees.resolveRepo(workspace, checkout.repo);
-      return source
-        ? { source, branch: checkout.branch, commit: checkout.removed.commit, runId: run.id }
-        : null;
-    },
-    rebuilt: (runId) => automations.recordCheckoutRemoved(runId, null),
+    // Task 19: a removed run's checkout comes back from what records its removal, never anew.
+    restoreAt: (dir) => rebuilder.restoreAt(dir),
     underLock: (dir, work) => worktreePathLock.run(dir, work),
   });
   const automations = new AutomationService({

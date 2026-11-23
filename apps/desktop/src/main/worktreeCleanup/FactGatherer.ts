@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { gitFolderProblem } from '@consola/automation-engine';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
@@ -12,6 +13,7 @@ import {
   type PullRequestFact,
   type TreeFacts,
   treeBlockers,
+  treeDue,
   type UserFacts,
   userBlockers,
 } from './policy';
@@ -26,6 +28,29 @@ export interface RuleSources {
   settledAt(session: Session): number | null;
   /** For a session an automation started: when its run ended, null while it is open. */
   runEndedAt(session: Session): number | null | undefined;
+  /**
+   * The run in history whose own checkout (slice 3-B, `kind: 'run-owned'`)
+   * is `tree`: its id, the person's clone its record names (null when that
+   * clone is not found in the run's workspace, which keeps the folder), when
+   * it ended (null while open) and its workspace. Null when history has no
+   * such run.
+   */
+  runOwnedOf?(tree: string): {
+    runId: string;
+    source: string | null;
+    endedAt: number | null;
+    workspaceId?: string;
+  } | null;
+}
+
+/** What recognising a run's own checkout found: its run, the clone it came from, and its run's place in history. */
+interface RunOwnedTree {
+  runId: string;
+  source: string;
+  /** Null while its run is open; undefined once history has no record of it. */
+  endedAt: number | null | undefined;
+  /** The workspace whose rules apply: the run's, else one whose scope is its clone. */
+  workspace: Workspace | null;
 }
 
 export interface FactSources {
@@ -58,6 +83,8 @@ export interface FactSources {
     | 'nestedRepos'
     | 'hiddenChanges'
     | 'isLocked'
+    | 'runOwnedFolders'
+    | 'runOwnedConfig'
   >;
   processes: Pick<ProcessCwdIndex, 'snapshot'>;
   lock: Pick<PathLock, 'recentlyPrepared'>;
@@ -152,9 +179,24 @@ export class FactGatherer {
     const done = () => ({ facts, inspection });
     let inspection: WorktreeInspection | null = null;
 
+    // A run's own checkout (slice 3-B): a clone, so `inspect` would call it a clone's own
+    // checkout; it is Consola's only when its run, or its git folder's config, says so (Call 11).
+    const runOwned = disk.managed ? await this.recogniseRunOwned(tree) : null;
+    if (runOwned === 'refused') {
+      disk.managed = false;
+      return done();
+    }
+    if (runOwned) {
+      disk.run = {
+        endedAt: runOwned.endedAt,
+        rules: runOwned.workspace ? this.rulesOf(runOwned.workspace, options) : null,
+      };
+    }
+
+    const due = treeDue(disk, options.request);
     const keptByUsers =
       options.request.trigger === 'sweep'
-        ? userFacts.some((user) => userBlockers(user, options.request).blockers.length > 0)
+        ? userFacts.some((user) => userBlockers(user, options.request, due).blockers.length > 0)
         : userFacts.some(
             (user) =>
               !options.request.targets.has(user.sessionId) ||
@@ -163,12 +205,25 @@ export class FactGatherer {
     if (treeBlockers(unreadAsClean(disk)).length > 0) return done();
     if (keptByUsers && !options.thorough) return done();
 
-    inspection = await this.sources.worktrees.inspect(tree);
+    if (runOwned) {
+      // Before any git runs in it: `hiddenChanges` and `ignoredAtRisk` find the git folder
+      // through the checkout's pointer, which only Consola's check can vouch for (review NS1).
+      disk.gitFolder = gitFolderProblem(tree);
+      if (disk.gitFolder !== null) return done();
+    }
+
+    inspection = await this.sources.worktrees.inspect(
+      tree,
+      runOwned ? { runId: runOwned.runId, source: runOwned.source } : undefined,
+    );
     disk.head = inspection?.head ?? null;
     disk.branch = inspection?.branch ?? null;
     disk.dirty = inspection ? inspection.dirty : null;
     disk.dirtyFiles = inspection?.dirtyFiles ?? 0;
-    if (inspection && (!inspection.isLinkedWorktree || inspection.toplevel !== tree)) {
+    const ours = runOwned
+      ? inspection?.runOwned?.runId === runOwned.runId
+      : inspection?.isLinkedWorktree === true;
+    if (inspection && (!ours || inspection.toplevel !== tree)) {
       // A clone's own checkout, or a folder inside some other checkout.
       disk.managed = false;
       return done();
@@ -179,7 +234,10 @@ export class FactGatherer {
     const own = options.countOwnProcesses
       ? { agents: new Set<number>(), shells: new Set<number>() }
       : this.sources.ownProcessIds(users.map((user) => user.session));
-    disk.locked = await this.sources.worktrees.isLocked(inspection.mainRepo, tree);
+    // A clone has no lock of `git worktree lock`'s kind: nothing to read there.
+    disk.locked = runOwned
+      ? false
+      : await this.sources.worktrees.isLocked(inspection.mainRepo, tree);
     disk.processes = ProcessCwdIndex.inTree(snapshot, tree, own.agents, own.shells);
     if (treeBlockers(unreadAsClean(disk)).length > 0) return done();
 
@@ -199,6 +257,77 @@ export class FactGatherer {
     disk.ignored = ignored;
     disk.nested = nested;
     return done();
+  }
+
+  /**
+   * Every run's own checkout under the worktree root this recognises (Call
+   * 11), with the workspace whose rules apply, for the trees no session
+   * uses: they join the sweep and Preview on their run's account.
+   */
+  public async runOwnedTrees(): Promise<Array<{ tree: string; workspaceId: string | null }>> {
+    const found: Array<{ tree: string; workspaceId: string | null }> = [];
+    for (const tree of this.sources.worktrees.runOwnedFolders()) {
+      const owned = await this.recogniseRunOwned(tree);
+      if (owned && owned !== 'refused') {
+        found.push({ tree, workspaceId: owned.workspace?.id ?? null });
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Whether `tree` is a run's own checkout, and whose (plan Call 11, review
+   * M6). Null for a tree with no git folder in `run-git/`, which is
+   * anything else; `refused` for one that has one but that Consola cannot
+   * vouch for, which stays "not a worktree Consola created". By its run
+   * record first, the record's clone winning: the git folder's
+   * `consola.source` must name that clone (on `host` the config is the
+   * agent's to write) and `consola.run` that run. Else, once history
+   * dropped the run, by the config pair alone. Either way the folder's
+   * name must be its run's (`<repo>-run-<run id's first 8>`).
+   */
+  private async recogniseRunOwned(tree: string): Promise<RunOwnedTree | 'refused' | null> {
+    const config = await this.sources.worktrees.runOwnedConfig(tree);
+    if (config === null) return null;
+    if (config === 'unreadable') return 'refused';
+    const named = (runId: string) => path.basename(tree).endsWith(`-run-${runId.slice(0, 8)}`);
+    const record = this.sources.rules?.runOwnedOf?.(tree) ?? null;
+    if (record) {
+      const matches =
+        record.source !== null &&
+        config.runId === record.runId &&
+        realpathOr(config.source) === realpathOr(record.source) &&
+        named(record.runId);
+      if (!matches) return 'refused';
+      const workspace =
+        this.sources.getWorkspaces().find((candidate) => candidate.id === record.workspaceId) ??
+        this.workspaceOfClone(record.source!);
+      return { runId: record.runId, source: record.source!, endedAt: record.endedAt, workspace };
+    }
+    if (!named(config.runId)) return 'refused';
+    return {
+      runId: config.runId,
+      source: config.source,
+      endedAt: undefined,
+      workspace: this.workspaceOfClone(config.source),
+    };
+  }
+
+  /** A workspace one of whose scopes is the clone at `source`, by real path. */
+  private workspaceOfClone(source: string): Workspace | null {
+    const target = realpathOr(source);
+    return (
+      this.sources
+        .getWorkspaces()
+        .find((workspace) => workspace.scopes.some((scope) => realpathOr(scope.path) === target)) ??
+      null
+    );
+  }
+
+  private rulesOf(workspace: Workspace, options: GatherOptions): WorktreeCleanupRules | null {
+    const rules = this.sources.rules;
+    if (!rules) return null;
+    return (options.rulesFor ?? rules.rulesFor)(workspace);
   }
 
   /** The sessions on the tree now, with their own facts. No git, no processes. */
@@ -280,9 +409,10 @@ export class FactGatherer {
 const CLEAN: Required<
   Omit<
     DiskFacts,
-    'managed' | 'scopeFolder' | 'recentlyPrepared' | 'heldByRun' | 'branch' | 'dirtyFiles'
+    'managed' | 'scopeFolder' | 'recentlyPrepared' | 'heldByRun' | 'branch' | 'dirtyFiles' | 'run'
   >
 > = {
+  gitFolder: null,
   head: 'unread',
   dirty: false,
   published: 'published',

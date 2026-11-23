@@ -9,10 +9,20 @@ export interface RebuilderDeps {
   getWorkspaces(): Workspace[];
   worktrees: {
     restore(removed: RemovedWorktree): Promise<RestoreResult>;
+    /** A run's own checkout back from its keep-ref (slice 3-B): `WorktreeService.restoreRunOwned`. */
+    restoreRunOwned(removed: RemovedWorktree): Promise<RestoreResult>;
     deleteKeepRef(mainRepo: string, ref: string): Promise<void>;
   };
   /** Clear `removedWorktree` from every session naming this path. */
   clearRemoved(worktreePath: string): void;
+  /**
+   * A run's own checkout's removal as its run records it (slice 3-B,
+   * review S3), for a folder no session's record names: a run of only
+   * `run:` steps has none. Undefined when no run in history records one.
+   */
+  runRecordAt?(dir: string): RemovedWorktree | undefined;
+  /** Clear that run's record once its folder is back (`recordCheckoutRemoved(runId, null)`). */
+  clearRunRecord?(runId: string): void;
   /** For the history. */
   rebuilt?(removed: RemovedWorktree, result: RestoreResult): void;
 }
@@ -62,18 +72,28 @@ export class WorktreeRebuilder {
 
   private async restoreUnlocked(dir: string): Promise<Rebuild> {
     // Read again under the lock: another open may have rebuilt it meanwhile.
-    const removed = this.recordFor(dir);
+    const removed = this.recordFor(dir) ?? this.deps.runRecordAt?.(dir);
     if (!removed) return { rebuilt: false };
+    const runOwned = removed.kind === 'run-owned';
 
     let result: RestoreResult;
     try {
-      result = await this.deps.worktrees.restore(removed);
+      result = runOwned
+        ? await this.deps.worktrees.restoreRunOwned(removed)
+        : await this.deps.worktrees.restore(removed);
     } catch (error) {
-      throw new Error(`Consola could not rebuild this session's worktree: ${describeError(error)}`);
+      throw new Error(
+        `Consola could not rebuild ${runOwned ? "this run's checkout" : "this session's worktree"}: ${describeError(error)}`,
+      );
     }
     this.deps.clearRemoved(removed.path);
+    if (runOwned && removed.runId) this.deps.clearRunRecord?.(removed.runId);
     this.deps.lock.markPrepared(removed.path);
-    await this.deps.worktrees.deleteKeepRef(removed.mainRepo, removed.keepRef).catch(() => {});
+    // A rebuilt run's clone borrows every object from the person's clone, so its keep-ref is
+    // what keeps its commits from `gc` there: it stays while the folder does (review NB2).
+    if (!runOwned) {
+      await this.deps.worktrees.deleteKeepRef(removed.mainRepo, removed.keepRef).catch(() => {});
+    }
     try {
       this.deps.rebuilt?.(removed, result);
     } catch (error) {
@@ -109,5 +129,6 @@ function noticeFor(removed: RemovedWorktree, result: RestoreResult): string {
     : removed.branch
       ? `at ${short}, detached: ${removed.branch} has moved since`
       : `at ${short}, detached`;
-  return `Consola rebuilt this session's worktree ${where}. Dependencies and build output were not restored.`;
+  const what = removed.kind === 'run-owned' ? "this run's checkout" : "this session's worktree";
+  return `Consola rebuilt ${what} ${where}. Dependencies and build output were not restored.`;
 }

@@ -8,7 +8,15 @@ import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
 import type { RemovedWorktree } from '../shared/worktreeCleanup';
 import { getProviderDriver, type GitProviderDriver } from './providers';
-import { withoutRepositoryOverrides } from '@consola/automation-engine';
+import {
+  deleteRunClone,
+  fetchKeepRef,
+  gitFolderProblem,
+  rebuildRunClone,
+  runCloneGitDirFor,
+  runCloneGitEnv,
+  withoutRepositoryOverrides,
+} from '@consola/automation-engine';
 import { withoutGitHooks } from './gitHooks';
 import { resolveSshRemote } from './sshRemote';
 import {
@@ -45,6 +53,12 @@ export interface WorktreeInspection {
   dirty: boolean;
   /** How many paths `git status` lists; 0 when it could not say. */
   dirtyFiles: number;
+  /**
+   * A run's own checkout (slice 3-B): a clone whose git folder is outside
+   * it, read with that folder named; `mainRepo` is the person's clone it
+   * was made from. Absent for anything else.
+   */
+  runOwned?: { runId: string };
 }
 
 /** What putting a removed worktree back found or did. */
@@ -644,33 +658,129 @@ export class WorktreeService {
   }
 
   /**
+   * The direct children of the root that have a git folder in `run-git/`
+   * (`runCloneGitDirFor`): the shape of a run's own checkout (slice 3-B).
+   * Whose they are is `runOwnedConfig`'s and the run record's to say.
+   */
+  public runOwnedFolders(): string[] {
+    const root = realpathOrNull(this.root);
+    if (root === null) return [];
+    let names: string[];
+    try {
+      names = fs.readdirSync(root);
+    } catch {
+      return [];
+    }
+    return names.map((name) => path.join(root, name)).filter((dir) => this.hasRunGitFolder(dir));
+  }
+
+  /** Whether `dir` has a run clone's git folder beside the root: a direct child of it, with `run-git/<name>.git` a folder. */
+  private hasRunGitFolder(dir: string): boolean {
+    if (!this.isDirectChildOfRoot(dir, realpathOrNull)) return false;
+    try {
+      return fs.lstatSync(runCloneGitDirFor(dir)).isDirectory();
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * What a run's own checkout's git folder says it is (plan Call 11):
+   * `consola.run` and `consola.source`, which `makeRunClone` writes beside
+   * the identity, read from the file alone (`git config --file`, no
+   * repository found, no include followed). Null when `dir` has no git
+   * folder in `run-git/`; `unreadable` when it has one that does not say.
+   */
+  public async runOwnedConfig(
+    dir: string,
+  ): Promise<{ runId: string; source: string } | 'unreadable' | null> {
+    if (!this.hasRunGitFolder(dir)) return null;
+    const file = path.join(runCloneGitDirFor(dir), 'config');
+    const env = {
+      ...withoutGitHooks(withoutRepositoryOverrides(process.env)),
+      GIT_CONFIG_NOSYSTEM: '1',
+      GIT_CONFIG_GLOBAL: '/dev/null',
+    };
+    const read = (key: string) =>
+      this.git(path.dirname(file), ['config', '--file', file, '--get', key], env);
+    const [run, source] = await Promise.all([read('consola.run'), read('consola.source')]);
+    const runId = run.stdout.trim();
+    const from = source.stdout.trim();
+    if (run.code !== 0 || source.code !== 0 || !runId || !from) return 'unreadable';
+    return { runId, source: from };
+  }
+
+  /** The environment git runs with in `dir`: a run's own checkout's git folder named (Call 9), else `env` as it is. */
+  private gitEnvFor(dir: string, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    const tree = this.managedTreeOf(dir);
+    return tree !== null && this.hasRunGitFolder(tree) ? runCloneGitEnv(tree, env) : env;
+  }
+
+  /**
    * The facts that decide whether removing a checkout could lose work.
    * Null when `dir` is gone or is not inside a git checkout at all.
+   *
+   * A run's own checkout (slice 3-B) is read with its git folder named,
+   * never found through its pointer, and only after `gitFolderProblem`:
+   * a changed one is not read at all (null). Its `mainRepo` is the clone
+   * `owner` names (its run record's), else the one its config names.
    */
-  public async inspect(dir: string): Promise<WorktreeInspection | null> {
+  public async inspect(
+    dir: string,
+    owner?: { runId: string; source: string },
+  ): Promise<WorktreeInspection | null> {
     if (!fs.existsSync(dir)) return null;
-    const facts = await this.git(dir, [
-      'rev-parse',
-      '--path-format=absolute',
-      '--show-toplevel',
-      '--git-dir',
-      '--git-common-dir',
-      'HEAD',
-    ]);
+    if (this.hasRunGitFolder(dir)) return this.inspectRunOwned(dir, owner);
+    return this.inspectWith(dir, process.env);
+  }
+
+  private async inspectRunOwned(
+    dir: string,
+    owner?: { runId: string; source: string },
+  ): Promise<WorktreeInspection | null> {
+    if (gitFolderProblem(dir) !== null) return null;
+    const config = owner ?? (await this.runOwnedConfig(dir));
+    if (config === null || config === 'unreadable') return null;
+    const read = await this.inspectWith(dir, runCloneGitEnv(dir, process.env));
+    if (!read) return null;
+    return {
+      ...read,
+      mainRepo: config.source,
+      isLinkedWorktree: false,
+      runOwned: { runId: config.runId },
+    };
+  }
+
+  private async inspectWith(
+    dir: string,
+    env: NodeJS.ProcessEnv,
+  ): Promise<WorktreeInspection | null> {
+    const facts = await this.git(
+      dir,
+      [
+        'rev-parse',
+        '--path-format=absolute',
+        '--show-toplevel',
+        '--git-dir',
+        '--git-common-dir',
+        'HEAD',
+      ],
+      env,
+    );
     if (facts.code !== 0) return null;
     const [toplevel, gitDir, commonDir, head] = facts.stdout.trim().split('\n');
     if (!toplevel || !gitDir || !commonDir || !head) return null;
 
     const [branchOut, status, origin] = await Promise.all([
-      this.git(toplevel, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
+      this.git(toplevel, ['symbolic-ref', '--quiet', '--short', 'HEAD'], env),
       // Explicit: `status.showUntrackedFiles=no` would hide new files.
-      this.git(toplevel, ['status', '--porcelain', '--untracked-files=normal']),
-      this.git(toplevel, ['remote', 'get-url', 'origin']),
+      this.git(toplevel, ['status', '--porcelain', '--untracked-files=normal'], env),
+      this.git(toplevel, ['remote', 'get-url', 'origin'], env),
     ]);
     const branch = branchOut.code === 0 ? branchOut.stdout.trim() || null : null;
     let remoteBranch: string | null = branch;
     if (branch) {
-      const merge = await this.git(toplevel, ['config', '--get', `branch.${branch}.merge`]);
+      const merge = await this.git(toplevel, ['config', '--get', `branch.${branch}.merge`], env);
       const tracked = merge.stdout.trim();
       // A branch pushed under another name tracks it here; `gh pr checkout`
       // of a fork tracks refs/pull/<n>/head, which names no branch at all.
@@ -695,7 +805,11 @@ export class WorktreeService {
 
   /** Ignored files only this worktree has: see `worktreeCleanup/localFiles`. */
   public ignoredAtRisk(tree: string, mainRepo: string): Promise<AtRiskFiles> {
-    return ignoredAtRisk((cwd, args) => this.git(cwd, args), tree, mainRepo);
+    return ignoredAtRisk(
+      (cwd, args) => this.git(cwd, args, this.gitEnvFor(cwd, process.env)),
+      tree,
+      mainRepo,
+    );
   }
 
   /** Repositories nested below the tree's root. */
@@ -709,7 +823,8 @@ export class WorktreeService {
    * index. A sparse checkout's absent skip-worktree files lose nothing.
    */
   public async hiddenChanges(tree: string): Promise<HiddenChanges> {
-    const listed = await this.git(tree, ['ls-files', '-v', '-z']);
+    const env = this.gitEnvFor(tree, process.env);
+    const listed = await this.git(tree, ['ls-files', '-v', '-z'], env);
     if (listed.code !== 0) return { kind: 'unknown' };
     const flagged = listed.stdout
       .split('\0')
@@ -719,8 +834,8 @@ export class WorktreeService {
       .filter((file) => fs.existsSync(path.join(tree, file)));
     if (flagged.length === 0) return { kind: 'none' };
     const [staged, hashed] = await Promise.all([
-      this.git(tree, ['ls-files', '-s', '-z', '--', ...flagged]),
-      this.git(tree, ['hash-object', '--', ...flagged]),
+      this.git(tree, ['ls-files', '-s', '-z', '--', ...flagged], env),
+      this.git(tree, ['hash-object', '--', ...flagged], env),
     ]);
     if (staged.code !== 0 || hashed.code !== 0) return { kind: 'unknown' };
     const indexed = new Map<string, string>();
@@ -759,14 +874,17 @@ export class WorktreeService {
   public async commitsArePublished(
     inspection: WorktreeInspection,
     options: { knownHead?: string; fetchRef?: string },
-    env: NodeJS.ProcessEnv,
+    callerEnv: NodeJS.ProcessEnv,
   ): Promise<PublishedVerdict> {
     const cwd = inspection.toplevel;
     const { knownHead, fetchRef } = options;
+    // A run's own checkout is read with its git folder named (Call 9); anything else as before.
+    const local = inspection.runOwned ? runCloneGitEnv(cwd, process.env) : process.env;
+    const env = inspection.runOwned ? runCloneGitEnv(cwd, callerEnv) : callerEnv;
     if (knownHead) {
       if (inspection.head === knownHead) return 'published';
       const hasCommit = async () =>
-        (await this.git(cwd, ['cat-file', '-e', `${knownHead}^{commit}`])).code === 0;
+        (await this.git(cwd, ['cat-file', '-e', `${knownHead}^{commit}`], local)).code === 0;
       let present = await hasCommit();
       if (!present && fetchRef) {
         await this.git(cwd, ['fetch', '--quiet', '--no-tags', 'origin', fetchRef], {
@@ -776,22 +894,19 @@ export class WorktreeService {
         present = await hasCommit();
       }
       if (!present) return 'unverifiable';
-      const ancestor = await this.git(cwd, [
-        'merge-base',
-        '--is-ancestor',
-        inspection.head,
-        knownHead,
-      ]);
+      const ancestor = await this.git(
+        cwd,
+        ['merge-base', '--is-ancestor', inspection.head, knownHead],
+        local,
+      );
       if (ancestor.code === 0) return 'published';
       return ancestor.code === 1 ? 'local-commits' : 'unverifiable';
     }
-    const unpublished = await this.git(cwd, [
-      'rev-list',
-      '--count',
-      inspection.head,
-      '--not',
-      '--remotes',
-    ]);
+    const unpublished = await this.git(
+      cwd,
+      ['rev-list', '--count', inspection.head, '--not', '--remotes'],
+      local,
+    );
     if (unpublished.code !== 0) return 'unverifiable';
     return Number(unpublished.stdout.trim()) === 0 ? 'published' : 'local-commits';
   }
@@ -951,6 +1066,90 @@ export class WorktreeService {
       }
     }
     return { kind: 'rebuilt', branch };
+  }
+
+  /** What a keep-ref points at in the clone now, or null when there is none. */
+  public async keepRefAt(mainRepo: string, ref: string): Promise<string | null> {
+    if (!ref.startsWith('refs/consola/')) return null;
+    const read = await this.git(mainRepo, ['rev-parse', '--verify', '--quiet', ref]);
+    return read.code === 0 ? read.stdout.trim() || null : null;
+  }
+
+  /**
+   * Before a run's own checkout goes (slice 3-B, plan Call 10): its branch
+   * fetched into the person's clone as `keepRef`, which must then be
+   * `head` (the engine's `fetchKeepRef`, its git folder checked first).
+   */
+  public fetchKeepRef(inspection: WorktreeInspection, keepRef: string): Promise<void> {
+    if (!inspection.runOwned || !inspection.branch) {
+      return Promise.reject(
+        new Error(`${inspection.toplevel} is not a run's own checkout on a branch.`),
+      );
+    }
+    return fetchKeepRef({
+      source: inspection.mainRepo,
+      dir: inspection.toplevel,
+      branch: inspection.branch,
+      head: inspection.head,
+      keepRef,
+    });
+  }
+
+  /**
+   * A run's own checkout and its git folder, gone (slice 3-B; never
+   * `git worktree remove`, which refuses a clone). Refuses anything that is
+   * not a direct child of the root named for its run
+   * (`<repo>-run-<run id's first 8>`) whose git folder's `consola.run` is
+   * the run the inspection names.
+   */
+  public async removeRunClone(inspection: WorktreeInspection): Promise<void> {
+    const dir = inspection.toplevel;
+    const refuse = () => new Error(`Refusing to remove ${dir}: it is not a run's own checkout.`);
+    const runId = inspection.runOwned?.runId;
+    if (
+      !runId ||
+      !this.isManagedPath(dir) ||
+      !path.basename(dir).endsWith(`-run-${runId.slice(0, 8)}`)
+    ) {
+      throw refuse();
+    }
+    const config = await this.runOwnedConfig(dir);
+    if (config === null || config === 'unreadable' || config.runId !== runId) throw refuse();
+    deleteRunClone(dir);
+  }
+
+  /**
+   * Put a run's own checkout a cleanup rule removed back (slice 3-B, plan
+   * Call 10): both folders and the pointer as `makeRunClone` made them, its
+   * branch at the recorded commit, which the keep-ref keeps in the person's
+   * clone; no fetch. The caller holds the folder's lock and keeps the
+   * keep-ref (review NB2). A folder already there is left alone: reported
+   * when its git folder is as Consola made it, refused otherwise.
+   */
+  public async restoreRunOwned(removed: RemovedWorktree): Promise<RestoreResult> {
+    const dir = removed.path;
+    if (fs.existsSync(dir)) {
+      const problem = gitFolderProblem(dir);
+      if (problem) {
+        throw new Error(`${dir} exists but ${problem}, so Consola left it alone.`);
+      }
+      const head = await this.git(dir, ['rev-parse', 'HEAD'], runCloneGitEnv(dir, process.env));
+      return { kind: 'existed', head: head.stdout.trim() };
+    }
+    if (!removed.runId || !removed.branch) {
+      throw new Error(`nothing records which run's branch ${dir} was on.`);
+    }
+    if (!fs.existsSync(removed.mainRepo)) {
+      throw new Error(`the repository it belonged to is gone (${removed.mainRepo}).`);
+    }
+    await rebuildRunClone({
+      source: removed.mainRepo,
+      dir,
+      branch: removed.branch,
+      commit: removed.commit,
+      runId: removed.runId,
+    });
+    return { kind: 'rebuilt', branch: removed.branch };
   }
 
   /** Best-effort: a keep-ref left behind costs one ref, never work. */

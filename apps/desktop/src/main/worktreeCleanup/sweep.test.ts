@@ -15,6 +15,7 @@ import { WorktreeService } from '../WorktreeService';
 import { WorktreeCleanupService } from '.';
 import { treeHeldByRun } from './FactGatherer';
 import { PathLock } from './PathLock';
+import { KEEP_REF, RunOwnedRig } from './runOwned.test-helpers';
 
 /**
  * The rules applied across workspaces, against real git: what a sweep
@@ -431,5 +432,74 @@ describe('deleting a session', () => {
     const { outcome } = await remove(session);
     expect(outcome).toMatchObject({ branch: 'deleted' });
     expect(git(rig.clone, 'branch', '--list', 'consola/session-z')).toBe('');
+  });
+});
+
+describe("the sweep and a run's own checkout (slice 3-B Task 19)", () => {
+  const rigs: RunOwnedRig[] = [];
+  afterAll(() => {
+    for (const made of rigs) made.dispose();
+  });
+  async function forgotten(): Promise<RunOwnedRig> {
+    const made = await new RunOwnedRig().make();
+    rigs.push(made);
+    made.push();
+    // History dropped its run: only the folder's own config says whose it is.
+    made.record = null;
+    return made;
+  }
+
+  it('the history rule is off by default, and removes one once the person turns it on', async () => {
+    const made = await forgotten();
+    made.rules = DEFAULT_WORKTREE_CLEANUP_RULES;
+    expect(await made.service().sweep()).toMatchObject({ removed: [], kept: [] });
+    // Another rule on, this one off: kept, and Preview says why.
+    made.rules = {
+      ...DEFAULT_WORKTREE_CLEANUP_RULES,
+      runFinished: { enabled: true, afterMinutes: 0 },
+    };
+    expect((await made.service().sweep()).removed).toEqual([]);
+    expect((await made.service().scan()).entries).toEqual([
+      {
+        tree: made.dir,
+        sessions: [],
+        decision: 'keep',
+        reason: 'Its automation run is no longer in history',
+      },
+    ]);
+    expect(fs.existsSync(made.dir)).toBe(true);
+
+    made.rules = { ...DEFAULT_WORKTREE_CLEANUP_RULES, runForgotten: true };
+    const report = await made.service().sweep();
+    expect(report.removed).toEqual([
+      {
+        tree: made.dir,
+        sessions: [],
+        decision: 'remove',
+        reason: 'Its automation run is no longer in history',
+        trigger: 'run-forgotten',
+      },
+    ]);
+    expect(fs.existsSync(made.dir)).toBe(false);
+    expect(made.git(made.source, 'rev-parse', '--verify', KEEP_REF)).toBe(made.head);
+  });
+
+  it('never touches one whose run is open, nor one in a workspace whose cleanup is off', async () => {
+    const made = await forgotten();
+    made.record = { endedAt: null };
+    made.rules = {
+      ...DEFAULT_WORKTREE_CLEANUP_RULES,
+      runFinished: { enabled: true, afterMinutes: 0 },
+      runForgotten: true,
+    };
+    expect((await made.service().scan()).entries[0]).toMatchObject({
+      decision: 'keep',
+      reason: 'Its automation run is still open',
+    });
+    expect((await made.service().sweep()).removed).toEqual([]);
+    made.record = null;
+    made.rules = null;
+    expect(await made.service().sweep()).toMatchObject({ removed: [], kept: [] });
+    expect(fs.existsSync(made.dir)).toBe(true);
   });
 });

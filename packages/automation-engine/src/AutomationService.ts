@@ -2898,6 +2898,25 @@ export class AutomationService {
     this.broadcastRun(runId);
   }
 
+  /**
+   * Task 19 (review NB2): the run in history whose own checkout is `dir`,
+   * by the path its record names: what can still rebuild a removed folder,
+   * so its keep-ref stays while one does. Null when history has none.
+   * `samePath` is the host's comparison (real paths); exact by default.
+   */
+  public runOwningCheckout(
+    dir: string,
+    samePath: (a: string, b: string) => boolean = (a, b) => a === b,
+  ): string | null {
+    const run = this.deps.store
+      .runs()
+      .find(
+        (candidate) =>
+          candidate.checkout?.kind === 'run-owned' && samePath(candidate.checkout.cwd, dir),
+      );
+    return run?.id ?? null;
+  }
+
   public async retry(runId: string, stepId?: string): Promise<RunRecord> {
     const run = this.deps.store.get(runId);
     if (!run || !isStepsRun(run) || run.status !== 'failed')

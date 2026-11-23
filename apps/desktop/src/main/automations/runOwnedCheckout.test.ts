@@ -10,7 +10,11 @@ import {
 } from '@consola/automation-engine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
+import type { RemovedWorktree } from '../../shared/worktreeCleanup';
+import { WorktreeService } from '../WorktreeService';
+import { PathLock } from '../worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from '../worktreeCleanup/ProcessCwdIndex';
+import { WorktreeRebuilder } from '../worktreeCleanup/WorktreeRebuilder';
 import {
   runCheckoutSpawnRefusal,
   runOwnedCheckoutPort,
@@ -59,8 +63,7 @@ function deps(over: Partial<RunOwnedCheckoutDeps> = {}): RunOwnedCheckoutDeps {
     sessions: () => [],
     kill: noSignals(),
     graceMs: 300,
-    removedRecord: () => null,
-    rebuilt: () => {},
+    restoreAt: async () => ({ rebuilt: false }),
     underLock: (_dir, work) => work(),
     ...over,
   };
@@ -350,15 +353,34 @@ describe("a run's own checkout that cleanup removed, rebuilt for a Retry (slice 
     const keepRef = 'refs/consola/worktrees/catalog-portal-run-3f2a91c0';
     await fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef });
     deleteRunClone(dir);
-    const rebuilt = vi.fn();
+    // The run's record of the removal, as main reads it from history (no session names it).
+    let record: RemovedWorktree | undefined = {
+      path: dir,
+      mainRepo: source,
+      commit: head,
+      branch: 'fix/SHOP-42',
+      keepRef,
+      trigger: 'run-finished',
+      removedAt: 0,
+      kind: 'run-owned',
+      runId: '3f2a91c0aabbccdd',
+    };
+    const cleared = vi.fn((_runId: string) => {
+      record = undefined;
+    });
+    const rebuilder = new WorktreeRebuilder({
+      lock: new PathLock(),
+      getWorkspaces: () => [],
+      worktrees: new WorktreeService(root),
+      clearRemoved: () => {},
+      runRecordAt: (at) => (at === dir ? record : undefined),
+      clearRunRecord: cleared,
+    });
+    const restoreAt = vi.fn((at: string) => rebuilder.restoreAt(at));
     const locked: string[] = [];
     const port = runOwnedCheckoutPort(
       deps({
-        removedRecord: (at) =>
-          at === dir
-            ? { source, branch: 'fix/SHOP-42', commit: head, runId: '3f2a91c0aabbccdd' }
-            : null,
-        rebuilt,
+        restoreAt,
         underLock: (at, work) => {
           locked.push(at);
           return work();
@@ -369,13 +391,14 @@ describe("a run's own checkout that cleanup removed, rebuilt for a Retry (slice 
     expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
     expect(fs.readFileSync(path.join(dir, 'fix.txt'), 'utf8')).toBe('fixed\n');
     expect(port.folderProblem(dir)).toBeNull();
-    expect(rebuilt).toHaveBeenCalledWith('3f2a91c0aabbccdd');
+    expect(cleared).toHaveBeenCalledWith('3f2a91c0aabbccdd');
     expect(locked).toEqual([dir]);
     // The keep-ref stays while the rebuilt folder exists (review NB2).
     expect(git(source, 'rev-parse', keepRef)).toBe(head);
     // A folder that is there is left alone.
     await port.restore(dir);
-    expect(rebuilt).toHaveBeenCalledTimes(1);
+    expect(restoreAt).toHaveBeenCalledTimes(1);
+    expect(cleared).toHaveBeenCalledTimes(1);
   });
 
   it('a folder that is gone with no record of its removal is refused, never made anew', async () => {

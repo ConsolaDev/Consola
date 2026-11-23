@@ -1663,4 +1663,18 @@ describe("a run's own checkout that cleanup removed (Task 19)", () => {
     expect(runOf(h, run.id).checkout).toMatchObject({ kind: 'run-owned', base: 'b0' });
     h.service.recordCheckoutRemoved('no-such-run', removed);
   });
+
+  it("names the run in history whose own checkout a folder is, by the host's path comparison (review NB2)", async () => {
+    const { h, run } = await failedRun();
+    const dir = ownedDir(h, run.id);
+    expect(h.service.runOwningCheckout(dir)).toBe(run.id);
+    expect(h.service.runOwningCheckout(`${dir}/`)).toBeNull();
+    expect(
+      h.service.runOwningCheckout(
+        `${dir}/`,
+        (a, b) => a.replace(/\/$/, '') === b.replace(/\/$/, ''),
+      ),
+    ).toBe(run.id);
+    expect(h.service.runOwningCheckout('/elsewhere/catalog-portal-run-00000000')).toBeNull();
+  });
 });

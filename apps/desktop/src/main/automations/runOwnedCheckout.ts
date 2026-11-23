@@ -4,7 +4,6 @@ import {
   folderChangedMessage,
   gitFolderProblem,
   makeRunClone,
-  rebuildRunClone,
   RunCheckoutError,
   resetRunClone,
   runCloneChanges,
@@ -54,16 +53,13 @@ export interface RunOwnedCheckoutDeps {
   /** How long a step's processes get after SIGTERM before SIGKILL; absent, 2 s. For tests. */
   graceMs?: number;
   /**
-   * Task 19: what a removed run's checkout at `dir` is rebuilt from, read
-   * from the run's record (`checkout.removed`): the person's clone, the
-   * branch, the commit the removal recorded and the run; null when nothing
-   * records a removal there.
+   * Task 19: a removed run's checkout at `dir` put back from what records
+   * its removal, the sessions' record or else the run's, at the commit it
+   * recorded, both records cleared and the keep-ref kept
+   * (`WorktreeRebuilder.restoreAt`, called with the folder's lock held).
+   * `rebuilt: false` when nothing records a removal there.
    */
-  removedRecord(
-    dir: string,
-  ): { source: string; branch: string; commit: string; runId: string } | null;
-  /** Clears the run's record once the folder is back (`AutomationService.recordCheckoutRemoved(runId, null)`). */
-  rebuilt(runId: string): void;
+  restoreAt(dir: string): Promise<{ rebuilt: boolean }>;
   /** The folder's lock, which removal, rebuild and making all take (`PathLock.run`). */
   underLock<T>(dir: string, work: () => Promise<T>): Promise<T>;
 }
@@ -220,13 +216,11 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     restore: (dir) =>
       deps.underLock(dir, async () => {
         if (fs.existsSync(dir)) return;
-        const record = deps.removedRecord(dir);
-        if (!record)
+        const { rebuilt } = await deps.restoreAt(dir);
+        if (!rebuilt)
           throw new Error(
             `${dir} is gone and nothing records how to rebuild it, so Consola will not make it anew`,
           );
-        await rebuildRunClone({ dir, ...record });
-        deps.rebuilt(record.runId);
       }),
   };
 }

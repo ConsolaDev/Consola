@@ -30,4 +30,28 @@ describe("main's worktree cleanup", () => {
       /\n {4}runHolds: \(tree\) => treeHeldByRun\(tree, automations\.heldCheckouts\(\), worktrees\),\n/,
     );
   });
+
+  it("records a run's own checkout's removal on its run, and recognises one by its run record (slice 3-B Task 19)", () => {
+    expect(cleanupDeps()).toMatch(
+      /\n {4}recordRunCheckoutRemoved: \(runId, removed\) => automations\.recordCheckoutRemoved\(runId, removed\),\n/,
+    );
+    expect(cleanupDeps()).toMatch(
+      /\n {6}runOwnedOf: \(tree\) => \{\n {8}const found = runOwnedRecordAt\(tree\);/,
+    );
+  });
+
+  it("rebuilds a run's own checkout from its run's record, keeping the lock, for the run's Retry too", () => {
+    const from = ipc.indexOf('new WorktreeRebuilder({');
+    const rebuilder = ipc.slice(from, ipc.indexOf('\n  });', from));
+    expect(rebuilder).toMatch(
+      /\n {4}runRecordAt: \(dir\) => \{\n {6}const found = runOwnedRecordAt\(dir\);/,
+    );
+    expect(rebuilder).toMatch(
+      /\n {4}clearRunRecord: \(runId\) => automations\.recordCheckoutRemoved\(runId, null\),\n/,
+    );
+    expect(ipc).toMatch(/\n {4}restoreAt: \(dir\) => rebuilder\.restoreAt\(dir\),\n/);
+    expect(ipc).toMatch(
+      /runNames: \(worktreePath\) =>\n {8}automations\.runOwningCheckout\(worktreePath, \(a, b\) => lockKey\(a\) === lockKey\(b\)\) !== null,/,
+    );
+  });
 });

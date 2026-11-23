@@ -49,6 +49,8 @@ export const REGENERABLE_DIRECTORY_NAMES: ReadonlySet<string> = new Set([
   '.tox',
   'coverage',
   '.nyc_output',
+  // A run's own checkout's package caches (slice 3-B): Consola points npm and pnpm there.
+  '.consola-cache',
 ]);
 
 /** Files the OS or a tool drops and nobody misses. */

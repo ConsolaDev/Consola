@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  anyRuleOn,
+  anySweepRuleOn,
   DEFAULT_WORKTREE_CLEANUP_RULES,
+  describeTrigger,
+  normalizeRules,
   type WorktreeCleanupRules,
 } from '../../shared/worktreeCleanup';
 import {
@@ -290,5 +294,140 @@ describe('judge: deleting a session', () => {
   it('keeps today’s branch rule for the tools', () => {
     const verdict = verdictOf([user()], { branch: 'feature/mine' }, deleting('tool-delete'));
     expect(verdict).toMatchObject({ decision: 'remove', branch: 'delete-at-head' });
+  });
+});
+
+describe("judge: a run's own checkout (slice 3-B Task 19)", () => {
+  const RUN_FINISHED = rules({ runFinished: { enabled: true, afterMinutes: 60 } });
+  const owned = (run: DiskFacts['run'], disk: Partial<DiskFacts> = {}): Partial<DiskFacts> => ({
+    run,
+    gitFolder: null,
+    branch: 'fix/SHOP-42',
+    ...disk,
+  });
+
+  it('with no session on it, its run decides: removed once its run ended that long ago, its branch kept', () => {
+    expect(verdictOf([], owned({ endedAt: NOW - 2 * 60 * 60_000, rules: RUN_FINISHED }))).toEqual({
+      decision: 'remove',
+      tree: '/wt/app-session-1',
+      sessionIds: [],
+      trigger: 'run-finished',
+      branch: 'keep',
+    });
+  });
+
+  it.each([
+    [
+      'its run is open',
+      { endedAt: null, rules: RUN_FINISHED },
+      'run-open',
+      'its automation run is still open',
+    ],
+    [
+      'its run ended too recently',
+      { endedAt: NOW - 30 * 60_000, rules: RUN_FINISHED },
+      'not-due',
+      'its automation run ended 30 minutes ago; removed after 1 hour',
+    ],
+    [
+      'cleanup is off for its workspace',
+      { endedAt: NOW - DAY, rules: null },
+      'not-due',
+      'cleanup is off for its workspace',
+    ],
+    [
+      'history dropped its run and the history rule is off',
+      { endedAt: undefined, rules: RUN_FINISHED },
+      'not-due',
+      'its automation run is no longer in history',
+    ],
+    [
+      'no rule for runs is on',
+      { endedAt: NOW - DAY, rules: rules({ settledDays: 1 }) },
+      'not-due',
+      'no cleanup rule applies to it',
+    ],
+  ])('keeps it when %s', (_name, run, kind, detail) => {
+    const verdict = verdictOf([], owned(run));
+    expect(verdict).toMatchObject({ decision: 'keep', blockers: [{ kind, detail }] });
+    expect(verdict.decision === 'keep' && verdict.blockers).toHaveLength(1);
+  });
+
+  it('removes it under the history rule once its run is no longer in history', () => {
+    expect(
+      verdictOf([], owned({ endedAt: undefined, rules: rules({ runForgotten: true }) })),
+    ).toMatchObject({ decision: 'remove', trigger: 'run-forgotten', branch: 'keep' });
+  });
+
+  it("a step's session on it goes by the run's rule, not its own; busy or recent still keeps it", () => {
+    const step = user({ rules: rules(), settledAt: null, lastActiveAt: NOW - 3 * 60 * 60_000 });
+    const ended = owned({ endedAt: NOW - 2 * 60 * 60_000, rules: RUN_FINISHED });
+    expect(verdictOf([step], ended)).toMatchObject({ decision: 'remove', trigger: 'run-finished' });
+    expect(headline([{ ...step, status: 'working' }], ended)).toBe('busy');
+    expect(headline([{ ...step, lastActiveAt: NOW - 30 * 60_000 }], ended)).toBe('recent');
+    // The run's own rule is the session's here: while the run is open, the tree says why.
+    expect(verdictOf([step], owned({ endedAt: null, rules: RUN_FINISHED }))).toMatchObject({
+      decision: 'keep',
+      blockers: [{ kind: 'run-open' }],
+    });
+  });
+
+  it('a changed git folder keeps it as unknown, and one never checked is not fully checked', () => {
+    expect(
+      verdictOf(
+        [],
+        owned(
+          { endedAt: NOW - DAY, rules: RUN_FINISHED },
+          { gitFolder: ".git in the checkout is not Consola's pointer", head: undefined },
+        ),
+      ),
+    ).toMatchObject({
+      decision: 'keep',
+      blockers: [
+        {
+          kind: 'unknown',
+          detail:
+            "its git folder changed (.git in the checkout is not Consola's pointer), so Consola did not read it",
+        },
+      ],
+    });
+    expect(
+      verdictOf([], owned({ endedAt: NOW - DAY, rules: RUN_FINISHED }, { gitFolder: undefined })),
+    ).toMatchObject({
+      decision: 'keep',
+      blockers: [{ kind: 'unknown', detail: 'it was not fully checked' }],
+    });
+  });
+
+  it('a person deleting a session in it never deletes a branch: it lives in the run clone', () => {
+    const verdict = verdictOf(
+      [user()],
+      owned({ endedAt: NOW - DAY, rules: RUN_FINISHED }, { branch: 'consola/run' }),
+      { trigger: 'session-deleted', targets: new Set(['s-1']), now: NOW },
+    );
+    expect(verdict).toMatchObject({ decision: 'remove', branch: 'keep' });
+  });
+});
+
+describe('the history rule in the rules value', () => {
+  it('is off when absent, written only when on, and counts as a sweep rule', () => {
+    expect(normalizeRules({})).not.toHaveProperty('runForgotten');
+    expect(normalizeRules({ runForgotten: true })).toMatchObject({ runForgotten: true });
+    expect(
+      normalizeRules(
+        { runForgotten: 'yes' },
+        { ...DEFAULT_WORKTREE_CLEANUP_RULES, runForgotten: true },
+      ),
+    ).toMatchObject({ runForgotten: true });
+    expect(
+      normalizeRules(
+        { runForgotten: false },
+        { ...DEFAULT_WORKTREE_CLEANUP_RULES, runForgotten: true },
+      ),
+    ).not.toHaveProperty('runForgotten');
+    expect(anySweepRuleOn(DEFAULT_WORKTREE_CLEANUP_RULES)).toBe(false);
+    expect(anySweepRuleOn(rules({ runForgotten: true }))).toBe(true);
+    expect(anyRuleOn(rules({ runForgotten: true }))).toBe(true);
+    expect(describeTrigger('run-forgotten')).toBe('Its automation run is no longer in history');
   });
 });
