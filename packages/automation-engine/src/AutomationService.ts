@@ -192,13 +192,22 @@ import {
   utf8Bytes,
 } from './steps/commandIO';
 import {
+  CALL_ERROR_CHARS,
   CALL_RESULT_CAP_BYTES,
+  callEnd,
   callFileOf,
   callOutputs,
+  CONNECT_BUDGET_CAP_MS,
   invokeInProcess,
   maskDeep,
+  mayHaveHappened,
+  outputArtifactOf,
+  outputSchemaProblem,
   reachedOf,
   renderCallArguments,
+  resultFileOf,
+  resultObjectOf,
+  serverLaunchOf,
   withCallIntent,
   withCallResult,
   withCallStarted,
@@ -439,14 +448,6 @@ function abortedOf(signal: AbortSignal): Promise<void> {
     else signal.addEventListener('abort', () => resolve(), { once: true });
   });
 }
-
-/** What a call that may have landed is settled with: it was sent, and no clean answer was recorded. */
-function mayHaveHappened(why: string): string {
-  return `It may or may not have happened: ${why}. Check, then retry.`;
-}
-
-/** The most a tool's own error text is repeated in the step's error. */
-const CALL_ERROR_CHARS = 300;
 
 /** A `steps:` entry's problem on a host whose platform is `win32`. */
 const NO_POSIX_SHELL = 'run: steps need a POSIX shell, which Windows does not have';
@@ -6355,12 +6356,250 @@ export class AutomationService {
     }
   }
 
-  /** A factory server's call: Task 8's. Until then nothing is sent. */
-  private async callServer(call: PreparedCall, _server: McpServerDefinition): Promise<void> {
-    this.settleStep(call.runId, call.stepId, {
-      status: 'failed',
-      error: "this runner can't call MCP servers yet. Nothing was sent.",
+  /**
+   * A factory server's tool, called once, in the spec's order: the step
+   * running (a command slot), its handle where a stop, a quit or a deleted
+   * workspace reaches it; the server reached with the run's own values (its
+   * group recorded durably as soon as it exists); the tool, its arguments
+   * and its declared outputs checked; `call.json`; the intent on disk; the
+   * send; the answer on disk; the outputs and `output`; the session closed;
+   * one settle. Anything that fails before the intent says nothing was sent,
+   * and nothing after the send is sent again (decision 26). After every
+   * await nothing is written unless the step still runs (review S3), the
+   * session closed first; a quit records nothing more.
+   */
+  private async callServer(call: PreparedCall, server: McpServerDefinition): Promise<void> {
+    const { runId, stepId, attempt, workspaceId, step } = call;
+    const mcp = this.deps.mcp;
+    const controller = new AbortController();
+    const handle: RunningStep = {
+      stop: () => controller.abort(this.abandoned.has(handle) ? 'quit' : 'stop'),
+    };
+    const letGo = () => {
+      if (this.runningCommands.get(runId) === handle) this.runningCommands.delete(runId);
+    };
+    const running = () => this.started && this.stepRunning(runId, stepId, attempt);
+    const recorded = () => this.stepsOf(runId).find((record) => record.id === stepId)?.call;
+    // A group recorded for this attempt is ended by the adapter whenever the step ends: the settle says so.
+    const ended = (): Partial<StepRun> => {
+      const call = recorded();
+      return call?.server ? { call: { ...call, server: { ...call.server, ended: true } } } : {};
+    };
+    const fail = (error: string, also: Partial<StepRun> = ended()) => {
+      letGo();
+      this.settleStep(runId, stepId, { status: 'failed', error }, { also });
+    };
+    this.writeSteps(runId, withCallStarted(this.stepsOf(runId), stepId, this.iso()));
+    // The running step now holds the slot its run was let in with.
+    this.admitted.delete(runId);
+    this.runningCommands.set(runId, handle);
+    this.broadcastRun(runId);
+    if (!mcp) {
+      fail(
+        `this runner can't call MCP servers, so \`${step.uses}\` can't run here. Nothing was sent.`,
+      );
+      return;
+    }
+    const held = this.runSecrets.held(runId);
+    const masks = held?.masks ?? [];
+    const launched = serverLaunchOf(server, held?.values ?? {});
+    if (!launched.ok) {
+      fail(launched.error);
+      return;
+    }
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, attempt);
+    const connected = await mcp.connect({
+      ...launched.launch,
+      name: step.server,
+      masks,
+      ...(server.transport === 'stdio' ? { logPath: `${dir}/server.log` } : {}),
+      timeoutMs: Math.min(step.timeoutMs, CONNECT_BUDGET_CAP_MS),
+      signal: controller.signal,
+      // Durably, before `initialize`: a quit or a crash from here on leaves a group the next start ends.
+      onSpawned: (group) => {
+        if (!running()) throw new Error('its run ended');
+        this.deps.store.updateDurably(runId, {
+          steps: withStep(this.stepsOf(runId), stepId, {
+            call: { ...recorded(), server: { pgid: group.pgid, startedAt: group.startedAt } },
+          }),
+          updatedAt: this.iso(),
+        });
+      },
     });
+    const session = connected.ok ? connected.session : undefined;
+    const closing = () => (session ? session.close() : Promise.resolve({ survivors: 0 }));
+    if (this.abandoned.has(handle)) {
+      void closing();
+      return;
+    }
+    if (!running()) {
+      letGo();
+      void closing();
+      return;
+    }
+    if (!connected.ok) {
+      fail(
+        controller.signal.aborted
+          ? 'It was stopped before the call was sent. Nothing was sent.'
+          : connected.whole
+            ? `${maskSecrets(connected.reason, masks)} Nothing was sent.`
+            : `Couldn't reach \`${step.server}\`: ${maskSecrets(connected.reason, masks).trim().replace(/\.$/, '')}. Nothing was sent.`,
+      );
+      return;
+    }
+    // Every refusal from here on closes the session before it settles.
+    const refuse = async (error: string) => {
+      const { survivors } = await closing();
+      if (this.abandoned.has(handle) || !running()) {
+        letGo();
+        return;
+      }
+      const also = ended();
+      fail(error, survivors > 0 ? { call: { ...also.call, survivors } } : also);
+    };
+    const tool = connected.session.tools.find((candidate) => candidate.name === step.tool);
+    if (!tool) {
+      const names = connected.session.tools.map((candidate) => candidate.name);
+      const listed =
+        names.length === 0
+          ? 'none'
+          : `${names.slice(0, 20).join(', ')}${names.length > 20 ? ', …' : ''}`;
+      await refuse(
+        `\`${step.server}\` has no tool \`${step.tool}\` (it has: ${maskSecrets(listed, masks)}). Nothing was sent.`,
+      );
+      return;
+    }
+    const argumentsProblem = connected.session.checkArguments(tool, call.args);
+    if (argumentsProblem !== null) {
+      await refuse(`with: ${maskSecrets(argumentsProblem, masks)}. Nothing was sent.`);
+      return;
+    }
+    const schemaProblem = outputSchemaProblem(step.outputs, tool.outputSchema, step.uses);
+    if (schemaProblem !== null) {
+      await refuse(schemaProblem);
+      return;
+    }
+    try {
+      this.deps.runFolder.writeJson(
+        dir,
+        'call.json',
+        callFileOf(
+          {
+            server: step.server,
+            reached: reachedOf(server),
+            tool: step.tool,
+            rendered: call.rendered,
+          },
+          masks,
+        ),
+      );
+    } catch (error) {
+      await refuse(
+        `Could not record what it would send (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    try {
+      this.deps.store.updateDurably(runId, {
+        steps: withCallIntent(this.stepsOf(runId), stepId, this.iso()),
+        updatedAt: this.iso(),
+      });
+    } catch (error) {
+      await refuse(
+        `Could not record that it was about to call (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    const outcome = await connected.session.call(step.tool, call.args, {
+      timeoutMs: step.timeoutMs,
+      signal: controller.signal,
+    });
+    // A quit let go of it: its step keeps its intent, for the next start to fail as interrupted.
+    if (this.abandoned.has(handle)) {
+      void closing();
+      return;
+    }
+    if (!running()) {
+      letGo();
+      void closing();
+      return;
+    }
+    // From the intent on, one try (Call 28): whatever throws says what may have happened, never that nothing was sent.
+    let answered = false;
+    let end: { status: 'completed' } | { status: 'failed'; error: string };
+    let also: Partial<StepRun> = {};
+    try {
+      let outputs: ReturnType<typeof callOutputs> | undefined;
+      let artifact: { bytes: number } | undefined;
+      if (outcome.kind === 'answered') {
+        this.deps.store.updateDurably(runId, {
+          steps: withCallResult(this.stepsOf(runId), stepId, this.iso(), {
+            isError: outcome.isError,
+            bytes: outcome.bytes,
+          }),
+          updatedAt: this.iso(),
+        });
+        answered = true;
+        this.deps.runFolder.writeJson(dir, 'result.json', resultFileOf(outcome, masks));
+        if (!outcome.isError) {
+          const object = resultObjectOf(outcome);
+          outputs = callOutputs(
+            step.outputs,
+            object === null ? null : (maskDeep(object, masks) as Record<string, unknown>),
+          );
+          const output = outputArtifactOf(outcome, masks);
+          if (output)
+            artifact = this.deps.runFolder.writeArtifact(
+              workspaceId,
+              runId,
+              stepId,
+              attempt,
+              'output',
+              output.content,
+              output.format,
+            );
+        }
+      }
+      const verdict = callEnd(
+        { ref: step.uses, timeoutMs: step.timeoutMs, outcome, outputs },
+        masks,
+      );
+      end =
+        verdict.status === 'completed'
+          ? { status: 'completed' }
+          : { status: 'failed', error: verdict.error ?? 'failed' };
+      also = {
+        call: { ...recorded(), ...verdict.call },
+        ...(verdict.status === 'completed' && outputs?.ok && Object.keys(outputs.outputs).length > 0
+          ? { outputs: outputs.outputs }
+          : {}),
+        ...(verdict.status === 'completed' && artifact
+          ? { artifacts: [{ name: 'output', bytes: artifact.bytes }] }
+          : {}),
+      };
+    } catch (error) {
+      const reason = maskSecrets(describeReason(error), masks);
+      end = {
+        status: 'failed',
+        error: answered
+          ? `It happened, but Consola could not record its result (${reason}).`
+          : mayHaveHappened(reason),
+      };
+      also = { call: { ...recorded(), ...(answered ? { landed: true as const } : {}) } };
+    }
+    const { survivors } = await closing();
+    letGo();
+    if (this.abandoned.has(handle) || !running()) return;
+    const kept = also.call ?? recorded();
+    also = {
+      ...also,
+      call: {
+        ...kept,
+        ...(kept?.server ? { server: { ...kept.server, ended: true as const } } : {}),
+        ...(survivors > 0 ? { survivors } : {}),
+      },
+    };
+    this.settleCall(runId, stepId, end, also);
   }
 
   /** A call's latest attempt: what it sent (`call.json`), what came back (`result.json`) and its server's stderr; each absent when its file is. */

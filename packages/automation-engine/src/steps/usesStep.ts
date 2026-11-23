@@ -10,11 +10,23 @@ import {
   type TemplatePath,
   type UsesStep,
 } from '@consola/factory-spec';
-import type { EngineToolContext, EngineToolResult, RunFolderPort, ToolsPort } from '../ports';
+import type {
+  EngineToolContext,
+  EngineToolResult,
+  McpCallOutcome,
+  RunFolderPort,
+  ToolsPort,
+} from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
-import { maskSecrets, utf8Bytes } from './commandIO';
-import type { CallFile, RenderedArgument, RunDefinition } from './definition';
+import { clipText, formatDuration, maskSecrets, utf8Bytes } from './commandIO';
+import {
+  MAX_ARTIFACT_BYTES,
+  type CallFile,
+  type CallResultFile,
+  type RenderedArgument,
+  type RunDefinition,
+} from './definition';
 import { withStep } from './stepRecords';
 
 /*
@@ -31,6 +43,15 @@ export const MAX_TEMPLATED_BYTES = 256 * 1024;
 export const MAX_ARGUMENT_BYTES = 1024 * 1024;
 /** The most of a call's answer `result.json` keeps, serialised; past it, the first 1 MB of its text. */
 export const CALL_RESULT_CAP_BYTES = 1024 * 1024;
+/** Connecting's budget is `min(timeoutMs, CONNECT_BUDGET_CAP_MS)` (Call 8, review Minor 19). */
+export const CONNECT_BUDGET_CAP_MS = 120_000;
+/** The most of a tool's own error text a step's error repeats. */
+export const CALL_ERROR_CHARS = 300;
+
+/** What a call that may have landed is settled with: it was sent, and no clean answer was recorded. */
+export function mayHaveHappened(why: string): string {
+  return `It may or may not have happened: ${why}. Check, then retry.`;
+}
 
 /** What a step's arguments are over, in the step error's words (the caller adds `Nothing was sent.`). */
 const OVER_TEMPLATED = 'with: its templated values are over 256 KB';
@@ -287,4 +308,208 @@ export function callOutputs(
     outputs[name] = checked.valid[name];
   }
   return { ok: true, outputs };
+}
+
+/** What a server's secret is refused with when the run does not hold it (defensive: the gate read it). */
+export const SECRETS_NOT_READ =
+  "its server's secrets were not read before it started. Nothing was sent.";
+
+/**
+ * A launch from the run's snapshot of the server and the values it holds: a stdio server's `env:` and its own
+ * secrets as its environment, or a remote one's headers with each `${NAME}` filled in. Only the server's own
+ * secrets go (review S8); a header value with a CR or LF refuses.
+ */
+export function serverLaunchOf(
+  server: McpServerDefinition,
+  values: Readonly<Record<string, string>>,
+):
+  | {
+      ok: true;
+      launch:
+        | { transport: 'stdio'; command: string; args: string[]; env: Record<string, string> }
+        | { transport: 'http'; url: string; headers: Record<string, string> };
+    }
+  | { ok: false; error: string } {
+  const names = server.secrets ?? [];
+  if (names.some((name) => !own(values, name))) return { ok: false, error: SECRETS_NOT_READ };
+  if (server.transport === 'stdio') {
+    const env: Record<string, string> = { ...server.env };
+    for (const name of names) env[name] = values[name];
+    return {
+      ok: true,
+      launch: { transport: 'stdio', command: server.command, args: [...server.args], env },
+    };
+  }
+  const headers: Record<string, string> = {};
+  for (const [header, template] of Object.entries(server.headers)) {
+    let broken: string | undefined;
+    const value = template.replace(/\$\{([^}]*)\}/g, (whole, name: string) => {
+      if (!names.includes(name)) return whole;
+      if (broken === undefined && /[\r\n]/.test(values[name])) broken = name;
+      return values[name];
+    });
+    if (broken !== undefined)
+      return {
+        ok: false,
+        error: `Couldn't use \`${broken}\` in a header: its value holds a line break. Nothing was sent.`,
+      };
+    headers[header] = value;
+  }
+  return { ok: true, launch: { transport: 'http', url: server.url, headers } };
+}
+
+/** The JSON Schema types a declared output takes from a tool's `outputSchema`. */
+function acceptedTypes(type: OutputType): string[] {
+  switch (type.type) {
+    case 'string':
+    case 'enum':
+      return ['string'];
+    case 'integer':
+      return ['integer'];
+    case 'number':
+      return ['number', 'integer'];
+    case 'boolean':
+      return ['boolean'];
+  }
+}
+
+/** Each declared output against a tool's `outputSchema`; null when every one is a property of a compatible type (or the tool has none). */
+export function outputSchemaProblem(
+  declared: Readonly<Record<string, OutputType>>,
+  outputSchema: unknown,
+  ref: string,
+): string | null {
+  if (!isRecord(outputSchema)) return null;
+  const properties = isRecord(outputSchema.properties) ? outputSchema.properties : {};
+  for (const name of Object.keys(declared)) {
+    if (!own(properties, name))
+      return `\`${ref}\`'s output schema has no \`${name}\`. Nothing was sent.`;
+    const property = properties[name];
+    const given = isRecord(property) ? property.type : undefined;
+    const types =
+      typeof given === 'string' ? [given] : Array.isArray(given) ? given.map(String) : [];
+    // A property with no type takes anything.
+    if (types.length === 0) continue;
+    const wanted = acceptedTypes(declared[name]);
+    if (!types.some((type) => wanted.includes(type)))
+      return `\`${ref}\` returns \`${name}\` as ${types.join(' or ')}, and this step declares it ${declared[name].type}. Nothing was sent.`;
+  }
+  return null;
+}
+
+type Answered = Extract<McpCallOutcome, { kind: 'answered' }>;
+
+/** The text of a content block, when it is one. */
+function textOf(block: unknown): string | undefined {
+  return isRecord(block) && block.type === 'text' && typeof block.text === 'string'
+    ? block.text
+    : undefined;
+}
+
+/** The object outputs are read from: `structuredContent` when it is an object, else the text of the one text block parsed as a JSON object; null otherwise. */
+export function resultObjectOf(outcome: Answered): Record<string, unknown> | null {
+  if (outcome.structuredContent !== undefined)
+    return isRecord(outcome.structuredContent) ? outcome.structuredContent : null;
+  if (outcome.content.length !== 1) return null;
+  const text = textOf(outcome.content[0]);
+  if (text === undefined) return null;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The first `bytes` of `text`'s UTF-8, as text. */
+function firstBytes(text: string, bytes: number): string {
+  return new TextDecoder().decode(new TextEncoder().encode(text).subarray(0, bytes));
+}
+
+/** `result.json`: masked (`maskDeep`), then serialised, then cut at `CALL_RESULT_CAP_BYTES`, so no secret straddles the cut (review S9). */
+export function resultFileOf(outcome: Answered, masks: readonly string[]): CallResultFile {
+  const result = maskDeep(
+    {
+      content: outcome.content,
+      ...(outcome.structuredContent !== undefined
+        ? { structuredContent: outcome.structuredContent }
+        : {}),
+    },
+    masks,
+  );
+  const text = JSON.stringify(result);
+  if (utf8Bytes(text) <= CALL_RESULT_CAP_BYTES)
+    return { isError: outcome.isError, bytes: outcome.bytes, result };
+  return {
+    isError: outcome.isError,
+    bytes: outcome.bytes,
+    cut: firstBytes(text, CALL_RESULT_CAP_BYTES),
+  };
+}
+
+/** The `output` artifact: `structuredContent` as JSON or the one text block as text, masked; null over `MAX_ARTIFACT_BYTES` or for anything else. */
+export function outputArtifactOf(
+  outcome: Answered,
+  masks: readonly string[],
+): { content: string; format: 'json' | 'text' } | null {
+  let found: { content: string; format: 'json' | 'text' } | null = null;
+  if (outcome.structuredContent !== undefined)
+    found = { content: JSON.stringify(maskDeep(outcome.structuredContent, masks)), format: 'json' };
+  else if (outcome.content.length === 1) {
+    const text = textOf(outcome.content[0]);
+    if (text !== undefined) found = { content: maskSecrets(text, masks), format: 'text' };
+  }
+  return found && utf8Bytes(found.content) <= MAX_ARTIFACT_BYTES ? found : null;
+}
+
+/** Why a call got no clean answer, as the may-or-may-not words say it. */
+function unansweredWhy(
+  outcome: Extract<McpCallOutcome, { kind: 'unanswered' }>,
+  timeoutMs: number,
+  masks: readonly string[],
+): string {
+  switch (outcome.why) {
+    case 'timeout':
+      return `the call timed out after ${formatDuration(timeoutMs)}`;
+    case 'stopped':
+      return 'it was stopped while the call ran';
+    case 'closed':
+      return 'the server closed the connection before answering';
+    case 'too-large':
+      return 'its answer was over 8 MB';
+    case 'unreadable':
+      return `its answer could not be read (${clipText(maskSecrets(outcome.detail, masks), CALL_ERROR_CHARS)})`;
+  }
+}
+
+/** How the step ends, from the outcome (the Failure table): its status, its error, and the record's `call` fields. */
+export function callEnd(
+  input: {
+    ref: string;
+    timeoutMs: number;
+    outcome: McpCallOutcome;
+    outputs?: ReturnType<typeof callOutputs>;
+  },
+  masks: readonly string[],
+): {
+  status: 'completed' | 'failed';
+  error?: string;
+  call: Pick<NonNullable<StepRun['call']>, 'isError' | 'landed'>;
+} {
+  const { ref, timeoutMs, outcome, outputs } = input;
+  if (outcome.kind === 'unanswered')
+    return {
+      status: 'failed',
+      error: mayHaveHappened(unansweredWhy(outcome, timeoutMs, masks)),
+      call: {},
+    };
+  if (outcome.isError) {
+    const text = outcome.content.map(textOf).find((found) => found !== undefined);
+    const said =
+      text === undefined ? 'it gave no text' : clipText(maskSecrets(text, masks), CALL_ERROR_CHARS);
+    return { status: 'failed', error: `\`${ref}\` failed: ${said}`, call: { isError: true } };
+  }
+  if (outputs && !outputs.ok)
+    return { status: 'failed', error: outputs.error, call: { landed: true } };
+  return { status: 'completed', call: { landed: true } };
 }

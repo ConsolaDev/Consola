@@ -6,16 +6,24 @@ import {
   type UsesStep,
 } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
-import type { RunFolderPort } from '../ports';
+import type { McpCallOutcome, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import type { RunDefinition } from './definition';
 import {
+  CALL_RESULT_CAP_BYTES,
+  callEnd,
   callFileOf,
   callOutputs,
+  maskDeep,
   MAX_ARGUMENT_BYTES,
   MAX_TEMPLATED_BYTES,
+  outputArtifactOf,
+  outputSchemaProblem,
   reachedOf,
   renderCallArguments,
+  resultFileOf,
+  resultObjectOf,
+  serverLaunchOf,
   withCallIntent,
   withCallResult,
   withCallStarted,
@@ -369,5 +377,248 @@ describe("a call's records (5a-2 Task 7)", () => {
       withCallResult(intent, 'post', '2026-11-16T09:00:02.000Z', { isError: false, bytes: 2 })[0]
         .call,
     ).not.toHaveProperty('isError');
+  });
+});
+
+/*
+ * Task 8: a server's call.
+ */
+
+const answered = (fields: {
+  structuredContent?: unknown;
+  content?: unknown[];
+  isError?: boolean;
+}): Extract<McpCallOutcome, { kind: 'answered' }> => ({
+  kind: 'answered',
+  isError: fields.isError ?? false,
+  content: fields.content ?? [],
+  ...(fields.structuredContent !== undefined
+    ? { structuredContent: fields.structuredContent }
+    : {}),
+  bytes: 10,
+});
+const text = (value: string) => ({ type: 'text', text: value });
+const REF = 'slack#chat_post_message';
+
+describe('outputSchemaProblem (5a-2 Task 8)', () => {
+  const ts = { ts: { type: 'string' as const, maxLength: 2000 } };
+  const schema = (properties: Record<string, unknown>) => ({ type: 'object', properties });
+  it('takes outputs the schema has, of a type that fits', () => {
+    expect(outputSchemaProblem(ts, schema({ ts: { type: 'string' } }), REF)).toBeNull();
+    expect(
+      outputSchemaProblem({ n: { type: 'integer' } }, schema({ n: { type: 'integer' } }), REF),
+    ).toBeNull();
+    expect(
+      outputSchemaProblem({ n: { type: 'number' } }, schema({ n: { type: 'integer' } }), REF),
+    ).toBeNull();
+    expect(outputSchemaProblem(ts, schema({ ts: {} }), REF)).toBeNull();
+    expect(outputSchemaProblem(ts, undefined, REF)).toBeNull();
+    expect(outputSchemaProblem(ts, schema({ ts: { type: ['string', 'null'] } }), REF)).toBeNull();
+  });
+  it('refuses one it lacks, or of another type', () => {
+    expect(outputSchemaProblem(ts, schema({ channel: { type: 'string' } }), REF)).toBe(
+      "`slack#chat_post_message`'s output schema has no `ts`. Nothing was sent.",
+    );
+    expect(
+      outputSchemaProblem({ n: { type: 'integer' } }, schema({ n: { type: 'number' } }), REF),
+    ).toBe(
+      '`slack#chat_post_message` returns `n` as number, and this step declares it integer. Nothing was sent.',
+    );
+  });
+});
+
+describe('resultObjectOf (5a-2 Task 8)', () => {
+  it('reads structured content, else one text block holding a JSON object', () => {
+    expect(resultObjectOf(answered({ structuredContent: { ok: true, ts: '1.2' } }))).toEqual({
+      ok: true,
+      ts: '1.2',
+    });
+    expect(resultObjectOf(answered({ content: [text('{"ts":"1.2"}')] }))).toEqual({ ts: '1.2' });
+  });
+  it('reads nothing from prose, two blocks, an image, a list or a structured list', () => {
+    expect(resultObjectOf(answered({ content: [text('Posted it.')] }))).toBeNull();
+    expect(
+      resultObjectOf(answered({ content: [text('{"ts":"1"}'), text('{"ts":"2"}')] })),
+    ).toBeNull();
+    expect(resultObjectOf(answered({ content: [{ type: 'image', data: 'AA==' }] }))).toBeNull();
+    expect(resultObjectOf(answered({ content: [text('[1,2]')] }))).toBeNull();
+    expect(resultObjectOf(answered({ structuredContent: [1, 2] }))).toBeNull();
+  });
+});
+
+describe('maskDeep (5a-2 Task 8, review S9)', () => {
+  const value = 'stub-slack-secret-9c1e';
+  it('masks keys and values at any depth', () => {
+    expect(maskDeep({ [value]: { inner: value, list: [`a ${value}`] } }, [value])).toEqual({
+      '***': { inner: '***', list: ['a ***'] },
+    });
+  });
+  it('keeps both values of two keys that mask alike', () => {
+    expect(maskDeep({ [`${value}`]: 1, [`${value}x`.slice(0, -1) + ' ']: 2 }, [value])).toEqual({
+      '***': 1,
+      '*** ': 2,
+    });
+    expect(
+      maskDeep({ [value]: 1, [`x${value}`]: 2, [`${value}`.toUpperCase()]: 3 }, [
+        value,
+        `x${value}`,
+      ]),
+    ).toMatchObject({
+      '***': 1,
+      '***#2': 2,
+    });
+  });
+});
+
+describe('resultFileOf (5a-2 Task 8, review S9)', () => {
+  const value = 'stub-slack-secret-9c1e"\\back%slash';
+  const masks = [value, JSON.stringify(value).slice(1, -1)];
+  it('keeps a result that fits, masked at any depth, keys included', () => {
+    expect(
+      resultFileOf(
+        answered({ structuredContent: { [value]: 1, echoed: value }, content: [text(value)] }),
+        masks,
+      ),
+    ).toEqual({
+      isError: false,
+      bytes: 10,
+      result: {
+        content: [{ type: 'text', text: '***' }],
+        structuredContent: { '***': 1, echoed: '***' },
+      },
+    });
+  });
+  it('cuts one over 1 MB to the first 1 MB of its text, masked before the cut', () => {
+    const big = 'x'.repeat(2 * 1024 * 1024);
+    const file = resultFileOf(answered({ content: [text(big)] }), masks);
+    expect(file).not.toHaveProperty('result');
+    expect(file.cut).toBe(JSON.stringify({ content: [text(big)] }).slice(0, CALL_RESULT_CAP_BYTES));
+    // A value that straddles the cut is masked first, so no prefix of it survives.
+    const prefix = '{"content":[{"type":"text","text":"';
+    const straddling = `${'y'.repeat(CALL_RESULT_CAP_BYTES - prefix.length - 5)}${value}${'z'.repeat(1024)}`;
+    const cut = resultFileOf(answered({ content: [text(straddling)] }), masks).cut!;
+    expect(cut).toContain('***');
+    expect(cut).not.toContain('stub-');
+  });
+});
+
+describe('outputArtifactOf (5a-2 Task 8)', () => {
+  it('keeps structured content as JSON, one text block as text, nothing over 256 KB', () => {
+    expect(outputArtifactOf(answered({ structuredContent: { ts: '1.2' } }), [])).toEqual({
+      content: '{"ts":"1.2"}',
+      format: 'json',
+    });
+    expect(outputArtifactOf(answered({ content: [text('Posted.')] }), [])).toEqual({
+      content: 'Posted.',
+      format: 'text',
+    });
+    expect(
+      outputArtifactOf(answered({ content: [text('x'.repeat(256 * 1024 + 1))] }), []),
+    ).toBeNull();
+    expect(outputArtifactOf(answered({ content: [text('a'), text('b')] }), [])).toBeNull();
+  });
+});
+
+describe('serverLaunchOf (5a-2 Task 8, review S8)', () => {
+  const values = {
+    SLACK_BOT_TOKEN: 'stub-slack-secret-9c1e',
+    PAGER_TOKEN: 'stub-pager-secret-7b2d',
+    TRACKER_TOKEN: 'stub-tracker-secret-4d7a',
+  };
+  it('gives a stdio server its env: and its own secrets, and nothing else', () => {
+    expect(serverLaunchOf(SLACK, values)).toEqual({
+      ok: true,
+      launch: {
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@sprocket/slack-mcp@1.4.2'],
+        env: { SLACK_TEAM_ID: 'T0SPROCKET', SLACK_BOT_TOKEN: 'stub-slack-secret-9c1e' },
+      },
+    });
+  });
+  it("fills a remote server's headers with its own secrets only", () => {
+    expect(serverLaunchOf(TRACKER, values)).toEqual({
+      ok: true,
+      launch: {
+        transport: 'http',
+        url: 'https://mcp.tracker.sprocket.example/mcp',
+        headers: { Authorization: 'Bearer stub-tracker-secret-4d7a' },
+      },
+    });
+  });
+  it("leaves a hand-built header's reference to another name as written", () => {
+    expect(
+      serverLaunchOf(
+        {
+          ...TRACKER,
+          headers: {
+            ...(TRACKER.transport === 'http' ? TRACKER.headers : {}),
+            'X-Pager': '${PAGER_TOKEN}',
+          },
+        },
+        values,
+      ),
+    ).toMatchObject({
+      launch: {
+        headers: { Authorization: 'Bearer stub-tracker-secret-4d7a', 'X-Pager': '${PAGER_TOKEN}' },
+      },
+    });
+  });
+
+  it('refuses a header value with a line break, and a secret the run does not hold', () => {
+    expect(serverLaunchOf(TRACKER, { TRACKER_TOKEN: 'v\r\nX-Evil: 1' })).toEqual({
+      ok: false,
+      error:
+        "Couldn't use `TRACKER_TOKEN` in a header: its value holds a line break. Nothing was sent.",
+    });
+    expect(serverLaunchOf(SLACK, {})).toEqual({
+      ok: false,
+      error: "its server's secrets were not read before it started. Nothing was sent.",
+    });
+  });
+});
+
+describe('callEnd: the Failure table (5a-2 Task 8)', () => {
+  const end = (outcome: McpCallOutcome, outputs?: Parameters<typeof callEnd>[0]['outputs']) =>
+    callEnd({ ref: REF, timeoutMs: 30_000, outcome, outputs }, ['stub-secret-1']);
+  it.each([
+    ['timeout', 'the call timed out after 30s'],
+    ['stopped', 'it was stopped while the call ran'],
+    ['closed', 'the server closed the connection before answering'],
+    ['too-large', 'its answer was over 8 MB'],
+    ['unreadable', 'its answer could not be read (bad JSON at 3 near ***)'],
+  ] as const)('%s', (why, words) => {
+    expect(end({ kind: 'unanswered', why, detail: 'bad JSON at 3 near stub-secret-1' })).toEqual({
+      status: 'failed',
+      error: `It may or may not have happened: ${words}. Check, then retry.`,
+      call: {},
+    });
+  });
+  it('fails an error result with its text, masked and clipped, and says it may have acted', () => {
+    expect(
+      end(
+        answered({
+          isError: true,
+          content: [text(`rate_limited after post stub-secret-1 ${'x'.repeat(400)}`)],
+        }),
+      ),
+    ).toEqual({
+      status: 'failed',
+      error: `\`${REF}\` failed: rate_limited after post *** ${'x'.repeat(272)}…`,
+      call: { isError: true },
+    });
+  });
+  it('completes a landed call, and fails one whose outputs fail, as landed', () => {
+    expect(end(answered({}), { ok: true, outputs: {} })).toEqual({
+      status: 'completed',
+      call: { landed: true },
+    });
+    expect(
+      end(answered({}), { ok: false, error: 'It happened, but its result has no `ts`.' }),
+    ).toEqual({
+      status: 'failed',
+      error: 'It happened, but its result has no `ts`.',
+      call: { landed: true },
+    });
   });
 });

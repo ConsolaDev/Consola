@@ -9,13 +9,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import type { EngineToolContext } from './ports';
+import type { EngineToolContext, McpCallOutcome } from './ports';
+import { maskFormsOf } from './secrets/values';
 import type { StepsRunPreview } from './steps/definition';
 import { defineTool, type TestTool } from './tools.test-helpers';
 import {
   BIND_HINT,
   stepsHarness,
   WORKSPACE_ID,
+  type FakeServer,
   type StepsHarness,
   type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
@@ -1069,5 +1071,700 @@ describe("a command reading a call's output (5a-2 Task 7, review S6)", () => {
     expect(h.world.commands[0].spec.env.OUT_FILE).toBe(
       attemptFile(h, run.id, 'clean', 'output.json'),
     );
+  });
+});
+
+/*
+ * Task 8: the executor, against a server (the fake client: nothing starts).
+ */
+
+/** `slack`'s tool, as the spec's server lists it. */
+const CHAT_POST: FakeServer['tools'][number] = {
+  name: 'chat_post_message',
+  inputSchema: {
+    type: 'object',
+    properties: { channel: { type: 'string' }, text: { type: 'string' } },
+  },
+  outputSchema: { type: 'object', properties: { ts: { type: 'string' } } },
+};
+const TS = '1700000484.000100';
+const POSTED: McpCallOutcome = {
+  kind: 'answered',
+  isError: false,
+  structuredContent: { ok: true, ts: TS, channel: 'C0SUPPORT1' },
+  content: [{ type: 'text', text: `{"ok":true,"ts":"${TS}"}` }],
+  bytes: 64,
+};
+const GROUP = { pgid: 4242, startedAt: 'Mon Nov 16 08:00:00 2026' };
+
+/** A fake `slack` that lists `chat_post_message` and answers `answer` (default: posted). */
+const slack = (fields: Partial<FakeServer> = {}): FakeServer => ({
+  tools: [CHAT_POST],
+  group: GROUP,
+  answer: () => POSTED,
+  ...fields,
+});
+
+/** `brief` accepted, with `slack` as given; fired, its triage done: `post` has run, or waits. */
+async function posting(
+  server: FakeServer = slack(),
+  options: StepsHarnessOptions & { note?: string } = {},
+) {
+  const h = await harness({ mcp: { servers: { slack: server } }, ...options });
+  for (const view of h.service.list(WORKSPACE_ID)) {
+    const version = h.service.entryAgents(WORKSPACE_ID, view.name)?.version;
+    if (version) h.store.accept(`${WORKSPACE_ID} ${view.name}`, version);
+  }
+  const run = (await h.service.trigger(WORKSPACE_ID, 'brief'))!;
+  await h.flush();
+  h.world.setOutputs('session-1', { verdict: 'post', note: options.note ?? 'Ship it.' });
+  await h.world.endTurn('session-1');
+  return { h, run, post: () => stepOf(h, run.id, 'post') };
+}
+
+describe('a call of a factory server (5a-2 Task 8)', () => {
+  it('reaches it with the run’s values, records its group and intent before the send, keeps its answer', async () => {
+    const { h, run, post } = await posting();
+    // 5a-1's gate read the server's secret before the first step.
+    expect(h.world.secrets.resolved[0]).toContain('SLACK_BOT_TOKEN');
+    expect(h.world.mcp.launches).toHaveLength(1);
+    const [launch] = h.world.mcp.launches;
+    expect(launch).toMatchObject({
+      transport: 'stdio',
+      name: 'slack',
+      command: SLACK_COMMAND,
+      args: ['--stdio'],
+      env: { SLACK_TEAM_ID: 'T0SPROCKET', SLACK_BOT_TOKEN: BOT_VALUE },
+      logPath: attemptFile(h, run.id, 'post', 'server.log'),
+      timeoutMs: 60_000,
+    });
+    // Its group was on the record before initialize, and its intent before the send.
+    expect(h.world.mcp.initialized).toEqual([GROUP]);
+    expect(h.world.mcp.calls).toEqual([
+      {
+        server: 'slack',
+        tool: 'chat_post_message',
+        args: { channel: 'C0SUPPORT1', text: 'Ship it.' },
+        intentAt: expect.any(String),
+        group: GROUP,
+      },
+    ]);
+    expect(post()).toMatchObject({
+      status: 'completed',
+      outputs: { ts: TS },
+      artifacts: [{ name: 'output', bytes: expect.any(Number) }],
+      call: { server: { ...GROUP, ended: true }, landed: true, resultBytes: 64 },
+    });
+    expect(post().call?.intentAt).toBeDefined();
+    expect(post().call?.resultAt).toBeDefined();
+    for (const file of ['call.json', 'result.json', 'output.json'])
+      expect(fs.existsSync(attemptFile(h, run.id, 'post', file)), file).toBe(true);
+    expect(h.world.mcp.closes).toEqual(['slack']);
+    expect(h.store.get(run.id)?.status).toBe('completed');
+  });
+
+  it("caps connecting at 2 minutes, whatever the step's timeout (review Minor 19)", async () => {
+    const yaml = factory(
+      SLACK,
+      entry('brief', POST.replace('        outputs:', '        timeout: 10m\n        outputs:')),
+    );
+    const { h } = await posting(slack(), { yaml });
+    expect(h.world.mcp.launches[0].timeoutMs).toBe(120_000);
+  });
+});
+
+describe('every row of the Failure table (5a-2 Task 8)', () => {
+  it.each<[string, Partial<FakeServer>, string]>([
+    [
+      'a connect refused',
+      { refuse: { reason: 'spawn npx ENOENT' } },
+      "Couldn't reach `slack`: spawn npx ENOENT. Nothing was sent.",
+    ],
+    [
+      'a whole reason',
+      {
+        refuse: {
+          reason:
+            'The server answered with a redirect to `https://evil.example`; Consola does not follow redirects. Point `url` at the final address.',
+          whole: true,
+        },
+      },
+      'The server answered with a redirect to `https://evil.example`; Consola does not follow redirects. Point `url` at the final address. Nothing was sent.',
+    ],
+    [
+      'no such tool',
+      { tools: [{ name: 'conversations_history' }] },
+      '`slack` has no tool `chat_post_message` (it has: conversations_history). Nothing was sent.',
+    ],
+    [
+      'arguments that do not fit',
+      { argumentsProblem: '/channel must be string' },
+      'with: /channel must be string. Nothing was sent.',
+    ],
+    [
+      'an output its schema lacks',
+      {
+        tools: [
+          {
+            ...CHAT_POST,
+            outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } } },
+          },
+        ],
+      },
+      "`slack#chat_post_message`'s output schema has no `ts`. Nothing was sent.",
+    ],
+  ])('%s: nothing was sent', async (_name, fields, error) => {
+    const { h, post } = await posting(slack(fields));
+    expect(post()).toMatchObject({ status: 'failed', error });
+    expect(post().call?.intentAt).toBeUndefined();
+    expect(h.world.mcp.calls).toEqual([]);
+    // A session it reached is closed before it settles.
+    expect(h.world.mcp.closes).toEqual(fields.refuse ? [] : ['slack']);
+  });
+
+  it('lists at most 20 of the tools a server has when it lacks the one called', async () => {
+    const tools = Array.from({ length: 25 }, (_, index) => ({ name: `tool_${index + 1}` }));
+    const { post } = await posting(slack({ tools }));
+    expect(post().error).toBe(
+      `\`slack\` has no tool \`chat_post_message\` (it has: ${tools
+        .slice(0, 20)
+        .map((tool) => tool.name)
+        .join(', ')}, …). Nothing was sent.`,
+    );
+  });
+
+  it('records what it left running, and that it was ended', async () => {
+    const { post } = await posting(slack({ survivors: 2 }));
+    expect(post()).toMatchObject({
+      status: 'completed',
+      call: { server: { ...GROUP, ended: true }, survivors: 2 },
+    });
+  });
+
+  it("refuses a header whose secret's value holds a line break, and reaches nothing", async () => {
+    const yaml = factory(
+      SLACK + TRACKER,
+      entry('brief', call('file', 'tracker#create_issue', '{ title: Shipped }')),
+    );
+    const { h, run } = await posting(slack(), {
+      yaml,
+      secrets: { ...BOUND, values: { ...BOUND.values, TRACKER_TOKEN: 'v\r\nX-Evil: 1' } },
+      mcp: { servers: { tracker: { tools: [{ name: 'create_issue' }] } } },
+    });
+    expect(stepOf(h, run.id, 'file')).toMatchObject({
+      status: 'failed',
+      error:
+        "Couldn't use `TRACKER_TOKEN` in a header: its value holds a line break. Nothing was sent.",
+    });
+    expect(h.world.mcp.launches).toEqual([]);
+  });
+
+  it('records no group for a run that ended while its server was being spawned', async () => {
+    const spawning = held();
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    h.world.mcp.spawnGate = spawning.promise;
+    h.store.accept(`${WORKSPACE_ID} brief`, h.service.entryAgents(WORKSPACE_ID, 'brief')!.version);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h.world.endTurn('session-1');
+    fs.rmSync(path.join(h.folder.runDir(WORKSPACE_ID, run.id), 'definition.json'));
+    await h.service.syncWorkspaces();
+    const ended = structuredClone(h.store.get(run.id));
+    spawning.release();
+    await h.flush();
+    expect(h.store.get(run.id)).toEqual(ended);
+    expect(stepOf(h, run.id, 'post').call?.server).toBeUndefined();
+  });
+
+  it('a failed intent write sends nothing and closes the session', async () => {
+    const h0 = await harness({ mcp: { servers: { slack: slack() } } });
+    const durably = h0.store.updateDurably.bind(h0.store);
+    vi.spyOn(h0.store, 'updateDurably').mockImplementation((runId, changes) => {
+      if (changes.steps?.some((record) => record.call?.intentAt)) throw new Error('disk full');
+      return durably(runId, changes);
+    });
+    h0.store.accept(
+      `${WORKSPACE_ID} brief`,
+      h0.service.entryAgents(WORKSPACE_ID, 'brief')!.version,
+    );
+    const run = (await h0.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await h0.flush();
+    h0.world.setOutputs('session-1', { verdict: 'post', note: 'Ship it.' });
+    await h0.world.endTurn('session-1');
+    expect(stepOf(h0, run.id, 'post')).toMatchObject({
+      status: 'failed',
+      error: 'Could not record that it was about to call (disk full). Nothing was sent.',
+      call: { server: { ...GROUP, ended: true } },
+    });
+    expect(h0.world.mcp.calls).toEqual([]);
+    expect(h0.world.mcp.closes).toEqual(['slack']);
+  });
+
+  it('an error result fails it, says it may have acted, and nothing calls it again (review B2)', async () => {
+    const { h, run, post } = await posting(
+      slack({
+        answer: () => ({
+          kind: 'answered',
+          isError: true,
+          content: [{ type: 'text', text: 'rate_limited after post' }],
+          bytes: 40,
+        }),
+      }),
+    );
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: '`slack#chat_post_message` failed: rate_limited after post',
+      call: { isError: true },
+    });
+    expect(h.world.mcp.calls).toHaveLength(1);
+    await h.tick();
+    expect(h.world.mcp.calls).toHaveLength(1);
+    const again = await h.relaunch();
+    await again.tick();
+    expect(again.world.mcp.calls).toHaveLength(1);
+    expect(again.store.get(run.id)?.status).toBe('failed');
+  });
+
+  it.each([
+    ['timeout', 'the call timed out after 1m'],
+    ['stopped', 'it was stopped while the call ran'],
+    ['closed', 'the server closed the connection before answering'],
+    ['too-large', 'its answer was over 8 MB'],
+    ['unreadable', 'its answer could not be read (no JSON)'],
+  ] as const)('no clean answer (%s) may or may not have happened', async (why, words) => {
+    const { post } = await posting(
+      slack({ answer: () => ({ kind: 'unanswered', why, detail: 'no JSON' }) }),
+    );
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: `It may or may not have happened: ${words}. Check, then retry.`,
+    });
+    expect(post().call?.landed).toBeUndefined();
+    expect(post().call?.intentAt).toBeDefined();
+  });
+
+  it('a landed call whose result lacks an output fails as landed', async () => {
+    const { post } = await posting(
+      slack({ answer: () => ({ ...POSTED, structuredContent: { ok: true } }) as McpCallOutcome }),
+    );
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: 'It happened, but its result has no `ts`.',
+      call: { landed: true },
+    });
+  });
+});
+
+describe('a stop, a quit and a run that ends, mid-call (5a-2 Task 8)', () => {
+  it('a stop cancels the call, and one while connecting sends nothing', async () => {
+    const gate = held();
+    const { h, run, post } = await posting(
+      slack({
+        answer: async () => {
+          await gate.promise;
+          return POSTED;
+        },
+      }),
+    );
+    expect(post().status).toBe('running');
+    h.service.stop(run.id);
+    await h.flush();
+    expect(h.world.mcp.callSignals[0].reason).toBe('stop');
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error:
+        'It may or may not have happened: it was stopped while the call ran. Check, then retry.',
+    });
+
+    const connecting = held();
+    const second = await harness({ mcp: { servers: { slack: slack() } } });
+    second.world.mcp.connectGate = connecting.promise;
+    second.store.accept(
+      `${WORKSPACE_ID} brief`,
+      second.service.entryAgents(WORKSPACE_ID, 'brief')!.version,
+    );
+    const other = (await second.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await second.flush();
+    second.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await second.world.endTurn('session-1');
+    second.service.stop(other.id);
+    await second.flush();
+    expect(stepOf(second, other.id, 'post')).toMatchObject({
+      status: 'failed',
+      error: 'It was stopped before the call was sent. Nothing was sent.',
+    });
+    expect(second.world.mcp.calls).toEqual([]);
+  });
+
+  it('a quit aborts with quit and records nothing more (review S5)', async () => {
+    const gate = held();
+    const { h, post } = await posting(
+      slack({
+        answer: async () => {
+          await gate.promise;
+          return POSTED;
+        },
+      }),
+    );
+    const lines = h.history.appends.length;
+    h.service.shutdown();
+    await h.flush();
+    expect(h.world.mcp.callSignals[0].reason).toBe('quit');
+    gate.release();
+    await h.flush();
+    expect(h.history.appends).toHaveLength(lines);
+    expect(post()).toMatchObject({ status: 'running', call: { server: GROUP } });
+    expect(post().call?.intentAt).toBeDefined();
+  });
+
+  it('writes nothing once its run ended or its workspace went, and closes the session (review S3)', async () => {
+    let gate = held();
+    // An answer already on its way when the run ended: it still arrives.
+    const waiting = () =>
+      slack({
+        answersThroughAbort: true,
+        answer: async () => {
+          await gate.promise;
+          return POSTED;
+        },
+      });
+    const { h, run } = await posting(waiting());
+    fs.rmSync(path.join(h.folder.runDir(WORKSPACE_ID, run.id), 'definition.json'));
+    await h.service.syncWorkspaces();
+    expect(h.store.get(run.id)?.status).toBe('failed');
+    const ended = structuredClone(h.store.get(run.id));
+    const lines = h.history.appends.length;
+    gate.release();
+    await h.flush();
+    expect(h.store.get(run.id)).toEqual(ended);
+    expect(h.history.appends).toHaveLength(lines);
+    expect(fs.existsSync(attemptFile(h, run.id, 'post', 'result.json'))).toBe(false);
+    expect(h.world.mcp.closes).toEqual(['slack']);
+
+    gate = held();
+    const deleted = await posting(waiting());
+    deleted.h.world.workspaceDeleted = true;
+    await deleted.h.service.syncWorkspaces();
+    gate.release();
+    await deleted.h.flush();
+    expect(deleted.h.store.get(deleted.run.id)).toBeUndefined();
+    expect(deleted.h.world.mcp.closes).toEqual(['slack']);
+  });
+});
+
+describe("a call's secrets and its run's snapshot (5a-2 Task 8, review S8, Minor 10)", () => {
+  it('gives each server only its own secrets', async () => {
+    const yaml = factory(
+      SLACK + TRACKER,
+      entry(
+        'brief',
+        `      - id: page\n        run: page --now\n        secrets: [PAGER_TOKEN]\n${POST}${call('file', 'tracker#create_issue', '{ title: Shipped }')}`,
+      ),
+    );
+    const secrets = {
+      bindings: { ...BOUND.bindings, PAGER_TOKEN: { ref: 'keychain:pager' } },
+      values: { ...BOUND.values, PAGER_TOKEN: 'stub-pager-secret-7b2d' },
+    };
+    const { h } = await posting(slack(), {
+      yaml,
+      secrets,
+      mcp: { servers: { slack: slack(), tracker: { tools: [{ name: 'create_issue' }] } } },
+    });
+    await h.world.commands[0].end();
+    expect(h.world.mcp.launches.map((launch) => launch.name)).toEqual(['slack', 'tracker']);
+    expect(h.world.mcp.launches[0]).toMatchObject({
+      env: { SLACK_TEAM_ID: 'T0SPROCKET', SLACK_BOT_TOKEN: BOT_VALUE },
+    });
+    const [stdio, http] = h.world.mcp.launches;
+    expect(stdio.transport === 'stdio' && stdio.env).toEqual({
+      SLACK_TEAM_ID: 'T0SPROCKET',
+      SLACK_BOT_TOKEN: BOT_VALUE,
+    });
+    expect(http.transport === 'http' && http.headers).toEqual({
+      Authorization: `Bearer ${TRACKER_VALUE}`,
+    });
+  });
+
+  it("reads and launches with the run's own server, not the factory's current one", async () => {
+    // A run on an item a person picks: its checkout is prepared before its first step reads its secrets.
+    const onItem = (server: string) =>
+      factory(
+        server,
+        `  - name: brief\n    on: manual\n    applies_to: [pr]\n    steps:\n      - id: triage\n        prompt: Triage it.\n        outputs: { verdict: { enum: [post, skip] }, note: string }\n${POST}`,
+      );
+    const h = await harness({
+      yaml: onItem(SLACK),
+      mcp: { servers: { slack: slack() } },
+      secrets: {
+        bindings: { ...BOUND.bindings, SLACK_APP_TOKEN: { ref: 'keychain:app' } },
+        values: { ...BOUND.values, SLACK_APP_TOKEN: 'stub-slack-app-secret-3f8e' },
+      },
+    });
+    const preparing = held();
+    h.world.checkouts.gate = preparing.promise;
+    const run = (await h.service.trigger(
+      WORKSPACE_ID,
+      'brief',
+      {},
+      {
+        workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' },
+      },
+    ))!;
+    await h.service.approve(run.id);
+    await h.flush();
+    await h.setYaml(onItem(SLACK.replace('[SLACK_BOT_TOKEN]', '[SLACK_APP_TOKEN]')));
+    h.world.checkouts.gate = undefined;
+    preparing.release();
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h.world.endTurn('session-1');
+    expect(h.world.secrets.resolved.flat()).toContain('SLACK_BOT_TOKEN');
+    expect(h.world.secrets.resolved.flat()).not.toContain('SLACK_APP_TOKEN');
+    const [launch] = h.world.mcp.launches;
+    expect(launch.transport === 'stdio' && launch.env.SLACK_BOT_TOKEN).toBe(BOT_VALUE);
+    expect(stepOf(h, run.id, 'post').status).toBe('completed');
+  });
+});
+
+describe('a throw after a server call’s intent (5a-2 Task 8, review S4)', () => {
+  it('says it happened when its result file could not be written, and may have when the answer could not be recorded', async () => {
+    const h1 = await harness({ mcp: { servers: { slack: slack() } } });
+    const write = h1.folder.writeJson.bind(h1.folder);
+    vi.spyOn(h1.folder, 'writeJson').mockImplementation((dir, file, value) => {
+      if (file === 'result.json') throw new Error('read-only folder');
+      write(dir, file, value);
+    });
+    h1.store.accept(
+      `${WORKSPACE_ID} brief`,
+      h1.service.entryAgents(WORKSPACE_ID, 'brief')!.version,
+    );
+    const one = (await h1.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await h1.flush();
+    h1.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h1.world.endTurn('session-1');
+    const landed = stepOf(h1, one.id, 'post');
+    expect(landed).toMatchObject({
+      status: 'failed',
+      error: 'It happened, but Consola could not record its result (read-only folder).',
+      call: { landed: true },
+    });
+    expect(landed.call?.resultAt).toBeDefined();
+    expect(h1.world.mcp.calls).toHaveLength(1);
+    vi.restoreAllMocks();
+
+    const h2 = await harness({ mcp: { servers: { slack: slack() } } });
+    const durably = h2.store.updateDurably.bind(h2.store);
+    vi.spyOn(h2.store, 'updateDurably').mockImplementation((runId, changes) => {
+      if (changes.steps?.some((record) => record.call?.resultAt)) throw new Error('disk full');
+      return durably(runId, changes);
+    });
+    h2.store.accept(
+      `${WORKSPACE_ID} brief`,
+      h2.service.entryAgents(WORKSPACE_ID, 'brief')!.version,
+    );
+    const two = (await h2.service.trigger(WORKSPACE_ID, 'brief'))!;
+    await h2.flush();
+    h2.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h2.world.endTurn('session-1');
+    expect(stepOf(h2, two.id, 'post')).toMatchObject({
+      status: 'failed',
+      error: 'It may or may not have happened: disk full. Check, then retry.',
+    });
+    expect(stepOf(h2, two.id, 'post').error).not.toContain('Nothing was sent');
+    expect(h2.world.mcp.calls).toHaveLength(1);
+  });
+});
+
+describe('a server that echoes its credential (5a-2 Task 8, Review Focus 1)', () => {
+  const forms = maskFormsOf(BOT_VALUE);
+  const leaks = (h: StepsHarness, runId: string) => {
+    const found: string[] = [];
+    const walk = (dir: string) => {
+      for (const name of fs.readdirSync(dir)) {
+        const file = path.join(dir, name);
+        if (fs.statSync(file).isDirectory()) walk(file);
+        else {
+          const text = fs.readFileSync(file, 'utf8');
+          if (forms.some((form) => text.includes(form))) found.push(file);
+        }
+      }
+    };
+    walk(h.folder.runDir(WORKSPACE_ID, runId));
+    const record = JSON.stringify(h.store.get(runId));
+    if (forms.some((form) => record.includes(form))) found.push('the record');
+    for (const notice of h.notices)
+      if (forms.some((form) => `${notice.title} ${notice.body}`.includes(form)))
+        found.push('a notice');
+    return found;
+  };
+
+  it('keeps none of its forms in what it writes, whatever the answer holds', async () => {
+    const quoted = JSON.stringify(BOT_VALUE);
+    const pct = encodeURIComponent(BOT_VALUE);
+    const b64 = Buffer.from(BOT_VALUE).toString('base64');
+    const errorRun = await posting(
+      slack({
+        answer: () => ({
+          kind: 'answered',
+          isError: true,
+          content: [{ type: 'text', text: `bad token ${BOT_VALUE}` }],
+          bytes: 50,
+        }),
+      }),
+    );
+    expect(errorRun.post().error).toBe('`slack#chat_post_message` failed: bad token ***');
+    expect(leaks(errorRun.h, errorRun.run.id)).toEqual([]);
+
+    const refused = await posting(slack({ refuse: { reason: `bad token ${BOT_VALUE}` } }));
+    expect(refused.post().error).toBe("Couldn't reach `slack`: bad token ***. Nothing was sent.");
+    expect(leaks(refused.h, refused.run.id)).toEqual([]);
+
+    const yaml = factory(
+      SLACK,
+      entry('brief', POST.replace('outputs: { ts: string }', 'outputs: { echoed: string }')),
+    );
+    const echoing = await posting(
+      slack({
+        tools: [{ ...CHAT_POST, outputSchema: undefined }],
+        answer: () => ({
+          kind: 'answered',
+          isError: false,
+          structuredContent: { echoed: BOT_VALUE, quoted, pct, b64, [BOT_VALUE]: 1 },
+          content: [{ type: 'text', text: `${BOT_VALUE} ${quoted} ${pct} ${b64}` }],
+          bytes: 500,
+        }),
+      }),
+      { yaml },
+    );
+    expect(echoing.post()).toMatchObject({ status: 'completed', outputs: { echoed: '***' } });
+    expect(leaks(echoing.h, echoing.run.id)).toEqual([]);
+    const result = readJson(attemptFile(echoing.h, echoing.run.id, 'post', 'result.json'));
+    expect(result.result.structuredContent).toMatchObject({
+      echoed: '***',
+      quoted: '"***"',
+      '***': 1,
+    });
+    expect(readJson(attemptFile(echoing.h, echoing.run.id, 'post', 'output.json'))).toMatchObject({
+      echoed: '***',
+    });
+
+    const texts = await posting(
+      slack({
+        tools: [{ ...CHAT_POST, outputSchema: undefined }],
+        answer: () => ({
+          kind: 'answered',
+          isError: false,
+          content: [{ type: 'text', text: `${BOT_VALUE} ${quoted} ${pct} ${b64}` }],
+          bytes: 300,
+        }),
+      }),
+      {
+        yaml: factory(SLACK, entry('brief', POST.replace('        outputs: { ts: string }\n', ''))),
+      },
+    );
+    expect(texts.post().status).toBe('completed');
+    expect(leaks(texts.h, texts.run.id)).toEqual([]);
+  });
+});
+
+describe('a result too big or the wrong shape (5a-2 Task 8, Review Focus 3)', () => {
+  it('keeps a 2 MB answer cut, writes no output, and a step that needs it fails', async () => {
+    const big = 'x'.repeat(2 * 1024 * 1024);
+    const yaml = factory(
+      SLACK,
+      entry(
+        'brief',
+        `${POST.replace('        outputs: { ts: string }\n', '')}      - id: after\n        run: echo "$OUT"\n        env: { OUT: "{{steps.post.output}}" }\n`,
+      ),
+    );
+    const { h, run, post } = await posting(
+      slack({
+        tools: [{ ...CHAT_POST, outputSchema: undefined }],
+        answer: () => ({
+          kind: 'answered',
+          isError: false,
+          content: [{ type: 'text', text: big }],
+          bytes: big.length + 40,
+        }),
+      }),
+      { yaml },
+    );
+    expect(post()).toMatchObject({ status: 'completed', call: { landed: true } });
+    expect(post().artifacts).toBeUndefined();
+    const result = readJson(attemptFile(h, run.id, 'post', 'result.json'));
+    expect(result.result).toBeUndefined();
+    expect(result.cut.length).toBe(1024 * 1024);
+    expect(h.world.commands).toEqual([]);
+    expect(h.store.get(run.id)).toMatchObject({
+      status: 'failed',
+      error: 'steps.post.output has no value: post completed without it',
+    });
+  });
+
+  it('two text blocks with an output declared: it landed, and has no ts', async () => {
+    const { post } = await posting(
+      slack({
+        tools: [{ ...CHAT_POST, outputSchema: undefined }],
+        answer: () => ({
+          kind: 'answered',
+          isError: false,
+          content: [
+            { type: 'text', text: `{"ts":"${TS}"}` },
+            { type: 'text', text: 'and more' },
+          ],
+          bytes: 60,
+        }),
+      }),
+    );
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: 'It happened, but its result has no `ts`.',
+      call: { landed: true },
+    });
+  });
+});
+
+describe('a server that never gets going, engine side (5a-2 Task 8, Review Focus 2)', () => {
+  it('fails with the reach words, and the group it spawned is recorded ended', async () => {
+    const { h, post } = await posting(
+      slack({ refuse: { reason: 'it did not answer initialize within 60s' } }),
+    );
+    expect(post()).toMatchObject({
+      status: 'failed',
+      error: "Couldn't reach `slack`: it did not answer initialize within 60s. Nothing was sent.",
+      call: { server: { ...GROUP, ended: true } },
+    });
+    expect(post().call?.intentAt).toBeUndefined();
+    expect(h.world.mcp.calls).toEqual([]);
+  });
+});
+
+describe('an agent asked for the run (5a-2 Task 8, decided by the user 11a)', () => {
+  it('starts the server its card showed once, and accepts nothing', async () => {
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    const run = (await h.service.trigger(WORKSPACE_ID, 'brief', { sessionId: 'session-agent' }))!;
+    expect(h.store.get(run.id)).toMatchObject({ status: 'needs-approval' });
+    expect(h.store.get(run.id)!.summary).toContain(
+      'An agent asked for this run: approving runs this run only.',
+    );
+    await h.service.approve(run.id);
+    await h.flush();
+    h.world.setOutputs('session-1', { verdict: 'post', note: 'n' });
+    await h.world.endTurn('session-1');
+    expect(h.world.mcp.launches).toHaveLength(1);
+    expect(h.world.mcp.calls).toHaveLength(1);
+    expect(h.store.acceptedVersion(`${WORKSPACE_ID} brief`)).toBeUndefined();
+    expect(row(h).asksFirst).toBe(true);
+  });
+});
+
+describe("a call's values go with its run (5a-2 Task 8)", () => {
+  it('holds none once the run ended, and leaves no session open', async () => {
+    const { h, run } = await posting();
+    expect(h.store.get(run.id)?.status).toBe('completed');
+    const held = (h.service as unknown as { runSecrets: { held(id: string): unknown } }).runSecrets;
+    expect(held.held(run.id)).toBeUndefined();
+    expect(h.world.mcp.closes).toHaveLength(h.world.mcp.launches.length);
   });
 });

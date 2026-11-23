@@ -214,6 +214,8 @@ export interface FakeServer {
   group?: ServerGroup;
   /** What `close` answers; absent, 0. */
   survivors?: number;
+  /** Its answer is not raced against the call's signal: one already on its way when the call was stopped. */
+  answersThroughAbort?: true;
 }
 
 /** The fake MCP client's state and what it recorded. */
@@ -232,6 +234,8 @@ export interface FakeMcp {
   }>;
   /** Each call's signal, in the same order. */
   callSignals: AbortSignal[];
+  /** Each connect that got as far as `initialize`, after its group was handed over: the running `uses` step's group as the store held it then. */
+  initialized: Array<ServerGroup | undefined>;
   /** The server of every session closed, in order. */
   closes: string[];
   /** Every group `endOrphan` was handed, in order. */
@@ -240,6 +244,8 @@ export interface FakeMcp {
   orphanAnswer: 'ended' | 'gone' | 'unknown';
   /** Every connect waits for this while it is set (or until its signal aborts), after the group was handed over. */
   connectGate?: Promise<void>;
+  /** Every connect waits for this while it is set, before the group is handed over: the process is still being spawned. */
+  spawnGate?: Promise<void>;
 }
 
 /** Resolves once `signal` aborts (at once when it has). */
@@ -586,6 +592,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
       launches: [],
       calls: [],
       callSignals: [],
+      initialized: [],
       closes: [],
       orphans: [],
       orphanAnswer: 'ended',
@@ -785,6 +792,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
             world.mcp.launches.push(launch);
             const server = world.mcp.servers.get(launch.name);
             if (!server) return { ok: false, reason: `nothing answers as ${launch.name}` };
+            if (world.mcp.spawnGate) await world.mcp.spawnGate;
             if (server.group && launch.onSpawned) {
               try {
                 await launch.onSpawned(server.group);
@@ -795,6 +803,17 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                 };
               }
             }
+            const runningCall = () =>
+              currentStore
+                .runs()
+                .flatMap((run) => run.steps ?? [])
+                .find((step) => step.kind === 'uses' && step.status === 'running')?.call;
+            const recordedGroup = runningCall()?.server;
+            world.mcp.initialized.push(
+              recordedGroup
+                ? { pgid: recordedGroup.pgid, startedAt: recordedGroup.startedAt }
+                : undefined,
+            );
             if (world.mcp.connectGate)
               await Promise.race([world.mcp.connectGate, abortedOf(launch.signal)]);
             if (server.hang) await abortedOf(launch.signal);
@@ -826,7 +845,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                 });
                 world.mcp.callSignals.push(signal);
                 const stopped: McpCallOutcome = { kind: 'unanswered', why: 'stopped', detail: '' };
-                if (signal.aborted) return stopped;
+                if (signal.aborted && !server.answersThroughAbort) return stopped;
                 const answered: Promise<McpCallOutcome> = Promise.resolve(
                   server.answer
                     ? server.answer(tool, { ...args }, signal)
@@ -838,6 +857,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                         bytes: 2,
                       },
                 );
+                if (server.answersThroughAbort) return answered;
                 return Promise.race([answered, abortedOf(signal).then(() => stopped)]);
               },
               close: async () => {
