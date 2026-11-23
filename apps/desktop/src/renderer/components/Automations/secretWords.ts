@@ -11,13 +11,21 @@ import { formatChangedAt, sameAsWords, secretUseWords } from '../WorkspaceSettin
 export const SECRETS_TRUST_LINE =
   "Where a secret is bound is this Mac's setting, not the file's: changing it does not ask again.";
 
-/** The names one place of an entry gives its command: a step's, or the check's. */
-export type SecretPlace = { step: string; names: string[] } | { check: true; names: string[] };
+/**
+ * The names one place of an entry gives: a step's command, a call's server
+ * (`server`: the value goes to it, not to a command), or the check's.
+ */
+export type SecretPlace =
+  | { step: string; names: string[]; server?: { name: string; transport: 'stdio' | 'http' } }
+  | { check: true; names: string[] };
 
 function destination(place: SecretPlace): string {
-  return 'check' in place
-    ? "this automation's check, as its environment variable"
-    : `command \`${place.step}\`, as its environment variable`;
+  if ('check' in place) return "this automation's check, as its environment variable";
+  if (place.server)
+    return place.server.transport === 'http'
+      ? `server \`${place.server.name}\`, in a header`
+      : `server \`${place.server.name}\`, as its environment`;
+  return `command \`${place.step}\`, as its environment variable`;
 }
 
 const viewOf = (secrets: readonly SecretBindingView[] | undefined, name: string) =>
@@ -85,6 +93,7 @@ export function secretPlacesOf(
   secrets: readonly SecretBindingView[] | undefined,
 ): SecretPlace[] {
   const steps = new Map<string, string[]>();
+  const servers = new Map<string, { name: string; transport: 'stdio' | 'http' }>();
   const check: string[] = [];
   for (const view of secrets ?? []) {
     for (const use of view.uses) {
@@ -95,10 +104,14 @@ export function secretPlacesOf(
         const names = steps.get(use.step) ?? [];
         if (!names.includes(view.name)) names.push(view.name);
         steps.set(use.step, names);
+        if (use.server) servers.set(use.step, use.server);
       }
     }
   }
-  const places: SecretPlace[] = [...steps].map(([step, names]) => ({ step, names }));
+  const places: SecretPlace[] = [...steps].map(([step, names]) => {
+    const server = servers.get(step);
+    return server ? { step, names, server } : { step, names };
+  });
   if (check.length > 0) places.push({ check: true, names: check });
   return places;
 }

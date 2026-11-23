@@ -7,6 +7,7 @@ import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ITEM_TEXT_LINE, skillsLine } from './agentGrantWords';
 import { EntrySource } from './AutomationPipeline';
+import { CallLines, ServerLines } from './CallLines';
 import { allowAgentSections, allowNotes, grantWords } from './checkWords';
 import { useIntent } from './parts';
 import { SecretLines, useEntrySecrets } from './SecretLines';
@@ -171,6 +172,19 @@ export function AllowCard({
             </li>
           ))}
         </ul>
+      )}
+      {/* Each call and each server it uses, as the version Allow accepts holds them. */}
+      {loaded?.calls && loaded.calls.length > 0 && (
+        <section className="automations-allow-calls" aria-label="Tool calls">
+          {loaded.calls.map((call) => (
+            <div key={call.step} className="automations-allow-call">
+              <p className="automations-allow-label">{call.step}</p>
+              {/* The entry's view holds no step's outputs; the run's approval card names them. */}
+              <CallLines call={call} outputs={[]} lineClassName="automations-allow-line" />
+            </div>
+          ))}
+          <ServerLines calls={loaded.calls} lineClassName="automations-allow-line" />
+        </section>
       )}
       {readsItems && agents.length > 0 && (
         <p className="automations-allow-line automations-allow-note">{ITEM_TEXT_LINE}</p>

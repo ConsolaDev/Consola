@@ -2,10 +2,14 @@ import type {
   CallArgument,
   CallFile,
   CallResultFile,
+  CallView,
   RenderedArgument,
+  ServerCheckView,
+  ServerFacts,
   StepRun,
   ValueSource,
 } from '../../../shared/automations';
+import { formatChangedAt } from '../WorkspaceSettings/secretsWords';
 
 /**
  * Every sentence the renderer says about a `uses:` step, its server and
@@ -159,3 +163,121 @@ export function resultView(result: CallResultFile | undefined): {
 
 /** A result's text folds past this many lines, behind Show all. */
 export const RESULT_FOLD_LINES = 40;
+
+// --- The cards, the servers and Check server (Task 15) ---------------------------------------
+
+/**
+ * The card's line for one argument: "`text` ← `brief`'s handover (untrusted material)",
+ * "`channel` = C0SUPPORT1 (literal)"; then its notice, when it has one. A
+ * card shows where a value comes from, never a value: none exists yet.
+ */
+export function cardArgumentLines(argument: CallArgument): string[] {
+  const label = trustLabel(argument.trust);
+  // A literal is exactly an argument with no path (factory-spec's `callArguments`).
+  const line =
+    argument.trust === 'literal'
+      ? `\`${argument.name}\` = ${textOf(argument.template, false)} ${label}`
+      : `\`${argument.name}\` ← ${argument.sources.map(sourceWords).join(', ')} ${label}`;
+  return argument.notice !== undefined ? [line, argument.notice] : [line];
+}
+
+/** A Consola tool that changes things, in `steps:` (the spec's, generalised). */
+export const DESTRUCTIVE_TOOL_NOTE =
+  'It acts on what is true when this step runs; approving the run does not approve a list.';
+export const ALSO_IN_DRY_RUN = 'also runs in a dry run';
+
+/** A call's lines on a card: its ref, its arguments, its outputs ("Outputs: ts"), "also runs in a dry run", a destructive tool's note. */
+export function callCardLines(call: CallView, outputs: readonly string[]): string[] {
+  return [
+    `Calls \`${call.ref}\``,
+    ...call.arguments.flatMap(cardArgumentLines),
+    ...(outputs.length > 0 ? [`Outputs: ${outputs.join(', ')}`] : []),
+    ...(call.alsoInDryRun ? [ALSO_IN_DRY_RUN] : []),
+    ...(call.destructive ? [DESTRUCTIVE_TOOL_NOTE] : []),
+  ];
+}
+
+/** Each factory server the calls name, once, in the order the calls name them; a Consola call names none. */
+export function serversOf(calls: readonly CallView[]): ServerFacts[] {
+  const seen = new Map<string, ServerFacts>();
+  for (const call of calls)
+    if (call.facts && !seen.has(call.facts.name)) seen.set(call.facts.name, call.facts);
+  return [...seen.values()];
+}
+
+export const SERVER_STARTED_LINE = 'Started for each call and stopped after.';
+export const LAUNCHER_NOTE =
+  'A pinned version still fetches its dependencies when it starts; an installed program by absolute path does not.';
+export const UNPINNED_WARNING = 'This runs the newest version at every call, unattended; pin one.';
+
+/** "A", "A and B", "A, B and C". */
+function andList(items: readonly string[]): string {
+  return items.length <= 1
+    ? (items[0] ?? '')
+    : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`;
+}
+
+/** The headers a remote server's secrets make: "an `Authorization` header made from TOKEN". */
+function headerWords(headers: NonNullable<ServerFacts['secretHeaders']>): string {
+  const names = headers.map(({ header }) => `\`${header}\``);
+  const secrets: string[] = [];
+  for (const { secrets: named } of headers)
+    for (const name of named) if (!secrets.includes(name)) secrets.push(name);
+  const which =
+    names.length === 1
+      ? `${/^[aeiou]/i.test(headers[0].header) ? 'an' : 'a'} ${names[0]} header`
+      : `${andList(names)} headers`;
+  return `${which} made from ${andList(secrets)}`;
+}
+
+/** A server's own line: what it starts (stdio) or calls (http), as you, with what. */
+function serverLine(facts: ServerFacts): string {
+  if (facts.transport === 'http') {
+    const headers = facts.secretHeaders ?? [];
+    return headers.length > 0
+      ? `calls ${facts.target} with ${headerWords(headers)}`
+      : `calls ${facts.target}`;
+  }
+  return `starts \`${facts.target}\` on this Mac as you, with your files and network, in an empty folder, with ${andList(facts.environment ?? [])}`;
+}
+
+/** A server's lines (the spec's): what it starts or calls, as you, with what; "Started for each call and stopped after."; the npx note; the unpinned warning. */
+export function serverLines(facts: ServerFacts): string[] {
+  return [
+    serverLine(facts),
+    SERVER_STARTED_LINE,
+    ...(facts.launcher ? [LAUNCHER_NOTE] : []),
+    ...(facts.unpinned ? [UNPINNED_WARNING] : []),
+  ];
+}
+
+export const CHECK_DIALOG_SENTENCE =
+  'Consola starts it once, lists its tools and stops it. It calls no tool.';
+
+/** Check server's dialog: its question and what it starts. */
+export function checkDialogLines(facts: ServerFacts): { title: string; lines: string[] } {
+  return {
+    title: `Check \`${facts.name}\`?`,
+    lines: [serverLine(facts), CHECK_DIALOG_SENTENCE],
+  };
+}
+
+/** What a check found: when, how many tools (or why it could not tell), each call's verdict, and what survived it. */
+export function checkResultLines(view: ServerCheckView, at: { timeZone?: string }): string[] {
+  const when = formatChangedAt(view.at, at, { time: true }) ?? view.at;
+  const count = view.tools?.length ?? 0;
+  const lines = [
+    view.problem !== undefined
+      ? `Checked ${when}: ${view.problem}`
+      : `Checked ${when}: ${count} ${count === 1 ? 'tool' : 'tools'}.`,
+  ];
+  for (const { step, tool, verdict } of view.steps) {
+    if (verdict === 'fits')
+      lines.push(`\`${step}\`: \`${tool}\` is there, and its literal values fit`);
+    else if (verdict === 'missing')
+      lines.push(`\`${step}\`: \`${view.server}\` has no \`${tool}\``);
+    else lines.push(`\`${step}\`: ${verdict.problem}`);
+  }
+  if ((view.survivors ?? 0) > 0) lines.push(SURVIVORS_LINE);
+  return lines;
+}

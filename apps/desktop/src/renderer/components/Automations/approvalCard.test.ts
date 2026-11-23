@@ -69,6 +69,30 @@ describe('dryRunCommands', () => {
   });
 });
 
+describe('dryRunCommands with calls (5a-2)', () => {
+  const call = (id: string, dryRun: 'report' | 'run'): Step =>
+    ({
+      id,
+      kind: 'uses',
+      uses: 'tracker#lookup',
+      server: 'tracker',
+      tool: 'lookup',
+      with: {},
+      outputs: {},
+      timeoutMs: 60_000,
+      dryRun,
+      named: true,
+    }) as Step;
+
+  it('names the commands and the calls marked dry_run: run, in file order', () => {
+    expect(
+      dryRunCommands(
+        definitionOf(command('fetch', 'run'), call('post', 'report'), call('lookup', 'run')),
+      ),
+    ).toEqual(['fetch', 'lookup']);
+  });
+});
+
 describe('approvalAgent', () => {
   const look = { ...agent('look'), action: undefined, agent: 'reviewer' } as Step;
   const tell = { ...agent('tell'), action: undefined, prompt: 'Turn it into a note.' } as Step;

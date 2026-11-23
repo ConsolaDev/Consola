@@ -1156,6 +1156,23 @@ describe('approvalStep', () => {
     ).toBe('You approve its next run');
   });
 
+  it('says a call marked dry_run: run runs as you in a notify entry (5a-2)', () => {
+    const agent = { id: 'brief', kind: 'agent' as const, summary: 'Brief action' };
+    const lookup = {
+      id: 'lookup',
+      kind: 'uses' as const,
+      summary: 'tracker#lookup',
+      dryRun: true as const,
+    };
+    const post = { id: 'post', kind: 'uses' as const, summary: 'slack#chat_post_message' };
+    expect(
+      approvalStep({ mode: 'notify', kind: 'agent', steps: [lookup, agent, post] })?.detail,
+    ).toBe('Runs brief read-only and lookup as you; post only reports.');
+    expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [lookup] })?.detail).toBe(
+      'Runs lookup as you.',
+    );
+  });
+
   it('says what a command node does by mode', () => {
     expect(commandFoot({}, 'notify')).toBe('Reports what it would run');
     expect(commandFoot({ dryRun: true }, 'notify')).toBe('Runs as you');

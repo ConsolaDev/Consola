@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Bot, KeyRound, Terminal } from 'lucide-react';
+import { Bot, KeyRound, Plug, Terminal } from 'lucide-react';
 import type { RunDefinition } from '../../../shared/automations';
 import { useSettings } from '../../contexts/SettingsContext';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ITEM_TEXT_LINE } from './agentGrantWords';
 import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
+import { CallLines, ServerLines } from './CallLines';
+import { stepKindLabel } from './callWords';
 import { useIntent } from './parts';
 import { SecretLines, useEntrySecrets } from './SecretLines';
 
@@ -101,6 +103,13 @@ export function StepsApprovalCard({
           {dryRun.length > 0 && (
             <p className="automations-hint">Also runs in a dry run: {dryRun.join(', ')}</p>
           )}
+          {/* Each server its calls start or call, once: its definition is part of what is approved. */}
+          <ServerLines
+            calls={ready.automation.steps.flatMap((step) => {
+              const call = step.kind === 'uses' ? ready.calls?.[step.id] : undefined;
+              return call ? [call] : [];
+            })}
+          />
           <SecretLines
             workspaceId={workspaceId}
             automation={ready.automation.name}
@@ -157,7 +166,7 @@ function ApprovalStep({
   action: RunDefinition['actions'][string] | undefined;
   definition: RunDefinition;
 }) {
-  const Icon = step.kind === 'agent' ? Bot : Terminal;
+  const Icon = step.kind === 'agent' ? Bot : step.kind === 'uses' ? Plug : Terminal;
   // The agent it runs as, exactly as approved: who it is, then what this step asks.
   const agent = step.kind === 'agent' ? approvalAgent(definition, step.id) : null;
   const named = agent?.skills !== null && agent?.skills !== undefined;
@@ -168,7 +177,7 @@ function ApprovalStep({
         <Icon size={13} aria-hidden="true" />
         <span className="automations-approval-id">{step.id}</span>
         <span className="automations-meta">
-          {step.kind === 'agent' ? (agent?.head ?? 'Agent, read-only') : 'Command'}
+          {step.kind === 'agent' ? (agent?.head ?? 'Agent, read-only') : stepKindLabel(step.kind)}
         </span>
       </div>
       {step.if !== undefined && (
@@ -208,7 +217,14 @@ function ApprovalStep({
           <Folded label={agent.file} text={agent.body} />
         </>
       )}
-      {step.kind === 'uses' ? null : step.kind === 'agent' ? (
+      {step.kind === 'uses' ? (
+        // The run's own snapshot of the call: what it sends, from where, with what trust.
+        definition.calls?.[step.id] ? (
+          <CallLines call={definition.calls[step.id]} outputs={Object.keys(step.outputs)} />
+        ) : (
+          <code className="automations-approval-code">{step.uses}</code>
+        )
+      ) : step.kind === 'agent' ? (
         step.action !== undefined ? (
           <>
             <div className="automations-approval-field">

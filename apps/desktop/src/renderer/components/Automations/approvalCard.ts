@@ -27,15 +27,15 @@ export function approvalNotes(
 }
 
 /**
- * The commands marked `dry_run: run`, in file order: the ones that run even
- * when the run only reports. The approved version includes the key, so the
- * card names them whether or not this run is a dry run.
+ * The commands and calls marked `dry_run: run`, in file order: the ones that
+ * run even when the run only reports. The approved version includes the key,
+ * so the card names them whether or not this run is a dry run.
  */
 export function dryRunCommands(definition: RunDefinition): string[] {
   return definition.automation.steps
     .filter(
-      (step): step is Extract<DefinitionStep, { kind: 'run' }> =>
-        step.kind === 'run' && step.dryRun === 'run',
+      (step): step is Extract<DefinitionStep, { kind: 'run' | 'uses' }> =>
+        (step.kind === 'run' || step.kind === 'uses') && step.dryRun === 'run',
     )
     .map((step) => step.id);
 }

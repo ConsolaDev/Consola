@@ -210,3 +210,42 @@ describe('secretPlacesOf (review S1)', () => {
     expect(secretPlacesOf('someone-else', views)).toEqual([]);
   });
 });
+
+describe('a secret that goes to a server (5a-2)', () => {
+  const slackUse = {
+    automation: 'support-briefing',
+    step: 'post',
+    server: { name: 'slack', transport: 'stdio' as const },
+    accepted: false,
+  };
+  const views = (transport: 'stdio' | 'http', name = 'slack'): SecretBindingView[] => [
+    {
+      name: 'SLACK_BOT_TOKEN',
+      binding: env,
+      uses: [{ ...slackUse, server: { name, transport } }],
+    },
+  ];
+
+  it('says a server’s secret goes to the server, as its environment or in a header', () => {
+    const at = (secrets: SecretBindingView[]) =>
+      secretCardLines({
+        automation: 'support-briefing',
+        places: secretPlacesOf('support-briefing', secrets),
+        secrets,
+        at: UTC,
+      });
+    expect(at(views('stdio'))).toEqual([
+      '`SLACK_BOT_TOKEN` → server `slack`, as its environment · bound on this Mac to your login environment (STUB_PAGER_TOKEN), last changed 20 Nov',
+      SECRETS_TRUST_LINE,
+    ]);
+    expect(at(views('http', 'tracker'))[0]).toBe(
+      '`SLACK_BOT_TOKEN` → server `tracker`, in a header · bound on this Mac to your login environment (STUB_PAGER_TOKEN), last changed 20 Nov',
+    );
+  });
+
+  it('keeps the call’s step as its place, with its server', () => {
+    expect(secretPlacesOf('support-briefing', views('stdio'))).toEqual([
+      { step: 'post', names: ['SLACK_BOT_TOKEN'], server: { name: 'slack', transport: 'stdio' } },
+    ]);
+  });
+});
