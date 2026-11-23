@@ -9,46 +9,53 @@ repository's guide is the root `AGENTS.md`, and setup is in
 
 The app is built in layers, and imports point inward only.
 
-- `src/domain/` holds the rules and the types they speak of: `Me` and
-  `MeState` (`me.ts`); workspaces (`workspace.ts`: `MyWorkspace`, `REGIONS`
-  and `regionName`, `roleName`, `checkNewWorkspace`, `suggestSlug`, the create
-  form's `WorkspaceDraft` with `withName` and `withSlug`, and the API's
-  answers `WorkspacesState`, `CreateWorkspaceAnswer` and
-  `SwitchWorkspaceAnswer`); the sentences (`messages.ts`) for a failed
-  sign-in or sign-out, for each problem with a new workspace, a taken slug, a
-  failed switch and the create form's hints; connections (`connections.ts`:
-  the answers of `/api/connections`, a Connect's results, the services that
-  come later) and their sentences (`connectionMessages.ts`); teams
-  (`teams.ts`: `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`,
-  `addableTo`, `TeamsState`, `TeamChange`) and their sentences
-  (`teamMessages.ts`); where the running source is (`source.ts`); and how
-  the address names a dashboard section (`sections.ts`: `sectionIdOfHash`,
-  `hashOfSection`, `chooseSection`) and a settings page (`settings.ts`:
-  `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain TypeScript,
-  with no package and no browser I/O. `apiContract.ts` and
+- `src/domain/` holds the rules and the types they speak of: `Me`, `MeState`
+  and `initialsOf` (`me.ts`); workspaces (`workspace.ts`: `MyWorkspace`,
+  `REGIONS` with `regionName` and `regionPlace`, `roleName`,
+  `checkNewWorkspace`, `suggestSlug`, the create form's `WorkspaceDraft` with
+  `withName` and `withSlug`, and the API's answers `WorkspacesState`,
+  `CreateWorkspaceAnswer` and `SwitchWorkspaceAnswer`); the icons a workspace
+  can wear (`workspaceIcons.ts`: `WORKSPACE_SYMBOLS` and `WORKSPACE_EMOJIS`,
+  the desktop's, with `emojiOf`, `iconLabel`, `iconsMatching`,
+  `workspaceInitial` and `SetIconAnswer`); the sentences (`messages.ts`) for a
+  failed sign-in or sign-out, for each problem with a new workspace, a taken
+  slug, a failed switch, an icon not set and the create form's hints;
+  connections (`connections.ts`: the answers of `/api/connections`, a
+  Connect's results, the services that come later) and their sentences
+  (`connectionMessages.ts`); teams (`teams.ts`: `Team`, `WorkspaceMember`,
+  `checkTeamName`, `memberOf`, `addableTo`, `TeamsState`, `TeamChange`) and
+  their sentences (`teamMessages.ts`); where the running source is
+  (`source.ts`); and how the address names a dashboard section (`sections.ts`:
+  `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a settings page
+  (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
+  TypeScript, with no package and no browser I/O. `apiContract.ts` and
   `cellApiContract.ts` hold the APIs' types, generated from
   `apps/cloud-global/openapi.json` and `apps/cloud-region/openapi.json` (see
   "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
-  `switchWorkspace`, `loadConnections`, `startGitHubConnect`,
-  `disconnectGitHub`, through `createApi`, an `openapi-fetch` client typed by
-  the contract), the workspace's cell (`teams.ts`: `teamsService`, built by
-  `createTeamsService` on `createCellApi`), Better Auth's client
-  (`authClient.ts`: `signInWithGoogle`,
-  `signOut`) and the address bar (`signInRedirect.ts`:
-  `takeSignInErrorCode`; `address.ts`: `currentSectionId`, `openSection`,
-  `onSectionChange`; `settingsAddress.ts`: `currentSettingsPageId`,
-  `onSettingsPageChange`; `gitHubRedirect.ts`: `takeGitHubResult`,
-  `goToGitHub`). A service answers in domain types and sentences, never in a
-  library's own.
+  `switchWorkspace`, `setWorkspaceIcon`, `loadConnections`,
+  `startGitHubConnect`, `disconnectGitHub`, through `createApi`, an
+  `openapi-fetch` client typed by the contract), the workspace's cell
+  (`teams.ts`: `teamsService`, built by `createTeamsService` on
+  `createCellApi`), Better Auth's client (`authClient.ts`: `signInWithGoogle`,
+  `signOut`), the clipboard (`clipboard.ts`: `copyText`) and the address bar
+  (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`:
+  `currentSectionId`, `openSection`, `onSectionChange`; `settingsAddress.ts`:
+  `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
+  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`). A service answers in
+  domain types and sentences, never in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
-  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the topbar's
-  `WorkspaceSwitcher` and `SignOutButton`), the dashboard (`Dashboard.tsx`,
-  its list of sections `sections.tsx` and each section's page, such as
-  `OverviewPage.tsx`), Settings (`SettingsDialog.tsx`, its pages in
-  `settingsPages.tsx`: `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
-  `TeamCard.tsx` and `TeamNameForm.tsx`) and `styles.css`. A screen asks a
+  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the narrow page's
+  topbar with `SignOutButton`), the dashboard (`Dashboard.tsx` with its
+  sidebar's workspace menu, `WorkspaceSwitcher`, and `AccountMenu`, its list
+  of sections `sections.tsx`, and each section's page, such as
+  `OverviewPage.tsx` with `RegionMap` and `CopySlug`), Settings
+  (`SettingsDialog.tsx`, its pages in `settingsPages.tsx`: `GeneralPage.tsx`
+  with `WorkspaceIconPicker`, `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
+  `TeamCard.tsx` and `TeamNameForm.tsx`), the pieces they share (`Avatar`,
+  `WorkspaceIcon`, `BrandMark` on the sign-in card, `useSlidingHighlight`)
+  and `styles.css`. A screen asks a
   service and shows what comes back. It does not fetch, touch the address or
   know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
@@ -77,7 +84,8 @@ The app is built in layers, and imports point inward only.
 - Services are called from `ui`. A screen calls the service behind what it
   shows or does: `App.tsx` loads the page's state, and a card calls the
   service behind its own button (`SignInCard.tsx`, `SignOutButton.tsx`,
-  `CreateWorkspaceCard.tsx`, `WorkspaceSwitcher.tsx`).
+  `AccountMenu.tsx`, `CopySlug.tsx`, `CreateWorkspaceCard.tsx`,
+  `WorkspaceSwitcher.tsx`).
   `domain` and `main.tsx` call none.
 - No file imports another app or a workspace package (`@consola/*`).
 - Test files (`*.test.ts`) are exempt from the layer rules (the never-import
@@ -183,21 +191,31 @@ problem out of step, but not a rule such as a length.
   again (`App.tsx`'s `load`); no reload. Only the latest load's answer is
   shown.
 - A person with no workspace open sees the create form under their profile.
-  One with a workspace reaches the switcher, and the form, from the topbar.
+  One with a workspace reaches the switcher, and the form, from the sidebar.
 - No region is picked for the person: it can never change, and the form says
   so (`REGION_HINT`). The slug follows the name until the person types their
   own.
 
 ## The dashboard
 
-A person with a workspace open sees its dashboard: the topbar (the switcher
-and Sign out) across the page, then a nav of the workspace's sections beside
-the one open. Sign-in, the create form and the notices stay in the narrow
-column (`.main`; the dashboard widens it with `.main.wide`).
+A person with a workspace open sees its dashboard, which has the whole window
+(`.shell`): a sidebar, laid out as the desktop app's, beside the section open.
+At its top is the workspace's menu, as the desktop's (`Layout/WorkspaceMenu`):
+its trigger is the workspace's icon and name, and it opens on who the
+workspace is, Workspace settings… (Settings' General page), the person's
+workspaces to switch to and Create workspace…. Under it, the nav of the
+workspace's sections with Settings at its foot, and the person's account,
+which signs them out. On a narrow screen the sidebar
+becomes a bar above the section, its nav a row that scrolls. Sign-in, the
+create form and the notices stay in the narrow column (`.page`, `.main`),
+under a topbar of their own.
 
 - **One list of sections.** `ui/sections.tsx` holds `SECTIONS`, in the nav's
-  order. A section is `{ id, label, View }`, and its `View` gets
-  `SectionProps`: the person (`Me`) and the workspace open, never null. A new
+  order. A section is `{ id, label, icon, View }` (the icon from the
+  desktop's set, `lucide-react`), and its `View` gets `SectionProps`: the
+  person (`Me`), the workspace open (never null) and `onWorkspaceChanged`,
+  which a page calls once it has changed the workspace, so the page loads
+  again and the sidebar and the menu catch up. A new
   page is one entry there and files of its own; nothing else in the shell
   changes. The first entry, Overview, is what an address naming no section
   opens.
@@ -220,11 +238,37 @@ column (`.main`; the dashboard widens it with `.main.wide`).
 - **A section starts again for another workspace.** `Dashboard` keys the open
   section by workspace and section, so a switch never shows what a page
   loaded for the last workspace.
-- **Styles.** `styles.css` holds the shell's classes (`.dashboard`,
-  `.nav-link`, `.section-header`, `.section-title`, `.facts`) beside the shared
-  ones (`.card`, `.heading`, `.muted`, `.error`, `.button`). A page's own
-  styles go in a stylesheet beside it (`ui/ConnectionsPage.css`,
+- **A workspace wears an icon** (`WorkspaceIcon`): one of the desktop's
+  symbols or emoji (`MyWorkspace.icon`), or, with none, its initial on a
+  tile, drawn as the desktop draws it. It is changed in Settings → General,
+  and shown in the sidebar, the menu and the Overview.
+- **The Overview** sets the workspace's icon and name over a monospace row of
+  its facts, its slug copying itself (`CopySlug`, through `copyText`, saying
+  so when the browser refuses); then its region on a map of dots
+  (`RegionMap`, from the hand-editable mask in `ui/worldDots.ts`), the
+  region's own lit in the accent; then the person, with their role.
+- **Styles are the desktop app's.** `styles.css` declares its tokens on
+  `:root` for both schemes, with the desktop themes' own values (`--bg`
+  #050505, `--bg-sidebar` #111111, `--bg-pop` #1e1e1e for menus, `--hover`
+  and `--active` at 10% and 15%, `--text` at 90/60/40%, `--line`, `--cyan`),
+  and points Radix's surfaces and fonts at them, so its menus and Settings
+  match. Its shapes too: 3px rows 30px tall, 6px controls, 12px groups drawn
+  as Connections draws them (`.group`, `.group-label`, `.group-box`). A
+  sidebar icon is never coloured, the open section's row included: it is
+  marked by `--active` alone. Type is Geist for the interface and JetBrains
+  Mono (the desktop's) for what a person would type, both bundled
+  (`@fontsource-variable/*`), so every system shows the same type. The
+  shell's classes (`.shell`, `.sidebar`, `.nav-link`, `.nav-hover`,
+  `.switcher-trigger`, `.workspace-menu`) sit beside the shared ones
+  (`.card`, `.heading`, `.muted`, `.error`, `.button`, `.avatar`,
+  `.workspace-icon`). A page's own styles go in a stylesheet beside it
+  (`ui/OverviewPage.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`), imported by the page.
+- **Motion plays once, or answers the person.** The map's region ripples on as
+  the page opens, the nav's hover follows the pointer from row to row
+  (`useSlidingHighlight`), a new icon pops into its tile, the slug's icon
+  turns to a check when copied, and the sign-in card's C blinks a cursor when
+  pointed at. None of it plays under `prefers-reduced-motion`.
 
 ## Settings
 
@@ -238,9 +282,11 @@ then options, each a label and a description over its control
 Sizes and spacing are the desktop's; colours are this app's Radix tokens.
 
 - **It is no section.** The dashboard nav's last link opens it
-  (`#/settings`), and `Dashboard` shows it over the section that was open, or
-  the first section when the address opened Settings directly (cloud-global's
-  GitHub callback). Escape and its close button go back to that section. It is
+  (`#/settings`), as does the workspace menu's Workspace settings…
+  (`#/settings/general`, through `openSettingsPage`), and `Dashboard` shows
+  it over the section that was open, or the first section when the address
+  opened Settings directly (cloud-global's GitHub callback). Escape and its
+  close button go back to that section. It is
   a native modal `<dialog>`, so the dashboard behind it is inert, and the
   keyboard starts on the open page's entry in the list.
 - **The address picks the page.** A page is `#/settings/<id>`
@@ -262,9 +308,24 @@ Sizes and spacing are the desktop's; colours are this app's Radix tokens.
 - On a narrow screen it fills the window and its list becomes a row above
   the page.
 
+### General
+
+Settings' first page (`ui/GeneralPage.tsx`, with its own `GeneralPage.css`,
+at `#/settings/general`) is the workspace itself, as the desktop's General
+page shows one (its `WorkspaceSettings/ManifestHeader.tsx`): its icon in a
+tile beside its name, over a monospace row of its slug, region and the
+person's role, then what cannot change. An owner or admin (the server's
+`canManage`) changes the icon from the tile (`WorkspaceIconPicker`, the
+desktop's picker: a search over Emojis and Icons, and Reset to default, which
+takes the icon off). A pick is set at once (`setWorkspaceIcon`), then the page
+loads again (`onWorkspaceChanged`); anyone else sees the tile and no picker,
+and the server refuses them whatever the page shows. An uploaded image, which
+the desktop also offers, is not offered: it would put a person's file in
+`cloud-global`.
+
 ### Connections
 
-Settings' first page (`ui/ConnectionsPage.tsx`, with its own
+Settings' Connections page (`ui/ConnectionsPage.tsx`, with its own
 `ConnectionsPage.css`, at `#/settings/connections`) shows what the active
 workspace is connected to: GitHub, and the services that come later
 (`LATER_SERVICES`), listed as not connected. The API is `cloud-global`'s (its

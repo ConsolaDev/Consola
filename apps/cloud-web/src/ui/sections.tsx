@@ -1,18 +1,29 @@
+import { LayoutGrid, type LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Me } from '../domain/me';
 import type { MyWorkspace } from '../domain/workspace';
 import { OverviewPage } from './OverviewPage';
 
-/** What every section is shown with: the person, and the workspace open, never null. */
-export type SectionProps = { me: Me; workspace: MyWorkspace };
+/**
+ * What every section is shown with: the person, the workspace open (never null), and what to
+ * call once a page has changed the workspace, which loads the page's state again so everything
+ * showing it (the sidebar, the menu) catches up.
+ */
+export type SectionProps = {
+  me: Me;
+  workspace: MyWorkspace;
+  onWorkspaceChanged: () => Promise<void>;
+};
 
 /**
  * One page of the dashboard. `id` names it in the address (`#/<id>`), so it never changes once
- * a link may hold it; `label` is what the nav calls it.
+ * a link may hold it; `label` and `icon` are how the sidebar shows it, the icon from the
+ * desktop's set (`lucide-react`).
  */
 export type Section = {
   id: string;
   label: string;
+  icon: LucideIcon;
   View: (props: SectionProps) => ReactNode;
 };
 
@@ -25,5 +36,5 @@ export type Section = {
  * over the open one, with pages of its own (`settingsPages.tsx`), Teams and Connections among them.
  */
 export const SECTIONS: readonly [Section, ...Section[]] = [
-  { id: 'overview', label: 'Overview', View: OverviewPage },
+  { id: 'overview', label: 'Overview', icon: LayoutGrid, View: OverviewPage },
 ];

@@ -15,6 +15,7 @@ import type {
 } from '../domain/connections.js';
 import type { GitHubPermissions, TokenMint } from '../domain/gitHubTokens.js';
 import type { MyWorkspace, NewWorkspace, Workspace, WorkspaceMember } from '../domain/workspace.js';
+import type { WorkspaceIcon } from '../domain/workspaceIcon.js';
 
 // What the use cases need from the world outside, each implemented by an adapter.
 
@@ -28,6 +29,11 @@ export type WorkspaceStore = {
     workspace: NewWorkspace,
     firstMember: { userId: string; role: WorkspaceRole },
   ): Promise<{ kind: 'created'; workspace: Workspace } | { kind: 'slug-taken' }>;
+  /**
+   * Sets the workspace's icon, or clears it (null), and nothing else on the row. No cell holds an
+   * icon, so it writes no outbox message.
+   */
+  setIcon(change: { workspaceId: string; icon: WorkspaceIcon | null }): Promise<void>;
 };
 
 export type MembershipStore = {

@@ -1,5 +1,6 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import { isRegion, type Region } from './region.js';
+import type { WorkspaceIcon } from './workspaceIcon.js';
 
 /**
  * A workspace: the top level people see, as in Notion (a company, a team, or only you). It is
@@ -8,8 +9,18 @@ import { isRegion, type Region } from './region.js';
  */
 export type Workspace = { id: string; name: string; slug: string; region: Region };
 
-/** A workspace as one of its members sees it: with their role in it. */
-export type MyWorkspace = Workspace & { role: WorkspaceRole };
+/**
+ * A workspace as one of its members sees it: with their role in it, and the icon it wears (null
+ * for none, which shows its initial).
+ */
+export type MyWorkspace = Workspace & { role: WorkspaceRole; icon: WorkspaceIcon | null };
+
+/**
+ * Who may change how a workspace looks (its icon): its owners and admins. Every member sees it.
+ */
+export function mayManageWorkspace(role: WorkspaceRole): boolean {
+  return role === 'owner' || role === 'admin';
+}
 
 /** A member of a workspace, as its other members see them: who they are, and their role. */
 export type WorkspaceMember = {

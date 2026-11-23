@@ -47,7 +47,12 @@ function useSettingsPageId(): string | null {
  * reload, a link and back and forward land where they point. Escape and the close button call
  * `onClose`, which leaves the address for the section behind.
  */
-export function SettingsDialog({ me, workspace, onClose }: SectionProps & { onClose: () => void }) {
+export function SettingsDialog({
+  me,
+  workspace,
+  onWorkspaceChanged,
+  onClose,
+}: SectionProps & { onClose: () => void }) {
   const page = chooseSection(SETTINGS_PAGES, useSettingsPageId());
   const { View } = page;
   const dialog = useRef<HTMLDialogElement>(null);
@@ -92,7 +97,7 @@ export function SettingsDialog({ me, workspace, onClose }: SectionProps & { onCl
       </nav>
 
       <div className="settings-body">
-        <View key={page.id} me={me} workspace={workspace} />
+        <View key={page.id} me={me} workspace={workspace} onWorkspaceChanged={onWorkspaceChanged} />
       </div>
 
       <button

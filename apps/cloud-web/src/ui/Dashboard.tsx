@@ -2,9 +2,14 @@ import { Settings } from 'lucide-react';
 import { useRef, useSyncExternalStore } from 'react';
 import { chooseSection, hashOfSection } from '../domain/sections';
 import { SETTINGS_SECTION_ID } from '../domain/settings';
+import type { MyWorkspace } from '../domain/workspace';
 import { currentSectionId, onSectionChange, openSection } from '../services/address';
+import { AccountMenu } from './AccountMenu';
+import { Footer } from './Footer';
 import { SECTIONS, type SectionProps } from './sections';
 import { SettingsDialog } from './SettingsDialog';
+import { useSlidingHighlight } from './useSlidingHighlight';
+import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 const subscribe = (changed: () => void) => onSectionChange(() => changed());
 
@@ -14,9 +19,12 @@ function useSectionId(): string | null {
 }
 
 /**
- * The open workspace's pages: the nav of `SECTIONS`, and the section the address names beside
- * it. A link changes the address and the address picks the section, so a reload, a shared link
- * and the browser's back and forward all land where they point.
+ * The open workspace's pages: a sidebar (the workspace's menu, the nav of `SECTIONS` with
+ * Settings at its foot, and the account) beside the section the address names, laid out as the
+ * desktop app's sidebar.
+ * A link changes the address and the address picks the section, so a reload, a shared link and
+ * the browser's back and forward all land where they point. `workspaces` is null when they
+ * could not be listed.
  *
  * A section is keyed by the workspace too, so switching workspaces starts it again rather than
  * showing what it loaded for the last one.
@@ -26,7 +34,17 @@ function useSectionId(): string | null {
  * An address that opens Settings directly (cloud-global's GitHub callback) has the first
  * section behind it.
  */
-export function Dashboard({ me, workspace }: SectionProps) {
+export function Dashboard({
+  me,
+  workspace,
+  workspaces,
+  onSwitched,
+  onCreate,
+}: Omit<SectionProps, 'onWorkspaceChanged'> & {
+  workspaces: MyWorkspace[] | null;
+  onSwitched: () => Promise<void>;
+  onCreate: () => void;
+}) {
   const wanted = useSectionId();
   const settingsOpen = wanted === SETTINGS_SECTION_ID;
   // The section under Settings: the last one the address named before it opened.
@@ -34,43 +52,71 @@ export function Dashboard({ me, workspace }: SectionProps) {
   if (!settingsOpen) behind.current = wanted;
   const section = chooseSection(SECTIONS, settingsOpen ? behind.current : wanted);
   const { View } = section;
+  const { container, highlight } = useSlidingHighlight<HTMLElement>('.nav-link');
 
   return (
-    <div className="dashboard">
+    <div className="shell">
       <title>{`${settingsOpen ? 'Settings' : section.label} · ${workspace.name} · Consola Cloud`}</title>
-      <nav className="dashboard-nav" aria-label="Workspace">
-        <ul>
-          {SECTIONS.map(({ id, label }) => (
-            <li key={id}>
+      <aside className="sidebar">
+        <div className="sidebar-head">
+          <WorkspaceSwitcher
+            active={workspace}
+            workspaces={workspaces}
+            onSwitched={onSwitched}
+            onCreate={onCreate}
+            withSettings
+          />
+        </div>
+        <nav className="sidebar-nav" aria-label="Workspace" {...container}>
+          <span className="nav-hover" {...highlight} />
+          <ul className="nav-list">
+            {SECTIONS.map(({ id, label, icon: Icon }) => (
+              <li key={id}>
+                <a
+                  className="nav-link"
+                  href={hashOfSection(id)}
+                  aria-current={id === section.id && !settingsOpen ? 'page' : undefined}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  {label}
+                </a>
+              </li>
+            ))}
+          </ul>
+          <ul className="nav-list">
+            <li>
               <a
                 className="nav-link"
-                href={hashOfSection(id)}
-                aria-current={id === section.id && !settingsOpen ? 'page' : undefined}
+                href={hashOfSection(SETTINGS_SECTION_ID)}
+                aria-current={settingsOpen ? 'page' : undefined}
               >
-                {label}
+                <Settings size={16} aria-hidden="true" />
+                Settings
               </a>
             </li>
-          ))}
-          <li className="dashboard-nav-settings">
-            <a
-              className="nav-link"
-              href={hashOfSection(SETTINGS_SECTION_ID)}
-              aria-current={settingsOpen ? 'page' : undefined}
-            >
-              <Settings size={16} aria-hidden="true" />
-              Settings
-            </a>
-          </li>
-        </ul>
-      </nav>
-      <div className="dashboard-content">
-        <View key={`${workspace.id} ${section.id}`} me={me} workspace={workspace} />
+          </ul>
+        </nav>
+        <div className="sidebar-foot">
+          <AccountMenu user={me.user} />
+        </div>
+      </aside>
+      <div className="content">
+        <main className="content-inner">
+          <View
+            key={`${workspace.id} ${section.id}`}
+            me={me}
+            workspace={workspace}
+            onWorkspaceChanged={onSwitched}
+          />
+        </main>
+        <Footer />
       </div>
       {settingsOpen && (
         <SettingsDialog
           key={workspace.id}
           me={me}
           workspace={workspace}
+          onWorkspaceChanged={onSwitched}
           onClose={() => openSection(section.id)}
         />
       )}

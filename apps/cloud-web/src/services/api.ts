@@ -7,6 +7,7 @@ import type {
   DisconnectAnswer,
 } from '../domain/connections';
 import type { MeState } from '../domain/me';
+import type { SetIconAnswer, WorkspaceIcon } from '../domain/workspaceIcons';
 import {
   type CreateWorkspaceAnswer,
   isWorkspaceProblem,
@@ -120,6 +121,27 @@ export async function switchWorkspace(
     if (response.status === 404 && error?.error === 'workspace_not_found') {
       return { kind: 'not-found' };
     }
+    return UNAVAILABLE;
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/**
+ * Sets the icon of the session's active workspace, or takes it off (null). Only an owner or an
+ * admin may; anyone else is `not-allowed`, whatever the page showed them.
+ */
+export async function setWorkspaceIcon(
+  icon: WorkspaceIcon | null,
+  client: Api = api,
+): Promise<SetIconAnswer> {
+  try {
+    const { data, error, response } = await client.PUT('/api/me/workspace/icon', {
+      body: { icon },
+    });
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 200 && data) return { kind: 'changed', workspace: data };
+    if (response.status === 403 && error?.error === 'not_allowed') return { kind: 'not-allowed' };
     return UNAVAILABLE;
   } catch {
     return UNAVAILABLE;

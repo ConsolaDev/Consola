@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { eq } from 'drizzle-orm';
 import type { WorkspaceStore } from '../../application/ports.js';
 import type { Database } from './database.js';
+import { schema } from './schema.js';
 import { writeWorkspaceChange } from './workspaceChanges.js';
 
 /**
@@ -11,6 +13,9 @@ import { writeWorkspaceChange } from './workspaceChanges.js';
  * there makes the insert do nothing rather than fail, so two people asking for one slug at once
  * get one workspace and one `slug-taken`. Once a workspace is made, `messageWritten` is told, so
  * the outbox's worker can deliver at once rather than at its next poll.
+ *
+ * `setIcon` is the one write to `organization` outside `writeWorkspaceChange`: it sets `logo`
+ * alone, which no cell holds, so there is no message to commit with it and no sequence to keep.
  */
 export function createWorkspaceStore(
   db: Database,
@@ -36,6 +41,13 @@ export function createWorkspaceStore(
       });
       if (made.kind === 'created') hooks.messageWritten?.();
       return made;
+    },
+
+    async setIcon({ workspaceId, icon }) {
+      await db
+        .update(schema.organization)
+        .set({ logo: icon })
+        .where(eq(schema.organization.id, workspaceId));
     },
   };
 }
