@@ -88,11 +88,43 @@ const hostRegistration = (hostUrl: string, sessionId: string, pass: string) => {
  * platform registration at once, so each change hands it all of them: two chats on one page keep
  * both.
  */
-const registered = new Map<string, BearerConnectionRegistration>();
+const registered = new Map<
+  string,
+  Array<{ readonly owner: object; readonly registration: BearerConnectionRegistration }>
+>();
+
+/**
+ * Two chats can show one session, and t3 keeps one registration (and one stored pass) per
+ * session, so the chats share it, counted by owner. The newest pass wins: a chat that registers
+ * (mounting, or renewing its pass) goes last, and the last one is what t3 is handed. Removing a
+ * chat leaves the others' registration in place, and t3 drops the session (and its stored pass)
+ * only when its last chat goes. A chat left on an older pass that the host refuses renews it
+ * through its own `onPassExpired`.
+ */
+const addRegistration = (
+  sessionId: string,
+  owner: object,
+  registration: BearerConnectionRegistration,
+) => {
+  const rest = (registered.get(sessionId) ?? []).filter((entry) => entry.owner !== owner);
+  registered.set(sessionId, [...rest, { owner, registration }]);
+};
+
+/** Returns the registration the chat held, if any. */
+const removeRegistration = (sessionId: string, owner: object) => {
+  const entries = registered.get(sessionId) ?? [];
+  const removed = entries.find((entry) => entry.owner === owner);
+  const rest = entries.filter((entry) => entry.owner !== owner);
+  if (rest.length === 0) registered.delete(sessionId);
+  else registered.set(sessionId, rest);
+  return removed?.registration;
+};
 
 /** Hands t3 the registrations of every mounted chat. Fails with t3's cause, as text. */
 const reconcileHosts = async (): Promise<void> => {
-  const registrations = [...registered.values()];
+  const registrations = [...registered.values()].map(
+    (entries) => entries[entries.length - 1]!.registration,
+  );
   const exit = await runInConnection(
     Effect.gen(function* () {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
@@ -106,7 +138,10 @@ const passOf = ({ credential }: BearerConnectionRegistration): string[] =>
   credential._tag === 'BearerConnectionCredential' ? [credential.token] : [];
 
 /** The passes of every mounted chat's registration. */
-const registeredPasses = (): string[] => [...registered.values()].flatMap(passOf);
+const registeredPasses = (): string[] =>
+  [...registered.values()].flatMap((entries) =>
+    entries.flatMap(({ registration }) => passOf(registration)),
+  );
 
 /**
  * Logs a failure of the chat's own, which the page would otherwise never see, with `passes`
@@ -185,6 +220,8 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
   const answeredPass = useRef<string | null>(null);
   // Whether this page holds the session (`storedSessions.ts`): it registers it only then.
   const [held, setHeld] = useState(false);
+  // Which chat owns a registration of the session, when another chat shows it too.
+  const owner = useRef({}).current;
 
   useEffect(() => setPass(props.pass), [props.pass]);
 
@@ -198,13 +235,13 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
       setProblem({ kind: 'connection-failed' });
       return;
     }
-    registered.set(sessionId, registration);
+    addRegistration(sessionId, owner, registration);
     forgetUnheldSessionsOnce();
     reconcileHosts().catch((error) => {
       logFailure("could not register the host with t3's connection.", error, registeredPasses());
       setProblem({ kind: 'connection-failed' });
     });
-  }, [held, hostUrl, sessionId, pass]);
+  }, [held, hostUrl, sessionId, pass, owner]);
 
   // t3's connection runtime, and the page's hold on the session, stay until the registration is
   // removed, which removes its pass.
@@ -227,8 +264,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
     );
     return () => {
       unmounted = true;
-      const removed = registered.get(sessionId);
-      registered.delete(sessionId);
+      const removed = removeRegistration(sessionId, owner);
       const passes = [...registeredPasses(), ...(removed === undefined ? [] : passOf(removed))];
       reconcileHosts()
         .catch((error) =>
@@ -239,7 +275,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
           releaseRuntime();
         });
     };
-  }, [sessionId]);
+  }, [sessionId, owner]);
 
   // A refusal counts only once t3 has tried this pass: the state it reports first can still be
   // the refusal of the pass this one replaced. A pass `onPassExpired` just answered that is
