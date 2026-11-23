@@ -28,8 +28,10 @@ export type Section = {
 };
 
 /**
- * The dashboard's sections, in the nav's order, and the one list of them: a new page is one
- * entry here. The first is the one an address naming no section opens.
+ * The dashboard's sections, in the nav's order, and the one list of them: a new page of the
+ * workspace's own is one entry here. The first is the one an address naming no section opens.
+ * The factories are no section: the sidebar lists them in a group of their own, each with its
+ * pages (`FactoriesNav`, `#/factories/<id>/<page>`).
  *
  * Every member of the workspace sees every section. What a person may do on a page is the
  * page's to show or hide, by what the server answers. Settings is no section: it is a dialog

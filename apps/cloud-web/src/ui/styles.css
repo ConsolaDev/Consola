@@ -1,6 +1,6 @@
 /* Consola Cloud looks like the desktop app: its surfaces, text and hairlines (Warp's, in its
-   `styles/themes/dark.css` and `light.css`), its shapes (3px rows, 6px controls, 12px groups), its
-   compact sizes, and its sidebar, whose icons are never coloured. Cyan marks focus and what is
+   `styles/themes/dark.css` and `light.css`), its type scale (`tokens.css`), its shapes (3px rows,
+   6px controls, 12px groups), and its sidebar, whose icons are never coloured. Cyan marks focus and what is
    chosen, as on the desktop. It follows the system's colour scheme, as `main.tsx` does, so the
    tokens switch on the same media query. Settings' own pages (`SettingsDialog.css`) are the
    desktop's too, on Radix's tokens, which point at these. */
@@ -30,6 +30,26 @@
   --cyan-muted: rgba(0, 194, 255, 0.25);
   --cyan-glow: rgba(0, 194, 255, 0.45);
   --danger: #d44c47;
+
+  /* The desktop's type (`styles/themes/tokens.css`), by the same names: 14px for what a page
+     says and for every field and button, 12px for what supports it, 11px only for uppercase
+     labels and the smallest metadata, and 16px or 18px for a page's title. Nothing is smaller. */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  /* The desktop sidebar's (`Sidebar/styles.css`): its rows a step under a page's text, their
+     metadata and group labels under that. Settings' list of pages runs at the same size. */
+  --sidebar-font-size: 13px;
+  --sidebar-font-size-small: var(--font-size-sm);
+  --sidebar-font-size-label: var(--font-size-xs);
 
   /* The desktop's radii: a row, a control, a menu; groups are rounder. */
   --radius-sm: 3px;
@@ -68,6 +88,9 @@
 .radix-themes,
 .radix-themes:is(.dark, .dark-theme) {
   --default-font-family: var(--font-sans);
+  /* Radix's own root is 16px; the desktop's body, and this page's, is 14px. */
+  --default-font-size: var(--font-size-md);
+  --default-line-height: var(--line-height-normal);
   --code-font-family: var(--font-mono);
   --color-background: var(--bg);
   --color-panel-solid: var(--bg-pop);
@@ -78,8 +101,8 @@ body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -128,7 +151,55 @@ code {
   background: var(--hover);
   color: var(--text);
   font-size: calc(var(--workspace-icon-tile) * 0.62);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ---- A factory's tile: its initial on a square its id colours (`FactoryTile`) ---- */
+
+.factory-tile {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--factory-tile-size);
+  height: var(--factory-tile-size);
+  border-radius: max(4px, calc(var(--factory-tile-size) / 4.5));
+  background: var(--factory-hue, var(--gray-9));
+  color: #fff;
+  font-size: calc(var(--factory-tile-size) * 0.56);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.factory-tile[data-hue="tomato"] {
+  --factory-hue: var(--tomato-9);
+}
+.factory-tile[data-hue="orange"] {
+  --factory-hue: var(--orange-9);
+}
+.factory-tile[data-hue="grass"] {
+  --factory-hue: var(--grass-9);
+}
+.factory-tile[data-hue="teal"] {
+  --factory-hue: var(--teal-9);
+}
+.factory-tile[data-hue="cyan"] {
+  --factory-hue: var(--cyan-9);
+}
+.factory-tile[data-hue="blue"] {
+  --factory-hue: var(--blue-9);
+}
+.factory-tile[data-hue="iris"] {
+  --factory-hue: var(--iris-9);
+}
+.factory-tile[data-hue="plum"] {
+  --factory-hue: var(--plum-9);
+}
+.factory-tile[data-hue="pink"] {
+  --factory-hue: var(--pink-9);
+}
+.factory-tile[data-hue="jade"] {
+  --factory-hue: var(--jade-9);
 }
 
 /* ---- The narrow page: sign-in, the create form and the notices ---- */
@@ -146,7 +217,7 @@ code {
 .main {
   flex: 1;
   width: 100%;
-  max-width: 380px;
+  max-width: 420px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -157,8 +228,8 @@ code {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  font-size: 13px;
+  gap: 6px;
+  font-size: var(--font-size-md);
   color: var(--text-2);
 }
 
@@ -174,7 +245,7 @@ code {
 
 .brand-name {
   color: var(--text);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .crumb {
@@ -222,7 +293,20 @@ code {
   min-height: 100vh;
 }
 
+/* The desktop's sidebar (`Sidebar/styles.css`), measure for measure: rows 28px tall and 13px,
+   the rows you start from (Overview) a step taller at 30px and 14px, group headings 11px over
+   them, 4px by 8px inside every row, 3px corners, 14px icons in the secondary text colour, a
+   hover fill at 10% and the open row's at 15%, and focus drawn inside the row. Nothing slides
+   between rows: the open row is told by its fill alone, as on the desktop. */
 .sidebar {
+  --sidebar-row-padding-y: 4px;
+  --sidebar-row-padding-x: 8px;
+  --sidebar-row-height: 28px;
+  --sidebar-nav-height: 30px;
+  /* A factory's tile, and the gap after it: where its pages' icons line up. */
+  --sidebar-tile-size: 18px;
+  --sidebar-tile-gap: 8px;
+
   position: sticky;
   top: 0;
   display: flex;
@@ -242,88 +326,274 @@ code {
 /* A failed switch says so on a line of its own, under the menu. */
 .sidebar-head > .error {
   margin: 4px 8px 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .sidebar-nav {
-  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 4px;
+  padding: 4px 8px;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-/* Settings sits at the foot of the nav, apart from the sections. */
-.nav-list + .nav-list {
+/* Settings sits at the foot of the nav, apart from everything above it. */
+.nav-foot {
   margin-top: auto;
   padding-top: 8px;
 }
 
-/* One hover under the nav that follows the pointer from row to row. It moves only between rows:
-   it appears where the pointer enters and fades where it leaves. */
-.nav-hover {
-  position: absolute;
-  top: 0;
-  left: 0;
-  border-radius: var(--radius-sm);
-  background: var(--hover);
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    opacity 100ms ease,
-    transform 180ms var(--ease-out-quart),
-    width 180ms var(--ease-out-quart),
-    height 180ms var(--ease-out-quart);
-}
-
-.nav-hover[data-shown] {
-  opacity: 1;
-}
-
-.nav-hover[data-instant] {
-  transition: opacity 100ms ease;
-}
-
-/* A row as the desktop's Automations row: primary text, a grey icon, 30px tall. */
-.nav-link {
-  position: relative;
+/* A row of the nav, as the desktop's: primary text, a grey icon, its fill on hover and when
+   open. */
+.nav-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 30px;
-  padding: 4px 8px;
+  width: 100%;
+  min-width: 0;
+  min-height: var(--sidebar-row-height);
   box-sizing: border-box;
+  padding: var(--sidebar-row-padding-y) var(--sidebar-row-padding-x);
   border-radius: var(--radius-sm);
   color: var(--text);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: var(--sidebar-font-size);
   text-decoration: none;
-  white-space: nowrap;
+  user-select: none;
+  transition:
+    background 140ms var(--ease-out-quart),
+    color 140ms var(--ease-out-quart);
 }
 
-.nav-link svg {
+.nav-row:hover {
+  background: var(--hover);
+}
+
+.nav-row[aria-current="page"] {
+  background: var(--active);
+}
+
+.nav-row:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.nav-row > svg {
   flex-shrink: 0;
   color: var(--text-2);
 }
 
-.nav-link[aria-current="page"] {
+.nav-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The rows you start from, as the desktop's Automations row: a step taller and larger. */
+.nav-row-front {
+  min-height: var(--sidebar-nav-height);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Settings, as the desktop's settings button: a control's corners. */
+.nav-row-settings {
+  border-radius: var(--radius-md);
+}
+
+/* ---- A group of the nav: its heading over its rows (the desktop's `.sidebar-section`) ---- */
+
+.sidebar-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.sidebar-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px var(--sidebar-row-padding-x);
+}
+
+.sidebar-group-title {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--sidebar-font-size-label);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-group-button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.sidebar-group-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sidebar-group-button:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.sidebar-group-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* What a group says in place of rows: one quiet line (the desktop's `.sidebar-empty`). */
+.sidebar-note {
+  margin: 4px var(--sidebar-row-padding-x) 8px;
+  color: var(--text-3);
+  font-size: var(--sidebar-font-size-small);
+  line-height: 1.5;
+}
+
+.sidebar-note-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sidebar-note-action:hover {
+  text-decoration: underline;
+}
+
+.sidebar-note-action:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+/* ---- A factory: its row and chevron, its pages under it ---- */
+
+.factory-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* The chevron sits inside the row's right end, so the row's fill runs under it, and stays
+   while the pointer is on the chevron. */
+.factory-row-link {
+  padding-right: calc(var(--sidebar-row-padding-x) + 20px);
+}
+
+.factory-row:hover > .factory-row-link {
+  background: var(--hover);
+}
+
+.factory-row-name {
+  font-weight: var(--font-weight-medium);
+}
+
+/* The desktop's tree toggle: a 16px column, 20px tall, tertiary until pointed at. */
+.factory-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+button.factory-row-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.factory-row-toggle:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+/* The factory open, folded: its own row is marked, since its page's row is hidden. */
+.factory-row-link[data-open] {
   background: var(--active);
 }
 
-.nav-link:focus-visible {
-  outline: 1px solid var(--cyan);
-  outline-offset: -1px;
+/* The desktop's fold: one chevron that turns, rather than two that swap. */
+.fold-chevron {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform 200ms var(--ease-out-quart);
+}
+
+.fold-chevron[data-open] {
+  transform: none;
+}
+
+/* A factory's pages: indented so their icons sit under its name, with the desktop tree's line
+   down the tile's middle tying them to it. */
+.factory-pages {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.factory-pages::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--sidebar-row-padding-x) + var(--sidebar-tile-size) / 2);
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+.factory-page-link {
+  padding-left: calc(
+    var(--sidebar-row-padding-x) +
+    var(--sidebar-tile-size) +
+    var(--sidebar-tile-gap)
+  );
 }
 
 .sidebar-foot {
@@ -333,7 +603,7 @@ code {
 
 .sidebar-foot > .error {
   margin: 4px 8px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 /* ---- The workspace's menu, after the desktop's (`Layout/WorkspaceMenu.tsx`) ---- */
@@ -343,15 +613,15 @@ code {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  height: 30px;
+  height: 32px;
   padding: 0 8px;
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   cursor: pointer;
 }
 
@@ -403,13 +673,13 @@ code {
 .workspace-menu .rt-BaseMenuItem,
 .account-menu .rt-BaseMenuItem {
   gap: 8px;
-  min-height: 30px;
+  min-height: 32px;
   border-radius: var(--radius-sm);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .workspace-menu .rt-BaseMenuLabel {
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .workspace-menu-identity {
@@ -442,13 +712,13 @@ code {
 .workspace-menu-title {
   overflow-wrap: anywhere;
   color: var(--text);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
 }
 
 .workspace-menu-summary {
   color: var(--text-2);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .switcher-item-name {
@@ -461,7 +731,7 @@ code {
   margin-left: auto;
   padding-left: 16px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   opacity: 0.6;
 }
 
@@ -513,15 +783,15 @@ code {
 }
 
 .account-name {
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 17px;
+  font-size: var(--sidebar-font-size);
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
 }
 
 .account-email {
   color: var(--text-3);
-  font-size: 11px;
-  line-height: 15px;
+  font-size: var(--font-size-sm);
+  line-height: 16px;
 }
 
 .account-menu {
@@ -574,8 +844,8 @@ code {
   margin: 0;
   padding-inline: 2px;
   color: var(--gray-a10);
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
 }
 
 .group-box {
@@ -586,7 +856,8 @@ code {
 }
 
 /* Narrow screens put the sidebar above the section: the menu and the account on one row, the
-   nav as a row that scrolls under them. */
+   nav under them as a list that scrolls in a third of the screen, so the factories' tree keeps
+   its shape. */
 @media (max-width: 760px) {
   .shell {
     display: block;
@@ -621,18 +892,12 @@ code {
   .sidebar-nav {
     order: 1;
     flex-basis: 100%;
-    flex-direction: row;
-    padding: 2px 6px 6px;
-    overflow-x: auto;
-    overflow-y: hidden;
+    max-height: 34vh;
+    padding: 2px 8px 8px;
   }
 
-  .nav-list {
-    flex-direction: row;
-  }
-
-  .nav-list + .nav-list {
-    margin-top: 0;
+  .nav-foot {
+    margin-top: 8px;
     padding-top: 0;
   }
 
@@ -646,12 +911,12 @@ code {
 .card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 20px;
+  gap: 14px;
+  padding: 24px;
   border: 1px solid var(--gray-a5);
   border-radius: var(--radius-group);
   background: var(--gray-2);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .card p {
@@ -660,8 +925,8 @@ code {
 
 .heading {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
 }
 
 .muted {
@@ -679,14 +944,14 @@ code {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition:
     background 100ms ease,
@@ -731,30 +996,30 @@ code {
 
 .label {
   padding: 0;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
 }
 
 .hint {
   margin: 0;
   color: var(--text-2);
-  font-size: 11px;
+  font-size: var(--font-size-sm);
 }
 
 .field .error {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .input {
-  height: 32px;
+  height: 36px;
   box-sizing: border-box;
-  padding: 0 8px;
+  padding: 0 10px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
   background: var(--bg);
   color: inherit;
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .input::placeholder {
@@ -769,6 +1034,21 @@ code {
 
 .input[aria-invalid="true"] {
   border-color: var(--danger);
+}
+
+/* A native select drawn as the app's field, with a chevron of its own. */
+.input.select {
+  padding-right: 28px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 9px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.input.select:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 /* A legend is not a flex item, so the region fieldset spaces its parts with margins. */
@@ -795,10 +1075,10 @@ code {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--line-strong);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
 }
 
@@ -832,7 +1112,7 @@ code {
 }
 
 .region-option .region-name {
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .actions {
@@ -872,7 +1152,7 @@ code {
   background: var(--hover);
   color: var(--text-2);
   font-size: calc(var(--avatar-size, 40px) * 0.38);
-  font-weight: 600;
+  font-weight: var(--font-weight-semibold);
 }
 
 .footer {
@@ -881,7 +1161,7 @@ code {
   align-items: center;
   gap: 4px 12px;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .footer a {
@@ -898,12 +1178,13 @@ code {
 
 .footer-commit {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nav-hover {
+  .nav-row,
+  .fold-chevron {
     transition: none;
   }
 

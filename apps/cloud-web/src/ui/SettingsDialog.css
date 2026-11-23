@@ -20,7 +20,7 @@
   background: var(--color-background);
   color: var(--gray-12);
   box-shadow: var(--shadow-6);
-  font-size: 14px;
+  font-size: var(--font-size-md);
 }
 
 /* `display: flex` would show a closed dialog too. */
@@ -47,8 +47,8 @@
 .settings-nav-header {
   margin-bottom: 8px;
   padding: 8px 12px;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
   color: var(--gray-12);
 }
 
@@ -76,8 +76,8 @@
 .settings-nav-group-label {
   padding: 4px 12px;
   overflow: hidden;
-  font-size: 11px;
-  font-weight: 500;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
   color: var(--gray-a10);
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -89,7 +89,7 @@
   gap: 8px;
   padding: 8px 12px;
   border-radius: 6px;
-  font-size: 12px;
+  font-size: var(--sidebar-font-size);
   color: var(--gray-a11);
   text-decoration: none;
   transition:
@@ -209,8 +209,8 @@
 
 .settings-section-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
   color: var(--gray-12);
 }
 
@@ -231,14 +231,14 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 12px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   color: var(--gray-12);
 }
 
 .settings-option-description {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-sm);
   color: var(--gray-a10);
 }
 
@@ -248,12 +248,12 @@
   align-items: center;
   align-self: flex-start;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 8px 14px;
   border: 1px solid var(--gray-a6);
   border-radius: 6px;
   background: var(--color-background);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-md);
   color: var(--gray-a11);
   cursor: pointer;
   transition:
@@ -302,12 +302,12 @@
 /* A small outlined tag beside a label: "Connected", "Not connected". */
 .settings-chip {
   flex-shrink: 0;
-  padding: 1px 8px;
+  padding: 2px 8px;
   border: 1px solid var(--gray-a6);
   /* A literal radius: Radix's --radius-full is 0 inside its theme. */
   border-radius: 999px;
-  font-size: 11px;
-  font-weight: 400;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
   color: var(--gray-a10);
   white-space: nowrap;
 }

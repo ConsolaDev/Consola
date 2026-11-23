@@ -1,28 +1,36 @@
-import { hashOfSection, sectionIdOfHash } from '../domain/sections';
-
 /*
- * The dashboard's section, as the address bar holds it: only the hash, so a reload or a link
- * opens the same section, and the browser's back and forward move between sections. Nothing
- * here reads or writes the query string before the hash, which belongs to whatever page reads it
+ * The dashboard's page, as the address bar holds it: only the hash, so a reload or a link opens
+ * the same page, and the browser's back and forward move between pages. The hash names a section
+ * (`#/<id>`, `sectionIdOfHash`), Settings (`#/settings/<page>`) or a factory's page
+ * (`#/factories/<id>/<page>`, `factoryRouteOfHash`); the dashboard reads it whole. Nothing here
+ * reads or writes the query string before the hash, which belongs to whatever page reads it
  * (`takeSignInErrorCode`, and a page sent back with a result of its own).
  */
 
-/** The section the address names, or null when it names none. */
-export function currentSectionId(): string | null {
-  return sectionIdOfHash(window.location.hash);
+/** The address's hash, as the page holds it now. */
+export function currentHash(): string {
+  return window.location.hash;
 }
 
-/** Opens the section `id`, as a new entry in the browser's history. */
-export function openSection(id: string): void {
-  window.location.hash = hashOfSection(id);
+/** Opens `hash`, as a new entry in the browser's history. */
+export function openHash(hash: string): void {
+  window.location.hash = hash;
 }
 
 /**
- * Hears every change of the address's section, a link followed or back and forward included,
- * with the section it names now. Returns what stops it.
+ * Puts `hash` in the address in place of the one there, with no new entry in the history: where
+ * an address that names nothing of its own (`#/factories` alone) lands, so back does not return
+ * to it only to land again.
  */
-export function onSectionChange(listener: (id: string | null) => void): () => void {
-  const heard = () => listener(currentSectionId());
-  window.addEventListener('hashchange', heard);
-  return () => window.removeEventListener('hashchange', heard);
+export function replaceHash(hash: string): void {
+  window.location.replace(hash);
+}
+
+/**
+ * Hears every change of the hash, a link followed or back and forward included. Returns what
+ * stops it.
+ */
+export function onHashChange(listener: () => void): () => void {
+  window.addEventListener('hashchange', listener);
+  return () => window.removeEventListener('hashchange', listener);
 }

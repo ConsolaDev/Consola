@@ -19,8 +19,8 @@
   margin: 0;
   overflow: hidden;
   color: var(--gray-12);
-  font-size: 15px;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -33,7 +33,7 @@
   margin: 0;
   color: var(--gray-a10);
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .general-manifest-facts > span + span::before {
@@ -102,17 +102,17 @@ button.icon-picker-tile:focus-visible {
 
 .icon-picker {
   box-sizing: border-box;
-  width: 296px;
+  width: 320px;
   max-width: calc(100vw - 24px);
   padding: 12px;
-  font-size: 12px;
+  font-size: var(--font-size-md);
 }
 
 .icon-picker-search {
   box-sizing: border-box;
   width: 100%;
-  height: 30px;
-  padding: 0 8px;
+  height: 34px;
+  padding: 0 10px;
   border: 1px solid var(--gray-a5);
   border-radius: 6px;
   background: var(--color-background);
@@ -145,7 +145,7 @@ button.icon-picker-tile:focus-visible {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 38px;
+  height: 40px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
