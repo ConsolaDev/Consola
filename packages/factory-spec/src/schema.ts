@@ -471,17 +471,16 @@ export const fileSchema = z
       .array(z.unknown())
       .nullish()
       .transform((automations) => automations ?? []),
+    // Read server by server after the envelope (`parseMcpServers`), so one broken server is an issue at its own key.
+    mcpServers: z.unknown().optional(),
     // Top-level keys a later slice owns, refused with what each arrives with.
-    mcpServers: explained(
-      'Inline server definitions arrive with connections as data. Name a server the harness already has in an agent file.',
-    ),
     repos: explained('`repos` arrives with write steps; it is not supported yet.'),
     policy: explained('`policy` arrives with shared factories; it is not supported yet.'),
     library: explained('`library` arrives with shared factories; it is not supported yet.'),
     defaults: explained('`defaults` arrives with shared factories; it is not supported yet.'),
     name: explained('`name` arrives with shared factories; it is not supported yet.'),
     connections: explained(
-      '`connections` arrives with connections as data; it is not supported yet.',
+      '`connections` arrives with connection manifests, the second part of connections as data.',
     ),
   })
   .strict();

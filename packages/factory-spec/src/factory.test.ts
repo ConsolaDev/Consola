@@ -311,6 +311,66 @@ automations:
     expect(result.issues.filter((issue) => /defined twice/.test(issue.message))).toHaveLength(2);
   });
 
+  it("carries factory.yml's servers and the names of its broken ones", () => {
+    const result = parseFactory(
+      files({
+        factoryYml: `${EMPTY_YML}mcpServers:
+  slack:
+    command: npx
+    args: [-y, "@sprocket/slack-mcp@1.4.2"]
+    secrets: [SLACK_BOT_TOKEN]
+  tracker:
+    url: http://mcp.tracker.sprocket.example/mcp
+`,
+      }),
+    );
+    expect(result.servers).toEqual({
+      slack: {
+        name: 'slack',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@sprocket/slack-mcp@1.4.2'],
+        env: {},
+        secrets: ['SLACK_BOT_TOKEN'],
+      },
+    });
+    expect(result.brokenServers).toEqual(['tracker']);
+    expect(result.issues).toEqual([
+      {
+        message: '`url` is `https://…`, or `http://` on 127.0.0.1, localhost or [::1].',
+        path: 'mcpServers.tracker.url',
+        line: 9,
+        file: 'factory.yml',
+      },
+    ]);
+    expect(result.notices).toEqual([]);
+    // No factory.yml, no servers.
+    expect(parseFactory(files())).toMatchObject({ servers: {}, brokenServers: [] });
+  });
+
+  it('gives the unpinned warning as a notice on factory.yml, at the package’s line', () => {
+    const result = parseFactory(
+      files({
+        factoryYml: `${EMPTY_YML}mcpServers:
+  slack:
+    command: npx
+    args:
+      - -y
+      - "@sprocket/slack-mcp"
+`,
+      }),
+    );
+    expect(result.issues).toEqual([]);
+    expect(result.notices).toEqual([
+      {
+        message: 'This runs the newest version at every call, unattended; pin one.',
+        file: 'factory.yml',
+        line: 8,
+      },
+    ]);
+    expect(Object.keys(result.servers)).toEqual(['slack']);
+  });
+
   it('reports strays as issues and later folders as notices', () => {
     const result = parseFactory(
       files({
@@ -351,7 +411,7 @@ automations:
         (notice) => notice.message,
       ),
     ).toEqual([
-      '`connections/` is read from slice 5 (connections as data); its files have no effect yet.',
+      '`connections/` is read once connection manifests arrive; its files have no effect yet.',
     ]);
   });
 

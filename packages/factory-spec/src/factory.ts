@@ -12,16 +12,17 @@ import { formatPath, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
 import { isStepsEntry, type Automation } from './schema';
+import type { McpServerDefinition } from './servers';
 import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
 
 /** The largest text file the folder's reader reads; a larger one is reported as not read. */
 export const MAX_FACTORY_TEXT_BYTES = 1024 * 1024;
 
-/** Folders a later slice reads, and the slice: the notice's words. */
+/** Folders a later slice reads, and when: the notice's words, `` `<folder>/` is read <phrase>; … ``. */
 export const LATER_FOLDERS: Readonly<Record<string, string>> = {
-  environments: 'slice 3 (write steps)',
-  connections: 'slice 5 (connections as data)',
-  evals: 'slice 8 (evals)',
+  environments: 'from slice 3 (write steps)',
+  connections: 'once connection manifests arrive',
+  evals: 'from slice 8 (evals)',
 };
 
 /** What editors and the OS leave beside a file, by suffix: a backup (`x.md~`, `x.bak`), a merge's or a patch's (`x.orig`, `x.rej`). */
@@ -95,6 +96,10 @@ export interface FactoryParseResult {
   present: string[];
   /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread or outside path. */
   unreadable: string[];
+  /** `factory.yml`'s valid MCP servers, by name: the ones a `uses:` step may call. */
+  servers: Record<string, McpServerDefinition>;
+  /** Names under `factory.yml`'s `mcpServers:` with problems of their own. */
+  brokenServers: string[];
 }
 
 /** One automation that parsed, and how to point inside its entry. */
@@ -221,6 +226,10 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     present.push('factory.yml');
     if (yml.unreadable) unreadable.push('factory.yml');
     issues.push(...yml.issues);
+    for (const { message, path } of yml.serverNotices) {
+      const line = yml.lineAt(path);
+      notices.push({ message, file: 'factory.yml', ...(line !== undefined ? { line } : {}) });
+    }
     for (const automation of yml.automations) {
       const base = yml.entryPath(automation.name) ?? [];
       candidates.push({
@@ -344,7 +353,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   for (const folder of files.laterFolders) {
     if (own(LATER_FOLDERS, folder)) {
       notices.push({
-        message: `\`${folder}/\` is read from ${LATER_FOLDERS[folder]}; its files have no effect yet.`,
+        message: `\`${folder}/\` is read ${LATER_FOLDERS[folder]}; its files have no effect yet.`,
       });
     }
   }
@@ -357,6 +366,8 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     notices,
     present,
     unreadable,
+    servers: yml?.servers ?? {},
+    brokenServers: yml?.brokenServers ?? [],
   };
 }
 

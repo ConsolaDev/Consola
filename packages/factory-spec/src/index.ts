@@ -80,8 +80,19 @@ export {
   secretNamesOf,
   secretTemplateReason,
   secretUsesOf,
+  type SecretPlace,
   type SecretUse,
 } from './secrets';
+export {
+  MAX_SERVER_ARGS,
+  MAX_SERVERS,
+  MCP_SERVER_NAME_PATTERN,
+  parseMcpServers,
+  serverHash,
+  unpinnedLauncher,
+  type McpServerDefinition,
+  type ServersParse,
+} from './servers';
 export {
   hasTemplateBraces,
   parseTemplate,

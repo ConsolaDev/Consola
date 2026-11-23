@@ -575,6 +575,8 @@ function notRead(): FactoryRead {
       notices: [],
       present: [],
       unreadable: [],
+      servers: {},
+      brokenServers: [],
     },
   };
 }

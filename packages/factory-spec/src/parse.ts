@@ -1,6 +1,7 @@
 import { LineCounter, parseDocument } from 'yaml';
 import { closestNode, formatPath, nodeAt, toIssue, type FactorySpecIssue } from './issues';
 import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
+import { parseMcpServers, type McpServerDefinition } from './servers';
 import { documentValue } from './yamlValue';
 
 export type { FactorySpecIssue };
@@ -23,6 +24,12 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   entryPath(name: string): Array<string | number> | undefined;
   /** Every name an entry gives itself, loaded or not, once each, in file order. */
   entryNames: string[];
+  /** `mcpServers:`'s valid servers, by name; none when the file is unreadable. */
+  servers: Record<string, McpServerDefinition>;
+  /** Names under `mcpServers:` with an issue of their own (each is in `issues`). */
+  brokenServers: string[];
+  /** Warnings about servers that are not issues (an unpinned package), each at its path from the file's root. */
+  serverNotices: Array<{ message: string; path: Array<string | number> }>;
 }
 
 const FILE = 'factory.yml';
@@ -45,6 +52,11 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
   const lineAt = (path: Array<string | number>) => lineOf(closestNode(doc, path)?.range?.[0]);
   const indexes = new Map<string, number>();
   const named = new Map<string, number>();
+  let servers: Pick<FactoryYmlResult, 'servers' | 'brokenServers' | 'serverNotices'> = {
+    servers: {},
+    brokenServers: [],
+    serverNotices: [],
+  };
   const result = (
     automations: Automation[],
     issues: FactorySpecIssue[],
@@ -59,6 +71,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
       return index === undefined ? undefined : ['automations', index];
     },
     entryNames: [...named.keys()],
+    ...servers,
   });
 
   if (doc.errors.length > 0) {
@@ -91,6 +104,21 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
   const schema = automationSchema();
   const automations: Automation[] = [];
   const issues: FactorySpecIssue[] = [];
+
+  // One broken server is an issue at its own key; the rest of the file still reads.
+  const read = parseMcpServers(envelope.data.mcpServers, (message, path) => {
+    const at = ['mcpServers', ...path];
+    const line = lineAt(at);
+    issues.push({ message, path: formatPath(at), ...(line !== undefined ? { line } : {}) });
+  });
+  servers = {
+    servers: read.servers,
+    brokenServers: read.broken,
+    serverNotices: read.warnings.map(({ message, path }) => ({
+      message,
+      path: ['mcpServers', ...path],
+    })),
+  };
 
   envelope.data.automations.forEach((raw, index) => {
     const base: Array<string | number> = ['automations', index];

@@ -1,10 +1,11 @@
 /**
- * `secrets:` — the names of the secrets a command needs. The file names a
- * secret; where its value lives is the runner's binding, never the file's, so
- * nothing here sees a value. A name follows `env:`'s rules, since its value
- * reaches the command as the environment variable of that name, and a few
- * more: Consola's own and the harness's names, and gh's identity, which a
- * command takes from the workspace's bound account.
+ * `secrets:` — the names of the secrets a command or a factory server needs.
+ * The file names a secret; where its value lives is the runner's binding,
+ * never the file's, so nothing here sees a value. A name follows `env:`'s
+ * rules, since its value reaches the command (or a stdio server) as the
+ * environment variable of that name, and a few more: Consola's own and the
+ * harness's names, and gh's identity, which a command takes from the
+ * workspace's bound account (a server never gets that token).
  *
  * Imports `envNames.ts` and `template.ts`, never `steps.ts`, which imports
  * this file.
@@ -55,14 +56,20 @@ const PATTERN = 'Use uppercase letters, digits and underscores, e.g. PAGERDUTY_T
 /** `env:`'s refused names and prefixes, as a secret's refusal lists them. */
 const REFUSED_NAMES_LIST = `${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')}`;
 
-/** Why `name` cannot be a command's secret, or null. Checked in `env:`'s order, then the secrets' own. */
-export function secretNameProblem(name: string): string | null {
+/** Where a secret's value goes: a command's environment, or a factory server's (its environment or its headers). */
+export type SecretPlace = 'command' | 'server';
+
+/**
+ * Why `name` cannot be a secret in `place`, or null. Checked in `env:`'s order, then the secrets' own. gh's
+ * identity is a command's only: a server never gets the bound account's token, so it has none to override.
+ */
+export function secretNameProblem(name: string, place: SecretPlace = 'command'): string | null {
   if (name.startsWith('CONSOLA_'))
     return "`CONSOLA_` is Consola's own namespace; pick another name.";
   if (!ENV_NAME_PATTERN.test(name)) return PATTERN;
   if (name.length > MAX_SECRET_NAME_LENGTH)
     return `A secret's name is at most ${MAX_SECRET_NAME_LENGTH} characters.`;
-  if (GH_IDENTITY_NAMES.includes(name)) return GH_IDENTITY;
+  if (place === 'command' && GH_IDENTITY_NAMES.includes(name)) return GH_IDENTITY;
   if (name === 'CLAUDE_CONFIG_DIR')
     return "`CLAUDE_CONFIG_DIR` is the harness's own; a secret can't set it.";
   if (isRefusedEnvName(name))
@@ -71,14 +78,16 @@ export function secretNameProblem(name: string): string | null {
 }
 
 /**
- * A command step's or a check's `secrets:` as written: the names in order,
- * `[]` for an empty list, null once anything was reported. `envNames`: that
- * step's `env:` names, which a secret may not repeat.
+ * A command step's, a check's or a server's `secrets:` as written: the names
+ * in order, `[]` for an empty list, null once anything was reported.
+ * `envNames`: that step's or server's `env:` names, which a secret may not
+ * repeat; `place`: where the values go (`secretNameProblem`).
  */
 export function parseSecretNames(
   raw: unknown,
   fail: (message: string, path?: Array<string | number>) => void,
   envNames: readonly string[] = [],
+  place: SecretPlace = 'command',
 ): string[] | null {
   if (!Array.isArray(raw)) {
     fail('Expected `secrets` to be a list of names, e.g. `secrets: [PAGERDUTY_TOKEN]`.');
@@ -96,7 +105,7 @@ export function parseSecretNames(
     else if (names.includes(name)) problem = `\`${name}\` is listed twice in \`secrets:\`.`;
     else if (envNames.includes(name))
       problem = `\`${name}\` is in both \`env:\` and \`secrets:\`; a value comes from one place.`;
-    else problem = secretNameProblem(name);
+    else problem = secretNameProblem(name, place);
     if (problem === null) names.push(name as string);
     else {
       ok = false;
