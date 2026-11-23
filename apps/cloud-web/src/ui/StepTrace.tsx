@@ -12,7 +12,7 @@ import {
 import { rangeWords } from '../domain/runFile';
 import { AGENT_CONVERSATION_LATER_WORDS, NO_STEPS_WORDS } from '../domain/runMessages';
 import type { RunDetail, StepSummary } from '../domain/runs';
-import type { RunPlace, RunView } from '../domain/runsRoute';
+import type { TracePlace, TraceView } from '../domain/runsRoute';
 import { stepKindWords, stepLook } from '../domain/runWords';
 import {
   agentFile,
@@ -43,6 +43,7 @@ import {
   turnLine,
 } from '../domain/stepTrace';
 import { RunFileView } from './RunFileView';
+import { revealElement } from './reveal';
 import { StatusGlyph } from './RunStatusIcon';
 import './StepTrace.css';
 
@@ -68,17 +69,21 @@ export function StepTrace({
   now,
   place,
   onPlace,
+  nested = false,
 }: {
   detail: RunDetail;
   now: number;
-  place: RunPlace;
-  onPlace: (place: RunPlace) => void;
+  place: TracePlace;
+  onPlace: (place: TracePlace) => void;
+  /** Inside another page's part (a request's automations): its heading a level down. */
+  nested?: boolean;
 }) {
   const { run, steps, source } = detail;
+  const Heading = nested ? 'h3' : 'h2';
   const ids = useId();
   const over = runIsOver(run.phase);
   const rows = useRef(new Map<string, HTMLLIElement>());
-  const view: RunView = source ? place.view : 'steps';
+  const view: TraceView = source ? place.view : 'steps';
   const selected = steps.some((step) => step.id === place.step) ? place.step : null;
   const fileSteps = useMemo(
     () => steps.map((step) => ({ id: step.id, range: step.definition?.range ?? null })),
@@ -102,7 +107,7 @@ export function StepTrace({
   const showStep = (stepId: string) => {
     onPlace({ view: 'steps', step: stepId });
     setChosen((current) => ({ ...current, [stepId]: true }));
-    requestAnimationFrame(() => reveal(rows.current.get(stepId)));
+    requestAnimationFrame(() => revealElement(rows.current.get(stepId)));
   };
 
   /** Shows a step's lines in the file, scrolled to and lit once. */
@@ -122,16 +127,16 @@ export function StepTrace({
     else showStep(selected);
   }, []);
 
-  const tabs: { view: RunView; label: string; icon: ReactNode }[] = [
+  const tabs: { view: TraceView; label: string; icon: ReactNode }[] = [
     { view: 'steps', label: 'Steps', icon: <ListTree size={13} aria-hidden="true" /> },
     { view: 'file', label: 'File', icon: <FileCode size={13} aria-hidden="true" /> },
   ];
-  const tabId = (of: RunView) => `${ids}-tab-${of}`;
-  const panelId = (of: RunView) => `${ids}-panel-${of}`;
+  const tabId = (of: TraceView) => `${ids}-tab-${of}`;
+  const panelId = (of: TraceView) => `${ids}-panel-${of}`;
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
     event.preventDefault();
-    const next: RunView = view === 'steps' ? 'file' : 'steps';
+    const next: TraceView = view === 'steps' ? 'file' : 'steps';
     onPlace({ view: next, step: selected });
     requestAnimationFrame(() => document.getElementById(tabId(next))?.focus());
   };
@@ -168,10 +173,10 @@ export function StepTrace({
       {run.phase === 'failed' && <FailureNote detail={detail} onShow={showStep} />}
       <section className="trace" aria-labelledby={`${ids}-steps`}>
         <div className="trace-head">
-          <h2 id={`${ids}-steps`} className="trace-title">
+          <Heading id={`${ids}-steps`} className="trace-title">
             Steps
             {steps.length > 0 && <span className="trace-counts">{stepCounts(steps, over)}</span>}
-          </h2>
+          </Heading>
           <div className="trace-tools">
             {source && (
               <div className="trace-tabs" role="tablist" aria-label="Show the steps or the file">
@@ -742,18 +747,4 @@ function Ids({ ids }: { ids: string[] }) {
       ))}
     </>
   );
-}
-
-/** Scrolls a step's row into view, moves the keyboard to it and lights it once, where the note pointed. */
-function reveal(element: HTMLLIElement | undefined): void {
-  if (!element) return;
-  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  element.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
-  element.focus({ preventScroll: true });
-  element.removeAttribute('data-flash');
-  void element.offsetWidth;
-  element.setAttribute('data-flash', '');
-  element.addEventListener('animationend', () => element.removeAttribute('data-flash'), {
-    once: true,
-  });
 }

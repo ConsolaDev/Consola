@@ -310,6 +310,99 @@
   font-size: var(--font-size-sm);
 }
 
+/* ---- A request: its two tabs, the conversation and the automations it started ---- */
+
+.run-request-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 820px;
+  margin: 0 auto;
+}
+
+/* The desktop's tab bar (its side panel's): tabs on a hairline, the one in front filled. */
+.request-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.request-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.request-tab:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.request-tab[aria-selected="true"] {
+  background: var(--active);
+  color: var(--text);
+}
+
+.request-tab:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.request-tab > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.request-tab[aria-selected="true"] > svg {
+  color: var(--text-2);
+}
+
+/* How many automations the orchestrator started, as a status's count badge is drawn. */
+.request-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 9px;
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+.request-tab[aria-selected="true"] .request-tab-count {
+  background: var(--bg);
+  color: var(--text);
+}
+
+.request-panel:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
+/* In its tab, the conversation keeps to the tabs' column. */
+.run-request-pane .run-conversation {
+  max-width: none;
+}
+
 /* ---- A request: its conversation's column ---- */
 
 .run-conversation {
@@ -506,7 +599,8 @@
     animation: none;
   }
 
-  .run-control {
+  .run-control,
+  .request-tab {
     transition: none;
   }
 }

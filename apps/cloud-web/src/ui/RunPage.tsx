@@ -96,6 +96,16 @@ export function RunPage({
       folded: isOpen(id) ? [...prefs.folded, id] : prefs.folded.filter((folded) => folded !== id),
     });
 
+  // An automation the request started, to open in its Automations tab and take the person to:
+  // the one the address names as the page opens, then each the info panel points at.
+  const [childReveal, setChildReveal] = useState<{ run: string; seq: number } | null>(() =>
+    place.view === 'automations' && place.run ? { run: place.run, seq: 1 } : null,
+  );
+  const showChild = (childId: string) => {
+    showRunPlace(runId, { view: 'automations', step: null, run: childId });
+    setChildReveal((last) => ({ run: childId, seq: (last?.seq ?? 0) + 1 }));
+  };
+
   const run = detail?.run ?? null;
   const itemUrl = run?.item ? safeItemUrl(run.item.url) : null;
   const approval = detail?.approval ? (
@@ -209,7 +219,16 @@ export function RunPage({
               </p>
             )}
             {view.detail.request ? (
-              <RequestPane detail={view.detail} members={members} now={now} lead={approval} />
+              <RequestPane
+                detail={view.detail}
+                workspace={workspace}
+                members={members}
+                now={now}
+                place={place}
+                onPlace={(next) => showRunPlace(runId, next)}
+                reveal={childReveal}
+                lead={approval}
+              />
             ) : (
               <StepsPane
                 detail={view.detail}
@@ -224,6 +243,7 @@ export function RunPage({
             <div className="run-info">
               <RunInfoPanel
                 detail={view.detail}
+                onShowChild={showChild}
                 members={members}
                 latestVersion={latestVersion}
                 now={now}

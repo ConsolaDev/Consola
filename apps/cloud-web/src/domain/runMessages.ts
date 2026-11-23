@@ -64,5 +64,8 @@ export function questionOpenWords(until: string): string {
 /** An automation that started no steps yet. */
 export const NO_STEPS_WORDS = 'No steps have started yet.';
 
+/** A request's Automations tab, before its orchestrator started any. */
+export const NO_AUTOMATIONS_STARTED = 'The orchestrator hasn’t started any automations yet.';
+
 /** A request that started no automations yet. */
 export const NO_CHILDREN_WORDS = 'None started yet.';

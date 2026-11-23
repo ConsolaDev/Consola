@@ -288,8 +288,10 @@ the factory's orchestrator; the automations it starts are its children.
   `?` (`runFilters.ts`: `filtersOfQuery`, `queryOfFilters`, one order for one
   set, `background=1` for the three background triggers, an unknown value
   dropped); a run is `#/runs/<id>` (`runsRoute.ts`), and where on its page
-  after `?`: its file rather than its steps (`view=file`) and the step
-  chosen (`step=<id>`, `placeOfQuery`). A run opens as a new history entry
+  after `?`: the view (`view=file` for an automation run's file,
+  `view=automations` for a request's automations; none is the page's first,
+  its steps or its conversation), the step chosen (`step=<id>`) and the
+  automation opened (`run=<id>`, `placeOfQuery`). A run opens as a new history entry
   (its row is a link); a filter, a view or a step chosen replaces the entry
   (`showRunsFilters`, `showRunPlace`, which tell their listeners, since
   `replaceState` fires no `hashchange`). The run's page leads back to the
@@ -320,8 +322,10 @@ the factory's orchestrator; the automations it starts are its children.
   name", the name in the accent, a status chip, the item's link and the info
   panel's toggle), the main pane, and the info panel (`ui/InfoPanel.tsx`, the
   desktop's sections, rows and folds, redrawn; `ui/RunInfoPanel.tsx`). A
-  request's sections are Request, Automations (each live, each a link to its
-  own page) and Budget; an automation run's is Run, linking its request. It
+  request's sections are Request, Automations (each live; a row opens that
+  automation in the request's Automations tab, scrolled to, and a
+  modifier-click its own page) and Budget; an automation run's is Run,
+  linking its request. It
   reads the run again every 3 s while it or an automation it started works,
   every 15 s while it waits on someone, and not at all once nothing can change.
   Whether the panel shows and which sections are folded are kept in this
@@ -374,12 +378,29 @@ the factory's orchestrator; the automations it starts are its children.
   the version moved, the cell's own states) has its own sentence
   (`messageForApproveAnswer`) and reads the run again. This is the one thing
   on the pages that writes.
-- **The conversation comes later.** A request's pane is where `AgentChat`
+- **A request's pane is two tabs** (`RequestPane`, under the approval card):
+  Conversation, first and shown unless the address says otherwise, and
+  Automations with their count. Choosing one, or opening an automation,
+  replaces the address's entry (`showRunPlace`).
+- **The conversation comes later.** The Conversation tab is where `AgentChat`
   (`@consola/agent-ui`) will mount once requests run in cloud sessions; this
   app imports no workspace package yet. Until then (`conversation === null`)
   it shows the request as the person gave it and says what will join it. An
   open question's words are not in the cell, so the page says when it was
   asked and its deadline.
+- **The automations a request started** (`ui/RequestAutomations.tsx`, the
+  Automations tab): `RunDetail.children` in the order the orchestrator
+  started them, numbered so, each a row of its status, its automation, where
+  it is (`childStateWords`: the step it is on, what it waits for, or how it
+  ended) and when it started, how long it worked and what it cost
+  (`childFactsWords`), live with the page's reads. A row opens in place onto
+  that run's own step trace (`StepTrace`, its Steps and File its own, never
+  the address's), read from `GET /api/runs/{id}` as it opens and again while
+  it can change, with "Open run" to its page; one that waits for approval
+  says to answer it there. An automation that failed, works or waits opens
+  by itself; the person's choice wins. The info panel's rows and an address
+  naming one open it, scroll to it and light it once (`reveal.ts`). No line
+  is drawn from one automation to another: no flow graph, by decision.
 - **Text a run carries is untrusted** (a request may be a pasted ticket): it
   is shown as text, never markup, and an item's address is a link only on
   `https:` (`safeItemUrl`), which the cell also holds it to.
@@ -517,7 +538,7 @@ under a topbar of their own.
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/NewFactoryDialog.css`,
   `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
-  `ui/ApprovalCard.css`), imported by the page.
+  `ui/ApprovalCard.css`, `ui/RequestAutomations.css`), imported by the page.
 - **Motion plays once, or answers the person.** The map's region ripples on as
   the page opens, a factory's chevron turns as it folds, a new icon pops
   into its tile, the slug's icon

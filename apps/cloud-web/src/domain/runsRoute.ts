@@ -2,43 +2,73 @@ import { filtersOfQuery, type RunFilters, queryOfFilters } from './runFilters';
 
 /**
  * Where the Runs section is, as the address names it. The list is `#/runs`, its filters after a
- * `?` (`runFilters.ts`); one run is `#/runs/<runId>`, with where on its page after a `?`: its
- * file rather than its steps (`view=file`), and the step chosen (`step=<id>`). All of it is the
+ * `?` (`runFilters.ts`); one run is `#/runs/<runId>`, with where on its page after a `?`: the view
+ * (`view=file` for an automation run's file, `view=automations` for the automations a request
+ * started), the step chosen (`step=<id>`) and the automation opened (`run=<id>`). All of it is the
  * section's own part of the hash (`sections.ts`), so the dashboard opens Runs for any.
  */
 
 export const RUNS_SECTION_ID = 'runs';
 
-/** What an automation run's pane shows: its steps, or the file that defines them. */
-export type RunView = 'steps' | 'file';
+/**
+ * Which view of a run's page: its first (a request's conversation, an automation run's steps),
+ * an automation run's file, or the automations a request started.
+ */
+export type RunView = 'main' | 'file' | 'automations';
 
-/** Where on a run's page: which view, and the step chosen in it, if any. */
-export type RunPlace = { view: RunView; step: string | null };
+/** Where on a run's page: the view, the step chosen and the automation opened, if any. */
+export type RunPlace = { view: RunView; step: string | null; run: string | null };
 
-export const RUN_START: RunPlace = { view: 'steps', step: null };
+export const RUN_START: RunPlace = { view: 'main', step: null, run: null };
+
+/** What a step trace shows (`StepTrace`): its steps, or the file that defines them. */
+export type TraceView = 'steps' | 'file';
+
+/** Where in a step trace: the view, and the step chosen. */
+export type TracePlace = { view: TraceView; step: string | null };
+
+/** An automation run's place, as its page's trace reads it. */
+export function traceOfPlace(place: RunPlace): TracePlace {
+  return { view: place.view === 'file' ? 'file' : 'steps', step: place.step };
+}
+
+/** A trace's place, as an automation run's page writes it. */
+export function placeOfTrace(trace: TracePlace): RunPlace {
+  return { view: trace.view === 'file' ? 'file' : 'main', step: trace.step, run: null };
+}
 
 export type RunsRoute =
   | { kind: 'list'; filters: RunFilters }
   | { kind: 'run'; runId: string; place: RunPlace };
 
-/** The longest step id the address keeps; a longer one names no step a file could hold. */
-const STEP_MAX = 100;
+/** The longest id the address keeps for a step or a run; a longer one names none. */
+const ID_MAX = 200;
 
-/** Where on a run's page a query names: an unknown view is the steps, a blank step none. */
+/** An id as the address holds it, or null for a blank or unlikely one. */
+function idOf(value: string | null): string | null {
+  const id = value?.trim() ?? '';
+  return id !== '' && id.length <= ID_MAX && !/\p{Cc}/u.test(id) ? id : null;
+}
+
+const VIEWS: readonly RunView[] = ['file', 'automations'];
+
+/** Where on a run's page a query names: an unknown view is the first, a blank id none. */
 export function placeOfQuery(query: string): RunPlace {
   const params = new URLSearchParams(query.startsWith('?') ? query.slice(1) : query);
-  const step = params.get('step')?.trim() ?? '';
+  const view = params.get('view');
   return {
-    view: params.get('view') === 'file' ? 'file' : 'steps',
-    step: step !== '' && step.length <= STEP_MAX && !/\p{Cc}/u.test(step) ? step : null,
+    view: VIEWS.find((known) => known === view) ?? 'main',
+    step: idOf(params.get('step')),
+    run: idOf(params.get('run')),
   };
 }
 
-/** The query that names `place`, without its `?`: empty for the steps with none chosen. */
+/** The query that names `place`, without its `?`: empty for the first view with nothing chosen. */
 export function queryOfPlace(place: RunPlace): string {
   const params = new URLSearchParams();
-  if (place.view === 'file') params.set('view', 'file');
+  if (place.view !== 'main') params.set('view', place.view);
   if (place.step) params.set('step', place.step);
+  if (place.run) params.set('run', place.run);
   return params.toString();
 }
 
@@ -69,7 +99,7 @@ export function hashOfRunsList(filters: RunFilters): string {
   return query === '' ? `#/${RUNS_SECTION_ID}` : `#/${RUNS_SECTION_ID}?${query}`;
 }
 
-/** The hash that shows one run, at `place` on its page (its steps, none chosen, unless said). */
+/** The hash that shows one run, at `place` on its page (its first view, nothing chosen, unless said). */
 export function hashOfRun(runId: string, place: RunPlace = RUN_START): string {
   const query = queryOfPlace(place);
   const path = `#/${RUNS_SECTION_ID}/${encodeURIComponent(runId)}`;

@@ -65,14 +65,14 @@ describe('showRunPlace', () => {
     const { replaceState } = pageAt('#/runs/run-1');
     const listener = vi.fn();
     const stop = onRunsAddressChange(listener);
-    showRunPlace('run-1', { view: 'file', step: 'build' });
+    showRunPlace('run-1', { view: 'file', step: 'build', run: null });
     expect(replaceState).toHaveBeenCalledWith(
       { kept: true },
       '',
       '/?tab=1#/runs/run-1?view=file&step=build',
     );
     expect(listener).toHaveBeenCalledTimes(1);
-    showRunPlace('run-1', { view: 'file', step: 'build' });
+    showRunPlace('run-1', { view: 'file', step: 'build', run: null });
     expect(listener).toHaveBeenCalledTimes(1);
     stop();
   });

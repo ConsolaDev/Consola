@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { RunStatus, RunSummary, StepSummary } from './runs';
 import {
   agoInWords,
+  childFactsWords,
+  childStateWords,
   childrenTone,
   childrenWords,
   costInWords,
@@ -239,5 +241,36 @@ describe('times', () => {
     expect(questionWords({ at: ago(5 * 60_000), until: ago(-3_600_000) }, NOW)).toMatch(
       /^Asked 5m ago, open until \S/,
     );
+  });
+});
+
+describe('an automation a request started', () => {
+  it('says the step it is on, what it waits for, or how it ended', () => {
+    expect(childStateWords(aRun({ progress: { total: 4, done: 1, current: 'report' } }))).toBe(
+      'Step 2 of 4 · report',
+    );
+    expect(childStateWords(aRun({ status: 'queued', progress: null }))).toBe('Queued');
+    expect(childStateWords(aRun({ status: 'needs-approval', phase: 'needs-you' }))).toBe(
+      'Needs approval',
+    );
+    expect(
+      childStateWords(
+        aRun({ status: 'failed', phase: 'failed', error: '\nexit 1: tests failed\nmore' }),
+      ),
+    ).toBe('exit 1: tests failed');
+    expect(
+      childStateWords(aRun({ status: 'completed', phase: 'completed', summary: 'Opened #12.' })),
+    ).toBe('Opened #12.');
+    expect(childStateWords(aRun({ status: 'cancelled', phase: 'stopped' }))).toBe('Cancelled');
+  });
+
+  it('says when it started, how long it worked and what it cost', () => {
+    expect(
+      childFactsWords(
+        aRun({ startedAt: ago(300_000), finishedAt: ago(240_000), costUsd: 0.12 }),
+        NOW,
+      ),
+    ).toBe('5m ago · 1m 0s · $0.12');
+    expect(childFactsWords(aRun({ startedAt: null, createdAt: ago(60_000) }), NOW)).toBe('1m ago');
   });
 });

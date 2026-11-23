@@ -64,14 +64,15 @@ export type RunInfoSectionId = 'request' | 'automations' | 'budget' | 'run' | 'd
 
 /**
  * A run's facts beside it, as the desktop's info panel states a session's. A request has three
- * sections: the request itself, the automations it started (each live, each opening its own
- * page) and its budget. An automation run has what it is, what started it (its request, when one
+ * sections: the request itself, the automations it started (each live, each opening in the
+ * request's Automations tab) and its budget. An automation run has what it is, what started it (its request, when one
  * did, which it links to) and what it cost; then, when the cell holds the file it ran, its
  * Definition: the file (a link to its File view), the version against the latest, the trigger,
  * the mode and what it applies to.
  */
 export function RunInfoPanel({
   detail,
+  onShowChild,
   members,
   latestVersion,
   now,
@@ -79,6 +80,8 @@ export function RunInfoPanel({
   onToggle,
 }: {
   detail: RunDetail;
+  /** Shows an automation the request started in its Automations tab, open and scrolled to. */
+  onShowChild: (childId: string) => void;
   members: WorkspaceMember[] | null;
   latestVersion: number | null;
   now: number;
@@ -123,7 +126,15 @@ export function RunInfoPanel({
           {detail.children.length === 0 ? (
             <InfoQuiet>{NO_CHILDREN_WORDS}</InfoQuiet>
           ) : (
-            detail.children.map((child) => <ChildRow key={child.id} run={child} now={now} />)
+            detail.children.map((child) => (
+              <ChildRow
+                key={child.id}
+                requestId={run.id}
+                run={child}
+                now={now}
+                onShow={() => onShowChild(child.id)}
+              />
+            ))
           )}
         </InfoSection>
 
@@ -171,7 +182,7 @@ function DefinitionRows({ runId, source }: { runId: string; source: RunSource })
         icon={<FileCode size={ICON} />}
         label={<code className="run-info-code run-info-path">{source.path}</code>}
         title={`Show ${source.path} as the run executed it`}
-        href={hashOfRun(runId, { view: 'file', step: null })}
+        href={hashOfRun(runId, { view: 'file', step: null, run: null })}
       />
       <InfoRow
         icon={<GitCommitVertical size={ICON} />}
@@ -336,8 +347,21 @@ function ItemRow({ run }: { run: RunSummary }) {
   );
 }
 
-/** One automation the request started: live, and a link to its own page. */
-function ChildRow({ run, now }: { run: RunSummary; now: number }) {
+/**
+ * One automation the request started, live: it opens in the request's Automations tab, scrolled
+ * to; its own page is a modifier-click away, or "Open run" there.
+ */
+function ChildRow({
+  requestId,
+  run,
+  now,
+  onShow,
+}: {
+  requestId: string;
+  run: RunSummary;
+  now: number;
+  onShow: () => void;
+}) {
   const worked = workedFor(run, now);
   const time = worked !== null ? durationInWords(worked) : agoInWords(run.createdAt, now);
   const step = isLive(run) ? run.progress?.current : null;
@@ -354,7 +378,8 @@ function ChildRow({ run, now }: { run: RunSummary; now: number }) {
         .filter(Boolean)
         .join('. ')}
       tone={run.error ? 'error' : undefined}
-      href={hashOfRun(run.id)}
+      href={hashOfRun(requestId, { view: 'automations', step: null, run: run.id })}
+      onFollow={onShow}
     />
   );
 }
