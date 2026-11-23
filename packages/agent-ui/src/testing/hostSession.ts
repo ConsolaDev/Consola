@@ -28,6 +28,7 @@ import {
   writeFakeClis,
 } from '@consola/host/src/testing/machine.ts';
 import type { HostSession } from './hostSessionKey.ts';
+import { PASS_MAX_LIFETIME_SECONDS } from '@consola/host/src/testing/cellPass.ts';
 import { signPass, writePassKeys } from './passKeys.ts';
 import { HOST_SESSION_KEY } from './hostSessionKey.ts';
 
@@ -41,8 +42,12 @@ const SESSION_ID = 'session-sprocket-agent-ui';
 /** What the `simple` fixture's Claude answers (`claude_transcript.ndjson`). */
 const ASSISTANT_TEXT = 'fixture simple ok';
 const START_TIMEOUT_MS = 60_000;
-/** The pass the tests share: long enough for the whole run. */
-const PASS_LIFETIME_SECONDS = 2 * 60 * 60;
+/**
+ * The pass the tests share: the longest a pass may live (`PASS_MAX_LIFETIME_SECONDS`, five
+ * minutes), so the whole run must fit in it; a test that needs one later signs its own
+ * (`signHostPass`).
+ */
+const PASS_LIFETIME_SECONDS = PASS_MAX_LIFETIME_SECONDS;
 
 type Machine = {
   readonly root: string;

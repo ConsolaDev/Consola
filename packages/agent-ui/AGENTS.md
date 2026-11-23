@@ -135,10 +135,9 @@ pieces:
   - keeps it in IndexedDB (its catalog, above) while the host is registered;
   - sends it as `Authorization: Bearer <pass>` on the HTTP calls before the socket (the ticket
     and the session);
-  - opens the socket at `ws(s)://<host>/ws?wsTicket=<pass>`: the host issues the pass itself as
-    t3's ticket, so the pass is in the socket's URL, which the browser's developer tools show
-    (the host redacts it from its own logs and traces). A ticket distinct from the pass is a
-    Track B decision (`packages/host`'s `AGENTS.md`, "Before the socket").
+  - opens the socket at `ws(s)://<host>/ws?wsTicket=<ticket>`, with the ticket the host issued
+    for the pass: random, used once, good for 30 seconds, and never the pass, so the pass is in
+    no URL (`packages/host`'s `AGENTS.md`, "The pass first, then a ticket").
 
   It never reaches `localStorage` or the page's history from `AgentChat`. The dev page reads it
   from its address (`?pass=`) and takes it out at once (`dev/DevPage.tsx`, `history.replaceState`),

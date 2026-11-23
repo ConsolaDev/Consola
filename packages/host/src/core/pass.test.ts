@@ -5,13 +5,7 @@ import {
   passClaims,
 } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  checkPassClaims,
-  DEV_PASS_SECONDS,
-  type PassClaims,
-  passCloseCode,
-  readPass,
-} from './pass.ts';
+import { checkPassClaims, DEV_PASS_SECONDS, type PassClaims, readPass } from './pass.ts';
 
 const NOW = 1_800_000_000;
 const claims = (over: Partial<PassClaims> = {}): PassClaims => ({
@@ -118,17 +112,5 @@ describe('checkPassClaims', () => {
 
   it('accepts a pass with one second left (exp = now + 1)', () => {
     expect(checkPassClaims(claims({ exp: NOW + 1 }), 's-1', NOW)).toEqual({ ok: true });
-  });
-});
-
-describe('passCloseCode', () => {
-  it('closes with 4401 for a pass that is missing, invalid, expired or not yet valid', () => {
-    for (const refusal of ['missing', 'invalid', 'expired', 'not-yet-valid'] as const) {
-      expect(passCloseCode(refusal)).toBe(4401);
-    }
-  });
-
-  it('closes with 4403 for a valid pass for another session', () => {
-    expect(passCloseCode('wrong-session')).toBe(4403);
   });
 });

@@ -17,7 +17,7 @@ type PassCommands = {
 };
 const commands = server.commands as unknown as PassCommands;
 
-/** The pass a socket was opened with: t3's ticket, which the host issues as the pass. */
+/** The ticket each socket was opened with: one the host issued for a pass, never the pass. */
 const ticketsOf = (urls: ReadonlyArray<string>) =>
   urls.map((url) => new URL(url).searchParams.get('wsTicket'));
 
@@ -25,23 +25,40 @@ it('asks for a new pass when the host ends the connection at its pass’s expiry
   const { hostUrl, sessionId, assistantText, passKeyFile } = host();
   await commands.watchSockets();
   const expiring = await commands.signHostPass(passKeyFile, sessionId, 8);
-  const next = await commands.signHostPass(passKeyFile, sessionId, 600);
-  const onPassExpired = vi.fn(async () => next);
+  const next = await commands.signHostPass(passKeyFile, sessionId, 300);
+  // How many sockets the page had opened when the chat asked for a new pass.
+  let openedAtExpiry = -1;
+  const onPassExpired = vi.fn(async () => {
+    openedAtExpiry = (await commands.openedSockets()).length;
+    return next;
+  });
   const consoleText = watchConsole();
   await mountChat({ hostUrl, pass: expiring, sessionId, onPassExpired });
 
-  // Connected with the expiring pass, and shown the thread, before anything is refused.
+  // Connected with a ticket for the expiring pass, and shown the thread, before anything is
+  // refused.
   await expect.element(answerOf(assistantText)).toBeVisible();
-  expect(ticketsOf(await commands.openedSockets())).toContain(expiring);
+  expect(ticketsOf(await commands.openedSockets()).length).toBeGreaterThan(0);
   expect(onPassExpired).not.toHaveBeenCalled();
 
-  // At its expiry the host closes the socket (4401); t3 asks again, is refused, and the chat
-  // asks for a new pass, then connects with it.
+  // At its expiry the host closes the socket (4401); t3 asks for a ticket again, is refused, and
+  // the chat asks for a new pass, then connects with a ticket for it: the only pass the host
+  // still takes.
   await expect.poll(() => onPassExpired.mock.calls.length, { timeout: 30_000 }).toBe(1);
   await expect
-    .poll(async () => ticketsOf(await commands.openedSockets()), { timeout: 30_000 })
-    .toContain(next);
+    .poll(
+      async () => openedAtExpiry >= 0 && (await commands.openedSockets()).length > openedAtExpiry,
+      { timeout: 30_000 },
+    )
+    .toBe(true);
   await expect.element(answerOf(assistantText)).toBeVisible();
+  // Every socket opened with a ticket of its own, and no socket's address carried a pass.
+  const tickets = ticketsOf(await commands.openedSockets());
+  expect(new Set(tickets).size).toBe(tickets.length);
+  for (const url of await commands.openedSockets()) {
+    expect(url).not.toContain(expiring);
+    expect(url).not.toContain(next);
+  }
   expect(page.getByRole('alert').query()).toBeNull();
   expect(onPassExpired).toHaveBeenCalledTimes(1);
   expect(consoleText()).not.toContain(expiring);

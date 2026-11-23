@@ -69,10 +69,11 @@ import { rpcInitialItems } from 't3/rpcInitialItems.ts';
 import { redactServerSettingsForClient } from 't3/serverSettings.ts';
 import { withOutputWindow } from 't3/terminal/OutputProtocol.ts';
 import { isLoopback } from '../core/bind.ts';
-import { type PassLifetime, passCloseCode } from '../core/pass.ts';
+import type { PassLifetime } from '../core/pass.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import { serveHostHttp } from './hostHttp.ts';
 import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from './passVerifier.ts';
+import { makeSocketTickets, type SocketTickets } from './socketTickets.ts';
 
 /**
  * The methods of t3's `WsRpcGroup` this host serves; it answers every other with
@@ -152,17 +153,20 @@ export interface HostServerOptions {
 
 /** The path t3's client connects to (`connection/resolver.ts`, t3's `ws.ts` route). */
 const WS_PATH = '/ws';
-/** The query parameter a pass travels in. */
+/**
+ * Where a client might put a pass. The socket takes none (a ticket alone opens it), but the name
+ * is redacted wherever the server shows a URL, so a client that sends one leaves it in no log.
+ */
 const PASS_QUERY_PARAM = 'pass';
 /**
  * Where t3's client puts the ticket it was issued (`authorization/remote.ts`
- * `resolveRemoteWebSocketConnectionUrl`). The host's ticket is the pass (`hostHttp.ts`).
+ * `resolveRemoteWebSocketConnectionUrl`): one of the host's own (`socketTickets.ts`).
  */
 const WS_TICKET_QUERY_PARAM = 'wsTicket';
 /**
  * The query parameters Effect redacts wherever it shows a URL the server is handling (a request's
- * inspection, a logger's or a tracer's URL): Effect's own list, which a custom list replaces, and
- * the pass.
+ * inspection, a logger's or a tracer's URL): Effect's own list, which a custom list replaces, a
+ * pass and the ticket.
  */
 export const HOST_REDACTED_URL_PARAMS: ReadonlyArray<string | RegExp> = [
   ...UrlParams.CurrentRedactedNames.defaultValue(),
@@ -179,10 +183,8 @@ const PROVIDER_STATUS_DEBOUNCE = Duration.millis(200);
 /** How long a refused socket is given to answer its close frame. */
 const CLOSE_HANDSHAKE_TIMEOUT = Duration.seconds(5);
 
-const CLOSE_REASONS = {
-  4401: 'A valid session pass is required.',
-  4403: 'This pass opens another session.',
-} as const;
+/** Why a socket is refused: no ticket, or one the host did not issue, used, or expired. */
+const TICKET_REFUSED_REASON = 'A valid socket ticket is required.';
 /** Why a connection the pass let in is closed (`4401`) at the pass's `exp`. */
 const PASS_EXPIRED_REASON = 'The session pass has expired.';
 
@@ -622,19 +624,17 @@ const hasCompatibleOrchestrationProtocol = (url: URL) =>
   String(ORCHESTRATION_PROTOCOL_VERSION);
 
 /**
- * Refuses a connection: a WebSocket is upgraded and closed with `code`, so a browser can read
- * why (it sees no HTTP status); anything else gets the matching HTTP status.
+ * Refuses a connection: a WebSocket is upgraded and closed with `4401`, so a browser can read why
+ * (it sees no HTTP status); anything else gets a `401`.
  */
 const refuseConnection = Effect.fn('host.refuseConnection')(
-  function* (code: 4401 | 4403) {
+  function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const upgraded = yield* Effect.exit(request.upgrade);
-    if (Exit.isFailure(upgraded)) {
-      return HttpServerResponse.empty({ status: code === 4403 ? 403 : 401 });
-    }
+    if (Exit.isFailure(upgraded)) return HttpServerResponse.empty({ status: 401 });
     const reader = yield* upgraded.value.reader;
     const writer = yield* upgraded.value.writer;
-    yield* writer.write(new Socket.CloseEvent(code, CLOSE_REASONS[code]));
+    yield* writer.write(new Socket.CloseEvent(4401, TICKET_REFUSED_REASON));
     // The close handshake ends when the client's close frame ends the reader.
     yield* Effect.forever(reader.pull).pipe(
       Effect.ignore,
@@ -693,13 +693,15 @@ const serveRpc = Effect.fn('host.serveRpc')(function* (
 }, Effect.provide(RpcSerialization.layerJson));
 
 /**
- * Every request: `GET /ws` with a pass for this session becomes an RPC connection; the pass is
- * verified before anything else is answered, and is never logged. The calls t3's client makes
- * before the socket (the descriptor, a ticket, the session) are `hostHttp.ts`'s.
+ * Every request: `GET /ws` with a ticket the host issued becomes an RPC connection; the ticket is
+ * taken before anything else is answered. The calls t3's client makes before the socket (the
+ * descriptor, a ticket for its pass, the session) are `hostHttp.ts`'s, where the pass is
+ * verified; neither is ever logged.
  */
 const app = Effect.fn('host.app')(function* (
   options: HostServerOptions,
   key: PassKey,
+  tickets: SocketTickets,
   connections: { open: number },
 ) {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -715,6 +717,8 @@ const app = Effect.fn('host.app')(function* (
           Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
             verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000), lifetime),
           ),
+        issueTicket: (claims) =>
+          Effect.map(Clock.currentTimeMillis, (nowMs) => tickets.issue(claims.exp, nowMs)),
       },
       url.pathname,
     );
@@ -722,38 +726,34 @@ const app = Effect.fn('host.app')(function* (
   if (request.method !== 'GET' || url.pathname !== WS_PATH) {
     return HttpServerResponse.empty({ status: 404 });
   }
-  const nowSeconds = Math.floor((yield* Clock.currentTimeMillis) / 1000);
-  // A pass in `pass`, or the ticket t3's client was issued for it, which is the pass.
-  const pass =
-    url.searchParams.get(PASS_QUERY_PARAM) ?? url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '';
-  return yield* verifyPassWith(pass, key, options.sessionId, nowSeconds, lifetime).pipe(
-    Effect.matchEffect({
-      onFailure: (rejected) => refuseConnection(passCloseCode(rejected.reason)),
-      onSuccess: (claims) =>
-        hasCompatibleOrchestrationProtocol(url)
-          ? // A connection counts from the moment it is let in until its socket closes.
-            Effect.acquireUseRelease(
-              Effect.sync(() => {
-                connections.open += 1;
-              }),
-              () => serveRpc(options, url, claims.exp),
-              () =>
-                Effect.sync(() => {
-                  connections.open -= 1;
-                }),
-            )
-          : Effect.succeed(
-              HttpServerResponse.jsonUnsafe(
-                {
-                  code: 'orchestration_protocol_incompatible',
-                  message: `Update this client to one that supports orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION}.`,
-                  orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
-                },
-                { status: 426 },
-              ),
-            ),
-    }),
+  // The socket opens with a ticket alone, used once (`socketTickets.ts`); never with a pass.
+  const redeemed = tickets.redeem(
+    url.searchParams.get(WS_TICKET_QUERY_PARAM) ?? '',
+    yield* Clock.currentTimeMillis,
   );
+  if (redeemed === null) return yield* refuseConnection();
+  return yield* hasCompatibleOrchestrationProtocol(url)
+    ? // A connection counts from the moment it is let in until its socket closes.
+      Effect.acquireUseRelease(
+        Effect.sync(() => {
+          connections.open += 1;
+        }),
+        () => serveRpc(options, url, redeemed.passExpiresAtSeconds),
+        () =>
+          Effect.sync(() => {
+            connections.open -= 1;
+          }),
+      )
+    : Effect.succeed(
+        HttpServerResponse.jsonUnsafe(
+          {
+            code: 'orchestration_protocol_incompatible',
+            message: `Update this client to one that supports orchestration protocol ${ORCHESTRATION_PROTOCOL_VERSION}.`,
+            orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
+          },
+          { status: 426 },
+        ),
+      );
 });
 
 /**
@@ -786,10 +786,11 @@ export const listenHost = (
       websocket: { clientTracking: false },
     }).pipe(Effect.mapError((cause) => new HostListenError({ cause })));
     const connections = { open: 0 };
+    const tickets = makeSocketTickets();
     // No request span: one would record the request's URL, and the pass travels in it. Every
     // request runs with the pass among the redacted query parameters, so nothing that shows its
     // URL shows the pass.
-    yield* server.serve(app(options, key, connections)).pipe(
+    yield* server.serve(app(options, key, tickets, connections)).pipe(
       Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
       Effect.provideService(UrlParams.CurrentRedactedNames, HOST_REDACTED_URL_PARAMS),
     );

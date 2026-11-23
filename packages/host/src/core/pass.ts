@@ -86,12 +86,3 @@ export function checkPassClaims(
  * than EdDSA, claims that are not a pass's), or a verdict of `checkPassClaims`.
  */
 export type PassRefusal = 'missing' | 'invalid' | Extract<PassVerdict, { ok: false }>['reason'];
-
-/**
- * The WebSocket close code for a refused pass: `4403` when a pass with a good signature names
- * another session (`checkPassClaims` checks `sid` first, so such a pass may also have expired),
- * `4401` for every other refusal (the client needs a new pass).
- */
-export function passCloseCode(refusal: PassRefusal): 4401 | 4403 {
-  return refusal === 'wrong-session' ? 4403 : 4401;
-}

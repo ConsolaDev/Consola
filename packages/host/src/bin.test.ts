@@ -45,7 +45,7 @@ import {
 import { isolateMachine } from './testing/machine.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from './testing/replay.ts';
 import { signCellPass } from './testing/cellPass.ts';
-import { connectT3Client, hostSocketUrl } from './testing/t3Client.ts';
+import { connectHost } from './testing/t3Client.ts';
 
 /**
  * Each test runs on a machine of its own (`./testing/machine.ts`): a temporary home, no CLI config
@@ -306,7 +306,7 @@ describe('consola-host session', () => {
         expect(claims).toMatchObject({ sub: 'dev', ws: 'local', sid: sessionId });
         expect((claims.exp ?? 0) - (claims.iat ?? 0)).toBe(DEV_PASS_SECONDS);
 
-        const { client } = yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
+        const { client } = yield* connectHost(ready.port as number, pass);
         const spec = { sessionId, harness: 'claude', cwd: '' } as const;
         yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
           sendMessage(spec, text, variant.modelSelection),
@@ -386,7 +386,7 @@ describe('consola-host session', () => {
         expect(claims.iat).toBeLessThanOrEqual(readyAt);
 
         // t3's own client is let in and gets its first config snapshot.
-        const connected = yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
+        const connected = yield* connectHost(ready.port as number, pass);
         expect(connected.initialConfig.environment.environmentId).toBe(DEV_SESSION_ID);
 
         yield* waitFor(() => readPids(pids).length > 0, 'the long-lived claude to start');
@@ -446,7 +446,7 @@ describe('consola-host session', () => {
         // A connected client holds the host past its idle time.
         yield* Effect.scoped(
           Effect.gen(function* () {
-            yield* connectT3Client(hostSocketUrl(ready.port as number, pass));
+            yield* connectHost(ready.port as number, pass);
             yield* Effect.sleep(Duration.millis(idleMinutes * 60_000 + 3_000));
             expect(typesOf(host.printed)).toEqual(['ready']);
           }),

@@ -30,3 +30,14 @@ export const signCellPass = Effect.fn('signCellPass')(function* (
       .sign(privateKey),
   );
 });
+
+/**
+ * The protocol's pass contract, for a stand-in for the cell outside this package (`@consola/agent-ui`'s
+ * browser tests sign their passes with it, `src/testing/passKeys.ts`).
+ */
+export {
+  PASS_AUDIENCE,
+  PASS_MAX_LIFETIME_SECONDS,
+  PASS_TYPE,
+  passClaims,
+} from '@consola/runner-protocol';

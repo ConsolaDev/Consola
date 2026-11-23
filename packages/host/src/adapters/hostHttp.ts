@@ -8,9 +8,9 @@
  * - `GET /.well-known/t3/environment`: the environment's descriptor, unauthenticated as in t3
  *   (`http.ts` `layerServerEnvironmentHttpApi`, `"descriptor"`).
  * - `POST /api/auth/websocket-ticket/rpc` with `Authorization: Bearer <pass>`: a ticket for the
- *   socket (`auth/http.ts` `"webSocketTicketFor"`, `EnvironmentAuth.issueWebSocketTicket`). The
- *   host keeps no sessions, so the ticket is the pass itself, which the socket verifies again:
- *   the pass stays the only credential.
+ *   socket (`auth/http.ts` `"webSocketTicketFor"`, `EnvironmentAuth.issueWebSocketTicket`): never
+ *   the pass, but random, in memory, good for one socket once and for a few seconds
+ *   (`socketTickets.ts`), so the pass travels in a header alone and never in a socket's URL.
  * - `GET /api/auth/session` with the same header: who the pass lets in, and until when
  *   (`auth/http.ts` `"session"`, `EnvironmentAuth.getSessionState`).
  *
@@ -39,6 +39,7 @@ import * as HttpServerResponse from 'effect/http/HttpServerResponse';
 import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from 't3/httpCors.ts';
 import type { PassClaims } from '../core/pass.ts';
 import type { PassRejected } from './passVerifier.ts';
+import type { IssuedTicket } from './socketTickets.ts';
 
 export const DESCRIPTOR_PATH = '/.well-known/t3/environment';
 export const SESSION_PATH = '/api/auth/session';
@@ -58,6 +59,8 @@ export interface HostHttp {
   readonly auth: ServerAuthDescriptor;
   /** Verifies a pass for this session, now. */
   readonly verify: (pass: string) => Effect.Effect<PassClaims, PassRejected>;
+  /** A socket ticket for a pass just verified (`socketTickets.ts`). */
+  readonly issueTicket: (claims: PassClaims) => Effect.Effect<IssuedTicket>;
 }
 
 /** The pass in an `Authorization: Bearer <pass>` header, or `''`. */
@@ -92,10 +95,14 @@ const webSocketTicket = (http: HostHttp, pass: string) =>
     Effect.matchEffect({
       onFailure: respondRefused,
       onSuccess: (claims) =>
-        HttpServerResponse.schemaJson(AuthWebSocketTicketResult)({
-          ticket: Redacted.make(pass),
-          expiresAt: expiresAt(claims),
-        }),
+        http.issueTicket(claims).pipe(
+          Effect.flatMap((issued) =>
+            HttpServerResponse.schemaJson(AuthWebSocketTicketResult)({
+              ticket: Redacted.make(issued.ticket),
+              expiresAt: DateTime.makeUnsafe(issued.expiresAtMs),
+            }),
+          ),
+        ),
     }),
   );
 

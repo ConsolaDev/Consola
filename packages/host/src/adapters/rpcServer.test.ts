@@ -49,10 +49,18 @@ import {
   withState,
 } from '../testing/replay.ts';
 import { signCellPass } from '../testing/cellPass.ts';
-import { connectT3Client, hostSocketUrl, type T3Client } from '../testing/t3Client.ts';
+import {
+  askHostTicket,
+  connectHost,
+  connectT3Client,
+  hostSocketUrl,
+  issueHostTicket,
+  type T3Client,
+} from '../testing/t3Client.ts';
 import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
 import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
+import { TICKET_LIFETIME_MS } from './socketTickets.ts';
 import {
   HOST_REDACTED_URL_PARAMS,
   listenHost,
@@ -212,7 +220,7 @@ const withServedReplay = <A, E>(
           : listening.pipe(Effect.withTracer(tracer));
         const connect = (given?: string) =>
           (given === undefined ? signPass(keys, spec.sessionId) : Effect.succeed(given)).pipe(
-            Effect.flatMap((pass) => connectT3Client(hostSocketUrl(port, pass))),
+            Effect.flatMap((pass) => connectHost(port, pass)),
           );
         return yield* body({
           spec,
@@ -419,23 +427,52 @@ describe('serveHost', () => {
   );
 
   it(
-    'refuses a connection without a valid pass: none or another key closes 4401, another session 4403',
+    'opens the socket with a ticket alone, once: none, a forged one, a used one or a pass closes 4401',
     () =>
-      withServedReplay('simple', ({ spec, handle, keys, port, prompt, connect }) =>
+      withServedReplay('simple', ({ spec, handle, port, prompt, connect, signPass }) =>
         Effect.gen(function* () {
+          const pass = yield* signPass();
           expect(yield* closeCodeAt(hostSocketUrl(port))).toBe(4401);
-          const foreign = yield* signPass(makeKeys(), spec.sessionId);
-          expect(yield* closeCodeAt(hostSocketUrl(port, foreign))).toBe(4401);
-          const otherSession = yield* signPass(keys, 'session-sprocket-other');
-          expect(yield* closeCodeAt(hostSocketUrl(port, otherSession))).toBe(4403);
+          expect(yield* closeCodeAt(hostSocketUrl(port, 'a-ticket-nobody-issued'))).toBe(4401);
+          // A valid pass is no ticket, in the ticket's place or in a `pass` of its own.
+          expect(yield* closeCodeAt(hostSocketUrl(port, pass))).toBe(4401);
+          const withPass = new URL(hostSocketUrl(port));
+          withPass.searchParams.set('pass', pass);
+          expect(yield* closeCodeAt(withPass.toString())).toBe(4401);
 
-          // A valid pass is served, and its config names the session and t3's providers.
+          // A ticket is not the pass, and opens one socket once.
+          const ticket = yield* issueHostTicket(port, pass);
+          expect(ticket).not.toBe(pass);
+          expect(ticket).not.toContain(pass.split('.')[1] ?? pass);
+          yield* Effect.scoped(connectT3Client(hostSocketUrl(port, ticket)));
+          expect(yield* closeCodeAt(hostSocketUrl(port, ticket))).toBe(4401);
+
+          // A pass is served through its ticket, and its config names the session and t3's
+          // providers.
           const { initialConfig } = yield* connect();
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
           // The session's provider, and no other (the composition hydrates its driver alone).
           expect(initialConfig.providers.map((provider) => provider.instanceId)).toEqual([
             'claudeAgent',
           ]);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    "issues no ticket for a pass it refuses: another key's, another session's, none",
+    () =>
+      withServedReplay('simple', ({ spec, handle, keys, port, prompt }) =>
+        Effect.gen(function* () {
+          const foreign = yield* signPass(makeKeys(), spec.sessionId);
+          const otherSession = yield* signPass(keys, 'session-sprocket-other');
+          for (const refused of [foreign, otherSession, '']) {
+            const answer = yield* askHostTicket(port, refused);
+            expect(answer.status).toBe(401);
+            expect(answer.body).not.toContain('ticket"');
+          }
           yield* runTheTurn(handle, prompt);
         }),
       ),
@@ -474,19 +511,23 @@ describe('serveHost', () => {
     () =>
       withServedReplay('simple', ({ spec, handle, prompt, keys, port, connectedClients }) =>
         Effect.gen(function* () {
-          const unframed = (pass: string) => {
-            const url = new URL(hostSocketUrl(port, pass));
+          const unframed = (ticket: string) => {
+            const url = new URL(hostSocketUrl(port, ticket));
             url.searchParams.delete(SOCKET_FRAME_PARTS_QUERY_PARAM);
             return url.toString();
           };
-          // Two to three seconds left: the socket opens, is served, and is closed at the pass's exp.
+          const ticketFor = (pass: string) => issueHostTicket(port, pass);
+          // Two to three seconds left: the socket opens, is served, and is closed at the exp of
+          // the pass its ticket was issued for.
           const [framed, plain] = yield* Effect.all(
             [
               signPass(keys, spec.sessionId, 3).pipe(
-                Effect.flatMap((pass) => openedSocketAt(hostSocketUrl(port, pass))),
+                Effect.flatMap(ticketFor),
+                Effect.flatMap((ticket) => openedSocketAt(hostSocketUrl(port, ticket))),
               ),
               signPass(keys, spec.sessionId, 3).pipe(
-                Effect.flatMap((pass) => openedSocketAt(unframed(pass))),
+                Effect.flatMap(ticketFor),
+                Effect.flatMap((ticket) => openedSocketAt(unframed(ticket))),
               ),
             ],
             { concurrency: 'unbounded' },
@@ -506,13 +547,18 @@ describe('serveHost', () => {
     REPLAY_TIMEOUT_MS,
   );
 
-  it('redacts the pass wherever Effect shows a URL it serves, as well as its own list', () => {
-    const url = 'ws://127.0.0.1:7420/ws?protocol=2&pass=eyJ.sprocket.sig&Signature=s3';
+  it('redacts a pass and the ticket wherever Effect shows a URL it serves, as well as its own list', () => {
+    const url =
+      'ws://127.0.0.1:7420/ws?protocol=2&pass=eyJ.sprocket.sig&wsTicket=t-sprocket&Signature=s3';
     expect(UrlParams.redactUrl(url, HOST_REDACTED_URL_PARAMS)).toBe(
-      'ws://127.0.0.1:7420/ws?protocol=2&pass=REDACTED&Signature=REDACTED',
+      'ws://127.0.0.1:7420/ws?protocol=2&pass=REDACTED&wsTicket=REDACTED&Signature=REDACTED',
     );
     expect(HOST_REDACTED_URL_PARAMS).toEqual(
-      expect.arrayContaining([...UrlParams.CurrentRedactedNames.defaultValue(), 'pass']),
+      expect.arrayContaining([
+        ...UrlParams.CurrentRedactedNames.defaultValue(),
+        'pass',
+        'wsTicket',
+      ]),
     );
   });
 
@@ -695,7 +741,7 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
     );
 
   it(
-    'answers the descriptor, a ticket that is the pass, and the session it opens; the ticket opens the socket',
+    'answers the descriptor, a ticket that is not the pass, and the session it opens; the ticket opens the socket once',
     () =>
       withServedReplay('simple', ({ spec, handle, prompt, port, signPass: passForSession }) =>
         Effect.gen(function* () {
@@ -710,11 +756,17 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
             orchestrationProtocolVersion: 2,
           });
 
+          const askedAt = yield* Clock.currentTimeMillis;
           const ticket = yield* asT3Client(
             issueRemoteWebSocketTicket({ httpBaseUrl, bearerToken: pass, use: 'rpc' }),
           );
-          expect(Redacted.value(ticket.ticket)).toBe(pass);
-          expect(ticket.expiresAt.epochMilliseconds).toBe(expiresAtMs);
+          // Random, short-lived, and never the pass, which travels in the header alone.
+          expect(Redacted.value(ticket.ticket)).not.toBe(pass);
+          expect(Redacted.value(ticket.ticket)).toMatch(/^[A-Za-z0-9_-]{43}$/);
+          expect(ticket.expiresAt.epochMilliseconds).toBeLessThanOrEqual(
+            Math.min(expiresAtMs, (yield* Clock.currentTimeMillis) + TICKET_LIFETIME_MS),
+          );
+          expect(ticket.expiresAt.epochMilliseconds).toBeGreaterThan(askedAt);
 
           const session = yield* asT3Client(
             fetchRemoteSessionState({ httpBaseUrl, bearerToken: pass }),
@@ -738,12 +790,17 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
               }),
             ),
           );
-          expect(socketUrl.searchParams.get('wsTicket')).toBe(pass);
+          const socketTicket = socketUrl.searchParams.get('wsTicket') ?? '';
+          expect(socketTicket).not.toBe(pass);
+          expect(socketTicket).not.toBe(Redacted.value(ticket.ticket));
+          expect(socketUrl.toString()).not.toContain(pass);
           const withFlags = new URL(hostSocketUrl(port));
           for (const [name, value] of socketUrl.searchParams)
             withFlags.searchParams.set(name, value);
           const { initialConfig } = yield* connectT3Client(withFlags.toString());
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
+          // Used once: the same URL opens nothing again.
+          expect(yield* closeCodeAt(withFlags.toString())).toBe(4401);
           yield* runTheTurn(handle, prompt);
         }),
       ),

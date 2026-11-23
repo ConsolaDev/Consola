@@ -27,7 +27,8 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
-  verifying a pass's signature, the dev pass (`devPass.ts`), the lines on
+  verifying a pass's signature, the socket's tickets (`socketTickets.ts`), the
+  dev pass (`devPass.ts`), the lines on
   stdout (`stdoutEvents.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
   and its socket to the cell (`cellSocket.ts`). It may import `core/` and
   `runtime/`.
@@ -53,8 +54,9 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   imports `machine.ts` (`writeFakeClis`, `readCalls`, `cliVariablesIn`,
   `homeVariables`, `pathWith`) and spawns `replaySession.ts` with node, passing
   `simple full-access session --pass-public-key … --session-id … --harness claude
-  --port 0`; its `sendFixtureMessage.ts` imports `t3Client.ts` (`hostSocketUrl`,
-  `connectT3Client`) and `replay.ts` (`loadReplay`, `sendMessage`). Run
+  --port 0`; its `sendFixtureMessage.ts` imports `t3Client.ts` (`connectHost`:
+  a ticket for the pass, then the socket) and `replay.ts` (`loadReplay`,
+  `sendMessage`). Run
   `pnpm --filter @consola/agent-ui test` after changing any of these.
 
 To add a ring, add a row to `LAYERS` and a case to the table in
@@ -179,7 +181,7 @@ type ThreadServerView = {
 one RPC server per connection, as t3's `ws.ts` runs it. `listenHost(options)`
 listens in the caller's scope and answers the port (`0` asks for an ephemeral
 one) and `connectedClients()`, the connections open now (each counts from the
-moment its pass lets it in until its socket closes; a refused one never
+moment its ticket lets it in until its socket closes; a refused one never
 counts); `serveHost` is `listenHost` then never. `host` is the caller's: the
 server adds no default bind address. `ws.ts` itself is not lifted; the
 handlers are host glue that calls the helpers `ws.ts` calls
@@ -191,12 +193,11 @@ handlers are host glue that calls the helpers `ws.ts` calls
   problem, never the key). Every connection's pass is verified against that
   parsed key, so a misconfigured key stops the host instead of refusing
   everyone in silence.
-- **The pass first.** `GET /ws` is the socket, and the three calls t3's
-  client makes before it are answered over HTTP (`hostHttp.ts`, below); any
-  other method or path gets a `404` before the pass is looked at. A
-  connection's `pass` query parameter, or `wsTicket` (the ticket t3's client
-  was issued, which is the pass), is verified (`verifyPassWith`) before
-  anything else is answered:
+- **The pass first, then a ticket.** `GET /ws` is the socket, and the three
+  calls t3's client makes before it are answered over HTTP (`hostHttp.ts`,
+  below); any other method or path gets a `404` before anything is looked at.
+  The pass travels only in the `Authorization: Bearer` header of those calls,
+  where it is verified (`verifyPassWith`) before anything else is answered:
   a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
   ['EdDSA']`, so `none`, HMAC and every other algorithm are refused), that
   `readPass` takes for a pass: its header's `typ` is `PASS_TYPE` and its
@@ -208,23 +209,30 @@ handlers are host glue that calls the helpers `ws.ts` calls
   longer life is `invalid`. Then `checkPassClaims` judges the time and the
   session: `exp <= now` is expired, 60 s of clock skew for `iat` only, `sid`
   first. A `--dev` host alone takes its own longer pass (`PassLifetime`
-  `dev`, below). A
-  refused WebSocket is upgraded and closed with `passCloseCode`: `4403` for a
-  pass signed by the cell's key that names another session (`sid` is checked
-  first, so that pass may also have expired), `4401` for every other refusal
-  (missing, invalid, expired, not yet valid). The pass and its claims are
-  never logged, and `PassRejected` carries the reason only. No tracer sees it
-  either: the server makes no HTTP request span
-  (`HttpMiddleware.TracerDisabledWhen`), which would record the URL the pass
-  travels in, and the RPC server traces nothing (`disableTracing`). Every
-  request also runs with `pass` among effect's redacted query parameters
-  (`HOST_REDACTED_URL_PARAMS`, effect's own `UrlParams.CurrentRedactedNames`
-  plus `pass` and `wsTicket`), so whatever shows a URL the server handles
-  redacts it. Then,
-  as t3, a client must speak orchestration protocol 2 (`426` otherwise).
-- **The pass bounds the connection.** A socket a pass let in is closed with
-  `4401` (`The session pass has expired.`) at that pass's `exp`, as a new
-  connection with it would be refused then (`serveRpc`: a timer forked in the
+  `dev`, below).
+
+  The socket opens with a **ticket** alone (`wsTicket`, where t3's client puts
+  the one it was issued), never with a pass (`socketTickets.ts`). A ticket is
+  32 random bytes the host issued for a pass it just verified, held in memory
+  only, good for one socket once, for `TICKET_LIFETIME_MS` (30 s) or until its
+  pass expires if that comes first; the host holds `MAX_TICKETS` (64) at most,
+  dropping the oldest. No ticket, one it never issued, one used already or
+  expired, and a pass in a ticket's place or in a `pass` parameter are all
+  refused alike: the WebSocket is upgraded and closed with `4401` (`A valid
+  socket ticket is required.`). So what a socket's URL carries, which a
+  browser's developer tools and a proxy's logs show, opens nothing once used
+  or a moment old. The pass and its claims are never logged, and
+  `PassRejected` carries the reason only. No tracer sees either: the server
+  makes no HTTP request span (`HttpMiddleware.TracerDisabledWhen`), which
+  would record a request's URL, and the RPC server traces nothing
+  (`disableTracing`). Every request also runs with `pass` and `wsTicket` among
+  effect's redacted query parameters (`HOST_REDACTED_URL_PARAMS`, effect's own
+  `UrlParams.CurrentRedactedNames` plus those two), so whatever shows a URL
+  the server handles redacts them. Then, as t3, a client must speak
+  orchestration protocol 2 (`426` otherwise).
+- **The pass bounds the connection.** A socket a ticket let in is closed with
+  `4401` (`The session pass has expired.`) at the `exp` of the pass the ticket
+  was issued for, as a ticket for that pass would be refused then (`serveRpc`: a timer forked in the
   connection's scope, so a socket that closes first cancels it). t3's client
   then asks for a ticket with the expired pass, is refused (`401`), and stops
   (blocked, `authentication`), which is where `@consola/agent-ui` calls
@@ -264,17 +272,15 @@ handlers are host glue that calls the helpers `ws.ts` calls
   desktop's secondary backend (`connection/resolver.ts` → `authorizeBearer`):
   it reads the environment's descriptor, asks for a socket ticket with its
   bearer token, opens the socket with that ticket, and once connected reads
-  its session's scopes. The host answers each as t3's handler does, with t3's
-  schemas, and the pass is the bearer token, so it stays the only credential:
+  its session's scopes (it asks for a new ticket for every connection it
+  opens). The host answers each as t3's handler does, with t3's schemas, and
+  the pass is the bearer token, the only credential the host takes:
   - `GET /.well-known/t3/environment`: the descriptor (the config's
     environment, above), unauthenticated as in t3. It names the session id,
     `Consola host`, the platform and t3's server version.
   - `POST /api/auth/websocket-ticket/rpc` with `Authorization: Bearer <pass>`:
-    `{ ticket, expiresAt }`, the ticket being the pass itself (the host keeps
-    no sessions to mint one from), expiring with it. The socket verifies it
-    again. So the pass travels in the socket's URL (`wsTicket`), where a
-    browser's developer tools show it; a ticket distinct from the pass
-    (short-lived, used once) is a Track B decision.
+    `{ ticket, expiresAt }`, a new ticket (above), `expiresAt` its own end.
+    The pass never reaches the socket's URL.
   - `GET /api/auth/session` with the same header: `authenticated: true`, the
     host's auth descriptor, `HOST_SCOPES` (`orchestration:read` and
     `orchestration:operate`, all it serves, so t3's UI offers nothing more),
@@ -703,8 +709,8 @@ runs the same `sessionCommand` and `runHostProcess` over `layerForTests` with
 the Claude replay driver, checking out the fixture's workspace as `--cwd`.
 `bin.test.ts` starts both with node under the test's machine (fake CLIs on the
 PATH, the test's home): the replay through a whole turn (`ready`, `dev-pass`, a
-message sent with the pass, `status` and `title` lines, exit 0 on SIGTERM), and
-the real bin for `ready`, `dev-pass`, a socket that takes the pass, SIGTERM
+message sent through a ticket for the pass, `status` and `title` lines, exit 0 on SIGTERM), and
+the real bin for `ready`, `dev-pass`, a socket opened with a ticket for the pass, SIGTERM
 with no process left (a fake `claude` that stays running, as the capabilities
 probe's would), the cell's key, the idle exit, and the start failures. Each
 asserts that every stdout line is a `HostLine`.

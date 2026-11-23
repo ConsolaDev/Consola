@@ -12,6 +12,7 @@ const brokenHost: HostHttp = {
   environment: {} as HostHttp['environment'],
   auth: {} as HostHttp['auth'],
   verify: (pass) => Effect.die(new Error(`the verifier broke on ${pass}`)),
+  issueTicket: () => Effect.die(new Error('never reached')),
 };
 
 describe('serveHostHttp', () => {

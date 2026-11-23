@@ -1,3 +1,5 @@
+// @effect-diagnostics nodeBuiltinImport:off - A ticket is asked for over node:http, which no test's fetch stub reaches.
+import { request } from 'node:http';
 import type { WsRpcProtocolClient } from '@t3tools/client-runtime/rpc';
 import {
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
@@ -14,6 +16,7 @@ import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as Option from 'effect/Option';
 import * as Schedule from 'effect/Schedule';
+import * as Schema from 'effect/Schema';
 import * as Stream from 'effect/Stream';
 import { RpcClient, RpcSerialization } from 'effect/rpc';
 import * as Socket from 'effect/socket/Socket';
@@ -21,15 +24,64 @@ import * as Socket from 'effect/socket/Socket';
 /**
  * The socket URL t3's client opens for a host on this machine: `/ws` (`connection/resolver.ts`),
  * t3's orchestration protocol (`connection/compatibility.ts`), the frame-parts flag
- * (`rpc/session.ts`) and, when given, the session's pass.
+ * (`rpc/session.ts`) and, when given, the socket ticket it was issued (`wsTicket`,
+ * `authorization/remote.ts`).
  */
-export const hostSocketUrl = (port: number, pass?: string): string => {
+export const hostSocketUrl = (port: number, ticket?: string): string => {
   const url = new URL(`ws://127.0.0.1:${port}/ws`);
   url.searchParams.set(ORCHESTRATION_PROTOCOL_QUERY_PARAM, String(ORCHESTRATION_PROTOCOL_VERSION));
   url.searchParams.set(SOCKET_FRAME_PARTS_QUERY_PARAM, '1');
-  if (pass !== undefined) url.searchParams.set('pass', pass);
+  if (ticket !== undefined) url.searchParams.set('wsTicket', ticket);
   return url.toString();
 };
+
+/** What a host on this machine answered a ticket request: its status and body. */
+export type TicketAnswer = { readonly status: number; readonly body: string };
+
+/**
+ * Asks a host on this machine for a socket ticket as t3's client asks
+ * (`issueRemoteWebSocketTicket`, `use` `rpc`): `POST /api/auth/websocket-ticket/rpc` with
+ * `Authorization: Bearer <pass>`.
+ */
+export const askHostTicket = (port: number, pass: string): Effect.Effect<TicketAnswer> =>
+  Effect.callback<TicketAnswer>((resume) => {
+    const asked = request(
+      {
+        host: '127.0.0.1',
+        port,
+        method: 'POST',
+        path: '/api/auth/websocket-ticket/rpc',
+        headers: { authorization: `Bearer ${pass}` },
+      },
+      (response) => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', (chunk: string) => {
+          body += chunk;
+        });
+        response.on('end', () =>
+          resume(Effect.succeed({ status: response.statusCode ?? 0, body })),
+        );
+      },
+    );
+    asked.on('error', (error) => resume(Effect.die(error)));
+    asked.end();
+  });
+
+const decodeIssued = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ ticket: Schema.String })),
+);
+
+/** A socket ticket for `pass` from a host on this machine; dies when it issues none. */
+export const issueHostTicket = (port: number, pass: string): Effect.Effect<string> =>
+  askHostTicket(port, pass).pipe(
+    Effect.flatMap(({ status, body }) =>
+      status === 200
+        ? decodeIssued(body).pipe(Effect.map(({ ticket }) => ticket))
+        : Effect.die(new Error(`The host issued no ticket (${status}).`)),
+    ),
+    Effect.orDie,
+  );
 
 /** A client connected to a host, and the first config snapshot it was sent. */
 export type T3Client = {
@@ -78,3 +130,12 @@ export const connectT3Client = Effect.fn('connectT3Client')(function* (url: stri
   const connected: T3Client = { client, initialConfig: first.value.config };
   return connected;
 });
+
+/**
+ * t3's client connected to a host on this machine with `pass`, as client-runtime connects with a
+ * bearer token: a ticket for the pass, then the socket that ticket opens.
+ */
+export const connectHost = (port: number, pass: string) =>
+  issueHostTicket(port, pass).pipe(
+    Effect.flatMap((ticket) => connectT3Client(hostSocketUrl(port, ticket))),
+  );
