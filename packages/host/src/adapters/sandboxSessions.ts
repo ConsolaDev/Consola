@@ -77,6 +77,8 @@ export type SandboxSessions = {
   /** The cell's stop: stops the session's sandbox, says `stopped`, returns once it has stopped. */
   readonly stop: (sessionId: string) => Effect.Effect<void>;
   readonly live: Effect.Effect<LiveSessions>;
+  /** `live`, read now: the cell's socket reads it as it writes `hello`. */
+  readonly liveNow: () => LiveSessions;
   /** Stops every sandbox, the runner stopping, and returns once each has stopped. */
   readonly stopAll: Effect.Effect<void>;
 };
@@ -337,6 +339,27 @@ export const makeSandboxSessions = (
       );
     };
 
+    const liveNow = (): LiveSessions => {
+      const open = [...held.values()].filter((session) => !session.ended);
+      return {
+        sessionIds: open.map((session) => session.start.sessionId),
+        states: open.flatMap((session) => {
+          const state: SessionUpdate = {
+            type: 'session.update',
+            sessionId: session.start.sessionId,
+          };
+          if (session.ready && session.hostUrl !== null) {
+            state.status = 'running';
+            state.hostUrl = session.hostUrl;
+          }
+          if (session.title !== null) state.title = session.title;
+          return state.status === undefined && state.title === undefined
+            ? []
+            : [scrubUpdate(state, options.secretValues)];
+        }),
+      };
+    };
+
     const sessions: SandboxSessions = {
       start: Effect.fn('SandboxSessions.start')(function* (start: SessionStart) {
         if (held.has(start.sessionId)) {
@@ -364,26 +387,8 @@ export const makeSandboxSessions = (
         yield* Deferred.succeed(session.stopSignal, { kind: 'cell' });
         yield* Deferred.await(session.done);
       }),
-      live: Effect.sync(() => {
-        const open = [...held.values()].filter((session) => !session.ended);
-        return {
-          sessionIds: open.map((session) => session.start.sessionId),
-          states: open.flatMap((session) => {
-            const state: SessionUpdate = {
-              type: 'session.update',
-              sessionId: session.start.sessionId,
-            };
-            if (session.ready && session.hostUrl !== null) {
-              state.status = 'running';
-              state.hostUrl = session.hostUrl;
-            }
-            if (session.title !== null) state.title = session.title;
-            return state.status === undefined && state.title === undefined
-              ? []
-              : [scrubUpdate(state, options.secretValues)];
-          }),
-        };
-      }),
+      live: Effect.sync(liveNow),
+      liveNow,
       stopAll: Effect.gen(function* () {
         const all = [...held.values()];
         yield* Effect.forEach(
