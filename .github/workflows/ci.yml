@@ -200,12 +200,20 @@ jobs:
       # rule scoped to the chat (packages/agent-ui/build/checkBuiltCss.ts).
       - name: Built stylesheet
         run: pnpm --filter @consola/agent-ui check:css
+      # dist/THIRD-PARTY-NOTICES, written from the modules the build bundled:
+      # every package and every third-party file of t3's copy listed with its
+      # licence and its licence text, LGPL (heic-to), OFL (@betteroffice/fonts)
+      # and t3code's own among them, and no unknown licence
+      # (packages/agent-ui/build/bundleGuards.ts).
+      - name: Third-party notices
+        run: pnpm --filter @consola/agent-ui check:notices
       # The built library in a page: the chat styled, the page's document left
       # as it was.
       - name: Built library in a page
         run: pnpm --filter @consola/agent-ui test:dist
       # The chat's browser bundle must hold no server SDK
-      # (packages/agent-ui/AGENTS.md, "Build"). grep exits 2 on a missing
+      # (packages/agent-ui/AGENTS.md, "Build"). The build itself fails on an
+      # import of one (serverSdkGuard); this greps what that cannot see. grep exits 2 on a missing
       # folder, which the `if` would read as "no hit": check there is a bundle
       # to search first.
       - name: No server SDK in the bundle
