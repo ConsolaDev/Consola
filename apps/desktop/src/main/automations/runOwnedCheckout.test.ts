@@ -210,11 +210,12 @@ describe('the desktop’s run-owned checkout port (slice 3-B Task 18)', () => {
         kill: (pid, signal) => process.kill(pid, signal),
         stepProcesses: () => ({ pgid, descendants: [] }),
       });
-    // A process that ends on SIGTERM, saying so: it was asked, not killed.
+    // A process that ends on SIGTERM, saying so: it was asked, not killed. The
+    // marker's path reaches the script as its `$1`, never as part of its text.
     const marker = path.join(tmp, 'asked.txt');
     const polite = start(
       'sh',
-      ['-c', `trap 'echo asked > ${marker}; exit 0' TERM; while :; do sleep 0.1; done`],
+      ['-c', 'trap \'echo asked > "$1"; exit 0\' TERM; while :; do sleep 0.1; done', 'sh', marker],
       dir,
     );
     await new Promise((resolve) => setTimeout(resolve, 200));
