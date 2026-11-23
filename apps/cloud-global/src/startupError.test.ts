@@ -22,6 +22,7 @@ const config: CloudConfig = {
     slug: 'consola-dev',
     privateKeyPath: '/keys/github-app.pem',
   },
+  githubWebhookSecret: 'sprocket-test-webhook-secret-0123456789',
 };
 
 describe('describeStartupFailure', () => {
@@ -71,6 +72,13 @@ describe('describeStartupFailure', () => {
     const failure = new Error(`GitHub refused ${config.github?.clientSecret}`);
     expect(describeStartupFailure(failure, config)).toBe('GitHub refused <hidden>');
     expect(describeStartupFailure(failure, { ...config, github: null })).toContain('refused');
+  });
+
+  it("never shows the GitHub App's webhook secret", () => {
+    const failure = new Error(`could not check with ${config.githubWebhookSecret}`);
+    expect(describeStartupFailure(failure, config)).toBe('could not check with <hidden>');
+    const unset = { ...config, githubWebhookSecret: null };
+    expect(describeStartupFailure(failure, unset)).toContain('could not check');
   });
 
   it('says something for a failure with no message', () => {

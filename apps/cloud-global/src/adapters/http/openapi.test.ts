@@ -30,6 +30,11 @@ const app = createApp({
   health: unreachable as never,
   cellRequests: unreachable as never,
   tokenMints: unreachable as never,
+  webhooks: {
+    signatures: unreachable as never,
+    signer: unreachable as never,
+    cells: unreachable as never,
+  },
 });
 
 describe('openapi.json', () => {

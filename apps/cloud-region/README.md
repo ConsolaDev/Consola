@@ -7,9 +7,10 @@ cloud sessions need. Accounts are not here: they are global, in
 `apps/cloud-global`, and the cell refers to a person by their global id.
 
 Today the cell keeps a copy of each workspace in its region and its members
-(ids and roles only), from `cloud-global`'s outbox, the workspace's teams, and
-its factories with their files, versioned.
-It answers a health route to anyone, takes the outbox's signed deliveries, and
+(ids and roles only), from `cloud-global`'s outbox, the workspace's teams, its
+factories with their files, versioned, and the GitHub events
+`cloud-global` passes on for it. It answers a health route to anyone, takes
+the outbox's and the GitHub events' signed deliveries, and
 answers everything else only with a cell token `cloud-global` minted. Every
 route is in `openapi.json`, generated from the routes themselves.
 
@@ -69,6 +70,27 @@ messages once, in order:
 | 503 | the keys or the database cannot be had |
 
 What the cell keeps is in the `workspace` and `workspace_member` tables.
+
+## GitHub's events
+
+`cloud-global` receives the GitHub App's webhooks, checks GitHub's signature,
+finds the workspace that holds the event's installation and passes the event
+on to that workspace's cell at `POST /api/github/events`, one a request, with
+no cell token: like an outbox delivery, the body is the event signed with the
+cell token's key (`packages/cloud-contract`, "Passing on a GitHub event"). The
+cell records each delivery once, by GitHub's id of it, in the `github_event`
+table, the payload as GitHub sent it, for the workspace's runners and triggers
+to read later:
+
+| Answer | When |
+| --- | --- |
+| 201 | recorded now |
+| 200 | recorded before: a delivery sent again changes nothing |
+| 400 | not `application/jose`, over 36 MiB, or no event the contract reads |
+| 401 | not signed by `cloud-global` as an event |
+| 409 | the outbox has not delivered the workspace's creation yet |
+| 421 | a workspace in another region |
+| 503 | the keys or the database cannot be had |
 
 ## Teams
 

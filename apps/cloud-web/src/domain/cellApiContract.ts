@@ -169,6 +169,126 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/github/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Deliver one of GitHub’s webhook events, passed on by cloud-global
+         * @description Only cloud-global calls it, for a workspace whose GitHub installation the event came through. The body is the event, signed as a compact JWS with the cell token’s key (`packages/cloud-contract`, "Passing on a GitHub event"), so it takes no token. The cell records each delivery once, by GitHub’s id of it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/jose": string;
+                };
+            };
+            responses: {
+                /** @description The cell had recorded the event before: a delivery sent again, which changed nothing. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {boolean} */
+                            recorded: true;
+                        };
+                    };
+                };
+                /** @description The cell recorded the event now. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {boolean} */
+                            recorded: true;
+                        };
+                    };
+                };
+                /** @description Not sent as a signed event, over the size an event can be, or not an event the contract reads. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unreadable";
+                        };
+                    };
+                };
+                /** @description Not signed by cloud-global as an event. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsigned";
+                        };
+                    };
+                };
+                /** @description The cell does not hold the workspace yet: cloud-global has not delivered its creation. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "workspacePending";
+                        };
+                    };
+                };
+                /** @description An event for a workspace in another region. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "otherRegion";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys or its database. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;

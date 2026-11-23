@@ -438,6 +438,72 @@ export const getGitHubCallback = createRoute({
   },
 });
 
+// GitHub's webhooks (14.2). GitHub calls this route, with no session: it is in the contract so
+// that every answer it gives is declared, typed and checked like any other route's.
+
+/** The path the GitHub App's webhook URL ends in, on the tunnel's address in development. */
+export const GITHUB_WEBHOOK_PATH = '/api/github/webhooks';
+
+export const postGitHubWebhook = createRoute({
+  method: 'post',
+  path: GITHUB_WEBHOOK_PATH,
+  summary: 'Receive one of the GitHub App’s webhook deliveries',
+  description:
+    'The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is ' +
+    'outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes ' +
+    'and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, ' +
+    'compared in constant time) before anything else is read; `X-GitHub-Event` names the ' +
+    'event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it ' +
+    'sends a delivery again. The event is passed on, signed, to the cell of the workspace that ' +
+    'holds its installation, which records each delivery once. Nothing of it is kept here.',
+  responses: {
+    200: json(
+      z.strictObject({ result: z.enum(['delivered', 'pong']) }).openapi('GitHubWebhookReceived', {
+        description:
+          '`delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, ' +
+          'passed on to no cell.',
+      }),
+      'Received.',
+    ),
+    400: json(
+      failure('invalid_delivery'),
+      'Signed, but a header or the body is not what GitHub sends.',
+    ),
+    401: json(
+      failure('bad_signature'),
+      'No `X-Hub-Signature-256`, or not GitHub’s signature over this body.',
+    ),
+    409: json(
+      failure('duplicate_delivery'),
+      'The workspace’s cell had this delivery already: sent again, or replayed. Nothing changed.',
+    ),
+    413: json(failure('too_large'), 'Over the 25 MB GitHub puts in a delivery at most.'),
+    422: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('unknown_installation'), failure('no_installation')]),
+        },
+      },
+      description:
+        'Dropped: the event came through an installation no workspace holds, or through none.',
+    },
+    502: json(
+      failure('cell_unavailable'),
+      'The workspace’s cell did not take the event. GitHub’s Redeliver sends it again.',
+    ),
+    503: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('webhooks_not_configured'), failure('cell_not_configured')]),
+        },
+      },
+      description:
+        'This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`), or no cell for the ' +
+        'workspace’s region.',
+    },
+  },
+});
+
 export const deleteGitHubInstallation = createRoute({
   method: 'delete',
   path: '/api/connections/github/installations/{installationId}',
@@ -611,6 +677,8 @@ export const ROUTES = [
   getGitHubCallback,
   deleteGitHubInstallation,
   getHealth,
-  // Registered before every other route, outside the origin check: a cell calls it.
+  // Registered before every other route, outside the origin check: a cell calls the first, and
+  // GitHub the second, each signing what it sends instead of carrying a session.
   postGitHubToken,
+  postGitHubWebhook,
 ];

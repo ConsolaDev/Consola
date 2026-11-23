@@ -5,8 +5,10 @@ import { createCellRequestVerifier } from './adapters/cellToken/cellRequestVerif
 import { createCellTokenSigner } from './adapters/cellToken/cellTokenSigner.js';
 import { createGitHubApp, loadGitHubAppKey } from './adapters/github/gitHubApp.js';
 import { createInstallStateSigner } from './adapters/github/installStateSigner.js';
+import { createWebhookSignatures } from './adapters/github/webhookSignatures.js';
 import { createApp } from './adapters/http/app.js';
 import { createCellDelivery } from './adapters/outbox/cellDelivery.js';
+import { createCellEventDelivery } from './adapters/outbox/eventDelivery.js';
 import { createOutboxWorker, type OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import type { Database } from './adapters/persistence/database.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
@@ -68,6 +70,13 @@ export async function composeApi(
     health: stores.health,
     cellRequests: await createCellRequestVerifier(config.cellPublicKeys),
     tokenMints: stores.tokenMints,
+    webhooks: {
+      signatures: config.githubWebhookSecret
+        ? createWebhookSignatures(config.githubWebhookSecret)
+        : null,
+      signer,
+      cells: createCellEventDelivery({ cellUrls: config.cellUrls }),
+    },
   });
 
   return { app, auth, outbox };

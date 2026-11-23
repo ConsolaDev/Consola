@@ -1,6 +1,7 @@
 import type {
   CELL_TOKEN_ALGORITHM,
   CellTokenClaims,
+  GitHubEventMessage,
   OutboxMessage,
   Region,
   WorkspaceRole,
@@ -172,6 +173,11 @@ export type InstallationStore = {
    * installation, another workspace's included, and then nothing is removed.
    */
   disconnect(ids: { workspaceId: string; installationId: number }): Promise<boolean>;
+  /**
+   * The workspace that holds the installation, with its region, or null when none does: where a
+   * webhook event that came through it is passed on to.
+   */
+  holderOf(installationId: number): Promise<{ workspaceId: string; region: Region } | null>;
 };
 
 /** Signs the `state` of a Connect, and reads one back only when this signer signed it. */
@@ -281,4 +287,46 @@ export type GitHubTokenMinter = {
   ): Promise<MintAnswer>;
   /** Revokes a token that is not handed out after all. It never throws; GitHub's own expiry follows. */
   revokeToken(token: string): Promise<void>;
+};
+
+// GitHub's webhooks (14.2): checked here, then passed on to the workspace's cell, which keeps
+// them. Nothing of an event is stored here.
+
+/** Tells GitHub's webhook deliveries from anyone else's, by their signature. */
+export type WebhookSignatures = {
+  /**
+   * Whether `signature` (`X-Hub-Signature-256`, `sha256=` and 64 hex digits) is the HMAC-SHA256
+   * of `body`, exactly as it arrived, under the app's webhook secret, compared in constant time.
+   * False for a signature that is missing or not of that shape. It never throws.
+   */
+  verify(body: Uint8Array, signature: string | undefined): boolean;
+};
+
+export type GitHubEventSigner = {
+  /**
+   * The event, signed for its workspace's cell: a JWS in compact serialization whose payload is
+   * the event's JSON, signed with the key that signs cell tokens, and whose protected header
+   * names `CELL_TOKEN_ALGORITHM`, that key's `kid` and `GITHUB_EVENT_TYPE`.
+   */
+  signGitHubEvent(event: GitHubEventMessage): Promise<string>;
+};
+
+/** What passing one event on to a cell came to. */
+export type CellEventAnswer =
+  /** The cell recorded it now. */
+  | { kind: 'recorded' }
+  /** The cell had recorded a delivery with its id for the workspace already: nothing changed. */
+  | { kind: 'recorded-before' }
+  /**
+   * Anything else: a refusal, no answer in time, or no connection. `error` says which, in words
+   * that hold no body, signature or key.
+   */
+  | { kind: 'failed'; error: string };
+
+/** The cells GitHub's events are passed on to, one a region. */
+export type CellEvents = {
+  /** Whether the region has a cell to pass events on to. */
+  reaches(region: Region): boolean;
+  /** Passes one signed event on to the region's cell, and says what it answered. */
+  pass(region: Region, signedEvent: string): Promise<CellEventAnswer>;
 };

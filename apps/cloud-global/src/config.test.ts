@@ -42,6 +42,29 @@ describe('loadConfig', () => {
       cellUrls: {},
       cellPublicKeys: {},
       github: null,
+      githubWebhookSecret: null,
+    });
+  });
+
+  describe("the GitHub App's webhook secret", () => {
+    const secret = 'sprocket-webhook-secret-0123456789abcdef';
+
+    it('is read as it is, whatever else is set', () => {
+      expect(loadConfig({ ...valid, GITHUB_WEBHOOK_SECRET: secret }).githubWebhookSecret).toBe(
+        secret,
+      );
+    });
+
+    it('is optional, and an empty one counts as unset', () => {
+      expect(loadConfig({ ...valid, GITHUB_WEBHOOK_SECRET: '' }).githubWebhookSecret).toBeNull();
+    });
+
+    it('is refused when shorter than 32 characters, without being quoted', () => {
+      const failure = failureOf({ ...valid, GITHUB_WEBHOOK_SECRET: 'sprocket-short' });
+      expect(failure.problems).toEqual([
+        expect.stringMatching(/^GITHUB_WEBHOOK_SECRET: must be at least 32 characters/),
+      ]);
+      expect(failure.message).not.toContain('sprocket-short');
     });
   });
 

@@ -1,6 +1,6 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { GitHubEventMessage, WorkspaceRole } from '@consola/cloud-contract';
 import type { Factory, FactoryFile, FactoryVersion } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
 import type { CopyChange } from '../domain/workspaceCopy.js';
@@ -34,9 +34,9 @@ export type Clock = {
   nowSeconds(): number;
 };
 
-/** What checking an outbox delivery's signature found. */
+/** What checking the signature of a delivery from `cloud-global` (a message, an event) found. */
 export type DeliveryCheck =
-  /** Signed by one of `cloud-global`'s keys, as an outbox message: its payload, still unread. */
+  /** Signed by one of `cloud-global`'s keys, with the verifier's `typ`: its payload, unread. */
   | { kind: 'verified'; payload: Uint8Array }
   /** Not a delivery `cloud-global` signed. `reason` says why, for the log, never the body. */
   | { kind: 'unsigned'; reason: string }
@@ -46,8 +46,9 @@ export type DeliveryCheck =
 export type DeliveryVerifier = {
   /**
    * Checks a delivery's body, a compact JWS, with `cloud-global`'s public keys: the key its
-   * header names by `kid`, `CELL_TOKEN_ALGORITHM` alone, and `typ` `OUTBOX_MESSAGE_TYPE`. It
-   * never throws, and never lets a delivery through when the keys cannot be had.
+   * header names by `kid`, `CELL_TOKEN_ALGORITHM` alone, and the one `typ` the verifier takes
+   * (`OUTBOX_MESSAGE_TYPE` for the outbox, `GITHUB_EVENT_TYPE` for GitHub's events). It never
+   * throws, and never lets a delivery through when the keys cannot be had.
    */
   verify(delivery: string): Promise<DeliveryCheck>;
 };
@@ -76,6 +77,17 @@ export type WorkspaceCopies = {
    * `moved`, with nothing changed. Throws when the database does not answer.
    */
   applyAfter(step: CopyStep): Promise<'applied' | 'moved'>;
+};
+
+/** The GitHub events `cloud-global` passed on, each kept for its workspace. */
+export type GitHubEventStore = {
+  /**
+   * Records the event for its workspace, unless the cell already has one with its delivery id
+   * there (`recorded-before`, and nothing changes) or holds nothing of the workspace yet
+   * (`workspace-pending`, its `workspace.created` not applied). Throws when the database does
+   * not answer.
+   */
+  record(event: GitHubEventMessage): Promise<'recorded' | 'recorded-before' | 'workspace-pending'>;
 };
 
 /**

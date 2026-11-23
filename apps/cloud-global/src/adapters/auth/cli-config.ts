@@ -17,6 +17,7 @@ const placeholder: CloudConfig = {
   cellUrls: {},
   cellPublicKeys: {},
   github: null,
+  githubWebhookSecret: null,
 };
 
 const { db } = openDatabase(placeholder.databaseUrl);

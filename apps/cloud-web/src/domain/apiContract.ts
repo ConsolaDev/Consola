@@ -140,6 +140,135 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/github/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive one of the GitHub App’s webhook deliveries
+         * @description The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is passed on, signed, to the cell of the workspace that holds its installation, which records each delivery once. Nothing of it is kept here.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Received. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubWebhookReceived"];
+                    };
+                };
+                /** @description Signed, but a header or the body is not what GitHub sends. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_delivery";
+                        };
+                    };
+                };
+                /** @description No `X-Hub-Signature-256`, or not GitHub’s signature over this body. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "bad_signature";
+                        };
+                    };
+                };
+                /** @description The workspace’s cell had this delivery already: sent again, or replayed. Nothing changed. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "duplicate_delivery";
+                        };
+                    };
+                };
+                /** @description Over the 25 MB GitHub puts in a delivery at most. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "too_large";
+                        };
+                    };
+                };
+                /** @description Dropped: the event came through an installation no workspace holds, or through none. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unknown_installation";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_installation";
+                        };
+                    };
+                };
+                /** @description The workspace’s cell did not take the event. GitHub’s Redeliver sends it again. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "cell_unavailable";
+                        };
+                    };
+                };
+                /** @description This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`), or no cell for the workspace’s region. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "webhooks_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "cell_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -1136,6 +1265,11 @@ export interface components {
         GitHubTokenRequestBody: {
             /** @description The request, signed by the cell: a JWS in compact serialization whose payload is the contract's `GitHubTokenRequest` as JSON, with `alg` `EdDSA`, the cell's key's `kid` and `typ` `consola-github-token-request` in its protected header. */
             request: string;
+        };
+        /** @description `delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, passed on to no cell. */
+        GitHubWebhookReceived: {
+            /** @enum {string} */
+            result: "delivered" | "pong";
         };
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {

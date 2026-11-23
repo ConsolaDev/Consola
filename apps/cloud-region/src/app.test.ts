@@ -6,6 +6,11 @@ import {
   CELL_TOKEN_LIFETIME_SECONDS,
   type CellTokenGrant,
   cellTokenClaims,
+  GITHUB_EVENT_ANSWER,
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
+  GITHUB_EVENT_TYPE,
+  type GitHubEventMessage,
   OUTBOX_ANSWER,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
@@ -52,12 +57,13 @@ import {
   patchTeam,
   postFactory,
   postFactoryVersion,
+  postGitHubEventDelivery,
   postTeam,
   putTeamMember,
   type ROUTES,
 } from './adapters/http/contract.js';
 import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
-import { workspaceMembers, workspaces } from './adapters/persistence/tables.js';
+import { gitHubEvents, workspaceMembers, workspaces } from './adapters/persistence/tables.js';
 import { composeCell } from './compose.js';
 import { type CellConfig, loadConfig } from './config.js';
 import { FIRST_TEAM_NAME } from './domain/team.js';
@@ -455,12 +461,14 @@ describe('the keys', () => {
 
 /**
  * The routes that answer without a cell token, and what each answers a bare request: the health
- * check, and the outbox's deliveries, which carry a signature instead (a bare one has none, and
- * no body, so it is unreadable). Nothing else is open.
+ * check, the outbox's deliveries and the GitHub events cloud-global passes on, which carry a
+ * signature instead (a bare one has none, and no body, so it is unreadable). Nothing else is
+ * open.
  */
 const OPEN_ROUTES: Record<string, number> = {
   'GET /api/health': 200,
   [`POST ${OUTBOX_DELIVERY_PATH}`]: OUTBOX_ANSWER.unreadable,
+  [`POST ${GITHUB_EVENT_DELIVERY_PATH}`]: GITHUB_EVENT_ANSWER.unreadable,
 };
 
 describe('every route', () => {
@@ -485,11 +493,13 @@ describe('every route', () => {
     expect(Object.keys(OPEN_ROUTES).filter((route) => !held.has(route))).toEqual([]);
   });
 
-  it('opens the outbox path to deliveries alone: any other method needs a token', async () => {
-    for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
-      const response = await app.request(OUTBOX_DELIVERY_PATH, { method });
-      expect([method, response.status]).toEqual([method, 401]);
-      expect(await response.json()).toEqual({ error: 'token_required' });
+  it('opens the delivery paths to deliveries alone: any other method needs a token', async () => {
+    for (const path of [OUTBOX_DELIVERY_PATH, GITHUB_EVENT_DELIVERY_PATH]) {
+      for (const method of ['GET', 'PUT', 'PATCH', 'DELETE']) {
+        const response = await app.request(path, { method });
+        expect([path, method, response.status]).toEqual([path, method, 401]);
+        expect(await response.json()).toEqual({ error: 'token_required' });
+      }
     }
   });
 
@@ -1415,6 +1425,207 @@ describe('factories', () => {
   });
 });
 
+// GitHub's events are signed here the way cloud-global signs them: the event's JSON as the
+// payload of a compact JWS, with the cell token's key, its kid and the event's typ.
+
+/** Acme (EU) hears of a pull request opened in the `sprocket` organisation's repository. */
+const pullRequestOpened = (overrides: Partial<GitHubEventMessage> = {}): GitHubEventMessage => ({
+  workspaceId: 'acme',
+  region: 'eu',
+  deliveryId: '72d3162e-cc78-11e3-81ab-4c9367dc0958',
+  event: 'pull_request',
+  installationId: 41,
+  payload: {
+    action: 'opened',
+    number: 7,
+    pull_request: { title: 'Price the catalog in euros', body: 'Customers in Lyon asked.' },
+    repository: { full_name: 'sprocket/catalog-portal', private: true },
+    installation: { id: 41 },
+  },
+  ...overrides,
+});
+
+const signEvent = (
+  event: unknown,
+  key: SigningKey = cloudGlobal,
+  header: Partial<CompactJWSHeaderParameters> = {},
+) => signDelivery(event, key, { typ: GITHUB_EVENT_TYPE, ...header });
+
+/** POSTs `body` to the GitHub events route of `cell` (this test's cell unless given). */
+function postEvent(
+  body: string,
+  options: { contentType?: string | null; cell?: CellApp; headers?: Record<string, string> } = {},
+) {
+  const { contentType = GITHUB_EVENT_DELIVERY_MEDIA_TYPE, cell = app } = options;
+  const headers: Record<string, string> = { ...options.headers };
+  if (contentType !== null) headers['content-type'] = contentType;
+  return cell.request(GITHUB_EVENT_DELIVERY_PATH, { method: 'POST', body, headers });
+}
+
+/** Signs `event` as cloud-global does and passes it on, reading the answer by the contract. */
+async function passOn(event: unknown, options: Parameters<typeof postEvent>[1] = {}) {
+  const response = await postEvent(await signEvent(event), options);
+  return { status: response.status, body: await answerOf(postGitHubEventDelivery, response) };
+}
+
+const recordedEvents = () =>
+  db
+    .select()
+    .from(gitHubEvents)
+    .orderBy(asc(gitHubEvents.workspaceId), asc(gitHubEvents.deliveryId));
+
+describe('POST /api/github/events', () => {
+  let logged: MockInstance<typeof console.error>;
+  beforeEach(() => {
+    logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  it("records a pull request opened in the workspace's repository, as GitHub sent it", async () => {
+    expect((await deliver(created())).status).toBe(200);
+    const event = pullRequestOpened();
+    expect(await passOn(event)).toEqual({ status: 201, body: { recorded: true } });
+
+    const rows = await recordedEvents();
+    expect(rows.map(({ receivedAt: _at, ...row }) => row)).toEqual([
+      {
+        workspaceId: 'acme',
+        deliveryId: event.deliveryId,
+        event: 'pull_request',
+        installationId: 41,
+        payload: JSON.stringify(event.payload),
+      },
+    ]);
+    // Ids and names reach the log, never what the event says.
+    expect(logged.mock.calls.flat().join('\n')).not.toContain('Lyon');
+  });
+
+  it('records a delivery once, however often it arrives, at once or later', async () => {
+    expect((await deliver(created())).status).toBe(200);
+    const delivery = await signEvent(pullRequestOpened());
+    const statuses = await Promise.all(
+      Array.from({ length: 4 }, async () => (await postEvent(delivery)).status),
+    );
+    expect(statuses.sort()).toEqual([200, 200, 200, 201]);
+    // A replay with another payload under the same delivery id changes nothing either.
+    const replay = pullRequestOpened({ payload: { action: 'closed', installation: { id: 41 } } });
+    expect(await passOn(replay)).toEqual({ status: 200, body: { recorded: true } });
+    const rows = await recordedEvents();
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]?.payload ?? '{}')).toMatchObject({ action: 'opened' });
+  });
+
+  it('needs no cell token, and reads none it is sent', async () => {
+    expect((await deliver(created())).status).toBe(200);
+    expect(await passOn(pullRequestOpened(), { headers: bearer('forged') })).toEqual({
+      status: 201,
+      body: { recorded: true },
+    });
+  });
+
+  it('refuses an event for a workspace it does not hold yet with 409, recording nothing', async () => {
+    expect(await passOn(pullRequestOpened())).toEqual({
+      status: GITHUB_EVENT_ANSWER.workspacePending,
+      body: { error: 'workspacePending' },
+    });
+    expect(await recordedEvents()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 (pull_request) for workspace acme: it does not hold the workspace yet.',
+    );
+  });
+
+  it("refuses an event for another region's workspace with 421", async () => {
+    const event = pullRequestOpened({ workspaceId: 'sprocket', region: 'us' });
+    expect(await passOn(event)).toEqual({
+      status: GITHUB_EVENT_ANSWER.otherRegion,
+      body: { error: 'otherRegion', region: 'eu' },
+    });
+    expect(await recordedEvents()).toEqual([]);
+  });
+
+  it("is the other cell's to record", async () => {
+    const us = await openCell({ ...config, region: 'us' });
+    const sprocket = { workspaceId: 'sprocket', region: 'us' } as const;
+    const opened = await postDelivery(await signDelivery(created(sprocket)), { cell: us.app });
+    expect(opened.status).toBe(200);
+    expect(await passOn(pullRequestOpened(sprocket), { cell: us.app })).toEqual({
+      status: 201,
+      body: { recorded: true },
+    });
+    await us.close();
+  });
+
+  it.each<[string, () => Promise<string>]>([
+    ['an outbox message', () => signDelivery(pullRequestOpened())],
+    ['a cell token', () => mint()],
+    [
+      'one signed by a key cloud-global does not publish',
+      () => signEvent(pullRequestOpened(), stranger),
+    ],
+    [
+      'one whose payload was changed after signing',
+      async () => {
+        const [header, , signature] = (await signEvent(pullRequestOpened())).split('.');
+        const changed = pullRequestOpened({ workspaceId: 'sprocket' });
+        return [header, base64url(changed), signature].join('.');
+      },
+    ],
+    ['the event, unsigned', async () => JSON.stringify(pullRequestOpened())],
+  ])('refuses %s with 401, recording nothing', async (_what, delivery) => {
+    expect((await deliver(created())).status).toBe(200);
+    const response = await postEvent(await delivery());
+    expect(response.status).toBe(GITHUB_EVENT_ANSWER.unsigned);
+    expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unsigned' });
+    expect(await recordedEvents()).toEqual([]);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(/^The cell refused a GitHub event: it is not signed by cloud-global/),
+    );
+  });
+
+  it('refuses an event sent to the outbox, which takes messages alone', async () => {
+    const response = await postDelivery(await signEvent(pullRequestOpened()));
+    expect(response.status).toBe(OUTBOX_ANSWER.unsigned);
+  });
+
+  it('refuses a body not sent as application/jose with 400, before reading it', async () => {
+    const delivery = await signEvent(pullRequestOpened());
+    for (const contentType of ['application/json', null]) {
+      const response = await postEvent(delivery, { contentType });
+      expect(response.status).toBe(GITHUB_EVENT_ANSWER.unreadable);
+      expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unreadable' });
+    }
+    expect(logged).toHaveBeenCalledWith(
+      'The cell refused a GitHub event: it was not sent as application/jose.',
+    );
+  });
+
+  it('refuses a signed event the contract does not read with 400, logging why but not the body', async () => {
+    const elsewhere = pullRequestOpened({
+      payload: { action: 'opened', body: 'Customers in Lyon asked.', installation: { id: 42 } },
+    });
+    const response = await postEvent(await signEvent(elsewhere));
+    expect(response.status).toBe(GITHUB_EVENT_ANSWER.unreadable);
+    expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unreadable' });
+    expect(logged).toHaveBeenLastCalledWith(
+      'The cell refused a GitHub event: its message does not read (`payload.installation.id` is not `installationId`).',
+    );
+    expect(logged.mock.calls.flat().join('\n')).not.toContain('Lyon');
+  });
+
+  it('answers 503 when the database does not, recording nothing', async () => {
+    expect((await deliver(created())).status).toBe(200);
+    const delivery = await signEvent(pullRequestOpened());
+    await closeDatabase();
+    const response = await postEvent(delivery);
+    expect(response.status).toBe(GITHUB_EVENT_ANSWER.unavailable);
+    expect(await answerOf(postGitHubEventDelivery, response)).toEqual({ error: 'unavailable' });
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /^The cell could not record GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 \(pull_request\) for workspace acme: /,
+      ),
+    );
+  });
+});
+
 describe('a delivery sent as a cell token', () => {
   it('is no token: /api/me refuses it', async () => {
     const delivery = await signDelivery(created());
@@ -1424,10 +1635,11 @@ describe('a delivery sent as a cell token', () => {
   });
 
   it('is no token even when its payload holds good cell token claims', async () => {
-    // Signed with cloud-global's key and the outbox's typ: the typ alone refuses it.
-    const delivery = await signDelivery(claims());
-    const response = await app.request('/api/me', { headers: bearer(delivery) });
-    expect(response.status).toBe(401);
-    expect(await response.json()).toEqual({ error: 'invalid_token' });
+    // Signed with cloud-global's key and a delivery's typ: the typ alone refuses it.
+    for (const delivery of [await signDelivery(claims()), await signEvent(claims())]) {
+      const response = await app.request('/api/me', { headers: bearer(delivery) });
+      expect(response.status).toBe(401);
+      expect(await response.json()).toEqual({ error: 'invalid_token' });
+    }
   });
 });

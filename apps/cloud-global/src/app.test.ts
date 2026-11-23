@@ -1,4 +1,5 @@
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { createHmac, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,14 +10,20 @@ import {
   CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
+  GITHUB_EVENT_TYPE,
+  GITHUB_PAYLOAD_MAX_BYTES,
   GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
   GITHUB_TOKEN_REQUEST_TYPE,
+  type GitHubEventMessage,
   type GitHubTokenAsk,
   gitHubTokenRequest,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
   readCellTokenClaims,
+  readGitHubEventMessage,
   readOutboxMessage,
 } from '@consola/cloud-contract';
 import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
@@ -73,6 +80,7 @@ const config: CloudConfig = {
   cellUrls: { eu: ACME_CELL, us: SPROCKET_CELL },
   cellPublicKeys: { eu: euCell.publicJwk, us: usCell.publicJwk },
   github: null,
+  githubWebhookSecret: null,
 };
 
 let db: Database;
@@ -1895,12 +1903,379 @@ describe('GitHub tokens for a cell', () => {
   });
 });
 
+describe("GitHub's webhooks", () => {
+  // A secret made up for these tests: the app's real one lives only in .env.
+  const WEBHOOK_SECRET = 'sprocket-test-webhook-secret-0123456789abcdef';
+  const DELIVERY_ID = '72d3162e-cc78-11e3-81ab-4c9367dc0958';
+  const withWebhooks: CloudConfig = { ...config, githubWebhookSecret: WEBHOOK_SECRET };
+
+  /** A payload GitHub sent, as the bytes on disk (`webhookFixtures/`). */
+  const fixture = (name: string) =>
+    readFileSync(
+      new URL(`./adapters/github/webhookFixtures/${name}.json`, import.meta.url),
+      'utf8',
+    );
+
+  const signatureOf = (body: string, secret = WEBHOOK_SECRET) =>
+    `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
+
+  type Delivery = {
+    event?: string;
+    deliveryId?: string;
+    /** The signature header: GitHub's over the body unless given; null sends none. */
+    signature?: string | null;
+  };
+
+  /**
+   * GitHub delivering `body` to the webhook URL, as GitHub does: no Origin, no cookie, its event,
+   * its delivery id and its signature over the body's bytes. The answer is checked against the
+   * contract.
+   */
+  async function deliver(body: string, delivery: Delivery = {}) {
+    const headers = new Headers({
+      'content-type': 'application/json',
+      'user-agent': 'GitHub-Hookshot/7c1f5a2',
+      'x-github-hook-installation-target-type': 'integration',
+    });
+    if (delivery.event !== undefined) headers.set('x-github-event', delivery.event);
+    headers.set('x-github-delivery', delivery.deliveryId ?? DELIVERY_ID);
+    const signature = delivery.signature === undefined ? signatureOf(body) : delivery.signature;
+    if (signature !== null) headers.set('x-hub-signature-256', signature);
+    const response = await app.request('/api/github/webhooks', { method: 'POST', headers, body });
+    return answerOf('POST', '/api/github/webhooks', response);
+  }
+
+  /** A fixture with its installation changed, as GitHub would send it for another one. */
+  const through = (name: string, installationId: number) => {
+    const payload = JSON.parse(fixture(name));
+    return JSON.stringify({
+      ...payload,
+      installation: { ...payload.installation, id: installationId },
+    });
+  };
+
+  type Passed = { url: string; type: string | null; body: string };
+
+  /**
+   * The cells, behind `fetch`: each records a delivery once, by workspace and delivery id, as a
+   * cell does, answering 201 the first time and 200 after. `down` makes them refuse to connect.
+   */
+  function cells() {
+    const passed: Passed[] = [];
+    const recorded = new Set<string>();
+    const state = { down: false };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      const request = new Request(input, init);
+      const url = new URL(request.url);
+      if (![ACME_CELL, SPROCKET_CELL].includes(url.origin)) {
+        throw new Error(`The test made an unexpected request to ${request.url}`);
+      }
+      if (state.down) {
+        throw new TypeError('fetch failed', {
+          cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+        });
+      }
+      const body = await request.text();
+      passed.push({ url: request.url, type: request.headers.get('content-type'), body });
+      const event = await asACell(body);
+      const key = `${event.workspaceId} ${event.deliveryId}`;
+      const first = !recorded.has(key);
+      recorded.add(key);
+      return Response.json({ recorded: true }, { status: first ? 201 : 200 });
+    });
+    return { passed, state };
+  }
+
+  /** A passed-on event read the way a cell reads it: its signature against the published keys. */
+  async function asACell(body: string): Promise<GitHubEventMessage> {
+    const keys = (await (await app.request(CELL_TOKEN_KEYS_PATH)).json()) as JSONWebKeySet;
+    const { payload, protectedHeader } = await compactVerify(body, createLocalJWKSet(keys), {
+      algorithms: [CELL_TOKEN_ALGORITHM],
+    });
+    expect(protectedHeader).toEqual({
+      alg: CELL_TOKEN_ALGORITHM,
+      kid: keys.keys[0]?.kid,
+      typ: GITHUB_EVENT_TYPE,
+    });
+    const read = readGitHubEventMessage(JSON.parse(new TextDecoder().decode(payload)));
+    if (!read.ok) throw new Error(read.reason);
+    return read.value;
+  }
+
+  function logged() {
+    const spies = (['log', 'info', 'warn', 'error', 'debug', 'trace'] as const).map((method) =>
+      vi.spyOn(console, method).mockImplementation(() => {}),
+    );
+    return () =>
+      spies
+        .flatMap((spy) => spy.mock.calls)
+        .map((args) => args.map((arg) => inspect(arg, { depth: 10 })).join(' '))
+        .join('\n');
+  }
+
+  let sprocket: { id: string };
+  let acme: { id: string };
+
+  beforeEach(async () => {
+    ({ app, auth } = await composeApi({ db, config: withWebhooks }, [testUtils()]));
+    test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
+    // Sprocket (US) holds the `sprocket` organisation's installation, 41; Acme (EU) holds 52.
+    const lee = await signIn('lee@sprocket.test', 'Lee Park');
+    sprocket = await makeWorkspace(lee.headers, {
+      name: 'Sprocket',
+      slug: 'sprocket',
+      region: 'us',
+    });
+    const dana = await signIn('dana@acme.test', 'Dana Ortiz');
+    acme = await makeWorkspace(dana.headers);
+    await db.insert(schema.githubInstallation).values([
+      {
+        installationId: 41,
+        organizationId: sprocket.id,
+        accountId: 9001,
+        accountLogin: 'sprocket',
+        accountType: 'Organization',
+        connectedBy: lee.user.id,
+        connectedAt: new Date('2026-11-22T21:00:00Z'),
+      },
+      {
+        installationId: 52,
+        organizationId: acme.id,
+        accountId: 9002,
+        accountLogin: 'acme',
+        accountType: 'Organization',
+        connectedBy: dana.user.id,
+        connectedAt: new Date('2026-11-22T21:00:00Z'),
+      },
+    ]);
+  });
+
+  it("passes a pull request opened on Sprocket's repository to Sprocket's cell, in the US", async () => {
+    const { passed } = cells();
+    const log = logged();
+    const body = fixture('pull_request.opened');
+
+    expect(await deliver(body, { event: 'pull_request' })).toEqual({
+      status: 200,
+      body: { result: 'delivered' },
+    });
+
+    expect(passed.map(({ url, type }) => ({ url, type }))).toEqual([
+      {
+        url: `${SPROCKET_CELL}${GITHUB_EVENT_DELIVERY_PATH}`,
+        type: GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+      },
+    ]);
+    expect(await asACell(passed[0]?.body ?? '')).toEqual({
+      workspaceId: sprocket.id,
+      region: 'us',
+      deliveryId: DELIVERY_ID,
+      event: 'pull_request',
+      installationId: 41,
+      payload: JSON.parse(body),
+    });
+    expect(log()).toContain(
+      `Passed GitHub delivery ${DELIVERY_ID} (pull_request) on to workspace ${sprocket.id}'s cell (us).`,
+    );
+  });
+
+  it("passes Acme's push to Acme's cell, in the EU, and nowhere else", async () => {
+    const { passed } = cells();
+    logged();
+    expect((await deliver(fixture('push'), { event: 'push' })).body).toEqual({
+      result: 'delivered',
+    });
+    expect(passed.map(({ url }) => url)).toEqual([`${ACME_CELL}${GITHUB_EVENT_DELIVERY_PATH}`]);
+    expect(await asACell(passed[0]?.body ?? '')).toMatchObject({
+      workspaceId: acme.id,
+      region: 'eu',
+      event: 'push',
+      installationId: 52,
+    });
+  });
+
+  it('refuses the same delivery a second time as a duplicate, and the cell records it once', async () => {
+    const { passed } = cells();
+    logged();
+    const body = fixture('pull_request.opened');
+    expect((await deliver(body, { event: 'pull_request' })).status).toBe(200);
+    expect(await deliver(body, { event: 'pull_request' })).toEqual({
+      status: 409,
+      body: { error: 'duplicate_delivery' },
+    });
+    // The same event under a new delivery id is a new delivery.
+    const again = await deliver(body, {
+      event: 'pull_request',
+      deliveryId: '8a2b6d10-cc78-11e3-81ab-4c9367dc0958',
+    });
+    expect(again.status).toBe(200);
+    expect(passed).toHaveLength(3);
+  });
+
+  it.each<[string, () => Delivery & { body: string }]>([
+    ['no signature', () => ({ body: fixture('pull_request.opened'), signature: null })],
+    [
+      'a signature made with another secret',
+      () => ({
+        body: fixture('pull_request.opened'),
+        signature: signatureOf(
+          fixture('pull_request.opened'),
+          'acme-webhook-secret-0123456789abcdef',
+        ),
+      }),
+    ],
+    [
+      'a body changed after GitHub signed it',
+      () => ({
+        body: through('pull_request.opened', 52),
+        signature: signatureOf(fixture('pull_request.opened')),
+      }),
+    ],
+    [
+      "GitHub's old SHA-1 signature alone",
+      () => ({
+        body: fixture('pull_request.opened'),
+        signature: `sha1=${createHmac('sha1', WEBHOOK_SECRET).update(fixture('pull_request.opened')).digest('hex')}`,
+      }),
+    ],
+  ])('refuses a delivery with %s, and passes nothing on', async (_what, made) => {
+    const { passed } = cells();
+    const log = logged();
+    const { body, signature } = made();
+    expect(await deliver(body, { event: 'pull_request', signature })).toEqual({
+      status: 401,
+      body: { error: 'bad_signature' },
+    });
+    expect(passed).toEqual([]);
+    expect(log()).toContain(
+      "Refused a webhook delivery: it is not signed with the GitHub App's webhook secret.",
+    );
+    // An unchecked delivery's id is anyone's words, so it is not logged.
+    expect(log()).not.toContain(DELIVERY_ID);
+  });
+
+  it('drops and logs an event through an installation no workspace holds', async () => {
+    const { passed } = cells();
+    const log = logged();
+    expect(await deliver(through('pull_request.opened', 63), { event: 'pull_request' })).toEqual({
+      status: 422,
+      body: { error: 'unknown_installation' },
+    });
+    expect(passed).toEqual([]);
+    expect(log()).toContain(
+      `Dropped GitHub delivery ${DELIVERY_ID} (pull_request): no workspace holds installation 63.`,
+    );
+  });
+
+  it('drops an installation once its workspace disconnects it', async () => {
+    const { passed } = cells();
+    logged();
+    await db
+      .delete(schema.githubInstallation)
+      .where(eq(schema.githubInstallation.installationId, 41));
+    expect((await deliver(fixture('pull_request.opened'), { event: 'pull_request' })).body).toEqual(
+      {
+        error: 'unknown_installation',
+      },
+    );
+    expect(passed).toEqual([]);
+  });
+
+  it("answers GitHub's ping, and passes it to no cell", async () => {
+    const { passed } = cells();
+    logged();
+    expect(await deliver(fixture('ping'), { event: 'ping' })).toEqual({
+      status: 200,
+      body: { result: 'pong' },
+    });
+    expect(passed).toEqual([]);
+  });
+
+  it('refuses a signed delivery whose headers or body are not what GitHub sends', async () => {
+    cells();
+    logged();
+    expect(await deliver(fixture('pull_request.opened'))).toEqual({
+      status: 400,
+      body: { error: 'invalid_delivery' },
+    });
+    expect(await deliver('action=opened', { event: 'pull_request' })).toEqual({
+      status: 400,
+      body: { error: 'invalid_delivery' },
+    });
+  });
+
+  it("answers 502 while the cell is down, and GitHub's Redeliver gets the event through", async () => {
+    const { passed, state } = cells();
+    const log = logged();
+    const body = fixture('pull_request.opened');
+    state.down = true;
+    expect(await deliver(body, { event: 'pull_request' })).toEqual({
+      status: 502,
+      body: { error: 'cell_unavailable' },
+    });
+    expect(log()).toContain(
+      `Could not pass GitHub delivery ${DELIVERY_ID} (pull_request) on to workspace ${sprocket.id}'s cell (us): no connection (ECONNREFUSED).`,
+    );
+
+    // GitHub's Redeliver sends the same delivery, with the same id, once the cell is back.
+    state.down = false;
+    expect((await deliver(body, { event: 'pull_request' })).body).toEqual({ result: 'delivered' });
+    expect(passed).toHaveLength(1);
+  });
+
+  it('refuses a body over what GitHub sends before reading it', async () => {
+    cells();
+    logged();
+    const body = `{"padding":"${'x'.repeat(GITHUB_PAYLOAD_MAX_BYTES)}"}`;
+    expect(await deliver(body, { event: 'pull_request', signature: 'sha256=00' })).toEqual({
+      status: 413,
+      body: { error: 'too_large' },
+    });
+  });
+
+  it('without a webhook secret, refuses every delivery', async () => {
+    ({ app } = await composeApi({ db, config: { ...config, githubWebhookSecret: null } }));
+    const { passed } = cells();
+    logged();
+    expect(await deliver(fixture('pull_request.opened'), { event: 'pull_request' })).toEqual({
+      status: 503,
+      body: { error: 'webhooks_not_configured' },
+    });
+    expect(passed).toEqual([]);
+  });
+
+  it('never logs the secret, a signature or what an event says', async () => {
+    cells();
+    const log = logged();
+    const body = fixture('pull_request.opened');
+    await deliver(body, { event: 'pull_request' });
+    await deliver(body, { event: 'pull_request' });
+    await deliver(through('pull_request.opened', 63), { event: 'pull_request' });
+    await deliver(body, {
+      event: 'pull_request',
+      signature: signatureOf(body, 'acme-webhook-secret-0123456789abcdef'),
+    });
+
+    const lines = log();
+    expect(lines).toContain('Passed GitHub delivery');
+    for (const secret of [
+      WEBHOOK_SECRET,
+      signatureOf(body).slice(7),
+      'Price the catalog',
+      'Lyon',
+    ]) {
+      expect(lines).not.toContain(secret);
+    }
+  });
+});
+
 describe('routes', () => {
   it('are these, and no other', () => {
     // A route with middleware or a body schema is one entry per handler in its chain.
     expect([...new Set(app.routes.map((route) => `${route.method} ${route.path}`))]).toEqual([
       'ALL /api/auth/*',
       'POST /api/github/tokens',
+      'POST /api/github/webhooks',
       'ALL /api/*',
       'GET /api/me',
       'PUT /api/me/workspace',

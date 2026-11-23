@@ -2,6 +2,7 @@ import { and, asc, eq } from 'drizzle-orm';
 import type { InstallationStore } from '../../application/ports.js';
 import type { GitHubAccount } from '../../domain/connections.js';
 import type { Database } from './database.js';
+import { regionOf } from './regionOf.js';
 import { schema } from './schema.js';
 
 const table = schema.githubInstallation;
@@ -79,6 +80,19 @@ export function createInstallationStore(db: Database): InstallationStore {
         .where(and(eq(table.installationId, installationId), eq(table.organizationId, workspaceId)))
         .returning({ installationId: table.installationId });
       return removed.length > 0;
+    },
+
+    async holderOf(installationId) {
+      const [row] = await db
+        .select({
+          workspaceId: table.organizationId,
+          slug: schema.organization.slug,
+          region: schema.organization.region,
+        })
+        .from(table)
+        .innerJoin(schema.organization, eq(schema.organization.id, table.organizationId))
+        .where(eq(table.installationId, installationId));
+      return row ? { workspaceId: row.workspaceId, region: regionOf(row) } : null;
     },
   };
 }
