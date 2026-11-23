@@ -546,7 +546,9 @@ const GATE_STEP_KEYS = ['id', 'if', 'then', 'gate'];
 function parseStep(raw: unknown, index: number, fail: Fail, position = index): Step | null {
   const failAt: Fail = (message, path = []) => fail(message, [index, ...path]);
   if (!isRecord(raw)) {
-    failAt('Expected a step: a mapping with one of `prompt`, `action`, `agent`, `run` or `uses`.');
+    failAt(
+      'Expected a step: a mapping with one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
+    );
     return null;
   }
   if ('uses' in raw)
@@ -554,8 +556,16 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
       idAndIf: (given, bad) => parseIdAndIf(given, position, bad),
       outputs: parseOutputs,
       timeout: parseTimeout,
-      laterKey: (key) =>
-        Object.prototype.hasOwnProperty.call(LATER_KEYS, key) ? laterKeyMessage(key) : undefined,
+      then: parseThen,
+      retry: parseRetry,
+      refusedKey: (key) =>
+        Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key)
+          ? RUN_KEYS_ON_A_STEP[key]
+          : key === 'on_exhausted'
+            ? ON_EXHAUSTED_OUTSIDE
+            : Object.prototype.hasOwnProperty.call(LATER_KEYS, key)
+              ? laterKeyMessage(key)
+              : undefined,
     });
   let ok = true;
   const bad: Fail = (message, path) => {
@@ -601,7 +611,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
   if (present.length > 1 || (present.length === 0 && !('agent' in raw))) {
     bad(
       present.length === 0
-        ? 'A step has one of `prompt`, `action`, `agent`, `run` or `uses`.'
+        ? 'A step has one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.'
         : `A step names one thing to do; got ${present.join(' and ')}.`,
     );
     return null;
@@ -1317,9 +1327,15 @@ export function checkSteps(
       fail(actionProblem, at('action'));
 
     // Only what cannot have acted retries by itself (Call 8): a command that is not safe to run in a dry run may push or post.
-    if (step.kind === 'run' && (step.onFailure?.retry ?? 0) > 0 && step.dryRun !== 'run')
+    if (
+      (step.kind === 'run' || step.kind === 'uses') &&
+      (step.onFailure?.retry ?? 0) > 0 &&
+      step.dryRun !== 'run'
+    )
       fail(
-        `\`${step.id}\` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.`,
+        step.kind === 'run'
+          ? `\`${step.id}\` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.`
+          : `\`${step.id}\` calls a tool that may post or change things, so it never retries by itself; a person retries it from the run page.`,
         at('on_failure'),
       );
 

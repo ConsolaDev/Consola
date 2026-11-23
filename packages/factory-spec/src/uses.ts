@@ -51,11 +51,18 @@ export interface StepReaders {
   ): { id: string; named: boolean; condition?: string };
   outputs(raw: unknown, fail: Fail): Record<string, OutputType> | null;
   timeout(value: unknown, fail: Fail): number | null;
-  /** The reason a key a later slice owns is refused with (`LATER_KEYS`), or undefined for any other key. */
-  laterKey(key: string): string | undefined;
+  /** `then:` (slice 3's `parseThen`): `stop`, or undefined once it reported. */
+  then(value: unknown, fail: Fail): true | undefined;
+  /** `on_failure:` (slice 3's `parseRetry`): `{ retry }`, or undefined once it reported. */
+  retry(value: unknown, fail: Fail): { retry: number } | undefined;
+  /**
+   * The reason a key no step takes here is refused with: the run's own (`checkout`, `budget`),
+   * a loop's (`on_exhausted`) or a later slice's (`LATER_KEYS`); undefined for any other key.
+   */
+  refusedKey(key: string): string | undefined;
 }
 
-const KEYS = ['id', 'if', 'uses', 'with', 'outputs', 'timeout', 'dry_run'];
+const KEYS = ['id', 'if', 'uses', 'with', 'outputs', 'timeout', 'dry_run', 'then', 'on_failure'];
 const NO_AGENT = 'A tool call runs no agent and no shell.';
 const READS_NOTHING = 'A tool reads nothing from the run: pass what it needs in `with:`.';
 const REFERENCE =
@@ -165,7 +172,7 @@ export function parseUsesStep(
     if (KEYS.includes(key)) continue;
     bad(
       companionProblem(key, named) ??
-        readers.laterKey(key) ??
+        readers.refusedKey(key) ??
         `Unrecognized key in a step: ${key}.`,
       [key],
     );
@@ -203,6 +210,10 @@ export function parseUsesStep(
     else bad('Expected `dry_run` to be `report` or `run`.', ['dry_run']);
   }
 
+  // Only when written, so a call without them parses, and hashes, as before (slice 3's keys).
+  const stop = 'then' in raw ? readers.then(raw.then, bad) : undefined;
+  const onFailure = 'on_failure' in raw ? readers.retry(raw.on_failure, bad) : undefined;
+
   if (!ok || 'problem' in reference || args === null || timeoutMs === null) return null;
   return {
     id,
@@ -216,6 +227,8 @@ export function parseUsesStep(
     outputs,
     timeoutMs,
     dryRun,
+    ...(stop ? { stop } : {}),
+    ...(onFailure ? { onFailure } : {}),
   };
 }
 

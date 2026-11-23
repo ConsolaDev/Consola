@@ -4,7 +4,8 @@ import { MAX_IF_LENGTH } from './expression';
 import { isStepsEntry } from './schema';
 import { callArguments, interpretedNotice, usesNotices, type CallArgument } from './callArguments';
 import { secretTemplateReason } from './secrets';
-import type { StepEntry } from './steps';
+import { MAX_RETRIES, type StepEntry } from './steps';
+import { ON_EXHAUSTED_OUTSIDE } from './flow';
 import {
   DEFAULT_CALL_TIMEOUT_MS,
   ENTRY_USES_REASON,
@@ -236,6 +237,55 @@ describe('a uses: step', () => {
     });
   });
 
+  it('takes then: stop and on_failure as any step does, a retry above 0 only with dry_run: run (the merge with slice 3)', () => {
+    const [stopped] = stepsOf(call('  then: stop'));
+    expect(stopped).toMatchObject({ kind: 'uses', stop: true });
+    const [retried] = stepsOf(call('  dry_run: run\n  on_failure: { retry: 2 }'));
+    expect(retried).toMatchObject({ kind: 'uses', dryRun: 'run', onFailure: { retry: 2 } });
+    expect(stepsOf(call('  on_failure: { retry: 0 }'))[0]).toMatchObject({
+      onFailure: { retry: 0 },
+    });
+    // A call that may post never retries by itself, as a command that may push does not.
+    expect(issuesOf(call('  on_failure: { retry: 1 }'))).toEqual([
+      {
+        message:
+          '`post` calls a tool that may post or change things, so it never retries by itself; a person retries it from the run page.',
+        path: 'steps[0].on_failure',
+      },
+    ]);
+    expect(issuesOf(call('  then: go'))).toEqual([
+      { message: '`then:` takes `stop`.', path: 'steps[0].then' },
+    ]);
+    expect(issuesOf(call('  on_failure: 3'))).toEqual([
+      {
+        message: `\`on_failure:\` is \`{ retry: <n> }\`, with n from 0 to ${MAX_RETRIES}.`,
+        path: 'steps[0].on_failure',
+      },
+    ]);
+    // Without them a call parses, and hashes, as before.
+    const [plain] = stepsOf(entry('- uses: slack#chat_post_message'));
+    expect(Object.keys(plain)).not.toContain('stop');
+    expect(Object.keys(plain)).not.toContain('onFailure');
+  });
+
+  it('says where checkout:, budget: and on_exhausted: go, as on any step (slice 3)', () => {
+    expect(issuesOf(call('  checkout: { pr: item }'))).toEqual([
+      {
+        message: '`checkout:` belongs to the automation: one checkout per run.',
+        path: 'steps[0].checkout',
+      },
+    ]);
+    expect(issuesOf(call('  budget: { usd: 1 }'))).toEqual([
+      {
+        message: '`budget:` belongs to the automation: one budget per run.',
+        path: 'steps[0].budget',
+      },
+    ]);
+    expect(issuesOf(call('  on_exhausted: fail'))).toEqual([
+      { message: ON_EXHAUSTED_OUTSIDE, path: 'steps[0].on_exhausted' },
+    ]);
+  });
+
   it('reads id and if exactly as an agent step does (one reader)', () => {
     const cases = [
       'id: step-3',
@@ -260,7 +310,9 @@ describe('parseUsesStep on its own', () => {
     idAndIf: () => ({ id: 'post', named: true }),
     outputs: () => ({}),
     timeout: () => 1000,
-    laterKey: () => undefined,
+    then: () => undefined,
+    retry: () => undefined,
+    refusedKey: () => undefined,
   };
 
   it('returns null once it reported anything, however well the rest reads', () => {

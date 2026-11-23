@@ -634,6 +634,12 @@ describe('what an agent writing an entry is told of secrets', () => {
     ).toEqual([{ name: 'PAGER_TOKEN', bound: true }]);
   });
 
+  it("names every kind of step in the steps' first sentence (the merge with slice 3)", () => {
+    expect(grammar().grammar).toContain(
+      'Each step has one of prompt:, action:, agent: <name>, run:, uses: (see Calls), gate: or repeat: (see Control flow in steps);',
+    );
+  });
+
   it('no longer lists secrets, uses or with as arriving with connections as data', () => {
     const line = grammar()
       .grammar.split('\n')

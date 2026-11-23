@@ -496,7 +496,7 @@ on: manual runs only when a person, or an agent, starts it. Add applies_to: [pr]
 
 Previous. In an entry that runs on an item, previous.<step>.<artifact> is what the last run of this automation on the same item wrote: previous.review.handover is that run's review. It works in reads: and env: only, never in a prompt or if:: it is material, not a value to branch on. It is empty on the first run, so write the prompt to cope: it should say what to do when there is no earlier document.
 
-Steps. Each step has one of prompt:, action:, agent: <name>, run: or uses: (see Calls); an agent: may also stand beside a prompt: or an action: (see Agent files). A prompt:, action: or agent: step is a new read-only, unattended agent session, on its agent's harness or else the default one; a run: step is a shell command. Keys:
+Steps. Each step has one of prompt:, action:, agent: <name>, run:, uses: (see Calls), gate: or repeat: (see Control flow in steps); an agent: may also stand beside a prompt: or an action: (see Agent files). A prompt:, action: or agent: step is a new read-only, unattended agent session, on its agent's harness or else the default one; a run: step is a shell command. Keys:
 - id: ^[a-z][a-z0-9-]{0,31}$, unique, optional (an unnamed step is step-<n> and cannot be referenced; step-<n> and previous are refused as ids).
 - if: an expression; the step runs when it is true.
 - prompt: instructions. action: one of the workspace's actions, which must apply to the item; its body is filled as an action's is, and {{ }} does not apply to it.
@@ -577,7 +577,7 @@ export const USES_EXAMPLE = `- name: post-shipped
       outputs: { ts: string }`;
 
 /** What an agent is told of a `uses:` step: one tool call, with no agent. */
-export const USES_GRAMMAR = `Calls. uses: <server>#<tool> is a step that calls one tool itself, with no agent and no shell: a server under mcpServers:, or consola for Consola's own tools. It takes none of prompt:, action:, agent:, run:, env:, secrets:, artifacts: or reads:; its keys are id:, if:, uses:, with:, outputs:, timeout: and dry_run:.
+export const USES_GRAMMAR = `Calls. uses: <server>#<tool> is a step that calls one tool itself, with no agent and no shell: a server under mcpServers:, or consola for Consola's own tools. It takes none of prompt:, action:, agent:, run:, env:, secrets:, artifacts: or reads:; its keys are id:, if:, uses:, with:, outputs:, timeout:, dry_run:, then: and on_failure: (a retry above 0 only with dry_run: run, as a command's).
 - with: the tool's arguments, any YAML. A string may hold {{ path }}, any path env: takes, untrusted ones included: Consola reads none of it, so a value someone else wrote reaches the tool as it is, and an argument named like query, sql, command, url, path or prompt given one gets a notice. Never .file, a {{ }} in an argument's name, or {{secrets.X}} (a tool's credentials belong to its server's secrets:). A string that is exactly one {{ path }} keeps the path's type: a number output arrives as a number.
 - outputs: the result's own top-level fields, by name and type ({ ts: string }); the whole result is the step's output artifact (steps.<id>.output).
 - timeout: the whole call, default 60s, at most 10m.

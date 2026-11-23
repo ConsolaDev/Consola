@@ -98,7 +98,9 @@ describe('a step has exactly one of prompt, action or run', () => {
   it('refuses none', () => {
     const issue = only(steps('- id: review'));
     expect(issue.path).toBe('automations[0].steps[0]');
-    expect(issue.message).toBe('A step has one of `prompt`, `action`, `agent`, `run` or `uses`.');
+    expect(issue.message).toBe(
+      'A step has one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
+    );
   });
 
   it('refuses two', () => {
@@ -228,7 +230,7 @@ describe('a step that is not a mapping', () => {
     expect(only(steps('- hi'))).toMatchObject({
       path: 'automations[0].steps[0]',
       message:
-        'Expected a step: a mapping with one of `prompt`, `action`, `agent`, `run` or `uses`.',
+        'Expected a step: a mapping with one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
     });
   });
 });
@@ -278,7 +280,7 @@ describe('agent', () => {
   it('says a step has one of the five', () => {
     expect(only(inFolder('- id: x\n  outputs: { ok: boolean }'))).toMatchObject({
       path: 'automations[0].steps[0]',
-      message: 'A step has one of `prompt`, `action`, `agent`, `run` or `uses`.',
+      message: 'A step has one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
     });
   });
 
