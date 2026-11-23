@@ -609,14 +609,16 @@ function scheduleKey(entry: Resolved): string {
 export function listDefinition(
   entry: { automation: Automation },
   provider: WorkspaceView['provider'],
+  fingerprints?: Readonly<Record<string, string>>,
 ): string {
   const { filter } = entry.automation;
   const trigger = withoutInterval(entry.automation.trigger);
   const account = provider
     ? { id: provider.id, login: provider.accountLogin, org: provider.org }
     : null;
+  // A check command's secrets' bindings decide what it sees too (Call 16); absent, dropped, so no record moves.
   return createHash('sha256')
-    .update(stableStringify({ trigger, filter, account }))
+    .update(stableStringify({ trigger, filter, account, fingerprints }))
     .digest('hex')
     .slice(0, 16);
 }
@@ -1492,7 +1494,7 @@ export class AutomationService {
     const provider = this.deps
       .getWorkspaces()
       .find((workspace) => workspace.id === entry.workspaceId)?.provider;
-    const definition = listDefinition(entry, provider);
+    const definition = listDefinition(entry, provider, this.fingerprintsOf(entry));
     const previous = this.deps.store.seen(key);
     const open = this.openStates(entry);
     const { record, fire } = advanceSeen(
@@ -2152,10 +2154,12 @@ export class AutomationService {
       if (state.running) continue;
       const due = nextCheckAt(state, trigger.everyMs);
       if (due !== 'now' && due > now) continue;
+      const fingerprints = this.fingerprintsOf(entry);
       const started: CheckRunning = {
         version: entry.version,
         acceptedVersion: this.deps.store.acceptedVersion(key),
         startedAt: this.iso(),
+        ...(fingerprints ? { fingerprints } : {}),
       };
       // Running before anything is awaited, so neither a second pass nor Check now starts it twice.
       this.checks.set(key, { ...state, running: started });
@@ -2226,6 +2230,10 @@ export class AutomationService {
         error: `Its environment could not be prepared (${describeReason(error)}); nothing ran.`,
       };
     }
+    // Read for this check alone, before the entry is asked again: a rebinding meanwhile drops it unspawned.
+    const secrets = await readSecrets(this.deps.secrets, workspaceId, trigger.secrets ?? []);
+    if (!secrets.ok) return { ok: false, error: `${secrets.error}; nothing ran.` };
+    base = { env: base.env, secrets: [...base.secrets, ...secrets.masks] };
     if (!this.entryCheckedBy(entry, running)) return { dropped: true };
     const fail = (error: string): CheckEnd => ({
       ok: false,
@@ -2244,6 +2252,7 @@ export class AutomationService {
           cwd: this.deps.runFolder.workspaceDir(workspaceId),
           logs,
           base,
+          secretValues: secrets.values,
         });
       } catch (error) {
         return fail(`Could not create its logs (${describeReason(error)}); nothing ran.`);
@@ -2297,7 +2306,9 @@ export class AutomationService {
     if (!entry || !pollOf(entry) || entry.problem) return null;
     if (
       entry.version !== running.version ||
-      this.deps.store.acceptedVersion(key) !== running.acceptedVersion
+      this.deps.store.acceptedVersion(key) !== running.acceptedVersion ||
+      // Its secrets bound elsewhere since it started: its items would be filed under the wrong binding.
+      stableStringify(this.fingerprintsOf(entry)) !== stableStringify(running.fingerprints)
     )
       return null;
     return entry;
@@ -5613,6 +5624,23 @@ export class AutomationService {
       values: Object.fromEntries(names.map((name) => [name, held!.values[name]])),
       labels: Object.fromEntries(names.map((name) => [name, held!.labels[name]])),
     };
+  }
+
+  /**
+   * A poll's check secrets' fingerprints by name (`''` for one unbound), or
+   * undefined when its check names none: what its list definition hashes,
+   * so a rebinding baselines it.
+   */
+  private fingerprintsOf(entry: Resolved): Record<string, string> | undefined {
+    const names = pollOf(entry)?.secrets ?? [];
+    if (names.length === 0) return undefined;
+    const port = this.deps.secrets;
+    return Object.fromEntries(
+      names.map((name) => [
+        name,
+        port?.fingerprint(entry.workspaceId, PERSONAL_FACTORY, name) ?? '',
+      ]),
+    );
   }
 
   /**

@@ -17,8 +17,17 @@ export const MAX_BACKOFF_MS = 3_600_000;
 
 /** One automation's checks since start-up. Nothing of it is persisted. */
 export interface CheckState {
-  /** The check now running, and what its result must still match to count (Call 16): the entry's version, and the version allowed. */
-  running?: { version: string; acceptedVersion: string | undefined; startedAt: string };
+  /**
+   * The check now running, and what its result must still match to count
+   * (Call 16): the entry's version, the version allowed, and its secrets'
+   * fingerprints when it names any (a rebinding meanwhile drops it).
+   */
+  running?: {
+    version: string;
+    acceptedVersion: string | undefined;
+    startedAt: string;
+    fingerprints?: Record<string, string>;
+  };
   /** When the last check ended, as the schedule counts it. Absent until one ends, and again after Allow or a Check now that waits for a slot. */
   lastEndedAt?: string;
   /** Failed checks in a row. */
@@ -84,12 +93,19 @@ export function checkSpec(input: {
   cwd: string;
   logs: { stdout: string; stderr: string };
   base: { env: NodeJS.ProcessEnv; secrets: readonly string[] };
+  /** Its `secrets:`' values, each its own variable, read for this check alone. */
+  secretValues?: Record<string, string>;
 }): CommandSpec {
   const { trigger, logs, base } = input;
   return {
     command: trigger.run,
     cwd: input.cwd,
-    env: layerCommandEnv(base.env, {}, { CONSOLA_AUTOMATION: input.automation }),
+    env: layerCommandEnv(
+      base.env,
+      {},
+      { CONSOLA_AUTOMATION: input.automation },
+      input.secretValues,
+    ),
     timeoutMs: trigger.timeoutMs,
     stdoutPath: logs.stdout,
     stderrPath: logs.stderr,

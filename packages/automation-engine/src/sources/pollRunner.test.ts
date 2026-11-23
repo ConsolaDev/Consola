@@ -107,6 +107,29 @@ describe('latestResult', () => {
 });
 
 describe('checkSpec', () => {
+  it("gives a check its secrets as their own variables, Consola's still last and hooks off", () => {
+    const input = {
+      trigger: {
+        kind: 'poll' as const,
+        run: 'tracker list',
+        everyMs: 30 * MINUTE,
+        key: '.id',
+        timeoutMs: 60_000,
+        secrets: ['TRACKER_TOKEN'],
+      },
+      automation: 'watch-tickets',
+      cwd: '/data/ws-1',
+      logs: { stdout: '/data/out.log', stderr: '/data/err.log' },
+      base: { env: { PATH: '/bin', GH_TOKEN: 'gho_stub' }, secrets: ['gho_stub'] },
+    };
+    const spec = checkSpec({ ...input, secretValues: { TRACKER_TOKEN: 'v' } });
+    expect(spec.env.TRACKER_TOKEN).toBe('v');
+    expect(spec.env.CONSOLA_AUTOMATION).toBe('watch-tickets');
+    expect(spec.env.GIT_CONFIG_KEY_0).toBe('core.hooksPath');
+    expect(checkSpec(input)).toEqual({ ...spec, env: { ...spec.env, TRACKER_TOKEN: undefined } });
+    expect('TRACKER_TOKEN' in checkSpec(input).env).toBe(false);
+  });
+
   it("runs the command in the workspace's folder, as the person, with only CONSOLA_AUTOMATION added and hooks off", () => {
     const spec = checkSpec({
       trigger: {

@@ -1,6 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { automationVersion, parseFactorySpec, type StepRun } from '@consola/factory-spec';
+import { createHash } from 'node:crypto';
+import {
+  automationVersion,
+  parseFactorySpec,
+  stableStringify,
+  type StepRun,
+} from '@consola/factory-spec';
+import { listDefinition } from './AutomationService';
 import { describe, expect, it, vi } from 'vitest';
 import type { RunSecrets } from './secrets/runSecrets';
 import { SecretReadError } from './secrets/secretsPort';
@@ -561,5 +568,225 @@ describe("a value's printed forms", () => {
     );
     expect(writeText).not.toHaveBeenCalled();
     expect(stepOf(h, runId, 'page').status).toBe('completed');
+  });
+});
+
+// --- a check's values (Task 8) -------------------------------------------------
+
+const TICKETS = 'watch-tickets';
+const TICKETS_KEY = `${WORKSPACE_ID} ${TICKETS}`;
+const WATCH_TICKETS = file(
+  `  - name: ${TICKETS}\n    on: { poll: { every: 30m, run: tracker list, key: .id, secrets: [TRACKER_TOKEN] } }\n    scope: api\n    mode: notify\n    steps:\n      - id: look\n        prompt: Look at it.\n`,
+);
+const items = (...ids: string[]) =>
+  JSON.stringify(ids.map((id) => ({ id, title: `Ticket ${id}` })));
+
+/** Sprocket with `watch-tickets` allowed: its first check has started. */
+async function watching(options: StepsHarnessOptions = {}): Promise<StepsHarness> {
+  const h = await stepsHarness({ yaml: WATCH_TICKETS, secrets: BOUND, ...options });
+  const shown = row(h, TICKETS);
+  expect(shown).toMatchObject({ needsAllow: true });
+  h.service.allow(WORKSPACE_ID, TICKETS, shown.version!);
+  await h.flush();
+  return h;
+}
+/** Ends the latest check command with `stdout`, or as `how` says. */
+async function endCheck(
+  h: StepsHarness,
+  how: Parameters<StepsHarness['world']['commands'][0]['end']>[0],
+) {
+  const command = h.world.commands[h.world.commands.length - 1];
+  expect(command.spec.command).toBe('tracker list');
+  await command.end(how);
+}
+async function checkNow(h: StepsHarness): Promise<void> {
+  await h.service.trigger(WORKSPACE_ID, TICKETS);
+  await h.flush();
+}
+const checkView = (h: StepsHarness) => row(h, TICKETS).check!;
+const seenItems = (h: StepsHarness) => h.store.seen(TICKETS_KEY)?.items ?? [];
+
+describe("a check's secrets", () => {
+  it('are read before each check, given to its command, and masked', async () => {
+    const h = await watching();
+    expect(h.world.secrets.resolved).toEqual([['TRACKER_TOKEN']]);
+    const [check] = h.world.commands;
+    expect(check.spec.env.TRACKER_TOKEN).toBe(TRACKER_VALUE);
+    expect(check.spec.secrets).toEqual(expect.arrayContaining(maskFormsOf(TRACKER_VALUE)));
+    await endCheck(h, { stdout: items() });
+    await checkNow(h);
+    expect(h.world.secrets.resolved).toHaveLength(2);
+    expect(h.world.commands).toHaveLength(2);
+  });
+
+  it('that cannot be read fail the check: nothing runs, and one notice for a run of failures', async () => {
+    const h = await stepsHarness({ yaml: WATCH_TICKETS, secrets: BOUND });
+    h.world.secrets.resolveThrows = new SecretReadError(
+      'TRACKER_TOKEN',
+      'the keychain has no such item',
+    );
+    h.service.allow(WORKSPACE_ID, TICKETS, row(h, TICKETS).version!);
+    await h.flush();
+    const error = `Couldn't read \`TRACKER_TOKEN\` from ${TRACKER_BINDING.label}: the keychain has no such item; nothing ran.`;
+    expect(checkView(h).error).toBe(error);
+    h.advance(2 * HOUR);
+    await h.tick();
+    expect(h.world.secrets.resolved).toHaveLength(2);
+    expect(h.world.commands).toEqual([]);
+    expect(
+      h.notices.filter((notice) => notice.title === `\`${TICKETS}\` can't check: ${error}`),
+    ).toHaveLength(1);
+  });
+
+  it('are masked in what a failed check says, and in the items a check keeps', async () => {
+    const h = await watching();
+    await endCheck(h, {
+      stderr: `token ${TRACKER_VALUE} refused`,
+      result: { exitCode: 1, lastStderrLine: `token ${TRACKER_VALUE} refused` },
+    });
+    const told = [checkView(h).error ?? '', ...h.notices.map((notice) => notice.title)];
+    expect(checkView(h).error).toContain('***');
+    for (const text of told)
+      for (const form of maskFormsOf(TRACKER_VALUE)) expect(text).not.toContain(form);
+
+    // A first good check baselines; the next fires what it finds, with the value masked in its item.
+    await checkNow(h);
+    await endCheck(h, { stdout: items() });
+    await checkNow(h);
+    await endCheck(h, { stdout: JSON.stringify([{ id: 'a', title: `Leaked ${TRACKER_VALUE}` }]) });
+    expect(checkView(h).fired).toBe(1);
+    const [run] = h.store.runs();
+    const item = fs.readFileSync(
+      path.join(h.folder.runDir(WORKSPACE_ID, run.id), 'item.json'),
+      'utf8',
+    );
+    expect(item).toContain('***');
+    for (const form of maskFormsOf(TRACKER_VALUE)) expect(item).not.toContain(form);
+  });
+
+  it('rebound, baseline the next check; unchanged, it fires', async () => {
+    const fired = async (rebind: boolean) => {
+      const h = await watching();
+      await endCheck(h, { stdout: items() });
+      await checkNow(h);
+      await endCheck(h, { stdout: items('a') });
+      expect(checkView(h).fired).toBe(1);
+      if (rebind)
+        h.world.secrets.bindings.set('TRACKER_TOKEN', {
+          ...TRACKER_BINDING,
+          ref: 'op://Ops/Tracker2/credential',
+        });
+      await h.service.reload(WORKSPACE_ID);
+      await checkNow(h);
+      await endCheck(h, { stdout: items('a', 'b') });
+      return h;
+    };
+    const rebound = await fired(true);
+    expect(checkView(rebound)).toMatchObject({ fired: 0, baseline: true });
+    expect(seenItems(rebound).some((key) => key.endsWith('b'))).toBe(true);
+    const same = await fired(false);
+    expect(checkView(same).fired).toBe(1);
+  });
+
+  it('rebound while a check runs, drop its result, and the next check baselines', async () => {
+    const h = await watching();
+    await endCheck(h, { stdout: items() });
+    await checkNow(h);
+    await endCheck(h, { stdout: items('a') });
+    const before = seenItems(h);
+    await checkNow(h);
+    expect(h.world.commands).toHaveLength(3);
+    h.world.secrets.bindings.set('TRACKER_TOKEN', {
+      ...TRACKER_BINDING,
+      ref: 'op://Ops/Tracker2/credential',
+    });
+    await h.service.reload(WORKSPACE_ID);
+    await endCheck(h, { stdout: items('a', 'b') });
+    expect(seenItems(h)).toEqual(before);
+    const runs = h.store.runs().length;
+    await checkNow(h);
+    await endCheck(h, { stdout: items('x', 'y') });
+    expect(h.store.runs()).toHaveLength(runs);
+    expect(seenItems(h).filter((key) => key.endsWith('x') || key.endsWith('y'))).toHaveLength(2);
+    expect(checkView(h)).toMatchObject({ fired: 0, baseline: true });
+  });
+
+  it('rebound while a check reads them, drop the check before its command starts', async () => {
+    let release!: () => void;
+    const h = await watching();
+    await endCheck(h, { stdout: items() });
+    h.world.secrets.resolveGate = new Promise((resolve) => (release = resolve));
+    await checkNow(h);
+    h.world.secrets.bindings.set('TRACKER_TOKEN', {
+      ...TRACKER_BINDING,
+      ref: 'op://Ops/Tracker2/credential',
+    });
+    await h.service.reload(WORKSPACE_ID);
+    release();
+    await h.flush();
+    // The check that read under the old binding started nothing; the one after it, under the new, did.
+    expect(h.world.secrets.resolved).toHaveLength(3);
+    expect(h.world.commands).toHaveLength(2);
+    await endCheck(h, { stdout: items('a') });
+    expect(checkView(h)).toMatchObject({ fired: 0, baseline: true });
+  });
+
+  it('are read before the entry is asked again: an edit while they are read drops the check', async () => {
+    let release!: () => void;
+    const h = await watching();
+    await endCheck(h, { stdout: items() });
+    h.world.secrets.resolveGate = new Promise((resolve) => (release = resolve));
+    await checkNow(h);
+    await h.setYaml(WATCH_TICKETS.replace('tracker list', 'tracker list --open'));
+    release();
+    await h.flush();
+    expect(h.world.commands).toHaveLength(1);
+  });
+
+  it('leave a poll that names none on the definition it had', () => {
+    const automation = {
+      ...parseFactorySpec(
+        file(
+          '  - name: watch\n    on: { poll: { every: 30m, run: tracker list, key: .id } }\n    scope: api\n    run: { prompt: "Look." }\n',
+        ),
+      ).automations[0],
+    };
+    const provider = { id: 'github', accountLogin: 'JaviDev' };
+    const { everyMs: _every, ...trigger } = automation.trigger as { everyMs: number };
+    const before = createHash('sha256')
+      .update(
+        stableStringify({
+          trigger,
+          filter: automation.filter,
+          account: { id: 'github', login: 'JaviDev', org: undefined },
+        }),
+      )
+      .digest('hex')
+      .slice(0, 16);
+    expect(listDefinition({ automation }, provider)).toBe(before);
+    expect(listDefinition({ automation }, provider, undefined)).toBe(before);
+    expect(listDefinition({ automation }, provider, { TRACKER_TOKEN: 'fp' })).not.toBe(before);
+  });
+
+  it('keep the seen record of a poll that names none on the definition it had', async () => {
+    const plain = WATCH_TICKETS.replace(', secrets: [TRACKER_TOKEN]', '');
+    const h = await stepsHarness({ yaml: plain, secrets: BOUND });
+    h.service.allow(WORKSPACE_ID, TICKETS, row(h, TICKETS).version!);
+    await h.flush();
+    await endCheck(h, { stdout: items('a') });
+    const automation = parseFactorySpec(plain).automations[0];
+    const { everyMs: _every, ...trigger } = automation.trigger as { everyMs: number };
+    expect(h.store.seen(TICKETS_KEY)?.definition).toBe(
+      createHash('sha256')
+        .update(
+          stableStringify({
+            trigger,
+            filter: automation.filter,
+            account: { id: 'github', login: 'JaviDev', org: undefined },
+          }),
+        )
+        .digest('hex')
+        .slice(0, 16),
+    );
   });
 });
