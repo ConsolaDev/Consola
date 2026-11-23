@@ -73,7 +73,7 @@ describe('no agent-facing code reaches allow', () => {
  * (`capabilities().secrets`), which this does not match.
  */
 const SECRET_ACCESS =
-  /\b(?:secretsView|buildSecretsView|SECRETS_(?:LIST|BIND|UNBIND)|secretsAPI|BindingsStore|desktopSecretsPort|bindSecret)\b|\bsecrets\/(?:BindingsStore|desktopSecrets|references|programs)\b/;
+  /\b(?:secretsView|buildSecretsView|SECRETS_(?:LIST|BIND|UNBIND|CHANNELS)|secretsAPI|BindingsStore|desktopSecretsPort|bindSecret|registerSecretsIpc)\b|\bsecrets\/(?:BindingsStore|desktopSecrets|references|programs|secretsIpc)\b/;
 
 describe('no agent-facing code reaches a secret’s binding', () => {
   it('the matcher catches every way of reaching one', () => {
@@ -91,6 +91,9 @@ describe('no agent-facing code reaches a secret’s binding', () => {
       "import { x } from '../secrets/desktopSecrets';",
       "import { x } from '../secrets/references';",
       "import { x } from '../secrets/programs';",
+      "import { x } from '../secrets/secretsIpc';",
+      'registerSecretsIpc({ ipc, workspaces, bindings, automations, secretDeps })',
+      'for (const channel of SECRETS_CHANNELS) ipc.handle(channel, x);',
     ]) {
       expect(code).toMatch(SECRET_ACCESS);
     }
