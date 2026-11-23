@@ -622,6 +622,97 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     }
   });
 
+  describe('a link that leads out of the checkout fails the step before anything is staged (3-B code review F6)', () => {
+    const LEADS_OUT =
+      "`fix` left `notes.md`, a link that leads out of the checkout; Consola commits only the checkout's own files";
+    let outsideFile: string;
+    beforeEach(() => {
+      outsideFile = path.join(tmp, 'outside-secret.txt');
+      fs.writeFileSync(outsideFile, 'DUMMY-SECRET-6604');
+    });
+    const linkIn = (target: string, at = 'notes.md') => fs.symlinkSync(target, path.join(dir, at));
+
+    it.each<[string, () => void]>([
+      ['an absolute target', () => linkIn(outsideFile)],
+      ['a relative ../ target', () => linkIn(path.relative(dir, outsideFile))],
+      [
+        'a link to a link the repository already holds, which leads out',
+        () => {
+          // `hop` is in the branch before the step: only following the chain finds where notes.md leads.
+          linkIn(outsideFile, 'hop');
+          run(dir, 'add', 'hop');
+          run(dir, 'commit', '-qm', 'hop');
+          REQ = { ...REQ, before: run(dir, 'rev-parse', 'HEAD') };
+          linkIn('hop');
+        },
+      ],
+      [
+        'a link through a linked folder the repository already holds',
+        () => {
+          fs.mkdirSync(path.join(tmp, 'elsewhere'));
+          fs.writeFileSync(path.join(tmp, 'elsewhere', 'x.txt'), 'DUMMY-SECRET-6604');
+          linkIn(path.join(tmp, 'elsewhere'), 'folder');
+          run(dir, 'add', 'folder');
+          run(dir, 'commit', '-qm', 'folder');
+          REQ = { ...REQ, before: run(dir, 'rev-parse', 'HEAD') };
+          linkIn('folder/x.txt');
+        },
+      ],
+      // Committed, a link is read in every checkout of the branch: these two lead out of any other.
+      ['an absolute target, even one that lands inside', () => linkIn(path.join(dir, 'README.md'))],
+      [
+        "a ../ target that comes back in by the checkout's own name",
+        () => linkIn(`../${path.basename(dir)}/README.md`),
+      ],
+    ])('%s', async (_, make) => {
+      make();
+      const head = run(dir, 'rev-parse', 'HEAD');
+      for (const req of [REQ, { ...REQ, commit: null, keepOnly: true }]) {
+        expect(await settleRunClone(req)).toEqual({ ok: false, error: LEADS_OUT });
+        expect(run(dir, 'rev-parse', 'HEAD')).toBe(head);
+        expect(run(dir, 'diff', '--cached', '--name-only')).toBe('');
+      }
+      expect(await treeProblem(dir, 'fix')).toBe(LEADS_OUT);
+      expect(await stageByDescriptor(dir, 'fix', ['notes.md'])).toBe(LEADS_OUT);
+      expect(run(dir, 'diff', '--cached', '--name-only')).toBe('');
+    });
+
+    it('a chain of links longer than the file system follows is refused too', async () => {
+      for (let i = 0; i < 45; i++) linkIn(`l${i + 1}`, i === 0 ? 'notes.md' : `l${i}`);
+      linkIn('README.md', 'l45');
+      expect(await stageByDescriptor(dir, 'fix', ['notes.md'])).toBe(LEADS_OUT);
+    });
+
+    it('a link that stays inside is committed as a link: to a file, to a link, to a folder, up a folder, and one whose target is not there yet', async () => {
+      fs.mkdirSync(path.join(dir, 'src'));
+      fs.writeFileSync(path.join(dir, 'src', 'a.ts'), 'a\n');
+      linkIn('src/a.ts', 'a.ts');
+      linkIn('a.ts', 'chain.ts');
+      linkIn('src', 'source');
+      linkIn('build/out.txt', 'out.txt');
+      linkIn('../README.md', 'src/up.md');
+      const r = await settleRunClone(REQ);
+      expect(r).toMatchObject({ ok: true, files: 6 });
+      expect(run(dir, 'ls-tree', 'HEAD', 'chain.ts')).toMatch(/^120000 /);
+      expect(run(dir, 'cat-file', '-p', 'HEAD:out.txt')).toBe('build/out.txt');
+    });
+
+    it("a person's session that left one fails the boundary, in the session's name", async () => {
+      linkIn(outsideFile);
+      expect(
+        await settleBetweenSteps({
+          dir,
+          branch: BRANCH,
+          base,
+          before: base,
+          message: 'x',
+          session: 'fix',
+        }),
+      ).toEqual({ ok: false, error: LEADS_OUT });
+      expect(run(dir, 'rev-parse', 'HEAD')).toBe(base);
+    });
+  });
+
   it('a repository inside the checkout fails the step before anything is staged', async () => {
     writeFile(dir, 'sub/.git', 'gitdir: /tmp/x\n');
     writeFile(dir, 'sub/a.txt', 'a');

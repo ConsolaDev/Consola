@@ -445,13 +445,83 @@ async function changedPaths(dir: string): Promise<string[]> {
   );
 }
 
+/** How many links Consola follows from one link before it calls the chain endless (as the file system does). */
+const MAX_LINK_HOPS = 40;
+
+/** Whether `at` is a symbolic link; anything that cannot be asked is not one. */
+function isLink(at: string): boolean {
+  try {
+    return fs.lstatSync(at, { throwIfNoEntry: false })?.isSymbolicLink() === true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Where the absolute path `absolute` leads once every link on it is
+ * followed, a part at a time as the file system follows them (a `..` after a
+ * link climbs from where the link led); what is not there is kept as
+ * written. Null past `MAX_LINK_HOPS` links.
+ */
+function followLinks(absolute: string): string | null {
+  const parts = absolute.split('/').filter((part) => part !== '' && part !== '.');
+  let reached = '/';
+  let hops = 0;
+  while (parts.length > 0) {
+    const part = parts.shift() as string;
+    if (part === '..') {
+      reached = path.dirname(reached);
+      continue;
+    }
+    const next = path.join(reached, part);
+    if (!isLink(next)) {
+      reached = next;
+      continue;
+    }
+    hops += 1;
+    if (hops > MAX_LINK_HOPS) return null;
+    const target = fs.readlinkSync(next);
+    if (target.startsWith('/')) reached = '/';
+    parts.unshift(...target.split('/').filter((part) => part !== '' && part !== '.'));
+  }
+  return reached;
+}
+
+/**
+ * Whether the link at `file` (inside `dir`), whose target reads `target`,
+ * leads out of the checkout (the 3-B code review's F6): a later step's file
+ * tools, and every checkout of the branch it is pushed to, read through a
+ * committed link. Out is an absolute target (in any other checkout it names
+ * this Mac's path, wherever it lands here), a `..` that climbs above the
+ * checkout, or a chain that ends outside it here, through a link or a linked
+ * folder the branch already holds, or longer than the file system follows.
+ */
+function linkLeadsOut(dir: string, file: string, target: string): boolean {
+  if (target.startsWith('/')) return true;
+  let depth = file.split('/').length - 1;
+  for (const part of target.split('/')) {
+    if (part === '..') depth -= 1;
+    else if (part !== '' && part !== '.') depth += 1;
+    if (depth < 0) return true;
+  }
+  const root = fs.realpathSync.native(dir);
+  const folder = followLinks(path.dirname(path.join(root, file)));
+  const reached = folder === null ? null : followLinks(`${folder}/${target}`);
+  return reached === null || (reached !== root && !reached.startsWith(`${root}/`));
+}
+
+/** Why a link a step left is not committed. */
+const LEADS_OUT = ', a link that leads out of the checkout';
+
 const WALK_CUT_SHORT =
   "Consola couldn't finish checking this run's checkout for repositories inside it; nothing was committed";
 
 /**
  * Call 9's tree check, before anything is staged (review B5): a changed or
  * untracked regular file with more than one link (a hard link lets
- * Consola's unsandboxed read commit a file the sandbox denies), then a
+ * Consola's unsandboxed read commit a file the sandbox denies), or a link
+ * that leads out of the checkout (`linkLeadsOut`, the 3-B code review's F6),
+ * then a
  * repository inside the checkout (any entry named `.git`, case aside, below
  * its root, whose config would run in any git started there). The walk
  * follows no link and is bounded, as cleanup's is: cut short it fails as
@@ -469,6 +539,8 @@ export async function treeProblem(
     const stat = fs.lstatSync(path.join(dir, file), { throwIfNoEntry: false });
     if (stat?.isFile() && stat.nlink > 1)
       return `\`${step}\` left \`${file}\` hard-linked to another file; Consola commits only the checkout's own files`;
+    if (stat?.isSymbolicLink() && linkLeadsOut(dir, file, fs.readlinkSync(path.join(dir, file))))
+      return notOwnFile(step, file, LEADS_OUT);
   }
   const started = Date.now();
   const folders = [''];
@@ -640,9 +712,9 @@ function linkedFolderOn(dir: string, file: string): string | null {
  * from that descriptor and the path checked to still be that file, then
  * written as an object (`hash-object -w --stdin --path`, so the repository's
  * line-ending rules apply as `git add`'s would, and no filter) and put in the
- * index (`update-index --cacheinfo`); a link is staged as a link, a gone
- * file removed; a path behind a linked folder, or that is no file, is
- * refused. Null when all were staged; else why not, nothing more staged.
+ * index (`update-index --cacheinfo`); a link is staged as a link, unless it
+ * leads out of the checkout (`linkLeadsOut`), a gone file removed; a path
+ * behind a linked folder, or that is no file, is refused. Null when all were staged; else why not, nothing more staged.
  * Exported for its tests.
  */
 export async function stageByDescriptor(
@@ -659,10 +731,13 @@ export async function stageByDescriptor(
       continue;
     }
     if (stat.isSymbolicLink()) {
+      // The target checked is the one staged.
+      const target = fs.readlinkSync(full);
+      if (linkLeadsOut(dir, file, target)) return notOwnFile(who, file, LEADS_OUT);
       const object = await runCloneGitWithInput(
         dir,
         ['hash-object', '-w', '--stdin', '--no-filters'],
-        Buffer.from(fs.readlinkSync(full)),
+        Buffer.from(target),
       );
       await runCloneGit(dir, ['update-index', '--add', '--cacheinfo', `120000,${object},${file}`]);
       continue;

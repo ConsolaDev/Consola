@@ -894,13 +894,17 @@ allow-list, and no session with a policy gets the bound account's token
 folders, Consola's data (`userData`, the factory root) and every harness's
 effective profile. `sandbox` is refused on a harness whose own or managed
 settings set `sandbox` (`sandboxSettingsProblem`), and off macOS. It is
-checked by `scripts/claude-steps-canary.mjs` rows 29–49 on a CLI version
+checked by `scripts/claude-steps-canary.mjs` rows 29–50 on a CLI version
 change, never at run time.
 
 The sandbox holds the shell only; the file tools are held by `--restricted`
 (they read and write only the checkout and refuse `.claude/agents`,
 `.claude/skills`, `.husky/` and `.git`, rows 30 and 44,
-`FILE_TOOLS_DENY_CHECKED`), and what a step changes among the paths agents and
+`FILE_TOOLS_DENY_CHECKED`; whether they follow a link out of it is row 50's,
+not yet seen, `FILE_TOOLS_LINKS_CHECKED`, and the card says so). A link a
+step leaves that leads out of the checkout (`linkLeadsOut`: an absolute
+target, a `..` above it, or a chain that ends outside) fails the step, so
+none reaches a later step; and what a step changes among the paths agents and
 CI read (`.claude/`, `.github/`, `CLAUDE.md`, `.gitattributes`…) is flagged on
 the run page (`flaggedPaths`). Not contained: the shell's reads of other
 files, the keychain service (`security` reaches it, row 49), the temporary
@@ -913,7 +917,7 @@ another; a process an agent backgrounds is in neither (row 48), so it is found
 by its working directory, and any process outside Consola's sessions left in
 the checkout fails the step. A step's full-tools continuation waits for its
 run to end, and an item step's forks into `<repo>-<type>-<n>-continue-<8>`.
-Rerun the canary's rows 29–49 after every CLI upgrade, and record the version
+Rerun the canary's rows 29–50 after every CLI upgrade, and record the version
 in `SANDBOX_CHECKED_ON_CLAUDE`.
 
 ### A Run Parks at a Gate
