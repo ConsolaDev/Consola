@@ -38,7 +38,6 @@ import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
 import { type SandboxProvider, sandboxesFrom } from '@consola/sandbox';
-import { E2BProvider } from '@consola/sandbox/e2b';
 import { makeCellSocket } from './adapters/cellSocket.ts';
 import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
 import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
@@ -528,19 +527,22 @@ export class RunnerReplaced extends Schema.TaggedError<RunnerReplaced>()('Runner
  * The sandbox provider a runner starts its sessions on, from its environment, or null when none
  * is configured. A runner with none fails at start, and never falls back to a fake.
  */
-export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
+export type ProviderFor = (env: RunnerEnv) => Promise<SandboxProvider | null>;
 
 /**
  * Production's provider: E2B (`@consola/sandbox/e2b`), on Consola's account, where the
  * `consola-session` template is built (`sandbox-template/README.md`), with `E2B_API_KEY`. The key
  * is read here and handed to the provider, never left for E2B's SDK to find in the process's
  * environment, so it is one of `RUNNER_SECRET_VARIABLES`: scrubbed from everything the runner
- * says, and never given to a sandbox. Without it, none.
+ * says, and never given to a sandbox. Without it, none. E2B's provider is loaded here, as a
+ * runner starts: a session's host, the same file, never loads E2B's SDK (`boundary.test.ts`).
  */
-export const productionProvider: ProviderFor = (env) => {
+export const productionProvider: ProviderFor = async (env) => {
   // As it is, so the value the runner scrubs is the one E2B is given.
   const apiKey = env.E2B_API_KEY ?? '';
-  return apiKey.trim() === '' ? null : new E2BProvider({ apiKey });
+  if (apiKey.trim() === '') return null;
+  const { E2BProvider } = await import('@consola/sandbox/e2b');
+  return new E2BProvider({ apiKey });
 };
 
 /**
@@ -616,7 +618,7 @@ export const runnerCommand = (
 ): Effect.Effect<void, UsageError | StartFailed | RunnerReplaced> =>
   Effect.gen(function* () {
     const args = yield* parseRunnerArgs(argv, env);
-    const provider = providerFor(env);
+    const provider = yield* Effect.promise(() => providerFor(env));
     if (provider === null) {
       return yield* new StartFailed({
         problem:

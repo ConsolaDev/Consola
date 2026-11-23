@@ -76,8 +76,10 @@ each other, which does no I/O, so every ring may name it; and
 `adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. One entry
 point of `@consola/sandbox` is named on its own: `@consola/sandbox/e2b`, the E2B
 provider, which `bin.ts` alone makes (`productionProvider`, "The `runner`
-command"), so nothing else loads E2B's SDK. A test file
-takes the list of the module it sits beside (`adapters/x.test.ts`
+command"), and loads only as a runner starts, with a dynamic `import()`: the
+session host runs the same `bin.ts` (and the bundle holds E2B's SDK, "The
+bundle and the session template"), but never loads it (`boundary.test.ts`). A
+test file takes the list of the module it sits beside (`adapters/x.test.ts`
 `adapters`'s, `bin.test.ts` `bin`'s). Each is its layer's `consola` list in
 `LAYERS`, with a case in the table for every ring. `scripts/`, outside `src/`
 and the rings, holds the two build scripts ("The bundle and the session

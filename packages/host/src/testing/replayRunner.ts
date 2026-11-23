@@ -20,7 +20,7 @@ runHostProcess(
   runnerCommand(
     process.argv.slice(2),
     process.env,
-    () => new LocalProvider({ stopHangsForTests, createHangsForTests }),
+    async () => new LocalProvider({ stopHangsForTests, createHangsForTests }),
   ),
   'runner',
 );

@@ -1293,13 +1293,13 @@ describe('parseRunnerArgs', () => {
 });
 
 describe('productionProvider', () => {
-  it("is E2B's, with the key the runner's environment holds, and none without one", () => {
-    expect(productionProvider({ E2B_API_KEY: 'e2b_sprocket_0123456789' })).toBeInstanceOf(
+  it("is E2B's, with the key the runner's environment holds, and none without one", async () => {
+    expect(await productionProvider({ E2B_API_KEY: 'e2b_sprocket_0123456789' })).toBeInstanceOf(
       E2BProvider,
     );
-    expect(productionProvider({})).toBeNull();
-    expect(productionProvider({ E2B_API_KEY: '' })).toBeNull();
-    expect(productionProvider({ E2B_API_KEY: '  ' })).toBeNull();
+    expect(await productionProvider({})).toBeNull();
+    expect(await productionProvider({ E2B_API_KEY: '' })).toBeNull();
+    expect(await productionProvider({ E2B_API_KEY: '  ' })).toBeNull();
   });
 
   it('holds E2B_API_KEY among the secrets the runner scrubs', () => {
