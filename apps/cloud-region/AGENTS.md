@@ -610,9 +610,10 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   judges, and `null` again once it closes. A `hello` that cannot be judged
   (the database down) closes the socket with 1011, and the runner's next
   `hello` is judged instead.
-- **`hello`** (`runnerConnected`, `application/runners.ts`), in Task 1's
-  order: each `endedSessions` entry keeps its real end; every other
-  `starting` or `running` row of that runner, in its workspace, that
+- **`hello`** (`runnerConnected`, `application/runners.ts`), in this
+  order (ended wins, then restarted, then stops): each `endedSessions` entry
+  keeps its real end; every other `starting` or `running` row of that runner,
+  in its workspace, that
   `runningSessionIds` does not list becomes `failed` with
   `runner_restarted`; and every listed id the cell holds as ended, does not
   know, or holds as another runner's, gets a `session.stop`. An id in both

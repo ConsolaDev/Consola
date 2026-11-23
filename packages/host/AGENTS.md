@@ -56,7 +56,9 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `@consola/agent-ui`'s browser tests use it too, by path, so a change here can
   break them: their global setup (`packages/agent-ui/src/testing/hostSession.ts`)
   imports `machine.ts` (`writeFakeClis`, `readCalls`, `cliVariablesIn`,
-  `homeVariables`, `pathWith`) and spawns `replaySession.ts` with node, passing
+  `homeVariables`, `pathWith`) and `cellPass.ts` (`PASS_MAX_LIFETIME_SECONDS`;
+  its `passKeys.ts`, and through it its `vite.config.ts`, sign passes with
+  `cellPass.ts`), and spawns `replaySession.ts` with node, passing
   `simple full-access session --pass-public-key … --session-id … --harness claude
   --port 0`; its `sendFixtureMessage.ts` imports `t3Client.ts` (`connectHost`:
   a ticket for the pass, then the socket) and `replay.ts` (`loadReplay`,
@@ -724,7 +726,7 @@ consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> 
   [--idle-minutes <n, default 10; fractions allowed>] [--state-dir <dir>]
 ```
 
-Track B's runner starts it in a sandbox and reads its stdout. It opens the
+The runner role (`consola-host runner`) starts it in a sandbox and reads its stdout. It opens the
 session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
 `ready` means a client can connect now.
 
@@ -774,7 +776,8 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   when its event loop next turns: while loading, nothing has started and the
   process exits 0; after, the program's handlers have it, as above
   (`bin.test.ts` signals a host 400 ms after spawning it, before `ready`, and
-  sees exit 0). Task 7's bundle keeps this entry.
+  sees exit 0). The host's bundle for the session template (CON-93) keeps
+  this entry.
 - **A stale thread ends the session.** Should the thread's event stream end
   (`ThreadHandle.ended`), the host stops as from a failure: its scope closes
   under the grace, and it exits 1 with `consola-host: Session <id> stopped:
@@ -843,8 +846,8 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `CONSOLA_RUNNER_REPOSITORIES` (the repositories it offers, `owner/name`,
   comma-separated), `GIT_TOKEN` (optional, for the clone), and the API keys,
   each offering its harness (`harnessesFromEnv`): `ANTHROPIC_API_KEY` claude,
-  `OPENAI_API_KEY` codex. The E2B provider (Task 6) adds `E2B_API_KEY`, to
-  `RUNNER_SECRET_VARIABLES` too (below).
+  `OPENAI_API_KEY` codex. Wiring E2B (`@consola/sandbox/e2b`, CON-93) adds
+  `E2B_API_KEY`, to `RUNNER_SECRET_VARIABLES` too (below).
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
   not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
@@ -854,7 +857,7 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
 - **The provider.** `runnerCommand(argv, env, providerFor)` takes the provider
   from a factory of the environment (`ProviderFor`). Production's
   (`productionProvider`) has none yet, so the shipped runner fails at start
-  until Task 6 fills it with E2B; it never falls back to a fake. Tests run
+  until it wires E2B (`@consola/sandbox/e2b`, CON-93); it never falls back to a fake. Tests run
   `testing/replayRunner.ts`, the same command on `testing/localProvider.ts`,
   whose sandboxes' processes get the sandbox's variables over only
   `MACHINE_VARIABLES` of the test machine (`PATH`, the home and XDG folders,
@@ -948,7 +951,7 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   takes to notice. The cell answers pings as `ws` does by default.
 - **Secrets.** It never logs its environment. Its secret variables are one
   list, `RUNNER_SECRET_VARIABLES` (`core/runnerDecisions.ts`): the runner
-  secret, the git token and each harness's API key; Task 6 adds `E2B_API_KEY`
+  secret, the git token and each harness's API key; wiring E2B adds `E2B_API_KEY`
   there, and `bin.test.ts` fails on a secret-named variable the host's source
   reads that the list lacks. Its log lines (stderr, `consola-host runner: …`)
   and every update are scrubbed of those variables' values (`secretValuesOf`,
@@ -978,6 +981,11 @@ pnpm --filter @consola/host test        # vp test run (Vite+), config in vite.co
 pnpm --filter @consola/host typecheck   # effect-tsgo, hoisted by publicHoistPattern
 node packages/host/src/main.ts session --dev --harness claude --cwd <folder>   # from the repo root
 ```
+
+The host loads its two Consola dependencies, `@consola/runner-protocol` and `@consola/sandbox`,
+from their built `dist/`, which a fresh checkout does not have. Build them once first, and after
+changing either: `pnpm exec turbo run build --filter=@consola/host^...` (the package's own
+`test` and `typecheck` through Turborepo do it for you, as `pnpm test` does).
 
 ### Running it with the chat
 

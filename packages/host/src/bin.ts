@@ -524,12 +524,13 @@ export class RunnerReplaced extends Schema.TaggedError<RunnerReplaced>()('Runner
 
 /**
  * The sandbox provider a runner starts its sessions on, from its environment, or null when none
- * is configured. Production has none until the E2B provider (Task 6): a runner with none fails at
- * start, and never falls back to a fake.
+ * is configured. Production has none yet: the runner does not wire E2B (`@consola/sandbox/e2b`, from
+ * `E2B_API_KEY`) until the session template lands (CON-93). A runner with none fails at start, and
+ * never falls back to a fake.
  */
 export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
 
-/** Production's providers: none yet (Task 6 adds E2B, from `E2B_API_KEY`). */
+/** Production's providers: none yet (E2B, from `E2B_API_KEY`, is wired with CON-93). */
 export const productionProvider: ProviderFor = () => null;
 
 /**
@@ -609,7 +610,7 @@ export const runnerCommand = (
     if (provider === null) {
       return yield* new StartFailed({
         problem:
-          'No sandbox provider is configured, so the runner has nowhere to start sessions (the E2B provider is not there yet).',
+          'No sandbox provider is configured, so the runner has nowhere to start sessions (this runner does not wire E2B yet).',
       });
     }
     return yield* runRunner(args, provider);

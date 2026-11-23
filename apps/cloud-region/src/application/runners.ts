@@ -12,9 +12,9 @@ import type { CloudSessionChanges, RunnerIdentity, RunnerUpdatePorts } from './p
 export type HelloAnswer = { stop: string[] };
 
 /**
- * What a runner's `hello` means for the sessions the cell holds, in Task 1's order (Review Focus
- * 5 and 7). The runner serves `workspaceId`, whatever it calls itself, and only its own rows, in
- * that workspace, are changed.
+ * What a runner's `hello` means for the sessions the cell holds, in this order: ended wins, then
+ * restarted, then stops (below). The runner serves `workspaceId`, whatever it calls itself, and
+ * only its own rows, in that workspace, are changed.
  *
  * 1. Each session in `endedSessions` keeps the end the runner reports (`endReported`), with its
  *    message or the cell's `runner_failed`, so a session that ended while the socket was down is

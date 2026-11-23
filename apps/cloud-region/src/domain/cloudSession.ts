@@ -16,7 +16,7 @@ export type CloudSessionStatus = (typeof CLOUD_SESSION_STATUSES)[number];
  * (`CloudSession.errorCode`).
  */
 export const CELL_FAILURE_CODES = {
-  /** The runner restarted and its sandbox for the session is gone (Task 3's `hello`). */
+  /** The runner restarted and its sandbox for the session is gone (the runner's `hello`). */
   runnerRestarted: 'runner_restarted',
   /** The cell could not hand the start to the runner. */
   runnerUnreachable: 'runner_unreachable',

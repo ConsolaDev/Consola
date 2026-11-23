@@ -113,7 +113,7 @@ export async function getSession(
  * Ends the caller's session at once, whether or not its runner is connected: the row becomes
  * `stopped`, and the runner is told only if it is the session's own runner and connected. A
  * runner that is away, or that cannot be told, still holds the sandbox, but the row is ended, so
- * when its `hello` lists the session the cell answers with a stop (Review Focus 7). A stop of an
+ * when its `hello` lists the session the cell answers with a stop (`runnerConnected`). A stop of an
  * ended session changes and sends nothing.
  */
 export async function stopSession(

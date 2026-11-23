@@ -817,9 +817,10 @@ export const listenHost = (
     }).pipe(Effect.mapError((cause) => new HostListenError({ cause })));
     const connections = { open: 0 };
     const tickets = makeSocketTickets();
-    // No request span: one would record the request's URL, and the pass travels in it. Every
-    // request runs with the pass among the redacted query parameters, so nothing that shows its
-    // URL shows the pass.
+    // No request span: one would record the request's URL, and the socket's ticket travels in
+    // it (`wsTicket`). Every request runs with the ticket, and the pass a client might still put
+    // there (refused), among the redacted query parameters, so nothing that shows a URL shows
+    // either.
     yield* server.serve(app(options, key, tickets, connections)).pipe(
       Effect.provideService(HttpMiddleware.TracerDisabledWhen, () => true),
       Effect.provideService(UrlParams.CurrentRedactedNames, HOST_REDACTED_URL_PARAMS),

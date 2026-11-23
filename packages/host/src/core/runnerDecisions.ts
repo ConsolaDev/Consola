@@ -17,7 +17,7 @@ import {
 } from '@consola/runner-protocol';
 import { type HostLine, readHostLine } from './hostLine.ts';
 
-/** The template a session's sandbox starts from (the sandbox template, Task 7). */
+/** The template a session's sandbox starts from (the session template, CON-93). */
 export const SESSION_TEMPLATE = 'consola-session';
 
 /** The command a session's sandbox runs: the template's start script, which runs the host. */
@@ -31,7 +31,7 @@ export const HARNESS_API_KEYS: Readonly<Record<Harness, string>> = {
 
 /**
  * Every variable of the runner's environment that holds a secret: its own secret, the git token,
- * and each harness's API key (Task 6 adds `E2B_API_KEY`). It is the one list: the runner takes
+ * and each harness's API key (`E2B_API_KEY` joins it when the runner wires E2B). It is the one list: the runner takes
  * their values out of everything it logs or reports (`secretValuesOf`), and never logs any of
  * them. A new secret the runner reads joins it (`bin.test.ts` checks the host's source for one
  * missing).
@@ -481,7 +481,7 @@ type HeldEnd = { end: EndedSession; sentOn: number | null; ping: number };
 
 /**
  * The sessions that ended and the cell may not have heard of, for `hello`'s `endedSessions`
- * (Review Focus 5). An end is held from the moment it is known: while the socket is down it rides
+ * (a runner's restart). An end is held from the moment it is known: while the socket is down it rides
  * in the next `hello`. Once it went out on a connection, a ping follows it, and the end is heard
  * when that ping's pong comes back, since the cell reads a socket's frames in order. Should the
  * connection close first, however long it was open, the end goes again in the next `hello` (an

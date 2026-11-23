@@ -10,7 +10,7 @@
  * the template's start script does, and listens on a free port of loopback, which `exposePort`
  * answers as `http://127.0.0.1:<port>`.
  *
- * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and Task 9's end-to-end test reuses it.
+ * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and the cloud session's end-to-end test (CON-96) is to reuse it.
  * It need not pass the whole sandbox contract; `sandboxesFrom` takes its answers.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
