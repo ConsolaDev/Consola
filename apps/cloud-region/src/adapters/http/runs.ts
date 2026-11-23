@@ -1,8 +1,8 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { FactoryStore, RunStore, TeamStore } from '../../application/ports.js';
-import { listRuns as listRunsUseCase, readRun } from '../../application/runs.js';
+import { answerRunApproval, listRuns as listRunsUseCase, readRun } from '../../application/runs.js';
 import type { CellEnv } from './caller.js';
-import { getRun, listRuns } from './contract.js';
+import { getRun, listRuns, postRunApproval } from './contract.js';
 
 const WORKSPACE_PENDING = { error: 'workspace_pending' } as const;
 
@@ -49,6 +49,34 @@ export function runRoutes(
     }
   });
 
+  // A person's answer to a run waiting for approval: recorded, never acted on here.
+  app.openapi(postRunApproval, async (c) => {
+    const answer = await answerRunApproval(
+      teams,
+      factories,
+      runs,
+      c.var.caller,
+      c.req.valid('param').runId,
+      c.req.valid('json'),
+    );
+    switch (answer.kind) {
+      case 'answered':
+        return c.json(answer.approval, 201);
+      case 'not-found':
+        return c.json({ error: 'run_not_found' } as const, 404);
+      case 'not-allowed':
+        return c.json({ error: 'not_allowed' } as const, 403);
+      case 'not-waiting':
+        return c.json({ error: 'not_waiting' } as const, 409);
+      case 'version-moved':
+        return c.json({ error: 'version_moved' } as const, 409);
+      case 'already-answered':
+        return c.json({ error: 'already_answered' } as const, 409);
+      case 'workspace-pending':
+        return c.json(WORKSPACE_PENDING, 409);
+    }
+  });
+
   app.openapi(getRun, async (c) => {
     const answer = await readRun(teams, factories, runs, c.var.caller, c.req.valid('param').runId);
     switch (answer.kind) {
@@ -62,6 +90,8 @@ export function runRoutes(
             children: answer.children,
             // The orchestrator's conversation comes with cloud sessions (CON-91).
             conversation: null,
+            source: answer.source,
+            approval: answer.approval,
           },
           200,
         );

@@ -413,6 +413,32 @@ changed; every other run is a top-level automation run. The rules are in
   a request's orchestrator step, an automation the version does not define,
   and a step it does not. A step stored before these fields existed reads as
   having none (`stepRecordOf`).
+- **The file behind a run** (`source`, `sourceOf` in `domain/runSource.ts`)
+  is read the same way: the file the automation is written in at the run's
+  version, whole, with the automation's own lines (`automationLines`, from
+  `@consola/factory-spec`: the whole file for `automations/<name>.yaml`, its
+  entry for `factory.yml`), how it starts, its mode and what it applies to,
+  and the factory's latest version beside it. Each step's definition carries
+  its lines in that file (`range`). Null for a request, and when the version
+  does not define the automation.
+- **Approving a run** (`POST /api/runs/{runId}/approval`,
+  `domain/runApproval.ts`) is the cell's first route through which a person
+  writes a row about a run. A run waiting for approval (`needs-approval`)
+  says why (`approvalReason`: its automation asks every time, its version
+  was not approved to run on its own, or its orchestrator's was not), what
+  approving lets run (`willRun`) and who may answer: anyone on its factory's
+  owning team, literally the team's members whatever their workspace role
+  (decided 2026-11-23), so an owner who sees every run answers only those of
+  the teams they are in (`mayAnswer`). The checks run in the route's order:
+  the body, the workspace held, the run seen (404 `run_not_found`, so a
+  member of another team learns nothing), on the team (403 `not_allowed`),
+  waiting (409 `not_waiting`), the version answered being the run's (409
+  `version_moved`), then the insert (409 `already_answered`: the first
+  answer for a version stands). The answer is a row of `run_approval`, keyed
+  by run and version, and the cell **never changes the run** for it: the
+  runner is the authority on a run, and acts on the answer once runners
+  exist (epic 21, CON-94). A run shows its approval while it waits and once
+  its version is answered.
 - **The demo seed** (`pnpm --filter @consola/cloud-region db:seed`,
   `src/seed.ts`, then `seedDemoRuns`) writes demo runs for every workspace
   the cell holds: a demo factory per team (`Demo · <team>`, each automation
@@ -598,7 +624,8 @@ transaction at a time, so the compare-and-set is also tested directly
 which give the workspaces already held their first team
 (`migrations.test.ts` runs it over a database migrated to `0000` only);
 `0002_factories` adds the factories' tables, all generated,
-`0003_github_event` GitHub's events, and `0004_runs` the runs.
+`0003_github_event` GitHub's events, `0004_runs` the runs, and
+`0005_run_approval` the answers to runs waiting for approval.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.
 

@@ -7,7 +7,7 @@ import type { Factory } from '../domain/factory.js';
 import { NO_RUNS, NO_STEP_DETAIL, type RunWrite, type StepRecord } from '../domain/run.js';
 import type { Team } from '../domain/team.js';
 import type { FactoryStore, RunStore, TeamStore, WorkspaceCopies } from './ports.js';
-import { listRuns, type RunsQuery, readRun, recordRun } from './runs.js';
+import { answerRunApproval, listRuns, type RunsQuery, readRun, recordRun } from './runs.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -389,11 +389,13 @@ steps:
         timeoutMs: 600_000,
         file: 'automations/nightly.yaml',
         version: 2,
+        range: { start: 4, end: 6 },
       },
       report: expect.objectContaining({
         kind: 'agent',
         prompt: 'Summarise the build.',
         maxTurns: 4,
+        range: { start: 7, end: 9 },
       }),
       // A step the version does not define has no definition.
       gone: null,
@@ -411,5 +413,174 @@ steps:
     expect(await definitionsOf('nightly-v1')).toEqual({ build: null });
     expect(await definitionsOf('other-v2')).toEqual({ build: null });
     expect(await definitionsOf('ask')).toEqual({ orchestrator: null });
+  });
+});
+
+describe('approvals', () => {
+  const DEPLOY = `on: { manual: {} }
+scope: storefront
+mode: confirm
+steps:
+  - id: build
+    run: pnpm build
+  - id: check
+    prompt: Check the build.
+`;
+  const NIGHTLY = `on: { cron: "0 3 * * *" }
+scope: storefront
+mode: auto
+steps:
+  - id: build
+    run: pnpm build
+`;
+
+  async function save(factoryId: string, path: string, content: string) {
+    const saved = await factories.save('acme', factoryId, {
+      baseVersion: 1,
+      files: [
+        { path: 'factory.yml', content: 'version: 1\n' },
+        { path, content },
+      ],
+      personId: 'person-dana',
+    });
+    if (saved.kind !== 'saved') throw new Error(`not saved: ${saved.kind}`);
+  }
+
+  /**
+   * Acme with Infra's `deploy` (confirm mode, Platform's: only Fay is on it) and Site's `nightly`
+   * (auto mode, General's: everyone is on it), each with a run waiting for approval at v2.
+   */
+  async function acmeWaiting() {
+    const made = await acme();
+    await save(made.infra.id, 'automations/deploy.yaml', DEPLOY);
+    await save(made.site.id, 'automations/nightly.yaml', NIGHTLY);
+    const waiting = {
+      status: 'needs-approval' as const,
+      factoryVersion: 2,
+      trigger: 'manual' as const,
+    };
+    await recorded(
+      'acme',
+      automationRun('deploy-run', made.infra.id, {
+        ...waiting,
+        automation: 'deploy',
+        startedBy: 'person-fay',
+        triggerDetail: null,
+        steps: [step('build', 'run'), step('check')].map((s) => ({
+          ...s,
+          status: 'pending' as const,
+        })),
+      }),
+    );
+    await recorded(
+      'acme',
+      automationRun('nightly-run', made.site.id, { ...waiting, trigger: 'cron', steps: [] }),
+    );
+    return made;
+  }
+
+  const answer = (who: Caller, runId: string, decision: 'approve' | 'dismiss', version = 2) =>
+    answerRunApproval(teams, factories, runs, who, runId, { decision, version });
+
+  const approvalSeenBy = async (who: Caller, runId: string) => {
+    const read = await readRun(teams, factories, runs, who, runId);
+    if (read.kind !== 'found') throw new Error(`not found: ${read.kind}`);
+    return read.approval;
+  };
+
+  it('ask while a run waits, saying why, what will run and who may answer', async () => {
+    const { platform, general } = await acmeWaiting();
+    expect(await approvalSeenBy(fay(), 'deploy-run')).toEqual({
+      version: 2,
+      reason: 'deploy asks before every run.',
+      team: { id: platform.id, name: 'Platform' },
+      mayAnswer: true,
+      will: {
+        commands: [{ step: 'build', command: 'pnpm build' }],
+        agents: [{ step: 'check', agent: null, prompt: 'Check the build.' }],
+      },
+      answer: null,
+    });
+    // An owner sees it, and is not on Platform.
+    expect((await approvalSeenBy(dana(), 'deploy-run'))?.mayAnswer).toBe(false);
+    expect(await approvalSeenBy(gus(), 'nightly-run')).toMatchObject({
+      reason: "Version 2 of nightly hasn't been approved to run on its own yet.",
+      team: { id: general.id, name: general.name },
+      mayAnswer: true,
+    });
+  });
+
+  it('take an answer from anyone on the team, and leave the run as it is', async () => {
+    await acmeWaiting();
+    const approved = await answer(fay(), 'deploy-run', 'approve');
+    expect(approved).toMatchObject({
+      kind: 'answered',
+      approval: {
+        mayAnswer: true,
+        answer: { decision: 'approved', by: 'person-fay', at: expect.any(String) },
+      },
+    });
+    const read = await readRun(teams, factories, runs, dana(), 'deploy-run');
+    expect(read.kind === 'found' && read.run.status).toBe('needs-approval');
+    expect(read.kind === 'found' && read.approval?.answer?.by).toBe('person-fay');
+  });
+
+  it('record a dismissal as one', async () => {
+    await acmeWaiting();
+    expect(await answer(gus(), 'nightly-run', 'dismiss')).toMatchObject({
+      kind: 'answered',
+      approval: { answer: { decision: 'dismissed', by: 'person-gus' } },
+    });
+  });
+
+  it('are not found by a member of another team, and refused to one who sees the run but is not on its team', async () => {
+    await acmeWaiting();
+    expect(await answer(gus(), 'deploy-run', 'approve')).toEqual({ kind: 'not-found' });
+    expect(await answer(dana(), 'deploy-run', 'approve')).toEqual({ kind: 'not-allowed' });
+    expect(await answer(eli(), 'deploy-run', 'approve')).toEqual({ kind: 'not-allowed' });
+    expect(await answer(fay(), 'no-such-run', 'approve')).toEqual({ kind: 'not-found' });
+  });
+
+  it('keep the first answer, and refuse a run that does not wait or a version that moved', async () => {
+    const { site } = await acmeWaiting();
+    expect((await answer(fay(), 'nightly-run', 'approve')).kind).toBe('answered');
+    expect(await answer(gus(), 'nightly-run', 'dismiss')).toEqual({ kind: 'already-answered' });
+    expect(await answer(fay(), 'deploy-run', 'approve', 1)).toEqual({ kind: 'version-moved' });
+    await recorded(
+      'acme',
+      automationRun('nightly-done', site.id, { status: 'completed', factoryVersion: 2 }),
+    );
+    expect(await answer(gus(), 'nightly-done', 'approve')).toEqual({ kind: 'not-waiting' });
+    // A run that never asked shows no approval.
+    expect(await approvalSeenBy(gus(), 'nightly-done')).toBeNull();
+  });
+
+  it('are pending while the cell does not hold the workspace', async () => {
+    expect(await answer(fay(), 'deploy-run', 'approve')).toEqual({ kind: 'workspace-pending' });
+  });
+
+  it('show the file behind an automation run, and none for a request', async () => {
+    const { infra } = await acmeWaiting();
+    const read = await readRun(teams, factories, runs, fay(), 'deploy-run');
+    expect(read.kind === 'found' && read.source).toEqual({
+      path: 'automations/deploy.yaml',
+      version: 2,
+      latestVersion: 2,
+      text: DEPLOY,
+      range: { start: 1, end: 8 },
+      trigger: { kind: 'manual', detail: null },
+      mode: 'confirm',
+      appliesTo: [],
+    });
+    await recorded(
+      'acme',
+      request('ask', infra.id, { status: 'needs-approval', factoryVersion: 2 }),
+    );
+    const ask = await readRun(teams, factories, runs, fay(), 'ask');
+    expect(ask.kind === 'found' && ask.source).toBeNull();
+    expect(ask.kind === 'found' && ask.approval).toMatchObject({
+      reason: "This factory's orchestrator hasn't been approved at this version yet.",
+      will: { commands: [], agents: [] },
+    });
   });
 });

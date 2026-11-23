@@ -136,4 +136,15 @@ describe('parseAutomationFile', () => {
     expect(result.lineAt(['steps', 0, 'agent'])).toBe(4);
     expect(result.lineAt(['scope'])).toBe(2);
   });
+
+  it('gives the lines a node is written on, and none for a path with no node', () => {
+    const result = parseAutomationFile('investigate-alerts', FILE);
+    expect(result.rangeAt(['steps', 0])).toEqual({ start: 7, end: 10 });
+    expect(result.rangeAt(['steps', 0, 'outputs'])).toEqual({ start: 10, end: 10 });
+    expect(result.rangeAt(['mode'])).toEqual({ start: 5, end: 5 });
+    // Unlike lineAt, which gives the nearest ancestor's (the steps' list), never another node's.
+    expect(result.rangeAt(['steps', 1])).toBeUndefined();
+    expect(result.lineAt(['steps', 1])).toBe(7);
+    expect(parseAutomationFile('Bad Name', FILE).rangeAt(['steps', 0])).toBeUndefined();
+  });
 });

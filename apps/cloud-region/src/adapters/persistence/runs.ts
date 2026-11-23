@@ -13,9 +13,10 @@ import {
   requestPhase,
   stepRecordOf,
 } from '../../domain/run.js';
+import type { RunAnswer } from '../../domain/runApproval.js';
 import type { Database } from './database.js';
 import { FOREIGN_KEY_VIOLATION, failedWith } from './sqlState.js';
-import { factories, runs } from './tables.js';
+import { factories, runApprovals, runs } from './tables.js';
 
 type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Executor = Database | Transaction;
@@ -58,6 +59,23 @@ type SummaryRow = {
 };
 
 const iso = (time: Date | null) => (time === null ? null : time.toISOString());
+
+/** What an answer reads of its row. */
+const ANSWER = {
+  decision: runApprovals.decision,
+  by: runApprovals.personId,
+  at: runApprovals.answeredAt,
+};
+
+const answerOfRow = (row: {
+  decision: RunAnswer['decision'];
+  by: string;
+  at: Date;
+}): RunAnswer => ({
+  decision: row.decision,
+  by: row.by,
+  at: row.at.toISOString(),
+});
 
 /** A summary of a row, with a request's children's phases (none for an automation run). */
 function summaryOf(row: SummaryRow, childPhases: readonly Phase[]): RunSummary {
@@ -351,6 +369,36 @@ export function createRunStore(db: Database): RunStore {
         )
         .orderBy(asc(runs.automation), asc(runs.factoryId));
       return rows.flatMap(({ factoryId, name }) => (name === null ? [] : [{ factoryId, name }]));
+    },
+
+    async answerOf(workspaceId, runId, version) {
+      const [row] = await db
+        .select(ANSWER)
+        .from(runApprovals)
+        .where(
+          and(
+            eq(runApprovals.workspaceId, workspaceId),
+            eq(runApprovals.runId, runId),
+            eq(runApprovals.version, version),
+          ),
+        );
+      return row ? answerOfRow(row) : null;
+    },
+
+    async answer(workspaceId, runId, { version, decision, personId }) {
+      try {
+        // The first answer for a version stands: a second inserts nothing.
+        const [row] = await db
+          .insert(runApprovals)
+          .values({ workspaceId, runId, version, decision, personId })
+          .onConflictDoNothing()
+          .returning(ANSWER);
+        return row ? answerOfRow(row) : 'already-answered';
+      } catch (error) {
+        // The only key an answer points along is its run's.
+        if (failedWith(error, FOREIGN_KEY_VIOLATION)) return 'not-found';
+        throw error;
+      }
     },
 
     async get(workspaceId, runId): Promise<RunFound | null> {

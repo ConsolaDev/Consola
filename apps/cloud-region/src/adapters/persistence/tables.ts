@@ -24,6 +24,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/pg-core';
 import type { FactorySource } from '../../domain/factory.js';
+import { APPROVAL_DECISIONS, type ApprovalDecision } from '../../domain/runApproval.js';
 import {
   PHASES,
   type Phase,
@@ -321,5 +322,35 @@ export const runs = pgTable(
       'run_parent_check',
       sql`(${table.parentRunId} is null) = (${table.parentMove} is null) and (${table.parentRunId} is null or ${table.kind} = 'automation')`,
     ),
+  ],
+);
+
+/**
+ * The answers people gave runs waiting for approval (`domain/runApproval.ts`): one per run and
+ * factory version, the first given, by global id. The cell records an answer and never changes
+ * the run for it: its runner acts on it. An answer goes with its run.
+ */
+export const runApprovals = pgTable(
+  'run_approval',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.workspaceId),
+    runId: text('run_id').notNull(),
+    version: integer('version').notNull(),
+    decision: text('decision').$type<ApprovalDecision>().notNull(),
+    personId: text('person_id').notNull(),
+    answeredAt: timestamp('answered_at', { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.runId, table.version] }),
+    foreignKey({
+      name: 'run_approval_run_fk',
+      columns: [table.workspaceId, table.runId],
+      foreignColumns: [runs.workspaceId, runs.runId],
+    }).onDelete('cascade'),
+    check('run_approval_decision_check', oneOf(table.decision, APPROVAL_DECISIONS)),
   ],
 );

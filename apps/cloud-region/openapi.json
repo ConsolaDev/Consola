@@ -929,6 +929,159 @@
         "additionalProperties": false,
         "description": "How many runs are in each phase."
       },
+      "RunApproval": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "description": "The version an answer applies to: the run's factory version."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it asks, in one plain sentence."
+          },
+          "team": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false,
+            "description": "Who may answer: anyone on the factory's owning team."
+          },
+          "mayAnswer": {
+            "type": "boolean",
+            "description": "Whether the caller is on that team."
+          },
+          "will": {
+            "type": "object",
+            "properties": {
+              "commands": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "step": {
+                      "type": "string"
+                    },
+                    "command": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "step",
+                    "command"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "agents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "step": {
+                      "type": "string"
+                    },
+                    "agent": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "prompt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "step",
+                    "agent",
+                    "prompt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            },
+            "required": [
+              "commands",
+              "agents"
+            ],
+            "additionalProperties": false,
+            "description": "What approving lets run, as the definition writes it: each command and each agent step. Empty for a request."
+          },
+          "answer": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "decision": {
+                "type": "string",
+                "enum": [
+                  "approved",
+                  "dismissed"
+                ]
+              },
+              "by": {
+                "type": "string",
+                "description": "The global id of the person who answered."
+              },
+              "at": {
+                "type": "string",
+                "description": "When, as an ISO 8601 time."
+              }
+            },
+            "required": [
+              "decision",
+              "by",
+              "at"
+            ],
+            "additionalProperties": false,
+            "description": "The answer for this version: the first one given."
+          }
+        },
+        "required": [
+          "version",
+          "reason",
+          "team",
+          "mayAnswer",
+          "will",
+          "answer"
+        ],
+        "additionalProperties": false,
+        "description": "A run's request to be approved: present while the run needs approval, and once answered. The cell records the answer; the run's runner acts on it."
+      },
+      "ApprovalAnswer": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "approve",
+              "dismiss"
+            ]
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "decision",
+          "version"
+        ],
+        "description": "Approve or dismiss a run waiting for approval, at the version the caller was shown: the run's factory version."
+      },
       "RunDetail": {
         "type": "object",
         "properties": {
@@ -1060,6 +1213,26 @@
             ],
             "additionalProperties": false,
             "description": "The cloud session holding the orchestrator's conversation, once there is one. Always null for now."
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunApproval"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1068,7 +1241,9 @@
           "steps",
           "request",
           "children",
-          "conversation"
+          "conversation",
+          "source",
+          "approval"
         ],
         "additionalProperties": false
       },
@@ -1499,6 +1674,17 @@
           "version": {
             "type": "integer",
             "description": "The factory version it was read from."
+          },
+          "range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LineRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The step's lines in its run's `source.text`; null when they are not known."
           }
         },
         "required": [
@@ -1514,10 +1700,103 @@
           "maxTurns",
           "timeoutMs",
           "file",
-          "version"
+          "version",
+          "range"
         ],
         "additionalProperties": false,
         "description": "What a step was asked, as its automation's file says at the factory version the run executed."
+      },
+      "LineRange": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "integer"
+          },
+          "end": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "additionalProperties": false,
+        "description": "Lines of a file, from 1, both ends included."
+      },
+      "RunSource": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The file the automation is written in: `automations/<name>.yaml`, or `factory.yml`."
+          },
+          "version": {
+            "type": "integer",
+            "description": "The factory version the run executed."
+          },
+          "latestVersion": {
+            "type": "integer",
+            "description": "The factory's latest version now."
+          },
+          "text": {
+            "type": "string",
+            "description": "The whole file, at that version."
+          },
+          "range": {
+            "$ref": "#/components/schemas/LineRange"
+          },
+          "trigger": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "$ref": "#/components/schemas/RunTrigger"
+              },
+              "detail": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "The cron schedule, the event(s), or the poll's check, as written."
+              }
+            },
+            "required": [
+              "kind",
+              "detail"
+            ],
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "confirm",
+              "notify"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "pr",
+                "issue"
+              ]
+            },
+            "description": "Which items a run on demand takes; empty when none."
+          }
+        },
+        "required": [
+          "path",
+          "version",
+          "latestVersion",
+          "text",
+          "range",
+          "trigger",
+          "mode",
+          "appliesTo"
+        ],
+        "additionalProperties": false,
+        "description": "The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in the cell yet), and when that version does not define the automation."
       }
     },
     "parameters": {}
@@ -4743,6 +5022,296 @@
                       "type": "string",
                       "enum": [
                         "workspace_pending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{runId}/approval": {
+      "post": {
+        "summary": "Approve or dismiss a run that waits for approval",
+        "description": "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "runId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalAnswer"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The answer is recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunApproval"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller sees the run, but is not on its factory's owning team.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_allowed"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no run with that id that the caller sees.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "run_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), the version is not the run's (`version_moved`), or the cell does not hold the workspace yet (`workspace_pending`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_waiting"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "already_answered"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "version_moved"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_pending"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
                       ]
                     }
                   },

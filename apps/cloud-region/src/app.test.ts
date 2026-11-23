@@ -53,6 +53,7 @@ import {
   getFactory,
   getFactoryVersion,
   getRun,
+  postRunApproval,
   listFactories,
   listRuns,
   listTeams,
@@ -1993,6 +1994,7 @@ describe('runs', () => {
           timeoutMs: 600_000,
           file: 'automations/nightly.yaml',
           version: 2,
+          range: { start: 4, end: 6 },
         },
       },
     ]);
@@ -2076,5 +2078,127 @@ describe('runs', () => {
     const pending = { status: 409, body: { error: 'workspace_pending' } };
     expect(await ask(listRuns, '/api/runs', owner)).toEqual(pending);
     expect(await ask(getRun, '/api/runs/any', owner)).toEqual(pending);
+    const body = { decision: 'approve', version: 1 };
+    expect(await ask(postRunApproval, '/api/runs/any/approval', owner, { body })).toEqual(pending);
+  });
+
+  describe('waiting for approval', () => {
+    const answerAs = (who: Partial<CellTokenGrant>, runId: string, body: unknown) =>
+      ask(postRunApproval, `/api/runs/${runId}/approval`, who, { body });
+    const waiting = { status: 'needs-approval', startedAt: null, finishedAt: null } as const;
+
+    /** A run of Reviews (General: everyone) and one of Deploys (Platform: nobody yet), waiting. */
+    async function acmeWaiting() {
+      const made = await acmeWithFactories();
+      const saved = await saveFiles(made.reviews.id, owner, {
+        baseVersion: 1,
+        files: [
+          { path: 'factory.yml', content: 'version: 1\n' },
+          {
+            path: 'automations/nightly.yaml',
+            content:
+              'on: { cron: "0 3 * * *" }\nscope: storefront\nmode: confirm\nsteps:\n  - id: build\n    run: pnpm build\n',
+          },
+        ],
+      });
+      expect(saved.status).toBe(201);
+      await recordRuns(
+        cronRun('reviews-wait', made.reviews.id, { ...waiting, factoryVersion: 2 }),
+        cronRun('deploys-wait', made.deploys.id, waiting),
+        cronRun('reviews-done', made.reviews.id, { factoryVersion: 2 }),
+      );
+      return made;
+    }
+
+    it('show the run its approval and the file behind it', async () => {
+      const { general } = await acmeWaiting();
+      const read = await ask(getRun, '/api/runs/reviews-wait', member);
+      expect(read.status).toBe(200);
+      expect(read.body).toMatchObject({
+        source: {
+          path: 'automations/nightly.yaml',
+          version: 2,
+          latestVersion: 2,
+          range: { start: 1, end: 6 },
+          trigger: { kind: 'cron', detail: '0 3 * * *' },
+          mode: 'confirm',
+          appliesTo: [],
+        },
+        steps: [{ id: 'build', definition: { range: { start: 5, end: 6 } } }],
+        approval: {
+          version: 2,
+          reason: 'nightly asks before every run.',
+          team: { id: general.id, name: FIRST_TEAM_NAME },
+          mayAnswer: true,
+          will: { commands: [{ step: 'build', command: 'pnpm build' }], agents: [] },
+          answer: null,
+        },
+      });
+      expect((await ask(getRun, '/api/runs/reviews-done', member)).body).toMatchObject({
+        approval: null,
+      });
+    });
+
+    it('take an answer from anyone on the team, the first one, and leave the run waiting', async () => {
+      await acmeWaiting();
+      const approved = await answerAs(member, 'reviews-wait', { decision: 'approve', version: 2 });
+      expect(approved).toMatchObject({
+        status: 201,
+        body: { answer: { decision: 'approved', by: member.personId, at: expect.any(String) } },
+      });
+      expect(await answerAs(admin, 'reviews-wait', { decision: 'dismiss', version: 2 })).toEqual({
+        status: 409,
+        body: { error: 'already_answered' },
+      });
+      const read = await ask(getRun, '/api/runs/reviews-wait', owner);
+      expect(read.body).toMatchObject({
+        run: { status: 'needs-approval' },
+        approval: { mayAnswer: true, answer: { decision: 'approved', by: member.personId } },
+      });
+    });
+
+    it('are not found by a member of another team, and refused to whoever sees the run but is not on its team', async () => {
+      const { platform } = await acmeWaiting();
+      const body = { decision: 'dismiss', version: 1 };
+      expect(await answerAs(member, 'deploys-wait', body)).toEqual({
+        status: 404,
+        body: { error: 'run_not_found' },
+      });
+      expect(await answerAs(owner, 'deploys-wait', body)).toEqual({
+        status: 403,
+        body: { error: 'not_allowed' },
+      });
+      expect((await ask(getRun, '/api/runs/deploys-wait', owner)).body).toMatchObject({
+        approval: { mayAnswer: false },
+      });
+      // On the team, the owner may: whatever their role, the team decides.
+      await ask(putTeamMember, `/api/teams/${platform.id}/members/${owner.personId}`, owner);
+      expect(await answerAs(owner, 'deploys-wait', body)).toMatchObject({
+        status: 201,
+        body: { answer: { decision: 'dismissed', by: owner.personId } },
+      });
+    });
+
+    it('refuse a run that does not wait, a version that moved, and a body they cannot read', async () => {
+      await acmeWaiting();
+      expect(await answerAs(member, 'reviews-done', { decision: 'approve', version: 2 })).toEqual({
+        status: 409,
+        body: { error: 'not_waiting' },
+      });
+      expect(await answerAs(member, 'reviews-wait', { decision: 'approve', version: 1 })).toEqual({
+        status: 409,
+        body: { error: 'version_moved' },
+      });
+      const invalid = { status: 400, body: { error: 'invalid_request' } };
+      for (const body of [{ decision: 'maybe', version: 2 }, { decision: 'approve' }, 'not json']) {
+        expect(await answerAs(member, 'reviews-wait', body)).toEqual(invalid);
+      }
+      expect(
+        await ask(postRunApproval, '/api/runs/reviews-wait/approval', member, {
+          body: 'decision=approve',
+          headers: { 'content-type': 'text/plain' },
+        }),
+      ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+    });
   });
 });
