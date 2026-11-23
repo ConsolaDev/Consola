@@ -994,6 +994,49 @@ which keeps the answer the run was made with (`knownTools`, never a grant).
 Both show each skill's `SKILL.md` as what they accept holds it: Allow the
 version's, a run's approval its own copy's. Canary rows 20–28.
 
+### Secrets Are Names; Bindings Are the Runner's
+
+A file names a secret, never its value or where it lives: `secrets:` on a
+`run:` step or on a poll's check command. Each runner binds the name per
+workspace and factory (`personal` until factories arrive); the desktop keeps
+the binding in `secret-bindings.json` in Consola's state folder, as a
+reference only (`keychain:<service>/<account>`, `op://…`, `env:<NAME>`), never
+in the factory folder, a harness record or workspace settings. Where a name is
+bound is not part of the version, so a rebinding never asks for approval again;
+it shows where the name is used (Settings › Secrets, the cards), and a poll
+whose check uses it baselines rather than firing every item.
+
+- **Unbound is the entry's problem**, never the folder's: `needs … bound on
+  this Mac (Settings › Secrets)`, decided last, after everything else about
+  the entry (`resolveAll`'s last line). A save never refuses for it, and
+  binding brings back the entry, version and acceptance it had.
+- **A run reads every value it will use when its next step is let in to start
+  and it holds none** (`startWaiting`, `RunSecrets`), all at once, never
+  before a turn that resumes in its session after a restart. It holds them
+  only while its status is `running`: `broadcastRun` drops them, and
+  `syncWorkspaces` for a deleted workspace's runs. A failed read fails that
+  step before it starts. A check reads its own before each check.
+- **Each command gets only its own names**, as environment variables, after
+  `env:` and before `CONSOLA_*`; never a template path (`{{secrets.X}}` is
+  refused), never a command line. No agent is given a value, and an `env:`
+  binding hides nothing from a host agent or from a command that does not
+  name it: both start with the whole login environment.
+- **Every value's printed forms** (`maskFormsOf`: raw, its lines, JSON-escaped,
+  percent-encoded, base64 at each alignment) join the mask list every command
+  and check already uses, so logs, `command.json`, outputs, errors and a
+  check's status line are masked by the code that masks the bound account's
+  token. Consola rewrites a command's `$CONSOLA_OUTPUT` masked as it ends; a
+  file the command writes under a name of its own stays its own.
+- **The engine core sees names, labels and fingerprints** through
+  `SecretsPort`, never a reference, and spawns no reader. The desktop reads
+  `/usr/bin/security` by absolute path and `op` by the path kept when the
+  person bound it, both named only in `secretPrograms`, which in a test run
+  answers the stubs `CONSOLA_E2E_SECURITY` / `CONSOLA_E2E_OP` name, or
+  nothing. No test reads the person's keychain or 1Password.
+- **No IPC member carries a value**: `secrets:list` carries names, labels,
+  times and uses, `secrets:bind` a reference. No agent binds, and no Consola
+  tool reads, writes or lists a value or a reference.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -1226,6 +1269,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `open-in:*` - "Open in" a session's folder: the apps main found (`open-in:list`), and opening one (`open-in:open`), which main checks first
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
+- `secrets:*` - A workspace's secret names and bindings (never a value); bind and unbind
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 
