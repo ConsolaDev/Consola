@@ -46,6 +46,13 @@ export interface AutomationView {
   takesItem?: 'pr' | 'issue' | 'pr-or-issue' | 'item';
   /** A poll's check: its command and interval as written, and how its last check went. */
   check?: CheckView;
+  /**
+   * Why none of its runs can start now: the repository its own checkout is
+   * cut from is cloned in none of the workspace's scopes (slice 3-B, the 3-B
+   * code review's F8). An event entry fires nothing meanwhile, a poll skips
+   * every item.
+   */
+  notCloned?: string;
   /** A poll entry whose command no person has allowed at this version: it does not check. */
   needsAllow?: true;
   /** Present with `needsAllow`: the version Allow sends back, refused once the entry changed. */
@@ -192,6 +199,8 @@ export interface CheckView {
   items?: number;
   fired?: number;
   skipped?: number;
+  /** Why every item it skipped was skipped, when one reason covers them all (the 3-B code review's F8). */
+  skippedWhy?: string;
   /** The last check recorded what was there and fired nothing. */
   baseline?: true;
   /** Why the last check failed. */

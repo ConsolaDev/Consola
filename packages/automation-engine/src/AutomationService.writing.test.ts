@@ -281,6 +281,28 @@ describe('a run that owns its checkout makes it before its first step (Task 12)'
     expect(event.store.runs()).toHaveLength(1);
   });
 
+  it("says why: a poll's skipped count and an event entry's view name the repository that is not cloned (3-B code review F8)", async () => {
+    const WHY = 'sprocket/catalog-portal is not cloned in this workspace.';
+    const poll = await harness(POLL_OWNED);
+    await check(poll, 'poll-own', [{ key: 'SHOP-41' }]);
+    poll.world.repoCloned = () => false;
+    await check(poll, 'poll-own', [{ key: 'SHOP-41' }, { key: 'SHOP-42' }]);
+    expect(lastCheck(poll, 'poll-own')).toMatchObject({ skipped: 2, skippedWhy: WHY });
+    const pollView = poll.service.list(WORKSPACE_ID).find((view) => view.name === 'poll-own')!;
+    expect(pollView).toMatchObject({ notCloned: WHY, check: { skipped: 2, skippedWhy: WHY } });
+    poll.world.repoCloned = () => true;
+    await check(poll, 'poll-own', [{ key: 'SHOP-41' }, { key: 'SHOP-42' }]);
+    expect(lastCheck(poll, 'poll-own')).not.toHaveProperty('skippedWhy');
+    expect(poll.service.list(WORKSPACE_ID)[0]).not.toHaveProperty('notCloned');
+
+    const event = await harness(EVENT_OWNED);
+    event.world.repoCloned = () => false;
+    await event.poll([inboxItem({ repo: REPO, number: 51 })]);
+    expect(event.service.list(WORKSPACE_ID)[0]).toMatchObject({ notCloned: WHY });
+    event.world.repoCloned = () => true;
+    expect(event.service.list(WORKSPACE_ID)[0]).not.toHaveProperty('notCloned');
+  });
+
   it('an item run records kind item, a scope run kind scope', async () => {
     const h = await stepsHarness({
       yaml: `version: 1\nautomations:\n  - name: on-pr\n    on: { github: pull_request.review_requested }\n    mode: auto\n${steps('- id: check\n  run: "true"')}  - name: daily\n    on: manual\n    scope: api\n    mode: auto\n${steps('- id: check\n  run: "true"')}`,

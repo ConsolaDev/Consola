@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { CheckView } from '../../../shared/automations';
 import {
@@ -10,6 +12,7 @@ import {
   noNextCheckWords,
   openFileWords,
   pollRunsEmptyWords,
+  notClonedWords,
   skippedWords,
   RUNNING_VERSION_NOTE,
   triggerNodeWords,
@@ -110,6 +113,25 @@ describe('skippedWords', () => {
   it('says how many were left out and why, and nothing when none were', () => {
     expect(skippedWords(2)).toBe('2 skipped: their repositories are not in this workspace');
     expect(skippedWords(0)).toBeNull();
+  });
+
+  it("names the one reason when the engine gives it: an own checkout's repository not cloned (3-B code review F8)", () => {
+    expect(skippedWords(2, 'sprocket/catalog-portal is not cloned in this workspace.')).toBe(
+      '2 skipped: sprocket/catalog-portal is not cloned in this workspace',
+    );
+    expect(skippedWords(0, 'sprocket/catalog-portal is not cloned in this workspace.')).toBeNull();
+  });
+
+  it('the automation page shows both: the check line with its reason, and why it runs nothing (F8)', () => {
+    const page = fs.readFileSync(path.join(__dirname, 'AutomationDetails.tsx'), 'utf8');
+    expect(page).toContain('skippedWords(check.skipped ?? 0, check.skippedWhy)');
+    expect(page).toContain('{notClonedWords(automation.notCloned)}');
+  });
+
+  it("says why an entry runs nothing while its checkout's repository is not cloned (F8)", () => {
+    expect(notClonedWords('sprocket/catalog-portal is not cloned in this workspace.')).toBe(
+      'Runs nothing: sprocket/catalog-portal is not cloned in this workspace.',
+    );
   });
 });
 

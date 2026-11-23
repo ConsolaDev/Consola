@@ -2498,8 +2498,9 @@ export class AutomationService {
       result: { at, version: entry.version, items },
     });
     let skipped = 0;
-    // An entry that owns its checkout skips every item while its repository is not cloned (slice 3-B, Call 5).
-    const cloned = this.runOwnedNotCloned(entry) === null;
+    // An entry that owns its checkout skips every item while its repository is not cloned (slice 3-B, Call 5), and says so (F8).
+    const notCloned = this.runOwnedNotCloned(entry);
+    const cloned = notCloned === null;
     const current = items.map((item) => {
       const passes =
         cloned &&
@@ -2510,7 +2511,14 @@ export class AutomationService {
     const { fired, baseline } = this.fireFromSet(entry, current, at);
     this.checks.set(key, {
       ...this.checkStateOf(key),
-      outcome: { at, items: items.length, fired, skipped, baseline },
+      outcome: {
+        at,
+        items: items.length,
+        fired,
+        skipped,
+        baseline,
+        ...(notCloned !== null && skipped > 0 ? { skippedWhy: notCloned } : {}),
+      },
     });
     void this.pump();
   }
@@ -2555,6 +2563,8 @@ export class AutomationService {
       const added = this.deps.store.addedBy(automationKey(entry));
       const { trigger } = automation;
       const takesItem = takesItemOf(entry);
+      // Why its runs cannot start: its own checkout's repository is not cloned (F8).
+      const notCloned = this.runOwnedNotCloned(entry);
       return {
         name: automation.name,
         mode: automation.mode,
@@ -2571,6 +2581,7 @@ export class AutomationService {
         ...(takesItem ? { takesItem } : {}),
         ...(trigger.kind === 'poll' ? { check: this.checkView(entry, trigger, now) } : {}),
         ...(this.needsAllow(entry) ? { needsAllow: true as const, version: entry.version } : {}),
+        ...(notCloned !== null ? { notCloned } : {}),
         kind: describeKind(automation),
         runs: describeRun(automation),
         target: automation.run?.ref ?? 'steps',
@@ -7489,6 +7500,7 @@ function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): Chec
           items: outcome.items,
           fired: outcome.fired,
           skipped: outcome.skipped,
+          ...(outcome.skippedWhy !== undefined ? { skippedWhy: outcome.skippedWhy } : {}),
           ...(outcome.baseline ? { baseline: true as const } : {}),
         };
   return {
