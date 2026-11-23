@@ -2839,6 +2839,7 @@ async function row37() {
   const probe = probeScript(base, 'probe-37', [
     ['git-status', 'git status --short --branch'],
     ['git-clone', `git clone -q ${r.clone} .consola-cache/clone-probe`],
+    ['git-init', 'git init -q .consola-cache/init-probe'],
     ['git-other', `git -C ${r.clone} rev-parse --abbrev-ref HEAD`],
     `echo "[env-names] exit=0 $(awk 'BEGIN { for (k in ENVIRON) print k }' | sort | tr '\\n' ' ')"`,
   ]);
@@ -2868,16 +2869,23 @@ async function row37() {
     problems.push(
       `git status exit ${lines.get('git-status')?.exit} (${short(lines.get('git-status')?.out, 80)})`,
     );
-  if (lines.get('git-clone')?.exit !== 0)
-    problems.push(
-      `git clone exit ${lines.get('git-clone')?.exit} (${short(lines.get('git-clone')?.out, 100)})`,
-    );
+  // The conductor's ruling on this row (2026-11-22): the CLI's sandbox refuses `.git/config` and
+  // `.git/hooks` in every folder it lets the shell write, so `git clone` and `git init` are refused there.
+  for (const [id, made] of [
+    ['git-clone', path.join(r.checkout, '.consola-cache', 'clone-probe', '.git', 'config')],
+    ['git-init', path.join(r.checkout, '.consola-cache', 'init-probe', '.git', 'config')],
+  ]) {
+    const line = lines.get(id);
+    if (line?.exit === undefined) problems.push(`${id} did not run`);
+    else if (line.exit === 0) problems.push(`${id} was not refused`);
+    if (fs.existsSync(made)) problems.push(`${id} wrote ${path.relative(r.checkout, made)}`);
+  }
   const other = (lines.get('git-other')?.out ?? '').trim();
   if (other !== cloneBranch)
     problems.push(
       `git in the other repository answered ${JSON.stringify(other)}, not its own ${cloneBranch}`,
     );
-  const saw = `names: ${names.join(' ')}; git status exit=${lines.get('git-status')?.exit}, clone exit=${lines.get('git-clone')?.exit}, the other repository says ${JSON.stringify(other)}; ${money(facts.cost)}`;
+  const saw = `names: ${names.join(' ')}; git status exit=${lines.get('git-status')?.exit}, clone exit=${lines.get('git-clone')?.exit} (${short(lines.get('git-clone')?.out, 80)}), init exit=${lines.get('git-init')?.exit} (${short(lines.get('git-init')?.out, 80)}), the other repository says ${JSON.stringify(other)}; ${money(facts.cost)}`;
   return problems.length
     ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
     : { status: 'PASS', why: saw };
@@ -2910,45 +2918,27 @@ async function row38() {
 }
 
 /**
- * One row 39 turn: hooks, `sandbox` and `allowedMcpServers` in one
- * `--settings`. With `hookHost`, the hook listener's `127.0.0.1:<port>` is
- * in `allowedDomains` (the CLI sends an HTTP hook through the sandbox's
- * proxy, which refuses a host it does not allow), and the probe also asks
- * whether the shell can then reach that port, and another loopback port.
+ * Row 39, as the conductor ruled on 2026-11-22: a `sandbox` write agent's one
+ * `--settings` holds `sandbox` and `allowedMcpServers` and no attention
+ * hooks (the CLI posts an HTTP hook through the sandbox's proxy, which
+ * refuses Consola's loopback endpoint, and nothing local joins
+ * `allowedDomains`). Both keys hold: init names only the allowed servers,
+ * the outside write is refused, and nothing reaches a loopback listener.
  */
-async function row39Turn(id, { hookHost = false } = {}) {
-  const base = rowBase(id);
+async function row39() {
+  const base = rowBase(39);
   const r = runClone(base);
-  const hooks = await listener();
-  const other = await listener();
+  const loopback = await listener();
   try {
     const outside = path.join(base, 'outside');
     fs.mkdirSync(outside, { recursive: true });
-    const hostPort = new URL(hooks.url).host;
     const probe = probeScript(base, 'probe-39', [
       ['outside', `echo x > ${outside}/w.txt`],
       ['inside', 'echo x > ./inside.txt'],
-      ...(hookHost
-        ? [
-            [
-              'shell-to-hook-port',
-              `curl -s -o /dev/null -w '%{http_code}' --max-time 5 ${hooks.url}/from-shell`,
-            ],
-            [
-              'shell-to-other-port',
-              `curl -s -o /dev/null -w '%{http_code}' --max-time 5 ${other.url}/from-shell`,
-            ],
-            // The same through the sandbox's proxy, which allows the hook's host and port.
-            [
-              'proxy-to-hook-port',
-              `curl --noproxy '' -s -o /dev/null -w '%{http_code}' --max-time 5 ${hooks.url}/from-shell`,
-            ],
-            [
-              'proxy-to-other-port',
-              `curl --noproxy '' -s -o /dev/null -w '%{http_code}' --max-time 5 ${other.url}/from-shell`,
-            ],
-          ]
-        : []),
+      [
+        'loopback',
+        `curl --noproxy '' -s -o /dev/null -w '%{http_code}' --max-time 5 ${loopback.url}/from-shell`,
+      ],
     ]);
     const result = await writeTurn(
       [
@@ -2961,8 +2951,7 @@ async function row39Turn(id, { hookHost = false } = {}) {
         ...writeAgentFlags({
           tools: 'write',
           settings: {
-            hooks: hookSettings(`${hooks.url}/hook`, ['UserPromptSubmit']),
-            sandbox: S(r.checkout, hookHost ? [hostPort] : []),
+            sandbox: S(r.checkout),
             allowedMcpServers: [{ serverName: 'consola' }, { serverName: 'srva' }],
           },
           deny: pointerRules(r.checkout),
@@ -2976,37 +2965,21 @@ async function row39Turn(id, { hookHost = false } = {}) {
     const lines = probeLines(facts.events);
     const names = serverNames(facts.init?.mcp_servers);
     const problems = [];
-    if (!hooks.hookEvents().includes('UserPromptSubmit')) problems.push('no UserPromptSubmit');
     if (lines.size === 0) problems.push('the probe did not run');
     else if (!refused(lines.get('outside')) || fs.existsSync(path.join(outside, 'w.txt')))
       problems.push('the outside write was not refused');
     for (const name of ['consola', 'srva'])
       if (!names.includes(name)) problems.push(`init does not name ${name}`);
     if (names.includes('srvb')) problems.push('init names srvb');
-    const fromShell = hooks.posts.filter((post) => post.path === '/from-shell').length;
-    const reach = hookHost
-      ? `; the shell reached the hook port ${fromShell ? `YES (${fromShell} request(s))` : 'no'} (direct ${short(lines.get('shell-to-hook-port')?.out, 12)}, through the proxy ${short(lines.get('proxy-to-hook-port')?.out, 12)}), another loopback port ${other.posts.length ? 'YES' : 'no'} (direct ${short(lines.get('shell-to-other-port')?.out, 12)}, through the proxy ${short(lines.get('proxy-to-other-port')?.out, 12)})`
-      : '';
-    const saw = `hooks heard: ${hooks.hookEvents().join(', ') || 'none'}; init: ${names.join(', ') || 'none'}; ${lineWords(lines)}${reach}; ${money(facts.cost)}`;
-    return { problems, saw };
+    if (loopback.posts.length > 0)
+      problems.push(`the loopback listener heard ${loopback.posts.length} request(s)`);
+    const saw = `init: ${names.join(', ') || 'none'}; ${lineWords(lines)}; loopback heard ${loopback.posts.length}; ${money(facts.cost)}`;
+    return problems.length
+      ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
+      : { status: 'PASS', why: saw };
   } finally {
-    await hooks.close();
-    await other.close();
+    await loopback.close();
   }
-}
-
-async function row39() {
-  const { problems, saw } = await row39Turn(39);
-  if (!problems.length) return { status: 'PASS', why: saw };
-  // What would make the hooks arrive, for the conductor: the listener's host and port allowed.
-  if (problems.includes('no UserPromptSubmit')) {
-    const allowed = await row39Turn('39-hookhost', { hookHost: true });
-    return {
-      status: 'FAIL',
-      why: `${problems.join('; ')}; ${saw}. Again with the hook's 127.0.0.1:<port> in allowedDomains: ${allowed.problems.length ? allowed.problems.join('; ') : 'nothing wrong'}; ${allowed.saw}`,
-    };
-  }
-  return { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` };
 }
 
 async function row40() {
@@ -3699,14 +3672,14 @@ const ROWS = [
   { id: '36', name: 'network: the allow-list only', needs: 'tokens', run: row36 },
   {
     id: '37',
-    name: "the environment is what was given, and a step's git works in it",
+    name: 'the environment is what was given; git status works, git clone and git init are refused',
     needs: 'tokens',
     run: row37,
   },
   { id: '38', name: 'the unsandboxed retry is refused', needs: 'tokens', run: row38 },
   {
     id: '39',
-    name: 'one --settings holds hooks, sandbox and allowedMcpServers',
+    name: 'one --settings holds sandbox and allowedMcpServers, and no hooks',
     needs: 'tokens',
     run: row39,
   },
