@@ -5,8 +5,12 @@ import { connect } from 'node:net';
 import {
   CommandId,
   type ModelSelection,
+  ORCHESTRATION_PROTOCOL_HEADER,
+  ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
   type OrchestrationV2Command,
+  type OrchestrationV2ShellStreamItem,
+  type OrchestrationV2SubscribeShellInput,
   type OrchestrationV2ThreadStreamItem,
   ProviderInstanceId,
   RunId,
@@ -20,6 +24,7 @@ import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
+import * as Option from 'effect/Option';
 import * as Queue from 'effect/Queue';
 import * as Scope from 'effect/Scope';
 import * as Tracer from 'effect/Tracer';
@@ -34,6 +39,11 @@ import {
   resolveRemoteWebSocketConnectionUrl,
 } from '@t3tools/client-runtime/authorization';
 import { fetchRemoteEnvironmentDescriptor } from '@t3tools/client-runtime/environment';
+import {
+  executeEnvironmentHttpRequest,
+  makeEnvironmentHttpApiGroupClient,
+} from '@t3tools/client-runtime/rpc';
+import { boundedSnapshotProjection } from '@t3tools/shared/orchestrationV2BoundedSnapshot';
 import { PASS_AUDIENCE, PASS_MAX_LIFETIME_SECONDS, PASS_TYPE } from '@consola/runner-protocol';
 import { decodeJwt, SignJWT } from 'jose';
 import { userFacingDispatchErrorMessage } from 't3/orchestration-v2/UserFacingErrors.ts';
@@ -45,6 +55,7 @@ import { isolateMachine } from '../testing/machine.ts';
 import {
   loadReplay,
   REPLAY_TIMEOUT_MS,
+  REPLAY_TITLE,
   replayClaudeDriver,
   sendMessage,
   sessionSpec,
@@ -607,7 +618,7 @@ describe('serveHost', () => {
           // providers.
           const { initialConfig } = yield* connect();
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
-          // Its thread snapshots come over the socket, so t3's client asks no HTTP route for one.
+          // A cold thread opens over the socket first, so t3's client asks no HTTP route for it.
           expect(initialConfig.threadSnapshotPagination).toBe(true);
           // The session's provider, and no other (the composition hydrates its driver alone).
           expect(initialConfig.providers.map((provider) => provider.instanceId)).toEqual([
@@ -852,7 +863,7 @@ describe('serveHost', () => {
   );
 
   it(
-    'answers a method it does not serve with NotOfferedByHost: orchestration.getTurnDiff, subscribeShell',
+    'answers a method it does not serve with NotOfferedByHost: orchestration.getTurnDiff, subscribeDeviceState',
     () =>
       withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
         Effect.gen(function* () {
@@ -876,11 +887,11 @@ describe('serveHost', () => {
             toTurnCount: 1,
           }).pipe(Effect.exit);
           notOffered(diff, ORCHESTRATION_V2_WS_METHODS.getTurnDiff);
-          const shell = yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeShell]({}).pipe(
+          const device = yield* client[WS_METHODS.subscribeDeviceState]({}).pipe(
             Stream.runDrain,
             Effect.exit,
           );
-          notOffered(shell, ORCHESTRATION_V2_WS_METHODS.subscribeShell);
+          notOffered(device, WS_METHODS.subscribeDeviceState);
           // The connection still serves after a refused call.
           expect(yield* client[WS_METHODS.serverProbe]({})).toEqual({});
           yield* runTheTurn(handle, prompt);
@@ -1032,15 +1043,263 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
           expect(preflight.status).toBeLessThan(300);
           expect(preflight.headers.get('access-control-allow-origin')).toBe('*');
           expect(preflight.headers.get('access-control-allow-headers')).toContain('authorization');
-          const elsewhere = await loopbackFetch(
-            `http://127.0.0.1:${port}/api/orchestration/shell`,
-            {
-              headers: { origin },
-            },
-          );
+          const elsewhere = await loopbackFetch(`http://127.0.0.1:${port}/api/projects`, {
+            headers: { origin },
+          });
           expect(elsewhere.status).toBe(404);
           expect(elsewhere.headers.get('access-control-allow-origin')).toBe('*');
         }).pipe(Effect.andThen(runTheTurn(handle, prompt))),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+});
+
+describe("the shell and a cold thread: what t3's client reads once connected", () => {
+  /** t3's own calls (`@t3tools/client-runtime`), over an HTTP client that reaches loopback only. */
+  const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
+    effect.pipe(
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+    );
+
+  /**
+   * t3's orchestration reads over HTTP as its client makes them (`state/shellSnapshotHttp.ts`,
+   * `state/boundedThreadSnapshotHttp.ts`): t3's client for its `EnvironmentHttpApi` contract,
+   * which decodes each answer by the endpoint's schemas, with the bearer header and t3's
+   * orchestration protocol header, its errors read as t3's client reads them. (Those two modules'
+   * own package entries reach browser-only code the host's checker refuses.)
+   */
+  const orchestrationRead = <A, E>(
+    port: number,
+    pass: string,
+    read: (
+      client: Effect.Success<ReturnType<typeof makeEnvironmentHttpApiGroupClient<'orchestration'>>>,
+      headers: { readonly authorization?: string; readonly [ORCHESTRATION_PROTOCOL_HEADER]: '2' },
+    ) => Effect.Effect<A, E>,
+  ) =>
+    asT3Client(
+      Effect.gen(function* () {
+        const httpBaseUrl = `http://127.0.0.1:${port}`;
+        const client = yield* makeEnvironmentHttpApiGroupClient(httpBaseUrl, 'orchestration');
+        return yield* executeEnvironmentHttpRequest(
+          httpBaseUrl,
+          20_000,
+          read(client, {
+            ...(pass === '' ? {} : { authorization: `Bearer ${pass}` }),
+            [ORCHESTRATION_PROTOCOL_HEADER]: ORCHESTRATION_PROTOCOL_VERSION_TEXT,
+          }),
+        );
+      }),
+    );
+
+  type ShellItem = OrchestrationV2ShellStreamItem;
+  type ShellRowUpdate = Extract<ShellItem, { readonly kind: 'thread.updated' }>;
+
+  /** Subscribes `client` to the shell; its items queue up as they arrive. */
+  const subscribeShell = Effect.fn('subscribeShell')(function* (
+    { client }: T3Client,
+    input: OrchestrationV2SubscribeShellInput,
+  ) {
+    const items = yield* Queue.unbounded<ShellItem>();
+    yield* client[ORCHESTRATION_V2_WS_METHODS.subscribeShell](input).pipe(
+      Stream.runForEach((item) => Queue.offer(items, item)),
+      Effect.forkScoped,
+    );
+    return items;
+  });
+
+  const takeShell = (items: Queue.Queue<ShellItem>) =>
+    Queue.take(items).pipe(Effect.timeout(Duration.seconds(30)), Effect.orDie);
+
+  /** Nothing more arrives on `items` for a moment. */
+  const nothingMore = (items: Queue.Queue<ShellItem>) =>
+    Queue.take(items).pipe(Effect.timeoutOption(Duration.millis(500)), Effect.map(Option.isNone));
+
+  it(
+    "serves the shell as t3's client loads it: the session's thread and project alone, behind the pass and t3's protocol header",
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, port, keys, signPass: passForSession }) =>
+        Effect.gen(function* () {
+          const pass = yield* passForSession();
+          const load = (bearer: string, resumeFrom?: number) =>
+            orchestrationRead(port, bearer, (client, headers) =>
+              client.shellSnapshot({
+                headers,
+                query: resumeFrom === undefined ? {} : { resumeFrom: String(resumeFrom) },
+              }),
+            );
+
+          const answer = yield* load(pass);
+          if ('resumable' in answer) return yield* Effect.die(new Error('A snapshot was due.'));
+          // The session's thread, as its projection names it, and its project: nothing else.
+          expect(answer.threads.map((thread) => thread.id)).toEqual([spec.sessionId]);
+          expect(answer.threads[0]?.title).toBe(handle.snapshot().thread.title);
+          expect(answer.archivedThreads).toEqual([]);
+          expect(answer.projects.map((project) => project.workspaceRoot)).toEqual([spec.cwd]);
+          expect(answer.snapshotSequence).toBe(handle.snapshotSequence());
+          expect(answer.projectIdentities).toEqual(expect.any(String));
+
+          // Rows held at a cursor the socket can resume from are kept; one past the thread's
+          // last event (another host's) is answered with the shell.
+          expect(yield* load(pass, answer.snapshotSequence)).toEqual({ resumable: true });
+          expect(yield* load(pass, answer.snapshotSequence + 1_000)).toMatchObject({
+            threads: [expect.objectContaining({ id: spec.sessionId })],
+          });
+
+          // A refused pass is t3's 401, as at the ticket.
+          expect(yield* load('').pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'missing_credential',
+          });
+          const anotherSessions = yield* signPass(keys, 'session-sprocket-another');
+          expect(yield* load(anotherSessions).pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'invalid_credential',
+          });
+          // t3's endpoints declare its orchestration protocol header: without it, an empty 400.
+          const unversioned = yield* Effect.promise(() =>
+            loopbackFetch(`http://127.0.0.1:${port}/api/orchestration/shell`, {
+              headers: { authorization: `Bearer ${pass}` },
+            }),
+          );
+          expect(unversioned.status).toBe(400);
+          yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'follows the thread over the socket: a snapshot, the marker, then its row after its events, with the title and status the thread has',
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
+        Effect.gen(function* () {
+          const t3 = yield* connect();
+          const items = yield* subscribeShell(t3, { requestCompletionMarker: true });
+          const first = yield* takeShell(items);
+          if (first.kind !== 'snapshot') return yield* Effect.die(new Error(first.kind));
+          expect(first.snapshot.threads.map((thread) => thread.id)).toEqual([spec.sessionId]);
+          expect(first.snapshot.threads[0]?.title).toBe(handle.snapshot().thread.title);
+          expect(first.snapshot.projects.map((project) => project.workspaceRoot)).toEqual([
+            spec.cwd,
+          ]);
+          expect(yield* takeShell(items)).toEqual({ kind: 'synchronized' });
+
+          // The turn retitles the thread (its first message, then the generated title) and runs
+          // it to its end; the shell sends the row after each batch of its events.
+          yield* runTheTurn(handle, prompt);
+          yield* waitForSnapshot(handle, (current) => current.thread.title === REPLAY_TITLE);
+          const updates: ShellRowUpdate[] = [];
+          let latest = first.snapshot.threads[0];
+          while (latest?.title !== REPLAY_TITLE || latest.status !== 'completed') {
+            const item = yield* takeShell(items);
+            if (item.kind !== 'thread.updated') return yield* Effect.die(new Error(item.kind));
+            updates.push(item);
+            latest = item.thread;
+          }
+          expect(updates.every((update) => update.thread.id === spec.sessionId)).toBe(true);
+          expect(updates.every((update) => update.location === 'active')).toBe(true);
+          const sequences = updates.map((update) => update.sequence);
+          expect(sequences[0]).toBeGreaterThan(first.snapshot.snapshotSequence);
+          expect(sequences).toEqual([...sequences].sort((left, right) => left - right));
+          expect(new Set(sequences).size).toBe(sequences.length);
+          // What the shell said last is what the thread is: its row in t3's store, its
+          // projection's title, and the status of its last run.
+          const now = yield* handle.shell.thread;
+          expect({ title: latest.title, status: latest.status }).toEqual({
+            title: now?.title,
+            status: now?.status,
+          });
+          expect(latest.title).toBe(handle.snapshot().thread.title);
+          expect(handle.snapshot().runs.at(-1)?.status).toBe('completed');
+
+          // A cursor at the thread's last event: nothing to replay, then the marker.
+          const highWater = handle.snapshotSequence();
+          const caughtUp = yield* subscribeShell(t3, {
+            afterSequence: highWater,
+            requestCompletionMarker: true,
+          });
+          expect(yield* takeShell(caughtUp)).toEqual({ kind: 'synchronized' });
+          expect(yield* nothingMore(caughtUp)).toBe(true);
+          // A cursor behind it: the row as it is now, at the last event, then the marker.
+          const behind = yield* subscribeShell(t3, {
+            afterSequence: first.snapshot.snapshotSequence,
+            requestCompletionMarker: true,
+          });
+          expect(yield* takeShell(behind)).toEqual({
+            kind: 'thread.updated',
+            sequence: highWater,
+            location: 'active',
+            thread: expect.objectContaining({ id: spec.sessionId, title: REPLAY_TITLE }),
+          });
+          expect(yield* takeShell(behind)).toEqual({ kind: 'synchronized' });
+          // A cursor past it (another host's): `snapshot-required` for a client that loads the
+          // shell over HTTP instead, else the snapshot.
+          const past = { afterSequence: highWater + 1_000, requestCompletionMarker: true } as const;
+          const fallback = yield* subscribeShell(t3, { ...past, httpSnapshotFallback: true });
+          expect(yield* takeShell(fallback)).toEqual({ kind: 'snapshot-required' });
+          const resent = yield* subscribeShell(t3, past);
+          expect(yield* takeShell(resent)).toMatchObject({
+            kind: 'snapshot',
+            snapshot: { snapshotSequence: highWater, threads: [{ id: spec.sessionId }] },
+          });
+          expect(yield* takeShell(resent)).toEqual({ kind: 'synchronized' });
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    "answers a cold thread's bounded snapshot as one window of the whole thread, and another thread as not there",
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, port, signPass: passForSession }) =>
+        Effect.gen(function* () {
+          yield* runTheTurn(handle, prompt);
+          const pass = yield* passForSession();
+          // With the flags t3's client sends, and its projection restored as the client restores it.
+          const load = (bearer: string, threadId: string) =>
+            orchestrationRead(port, bearer, (client, headers) =>
+              client.threadBoundedSnapshot({
+                headers,
+                params: { threadId: ThreadId.make(threadId) },
+                query: {
+                  compactTurnItems: '1',
+                  dedupeBodies: '1',
+                  compactIds: '1',
+                  deferWork: '1',
+                },
+              }),
+            ).pipe(
+              Effect.map((snapshot) => ({
+                ...snapshot,
+                projection: boundedSnapshotProjection(snapshot),
+              })),
+            );
+
+          const bounded = yield* load(pass, spec.sessionId);
+          expect(bounded.snapshotSequence).toBe(handle.snapshotSequence());
+          // Nothing older to page: the window is the whole thread.
+          expect(bounded.historyCursor).toBeNull();
+          expect(bounded.hasMoreHistory).toBe(false);
+          const ids = (items: ReadonlyArray<{ readonly id: string }>) =>
+            items.map((item) => item.id).sort();
+          expect(ids(bounded.projection.turnItems)).toEqual(ids(handle.snapshot().turnItems));
+          expect(
+            bounded.projection.turnItems.some(
+              (item) =>
+                item.type === 'assistant_message' && item.text.includes('fixture simple ok'),
+            ),
+          ).toBe(true);
+
+          expect(yield* load(pass, 'session-sprocket-another').pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentResourceNotFoundError',
+            reason: 'thread_not_found',
+          });
+          expect(yield* load('not-a-pass', spec.sessionId).pipe(Effect.flip)).toMatchObject({
+            _tag: 'EnvironmentAuthInvalidError',
+            reason: 'invalid_credential',
+          });
+        }),
       ),
     REPLAY_TIMEOUT_MS,
   );

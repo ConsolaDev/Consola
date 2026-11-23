@@ -14,6 +14,21 @@
  * - `GET /api/auth/session` with the same header: who the pass lets in, and until when
  *   (`auth/http.ts` `"session"`, `EnvironmentAuth.getSessionState`).
  *
+ * And, behind the same header, the two orchestration reads t3's client makes over HTTP once it is
+ * connected (t3's `orchestration-v2/http.ts`):
+ *
+ * - `GET /api/orchestration/shell`: the session's shell (`hostShell.ts`), which t3's client loads
+ *   before it follows it over the socket (`state/shell.ts`).
+ * - `GET /api/orchestration/threads/:threadId/bounded`: the session's thread as one window that
+ *   holds all of it, no older history to page (`"threadBoundedSnapshot"`), which t3's client asks
+ *   for when it opens a thread cold again, after a first open over the socket that failed or
+ *   dropped before its data arrived (`state/threads.ts`). Another thread id is t3's `404`
+ *   `EnvironmentResourceNotFoundError` (`thread_not_found`), as for a thread that is not there.
+ *
+ * Each checks the pass first, as t3's `EnvironmentAuthenticatedAuth` runs before its handler,
+ * then t3's orchestration protocol header, which t3's endpoints declare (an empty `400`, as t3's
+ * schema refuses a header).
+ *
  * A refused pass is t3's `EnvironmentAuthInvalidError` (`401`), which t3's client reads as "the
  * credential is invalid" and stops on (`ConnectionBlockedError`, `authentication`): that is where
  * `@consola/agent-ui` asks for a new pass. The session read answers a refused pass
@@ -26,7 +41,13 @@ import {
   AuthWebSocketTicketResult,
   authScopeResponse,
   EnvironmentAuthInvalidError,
+  EnvironmentResourceNotFoundError,
   ExecutionEnvironmentDescriptor,
+  ORCHESTRATION_PROTOCOL_HEADER,
+  ORCHESTRATION_PROTOCOL_VERSION_TEXT,
+  OrchestrationV2ShellHttpSnapshot,
+  OrchestrationV2ShellResumable,
+  OrchestrationV2ThreadBoundedSnapshot,
   type ServerAuthDescriptor,
 } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
@@ -36,14 +57,23 @@ import * as Redacted from 'effect/Redacted';
 import * as HttpMiddleware from 'effect/http/HttpMiddleware';
 import * as HttpServerRequest from 'effect/http/HttpServerRequest';
 import * as HttpServerResponse from 'effect/http/HttpServerResponse';
+import * as Schema from 'effect/Schema';
 import { browserApiCorsAllowedHeaders, browserApiCorsAllowedMethods } from 't3/httpCors.ts';
+import { computeLatestLocalTurnOrdinal } from 't3/orchestration-v2/threadHistoryPaging.ts';
+import { boundedSnapshotResponseFields } from 't3/orchestration-v2/ThreadStream.ts';
+import { projectThreadProjectionForWire } from 't3/orchestration-v2/WireProjection.ts';
 import type { PassClaims } from '../core/pass.ts';
+import type { ThreadHandle } from '../runtime/threadRuntime.ts';
+import { shellHttpAnswer } from './hostShell.ts';
 import type { PassRejected } from './passVerifier.ts';
 import type { IssuedTicket } from './socketTickets.ts';
 
 export const DESCRIPTOR_PATH = '/.well-known/t3/environment';
 export const SESSION_PATH = '/api/auth/session';
 export const RPC_TICKET_PATH = '/api/auth/websocket-ticket/rpc';
+export const SHELL_PATH = '/api/orchestration/shell';
+/** `/api/orchestration/threads/:threadId/bounded`, the id as t3's client encodes it. */
+const BOUNDED_THREAD_PATH = /^\/api\/orchestration\/threads\/([^/]+)\/bounded$/;
 
 /**
  * What a pass lets a client do: read the thread and act on it. The host serves nothing else
@@ -61,6 +91,8 @@ export interface HostHttp {
   readonly verify: (pass: string) => Effect.Effect<PassClaims, PassRejected>;
   /** A socket ticket for a pass just verified (`socketTickets.ts`). */
   readonly issueTicket: (claims: PassClaims) => Effect.Effect<IssuedTicket>;
+  /** The session's thread: its shell and its snapshot. */
+  readonly runtime: ThreadHandle;
 }
 
 /** The pass in an `Authorization: Bearer <pass>` header, or `''`. */
@@ -122,6 +154,96 @@ const sessionState = (http: HostHttp, pass: string) =>
   );
 
 /**
+ * The orchestration reads, as t3's endpoints run them: the pass (`401` as above), then t3's
+ * orchestration protocol header, which its endpoints declare and its schema answers with an
+ * empty `400` when it is missing or another. Nothing of the thread is read before both hold.
+ */
+const orchestrationRead = <E, R>(
+  http: HostHttp,
+  request: HttpServerRequest.HttpServerRequest,
+  answer: () => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  http.verify(bearerPass(request)).pipe(
+    Effect.matchEffect({
+      onFailure: respondRefused,
+      onSuccess: () =>
+        request.headers[ORCHESTRATION_PROTOCOL_HEADER] === ORCHESTRATION_PROTOCOL_VERSION_TEXT
+          ? answer()
+          : Effect.succeed(HttpServerResponse.empty({ status: 400 })),
+    }),
+  );
+
+/** A query flag as t3's endpoints read one: on when it is `1`. */
+const flag = (url: URL, name: string) => url.searchParams.get(name) === '1';
+
+const isResumable = Schema.is(OrchestrationV2ShellResumable);
+
+/**
+ * t3's `"shellSnapshot"` handler (`answerShellSnapshot`): the session's shell, or `resumable` for
+ * a `resumeFrom` cursor the socket can resume from. A cursor that is no whole number is ignored,
+ * as t3 ignores it.
+ */
+const shellSnapshot = (http: HostHttp, url: URL) => {
+  const asked = Number(url.searchParams.get('resumeFrom') ?? Number.NaN);
+  const resumeFrom = Number.isSafeInteger(asked) && asked >= 0 ? asked : undefined;
+  return shellHttpAnswer(http.runtime, resumeFrom).pipe(
+    Effect.flatMap((answer) =>
+      isResumable(answer)
+        ? HttpServerResponse.schemaJson(OrchestrationV2ShellResumable)(answer)
+        : HttpServerResponse.schemaJson(OrchestrationV2ShellHttpSnapshot)(answer),
+    ),
+  );
+};
+
+/**
+ * t3's `"threadBoundedSnapshot"` handler for the session's thread, as one window that holds the
+ * whole thread (t3's bounded history windows are left out, so no `historyCursor` and nothing more
+ * to page), shaped for the wire by t3's `boundedSnapshotResponseFields` as the client's flags ask.
+ * Another thread is not there.
+ */
+const boundedThreadSnapshot = (http: HostHttp, url: URL, threadId: string) => {
+  const { runtime } = http;
+  if (threadId !== runtime.snapshot().thread.id) {
+    return HttpServerResponse.schemaJson(EnvironmentResourceNotFoundError)(
+      new EnvironmentResourceNotFoundError({
+        code: 'not_found',
+        reason: 'thread_not_found',
+        traceId: TRACE_ID,
+      }),
+      { status: 404 },
+    );
+  }
+  // Read together: `snapshotSequence()` is the last event `snapshot()` holds.
+  const snapshotSequence = runtime.snapshotSequence();
+  const projection = projectThreadProjectionForWire(runtime.snapshot());
+  return HttpServerResponse.schemaJson(OrchestrationV2ThreadBoundedSnapshot)({
+    snapshotSequence,
+    ...boundedSnapshotResponseFields({
+      bounded: {
+        projection,
+        historyCursor: null,
+        hasMoreHistory: false,
+        latestLocalTurnOrdinal: computeLatestLocalTurnOrdinal(projection.turnItems),
+      },
+      compactTurnItems: flag(url, 'compactTurnItems'),
+      dedupeBodies: flag(url, 'dedupeBodies'),
+      compactIds: flag(url, 'compactIds'),
+    }),
+  });
+};
+
+/** The thread id in a bounded snapshot's path, or `null` for any other path. */
+const boundedThreadIdOf = (path: string): string | null => {
+  const encoded = BOUNDED_THREAD_PATH.exec(path)?.[1];
+  if (encoded === undefined) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+};
+
+/**
  * t3's browser API CORS (`http.ts` `layerBrowserApiCors`, with t3's lists from the lifted
  * `httpCors.ts`), as a packaged t3 server sends it: any origin, no cookies, so a page on another
  * origin can make these calls with the pass in a header.
@@ -134,20 +256,29 @@ const cors = HttpMiddleware.cors({
 
 /**
  * Answers every request but the socket's: one of these calls, or a `404` for any other method or
- * path, before a pass is looked at. Each answer carries t3's CORS headers, so t3's client can
- * read a `404` (its HTTP snapshot loaders then fall back to the socket, as against an older t3
- * server), and a preflight is answered.
+ * path, before a pass is looked at. Each answer carries t3's CORS headers, so a page on another
+ * origin can read it, a `404` included, and a preflight is answered.
  */
-export const serveHostHttp = (http: HostHttp, path: string) =>
+export const serveHostHttp = (http: HostHttp, url: URL) =>
   cors(
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
+      const path = url.pathname;
       if (path === DESCRIPTOR_PATH && request.method === 'GET') return yield* descriptor(http);
       if (path === SESSION_PATH && request.method === 'GET') {
         return yield* sessionState(http, bearerPass(request));
       }
       if (path === RPC_TICKET_PATH && request.method === 'POST') {
         return yield* webSocketTicket(http, bearerPass(request));
+      }
+      if (path === SHELL_PATH && request.method === 'GET') {
+        return yield* orchestrationRead(http, request, () => shellSnapshot(http, url));
+      }
+      const boundedThreadId = request.method === 'GET' ? boundedThreadIdOf(path) : null;
+      if (boundedThreadId !== null) {
+        return yield* orchestrationRead(http, request, () =>
+          boundedThreadSnapshot(http, url, boundedThreadId),
+        );
       }
       return HttpServerResponse.empty({ status: 404 });
     }),
@@ -160,7 +291,7 @@ export const serveHostHttp = (http: HostHttp, path: string) =>
         const pass = bearerPass(request);
         const detail = Cause.pretty(cause);
         yield* Effect.logError(
-          `Host HTTP ${request.method} ${path} failed; answered 500.`,
+          `Host HTTP ${request.method} ${url.pathname} failed; answered 500.`,
           pass === '' ? detail : detail.replaceAll(pass, '[pass]'),
         );
         return HttpServerResponse.empty({ status: 500 });

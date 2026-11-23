@@ -8,6 +8,8 @@ import {
   ProjectId,
   type OrchestrationV2CommandOutputError,
   type OrchestrationV2CommandOutputFrame,
+  type OrchestrationV2ShellSnapshot,
+  type OrchestrationV2ThreadShell,
   type RuntimeMode,
   ThreadId,
   type TurnItemId,
@@ -20,6 +22,7 @@ import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
+import * as Option from 'effect/Option';
 import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import * as Semaphore from 'effect/Semaphore';
@@ -28,6 +31,7 @@ import * as SubscriptionRef from 'effect/SubscriptionRef';
 import * as ServerConfig from 't3/config.ts';
 import * as CommandOutputHub from 't3/orchestration-v2/CommandOutputHub.ts';
 import * as Orchestrator from 't3/orchestration-v2/Orchestrator.ts';
+import { ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION } from 't3/orchestration-v2/ProjectionStore.ts';
 import * as ProjectService from 't3/project/ProjectService.ts';
 import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
@@ -86,6 +90,8 @@ export type ThreadHandle = {
   ): Stream.Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
   /** What t3's server-config and provider RPCs read: `ThreadServerView`. */
   readonly server: ThreadServerView;
+  /** The thread list's rows for the session, as t3's shell routes read them: `ThreadShellView`. */
+  readonly shell: ThreadShellView;
   /** When the thread last did anything: a stored event or a dispatch, in epoch milliseconds. */
   lastActivityMs(): number;
   /**
@@ -117,11 +123,26 @@ export type ThreadServerView = {
   readonly logsDir: string;
 };
 
+/**
+ * The session's rows of t3's shell (the thread list t3's client keeps beside a thread), read from
+ * the store the thread's projection is read from, so a row says what the thread does. The shell
+ * holds the session's project and its thread, and no other: no subagent's, no archived one.
+ */
+export type ThreadShellView = {
+  /**
+   * The shell now, at `snapshotSequence()` read before its rows, so each row holds at least every
+   * event through that sequence (t3's `loadSubscriberShellSnapshot`, for one thread).
+   */
+  readonly snapshot: Effect.Effect<OrchestrationV2ShellSnapshot, ThreadRuntimeError>;
+  /** The thread's row now (t3's `getThreadShell`), `null` when t3 has none. */
+  readonly thread: Effect.Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>;
+};
+
 export class ThreadRuntimeError extends Schema.TaggedError<ThreadRuntimeError>()(
   'ThreadRuntimeError',
   {
     sessionId: Schema.String,
-    operation: Schema.Literals(['open', 'dispatch', 'events']),
+    operation: Schema.Literals(['open', 'dispatch', 'events', 'read its shell']),
     cause: Schema.Defect(),
   },
 ) {
@@ -307,6 +328,28 @@ const make = (
           Effect.forkScoped,
         );
 
+        const threadShell = orchestrator
+          .getThreadShell(threadId)
+          .pipe(Effect.mapError(failed('read its shell')));
+        const shell: ThreadShellView = {
+          snapshot: Effect.gen(function* () {
+            const snapshotSequence = current.snapshotSequence;
+            const thread = yield* threadShell;
+            const project = yield* projects
+              .getShell(projectId)
+              .pipe(Effect.mapError(failed('read its shell')));
+            const snapshot: OrchestrationV2ShellSnapshot = {
+              schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
+              snapshotSequence,
+              projects: Option.toArray(project),
+              threads: thread === null || thread.archivedAt !== null ? [] : [thread],
+              archivedThreads: [],
+            };
+            return snapshot;
+          }),
+          thread: threadShell,
+        };
+
         const handle: ThreadHandle = {
           snapshot: () => current.projection,
           snapshotSequence: () => current.snapshotSequence,
@@ -336,6 +379,7 @@ const make = (
             keybindingsConfigPath: config.keybindingsConfigPath,
             logsDir: config.logsDir,
           },
+          shell,
           lastActivityMs: () => lastActivity,
           ended: Deferred.await(streamEnded),
         };

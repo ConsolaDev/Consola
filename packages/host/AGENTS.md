@@ -143,8 +143,14 @@ type ThreadHandle = {
   ): Effect<{ sequence: number }, NotOfferedError | ThreadRuntimeError>;
   commandOutput(itemId: TurnItemId): Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
   server: ThreadServerView; // what the server-config and provider RPCs read
+  shell: ThreadShellView; // the session's rows of t3's shell, for the shell routes
   lastActivityMs(): number;
   ended: Effect<never, ThreadStreamEnded>; // fails once snapshot() would stop following the thread
+};
+
+type ThreadShellView = {
+  snapshot: Effect<OrchestrationV2ShellSnapshot, ThreadRuntimeError>; // its project and thread, now
+  thread: Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>; // t3's getThreadShell
 };
 
 type ThreadServerView = {
@@ -185,6 +191,12 @@ type ThreadServerView = {
   `ProviderRegistry` (one snapshot per provider instance, its changes and
   refreshes), its settings and their changes, the session's folder and t3's
   config paths.
+- `shell` reads the session's rows of t3's shell (the thread list t3's client
+  keeps beside a thread) from the store the projection is read from: the
+  thread's row (t3's `getThreadShell`) and its project's (`ProjectService`
+  `getShell`). `snapshot` holds those two and nothing else (no subagent's row,
+  no archived one), at `snapshotSequence()` read before them, so each row holds
+  at least every event through that sequence.
 
 ## The WebSocket server
 
@@ -206,10 +218,10 @@ handlers are host glue that calls the helpers `ws.ts` calls
   parsed key, so a misconfigured key stops the host instead of refusing
   everyone in silence.
 - **The pass first, then a ticket.** `GET /ws` is the socket, and the three
-  calls t3's client makes before it are answered over HTTP (`hostHttp.ts`,
-  below); any other method or path gets a `404` before anything is looked at,
-  and a request whose target no URL can be made of (`GET // HTTP/1.1`) a
-  `400`.
+  calls t3's client makes before it, and the two orchestration reads it makes
+  once connected, are answered over HTTP (`hostHttp.ts`, below); any other
+  method or path gets a `404` before anything is looked at, and a request
+  whose target no URL can be made of (`GET // HTTP/1.1`) a `400`.
   The pass travels only in the `Authorization: Bearer` header of those calls,
   where it is verified (`verifyPassWith`) before anything else is answered:
   a compact JWS signed with EdDSA by the cell's key (jose, `algorithms:
@@ -255,7 +267,9 @@ handlers are host glue that calls the helpers `ws.ts` calls
   connection it let in with 4401 when its pass expires").
 - **What is served** is `SERVED_METHODS`, the one list, with why each is
   there: `orchestration.subscribeThread`, `orchestration.dispatchCommand` and
-  `orchestration.subscribeCommandOutput` (the thread), `subscribeServerConfig`
+  `orchestration.subscribeCommandOutput` (the thread),
+  `orchestration.subscribeShell` (the thread list's shell, "The shell" below),
+  `subscribeServerConfig`
   (client-runtime's session is ready only once its first snapshot arrives; it
   carries the provider list), `server.probe` (the session's liveness check)
   and `server.refreshProviders` (the composer's model picker and its folder
@@ -315,39 +329,73 @@ handlers are host glue that calls the helpers `ws.ts` calls
     (`HttpMiddleware.cors` with the lifted `t3/httpCors.ts` lists: any origin,
     no cookies), so a page on another origin can make these calls and read a
     `404`.
-  - **The routes t3's client asks that the host does not serve**, found by
-    `@consola/agent-ui`'s `AgentChat.console.browser.test.tsx` (Playwright's
-    console, Effect's warnings and every response of 400 or more):
-    - `GET /api/orchestration/threads/:id/bounded`, the bounded thread
-      snapshot (t3's bounded history windows, which the plan leaves out):
-      silenced through t3's own option. The config says
-      `threadSnapshotPagination: true`, on which t3's client opens a thread
-      over the socket alone (`state/threads.ts`, `socketOnly`), and the
-      socket's snapshot is the whole thread, a window with no older history.
-      Before, every open logged "Could not load the bounded thread snapshot
-      over HTTP" with `RemoteEnvironmentAuthUndeclaredStatusError … 404`, and
-      Chromium a `404`.
-    - `GET /api/orchestration/shell`, the thread list's shell, which t3's
-      client loads over HTTP and then subscribes to (`subscribeShell`, which
-      the host refuses). No t3 option keeps the client from it, so it still
-      retries about once a second: a `404`, Chromium's line for it, "Could
-      not load the environment shell snapshot over HTTP" and "Could not
-      synchronize the environment shell". Quieting it means serving the shell
-      (t3's `ShellStream.ts` composition in `ws.ts`, over the orchestrator's
-      `getShellSnapshot`), which is not done yet: Track B's Task 5 left it
-      open.
+  - **Once connected**, t3's client reads two orchestration routes over HTTP
+    (t3's `orchestration-v2/http.ts`). The host answers them with the same
+    pass in the same header (a refused one is the `401` above), then checks
+    t3's orchestration protocol header, which t3's endpoints declare
+    (`x-t3-orchestration-protocol: 2`; without it an empty `400`, as t3's
+    schema answers a header it refuses):
+    - `GET /api/orchestration/shell`: the session's shell ("The shell",
+      below) as t3's `OrchestrationV2ShellHttpSnapshot`, or
+      `{ resumable: true }` for a `resumeFrom` cursor the socket can resume
+      from. t3's client loads it for every environment it connects and then
+      follows it over the socket (`state/shell.ts`); no t3 option skips it.
+    - `GET /api/orchestration/threads/:threadId/bounded`: the session's thread
+      as one window that holds all of it (`historyCursor: null`,
+      `hasMoreHistory: false`: t3's bounded history windows are left out, so
+      there is nothing older to page), shaped by t3's
+      `boundedSnapshotResponseFields` as the client's flags ask
+      (`compactTurnItems`, `dedupeBodies`, `compactIds`; `deferWork` defers
+      nothing). The config says `threadSnapshotPagination: true`, so t3's
+      client opens a cold thread over the socket alone the first time
+      (`state/threads.ts`, `socketOnly`); a later cold open, after a failure
+      or a first session that dropped before its data arrived, asks this
+      route. Another thread id is t3's `404` `EnvironmentResourceNotFoundError`
+      (`thread_not_found`), which t3's client reads as a thread that is not
+      there.
+
+    Every other route t3's contract names (a thread's full snapshot, its
+    transcript and history pages, the project list) is a `404`: the chat
+    `@consola/agent-ui` mounts asks none of them of this host.
+    `AgentChat.console.browser.test.tsx` and
+    `AgentChat.droppedOpen.browser.test.tsx` there record every response of
+    400 or more and everything the page's console says at warning level or
+    above (Playwright's console, Effect's warnings), from mount until the
+    thread shows, a dropped first socket included, and find nothing.
   - A failure of the host's own while answering (not a refused pass, which is
     an answer) is logged to stderr, the request's pass taken out of it, and
     answered `500` (`hostHttp.test.ts`).
+- **The shell** (`src/adapters/hostShell.ts`): t3's
+  `subscribeOrchestrationV2Shell` (`ws.ts`) and its HTTP snapshot, from the
+  handle's `shell`, composed with the lifted `ShellStream.ts` helpers for one
+  thread. It lists the session's thread and its project and nothing else: an
+  empty shell would tell t3's chat the thread is not there, and another row
+  would be a thread the host does not serve. With no cursor it sends the
+  snapshot, the completion marker the client asks for, then the thread's row
+  after each batch of its stored events (`events(snapshotSequence)`, gathered
+  for up to 50 ms as t3's `toShellStream` gathers them, an unchanged row not
+  sent again within t3's window, the tail buffered by t3's budget). A cursor
+  at or behind the thread's last event resumes (`canResumeShell`, which the
+  HTTP route's `resumeFrom` asks too): the row as it is now if anything
+  followed the cursor, the marker, then the same updates. A cursor past it
+  (another host's) is `snapshot-required` for a client that asked for that
+  (`httpSnapshotFallback`), else the snapshot. Once its row is listed, t3's
+  chat reads the thread's title and status from it (`ChatView`'s
+  `serverThread`) rather than from the projection, so the row is read from
+  the store the projection is read from and sent again after every event of
+  the thread: what the chat shows follows the thread (`rpcServer.test.ts`
+  "follows the thread over the socket", `@consola/agent-ui`'s
+  `AgentChat.console.browser.test.tsx`). Left out, as the host offers none of
+  them: repository identities and their enrichment refreshes, idle subagents
+  and older settled threads (`omitIdleSubagents`, `omitOlderSettled`, which
+  t3's client sends only to a server that advertises them), and the archive.
 - **Methods the chat calls and the host refuses.** Running t3's copied chat
-  (`@consola/agent-ui`) against a replay host, the chat calls three methods
-  beyond `SERVED_METHODS`: `orchestration.subscribeShell` (the thread list's
-  shell; the chat has a shell-less path and renders the thread from its
-  projection), `subscribeDeviceState` (the phone preview) and
-  `subscribeProjectClones` (project clones). Each stays refused: the chat
-  shows the thread, its composer and its model without them, and the latter
-  two are parts of t3 the plan leaves out. Sending from the composer is not
-  yet exercised against the host by a test.
+  (`@consola/agent-ui`) against a replay host, the chat calls two methods
+  beyond `SERVED_METHODS`: `subscribeDeviceState` (the phone preview) and
+  `subscribeProjectClones` (project clones). Both stay refused: the chat
+  shows the thread, its composer and its model without them, and both are
+  parts of t3 the plan leaves out. Sending from the composer is not yet
+  exercised against the host by a test.
 - **No client tracking in `ws`.** The HTTP server makes its `ws`
   WebSocketServer at the first upgrade and closes it with the scope, before
   its own finalizer closes the sockets; with `ws`'s client tracking that close

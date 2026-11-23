@@ -7,6 +7,8 @@ export type HostSession = {
   readonly sessionId: string;
   /** What the fixture's assistant answered. */
   readonly assistantText: string;
+  /** The title the thread is given once its first turn has run. */
+  readonly threadTitle: string;
 };
 
 /** The key `hostSession.ts` provides it under (Vitest's `provide` and `inject`). */

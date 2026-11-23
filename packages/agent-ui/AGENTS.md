@@ -69,8 +69,10 @@ pieces:
   removes nothing; see "What t3 keeps in the browser" for how such passes are found.
 - **t3's client does the rest**, unchanged: it reads the host's descriptor, asks for a socket
   ticket with the pass as bearer token, opens `ws(s)://<host>/ws?wsTicket=…`, and reads the
-  session's scopes. The host answers those calls as t3's server does (`packages/host`'s
-  `AGENTS.md`, "Before the socket"); the pass is the only credential. No t3 sign-in, pairing or
+  session's scopes, then its shell (the thread list, which holds the session's thread alone)
+  and, for a thread it opens cold after its first socket dropped, the thread's bounded snapshot.
+  The host answers those calls as t3's server does (`packages/host`'s `AGENTS.md`, "Before the
+  socket" and "The shell"); the pass is the only credential. No t3 sign-in, pairing or
   environment picker is mounted.
 - **The environment and the thread are the session**: both ids are `sessionId`.
 - **Pass expiry.** The host closes a connection with `4401` at its pass's `exp`, and refuses
@@ -301,4 +303,11 @@ for the run (`src/testing/passKeys.ts`, so a test can ask for a pass of any life
 and sends the fixture's message through t3's RPC client, on a machine of its own: a temporary
 home, no CLI or API-key variable, fake CLIs on the `PATH`; teardown fails the run if any CLI
 call saw another home or a config folder. Each browser test file deletes t3's IndexedDB first,
-so what it shows comes from the host. Files run one at a time.
+so what it shows comes from the host. Files run one at a time. `watchPageNoise` and
+`takePageNoise` record what the page's console says at warning level or above and every
+response of 400 or more; `AgentChat.console.browser.test.tsx` expects none from mount until the
+thread shows. t3's client makes each socket with the page's `WebSocket` (Effect's
+`layerWebSocketConstructorGlobal`), so a test can stand one in for it:
+`AgentChat.droppedOpen.browser.test.tsx` drops the first socket as it asks for the thread.
+(Playwright's `routeWebSocket` cannot: it is an init script, which never reaches the test's
+frame, already loaded.)

@@ -72,6 +72,7 @@ import { isLoopback } from '../core/bind.ts';
 import type { PassLifetime } from '../core/pass.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import { serveHostHttp } from './hostHttp.ts';
+import { subscribeHostShell } from './hostShell.ts';
 import { type PassKey, type PassKeyInvalid, parsePassKey, verifyPassWith } from './passVerifier.ts';
 import { makeSocketTickets, type SocketTickets } from './socketTickets.ts';
 
@@ -84,6 +85,9 @@ import { makeSocketTickets, type SocketTickets } from './socketTickets.ts';
  *   `orchestration.subscribeCommandOutput`: the thread, its commands (`decideCommand` offers
  *   four) and its command rows' live output (client-runtime `state/threads.ts`,
  *   `state/orchestration.ts`).
+ * - `orchestration.subscribeShell`: the thread list's shell, which client-runtime follows for
+ *   every environment it connects (`state/shell.ts`) and the chat reads the thread's title and
+ *   status from: the session's project and thread alone (`hostShell.ts`).
  * - `subscribeServerConfig`: client-runtime's session (`rpc/session.ts`) subscribes as it
  *   connects and is ready only once its first snapshot arrives; it carries the provider list the
  *   composer's model picker reads.
@@ -96,6 +100,7 @@ export const SERVED_METHODS = [
   ORCHESTRATION_V2_WS_METHODS.subscribeThread,
   ORCHESTRATION_V2_WS_METHODS.dispatchCommand,
   ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput,
+  ORCHESTRATION_V2_WS_METHODS.subscribeShell,
   WS_METHODS.subscribeServerConfig,
   WS_METHODS.serverProbe,
   WS_METHODS.serverRefreshProviders,
@@ -358,10 +363,10 @@ const layerHandlers = (
           },
           settings,
           threadResumeCompletionMarker: true,
-          // t3's client opens a thread over the socket alone from a server that says it pages
-          // snapshots (client-runtime `state/threads.ts`, `socketOnly`), and never asks the HTTP
-          // route for a bounded one, which the host does not serve. The host's snapshot is the
-          // whole thread: a window with no older history (no `historyCursor`, `hasMoreHistory`).
+          // t3's client opens a thread cold over the socket alone, the first time, from a server
+          // that says it pages snapshots (client-runtime `state/threads.ts`, `socketOnly`); a
+          // later cold open asks the HTTP route for a bounded one (`hostHttp.ts`). Either way the
+          // host's snapshot is the whole thread: a window with no older history to page.
           threadSnapshotPagination: true,
           serverTime: DateTime.formatIso(yield* DateTime.now),
         };
@@ -521,6 +526,8 @@ const layerHandlers = (
                   message: `This host serves one thread, not ${input.threadId}.`,
                 }),
               ),
+        // t3's `ws.ts` `subscribeOrchestrationV2Shell`, for the session's thread alone.
+        [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) => subscribeHostShell(runtime, input),
         [WS_METHODS.serverProbe]: () => Effect.succeed({}),
         // t3's `ws.ts` handler, less what the host does not compose: keybindings, environment
         // themes, usage-limit sources, network discovery and on-demand machine catalogs.
@@ -743,8 +750,9 @@ const app = Effect.fn('host.app')(function* (
           ),
         issueTicket: (claims) =>
           Effect.map(Clock.currentTimeMillis, (nowMs) => tickets.issue(claims.exp, nowMs)),
+        runtime: options.runtime,
       },
-      url.pathname,
+      url,
     );
   }
   if (request.method !== 'GET') return HttpServerResponse.empty({ status: 404 });

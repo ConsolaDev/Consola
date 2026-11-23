@@ -41,6 +41,8 @@ const SEND_ENTRY = fileURLToPath(new URL('./sendFixtureMessage.ts', import.meta.
 const SESSION_ID = 'session-sprocket-agent-ui';
 /** What the `simple` fixture's Claude answers (`claude_transcript.ndjson`). */
 const ASSISTANT_TEXT = 'fixture simple ok';
+/** What the replay's text generation titles every thread (`@consola/host`'s `REPLAY_TITLE`). */
+const THREAD_TITLE = 'Sprocket replay title';
 const START_TIMEOUT_MS = 60_000;
 /**
  * The pass the tests share: the longest a pass may live (`PASS_MAX_LIFETIME_SECONDS`, five
@@ -189,6 +191,7 @@ export default async function setup(project: TestProject) {
     passKeyFile: keys.privateKeyFile,
     sessionId: SESSION_ID,
     assistantText: ASSISTANT_TEXT,
+    threadTitle: THREAD_TITLE,
   };
   project.provide(HOST_SESSION_KEY as never, session as never);
   return teardown;
