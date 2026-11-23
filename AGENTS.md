@@ -1046,6 +1046,54 @@ whose check uses it baselines rather than firing every item.
   which `list_automations` returns whole, carries an agent's; only the
   person's panel (`snapshot`) has the person's.
 
+### A Factory's Servers Are the Engine's
+
+`factory.yml`'s `mcpServers:` defines servers that only a `uses:` step calls
+(and, from 5a-3, a tool poll). They are a namespace apart from an agent file's
+`mcpServers:`, which name the harness's own servers: the same name in both
+places is two servers. A factory server starts only for a call or for a
+person's **Check server**, never when the folder applies, and never before a
+person allowed the entry's version (or approved the one run an agent asked
+for, which accepts nothing).
+
+- **Per call, as the person.** A stdio server starts for each call, in an
+  empty folder under `<userData>/mcp-calls`, with the allow-list
+  (`SERVER_ENV_ALLOW_LIST`), its `env:` and its secrets as its environment,
+  and nothing else of the login environment. Its process group is recorded
+  durably as it is spawned (`call.server` on the step's record, or
+  `mcp-server-groups.json` for Check server), ended after the call with its
+  descendants found by parent id, and ended at the next start when it is
+  still that process (`endServersLeftRunning`, which compares the `ps` start
+  time first).
+- **A call's order, and its two durable writes.** Render `with:`, reach the
+  tool (start or connect, initialize, list, check the arguments and the
+  declared outputs), write `call.json`, record the intent, send, record the
+  answer, then the outputs, the settle and the close. The intent is written
+  before the send and the answer after it; anything that fails before the
+  intent says `Nothing was sent.`
+- **After the send, only a result without `isError` says what happened.** A
+  timeout, a stop, a closed connection, an unreadable or oversized answer and
+  an `isError` result all read "may or may not have happened", and nothing
+  calls again by itself: a quit fails an interrupted call, and Retry warns
+  first.
+- **The adapter** (`node/mcpClient.ts`) sends and lists with
+  `client.request`, never `client.callTool` or `client.listTools`; reads a
+  JSON-RPC error answer as an `isError` result; refuses every redirect with
+  its own `fetch`; declares no capabilities; ends a server's group at once on
+  a quit; offers only the transports its platform can
+  (`McpClientPort.transports`); and is the only file that imports the SDK
+  (`boundary.test.ts`).
+- **After a call's intent, nothing is written once its run has ended**, and a
+  write that fails says what may have happened, never `Nothing was sent.`
+- **Every automatable Consola tool says what each argument does** (`prompt`,
+  `selector` or `data`: `ToolDefinition.roles`, which the registry requires),
+  and a `prompt` or `selector` argument takes only trusted values.
+  `run: { tool }` runs on the executor's in-process branch, with its parse,
+  hash, modes and previewed plan unchanged.
+- **No test starts a server but the repository's stubs**, and a stub's
+  controls are its arguments, never environment variables, which a server's
+  allow-listed environment drops.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -1279,6 +1327,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
 - `secrets:*` - A workspace's secret names and bindings (never a value); bind and unbind
+- `automations:check-server` - Check server: start a factory server once, on a person's press, and list its tools
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 
