@@ -12,6 +12,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RunSecrets } from './secrets/runSecrets';
 import { SecretReadError } from './secrets/secretsPort';
 import { NO_SECRETS } from './secrets/unbound';
+import { INTERRUPTED_COMMAND } from './steps/recover';
 import { maskFormsOf } from './secrets/values';
 import {
   BIND_HINT,
@@ -623,6 +624,76 @@ describe("a value's printed forms", () => {
       error: expect.stringContaining('Could not read its $CONSOLA_OUTPUT ('),
     });
     expect(fs.readFileSync(attemptFile(h, runId, 'page', 'outputs.env'), 'utf8')).toBe('');
+  });
+
+  it('leave nothing of a $CONSOLA_OUTPUT a quit cut off: the next start empties it (review S2)', async () => {
+    const h = await accepted(NOTED);
+    const runId = await runNow(h, 'noted');
+    const out = attemptFile(h, runId, 'page', 'outputs.env');
+    // The command writes its output early and is still running when the person quits.
+    fs.appendFileSync(out, `note=${firstLine}\n`);
+    const again = await h.relaunch();
+    expect(stepOf(again, runId, 'page')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_COMMAND,
+    });
+    expect(fs.readFileSync(out, 'utf8')).toBe('');
+    for (const text of filesUnder(again.folder.runDir(WORKSPACE_ID, runId)).values())
+      for (const form of maskFormsOf(PAGER_VALUE)) expect(text).not.toContain(form);
+  });
+
+  it('leave nothing of one a crash cut off, with no quit to let go of anything (review S2)', async () => {
+    const h = await accepted(NOTED);
+    const runId = await runNow(h, 'noted');
+    const out = attemptFile(h, runId, 'page', 'outputs.env');
+    fs.appendFileSync(out, `note=${firstLine}\n`);
+    // A crash: nothing is let go of, the next start finds the run as it was.
+    vi.spyOn(h.service, 'shutdown').mockImplementation(() => {});
+    const again = await h.relaunch();
+    expect(stepOf(again, runId, 'page')).toMatchObject({
+      status: 'failed',
+      error: INTERRUPTED_COMMAND,
+    });
+    expect(fs.readFileSync(out, 'utf8')).toBe('');
+  });
+
+  it("empty a cut-off $CONSOLA_OUTPUT in a run that names none: the bound account's token is masked there too", async () => {
+    const h = await accepted(file(entryOf('tidy', `${TIDY}\n  outputs: { note: string }`)));
+    const runId = await runNow(h, 'tidy');
+    const out = attemptFile(h, runId, 'tidy', 'outputs.env');
+    fs.appendFileSync(out, 'note=gho_stub\n');
+    const again = await h.relaunch();
+    expect(stepOf(again, runId, 'tidy').status).toBe('failed');
+    expect(fs.readFileSync(out, 'utf8')).toBe('');
+  });
+
+  it('create no $CONSOLA_OUTPUT a cut-off step no longer has', async () => {
+    const h = await accepted(NOTED);
+    const runId = await runNow(h, 'noted');
+    const dir = h.folder.attemptDir(WORKSPACE_ID, runId, 'page', 1);
+    fs.rmSync(dir, { recursive: true, force: true });
+    const again = await h.relaunch();
+    expect(stepOf(again, runId, 'page').status).toBe('failed');
+    expect(fs.existsSync(dir)).toBe(false);
+  });
+
+  it('are masked in a $CONSOLA_OUTPUT whose step ended before its command did (review S2)', async () => {
+    const h = await accepted(NOTED);
+    const runId = await runNow(h, 'noted');
+    // Its definition gone with its folder's file: the run fails at once, the step first, then its command is stopped.
+    fs.rmSync(path.join(h.folder.runDir(WORKSPACE_ID, runId), 'definition.json'));
+    await h.service.syncWorkspaces();
+    await h.flush();
+    expect(stepOf(h, runId, 'page').status).toBe('failed');
+    const [command] = h.world.commands;
+    expect(command.stops).toBe(1);
+    await command.end({
+      outputs: `note=${firstLine}\n`,
+      result: { stopped: true, exitCode: null },
+    });
+    expect(fs.readFileSync(attemptFile(h, runId, 'page', 'outputs.env'), 'utf8')).toBe(
+      'note=***\n',
+    );
   });
 
   it('leave a $CONSOLA_OUTPUT with nothing to mask as the command wrote it', async () => {

@@ -1025,8 +1025,11 @@ whose check uses it baselines rather than firing every item.
   percent-encoded, base64 at each alignment) join the mask list every command
   and check already uses, so logs, `command.json`, outputs, errors and a
   check's status line are masked by the code that masks the bound account's
-  token. Consola rewrites a command's `$CONSOLA_OUTPUT` masked as it ends; a
-  file the command writes under a name of its own stays its own.
+  token. Consola rewrites a command's `$CONSOLA_OUTPUT` masked as it ends,
+  its step ended or not. One a quit or a crash cut off cannot be masked, as
+  its values went with the quit: the next start empties it before anything
+  reads it (`emptyCutOffOutputs`). A file the command writes under a name of
+  its own stays its own.
 - **The engine core sees names, labels and fingerprints** through
   `SecretsPort`, never a reference, and spawns no reader. The desktop reads
   `/usr/bin/security` by absolute path and `op` by the path kept when the

@@ -85,6 +85,17 @@ export function describeReason(error: unknown): string {
 /** A command runs on a POSIX host only (`run:` steps are refused on Windows), so its files join with /. */
 const inFolder = (dir: string, file: string) => `${dir}/${file}`;
 
+/** An attempt's `$CONSOLA_OUTPUT`: `outputs.env` in its folder. */
+export function commandOutputFile(
+  folder: RunFolderPort,
+  workspaceId: string,
+  runId: string,
+  stepId: string,
+  attempt: number,
+): string {
+  return inFolder(folder.attemptDir(workspaceId, runId, stepId, attempt), 'outputs.env');
+}
+
 type Found = { value: string } | { missing: string };
 
 interface RenderContext {
@@ -223,7 +234,7 @@ export function prepareCommand(input: {
     if (!rendered.ok) return rendered;
     const dir = folder.attemptDir(workspaceId, run.id, stepId, record.attempt);
     const files = {
-      output: inFolder(dir, 'outputs.env'),
+      output: commandOutputFile(folder, workspaceId, run.id, stepId, record.attempt),
       stdout: inFolder(dir, 'stdout.log'),
       stderr: inFolder(dir, 'stderr.log'),
     };

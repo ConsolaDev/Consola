@@ -180,11 +180,13 @@ import {
 import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
   commandOutcome,
+  commandOutputFile,
   commandSpec,
   createOutputFile,
   describeReason,
   neverStarted,
   prepareCommand,
+  readOutputFileMasked,
   withCommandIntent,
   writeCommandFile,
   type PreparedCommand,
@@ -775,7 +777,7 @@ export class AutomationService {
   }
 
   public async start(): Promise<void> {
-    this.deps.store.load(this.iso());
+    this.emptyCutOffOutputs(this.deps.store.load(this.iso()));
     this.sweepRunFolders();
     this.started = true;
     await this.syncWorkspaces();
@@ -784,6 +786,37 @@ export class AutomationService {
     // Catch up on anything missed while Consola was closed, and resume
     // whatever was queued when it quit.
     await this.tick();
+  }
+
+  /**
+   * A command a quit or a crash cut off may have written a value into its
+   * `$CONSOLA_OUTPUT`, and the values went with the quit, so Consola cannot
+   * mask it: it is emptied as Consola starts, before anything reads it
+   * (review S2), whatever the run names (the bound account's token is masked
+   * there too). Nothing reads it again: a retry is a new attempt, with a
+   * file of its own. One already gone is not made again.
+   */
+  private emptyCutOffOutputs(recovered: readonly RunRecord[]): void {
+    for (const run of recovered) {
+      const { workspaceId } = run.attribution;
+      if (!workspaceId || run.status !== 'failed' || !isStepsRun(run)) continue;
+      for (const step of run.steps ?? []) {
+        // The step the restart failed: its error is the run's.
+        if (step.kind !== 'run' || step.status !== 'failed' || step.error !== run.error) continue;
+        try {
+          const file = commandOutputFile(
+            this.deps.runFolder,
+            workspaceId,
+            run.id,
+            step.id,
+            step.attempt,
+          );
+          if (this.deps.runFolder.exists(file)) this.deps.runFolder.ensureEmptyFile(file);
+        } catch (error) {
+          console.error(`Could not empty run ${run.id}'s $CONSOLA_OUTPUT of ${step.id}.`, error);
+        }
+      }
+    }
   }
 
   /**
@@ -3942,8 +3975,9 @@ export class AutomationService {
   /**
    * A command ended, or never started. Its result is written with its
    * status, in one line, then the run advances. A run that ended meanwhile
-   * keeps what it has. One a quit let go of reports nothing: no line, no
-   * notice, no output kept. Nothing awaits this, so nothing may escape it.
+   * keeps what it has, its `$CONSOLA_OUTPUT` left masked. One a quit let go
+   * of reports nothing: no line, no notice, no output kept (the next start
+   * empties its file). Nothing awaits this, so nothing may escape it.
    */
   private commandSettled(
     command: PreparedCommand,
@@ -3955,7 +3989,11 @@ export class AutomationService {
     const { runId, step, attempt } = command;
     if (this.runningCommands.get(runId) === running) this.runningCommands.delete(runId);
     try {
-      if (!this.stepRunning(runId, step.id, attempt)) return;
+      if (!this.stepRunning(runId, step.id, attempt)) {
+        // Its step ended first (its run failed, then stopped it): its file is left masked all the same (review S2).
+        readOutputFileMasked(this.deps.runFolder, command, secrets);
+        return;
+      }
       const record = this.stepsOf(runId).find((candidate) => candidate.id === step.id)!;
       if ('error' in ended) {
         const error = maskSecrets(

@@ -59,7 +59,8 @@ export class RunStore {
     private readonly history: RunHistory,
   ) {}
 
-  public load(nowIso: string): void {
+  /** Reads the state and history; returns the runs a quit or a crash left `running`, as recovered. */
+  public load(nowIso: string): RunRecord[] {
     let migrating: RunRecord[] | null = null;
     try {
       const stored = this.file.read();
@@ -121,6 +122,7 @@ export class RunStore {
       return recovered;
     });
     for (const run of changed) this.record(run);
+    return changed;
   }
 
   public lastFired(key: string): string | undefined {
