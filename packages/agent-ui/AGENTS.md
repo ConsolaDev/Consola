@@ -456,7 +456,9 @@ whose utility carries the inherited properties), and a page whose unlayered rule
 `direction`, `unicode-bidi` and the root's containment and height, with one and two IDs. It
 reads every computed property (custom properties aside: a page's own inherit in, and t3 reads
 only its own) of every element of the chat and of a popup, their `::before`, `::after` and
-`::placeholder`, their scrollbars, and the root's containment and height, at rest, with a link
+`::placeholder`, each scroll container's `::-webkit-scrollbar`, `-track` and `-thumb` (as
+computed styles: Vitest's headless Chromium runs with `--hide-scrollbars`, so a drawn
+scrollbar's width is always 0), and the root's containment and height, at rest, with a link
 hovered and with the composer and a button focused from the keyboard, with the page's rules and
 without, and expects no difference. The page's root font size is held in both (above), and a
 reading with the page's rules counts only between two without them that agree: t3 goes on

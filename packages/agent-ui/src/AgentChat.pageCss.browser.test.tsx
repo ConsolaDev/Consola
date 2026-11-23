@@ -42,6 +42,19 @@ const PORTAL_SIZED = [
 /** The pseudo-elements a reset reaches (Tailwind's `*, ::before, ::after`, `::placeholder`). */
 const PSEUDO_ELEMENTS = ['::before', '::after', '::placeholder'] as const;
 
+/**
+ * A scroll container's scrollbar, which a page styles (the desktop's `global.css` sets its width,
+ * track and thumb). Read as computed styles: Vitest's Chromium runs headless with
+ * `--hide-scrollbars`, so a drawn scrollbar's width is always 0, whatever the CSS says.
+ */
+const SCROLLBAR_PSEUDO_ELEMENTS = [
+  '::-webkit-scrollbar',
+  '::-webkit-scrollbar-track',
+  '::-webkit-scrollbar-thumb',
+] as const;
+
+const SCROLLS = /^(auto|scroll|overlay)$/;
+
 /** Every element of the chat (its document stand-in and what is in it) and of its popups. */
 const chatElements = () => [
   ...document.querySelectorAll<HTMLElement>(
@@ -72,9 +85,10 @@ const stylesOf = (element: Element, pseudo?: string): Styles => {
 
 /**
  * What the chat computes, element by element: its styles, each pseudo-element's that is there
- * (`content` other than `none`, or an input's placeholder), and the width of its scrollbars; and
- * the root's containment and height. A popup's portal is a block in the page's `<body>`, so its
- * own size is the page's layout (a `body { margin: 0 }` widens it); what is in it is the chat's.
+ * (`content` other than `none`, or an input's placeholder), and, for a scroll container, its
+ * scrollbar's, track's and thumb's; and the root's containment and height. A popup's portal is a
+ * block in the page's `<body>`, so its own size is the page's layout (a `body { margin: 0 }`
+ * widens it); what is in it is the chat's.
  */
 const readChat = (): Record<string, Styles> => {
   const read: Record<string, Styles> = {};
@@ -86,22 +100,22 @@ const readChat = (): Record<string, Styles> => {
   );
   chatElements().forEach((element, index) => {
     const name = nameOf(element, index);
-    const box = getComputedStyle(element);
-    const borders =
-      Number.parseFloat(box.borderLeftWidth) + Number.parseFloat(box.borderRightWidth);
     const laidOutByPage = element.matches('[data-base-ui-portal]') ? PORTAL_SIZED : [];
-    read[name] = {
-      ...Object.fromEntries(
-        Object.entries(stylesOf(element)).filter(([property]) => !laidOutByPage.includes(property)),
-      ),
-      scrollbar: String(element.offsetWidth - element.clientWidth - borders),
-    };
+    const styles = stylesOf(element);
+    read[name] = Object.fromEntries(
+      Object.entries(styles).filter(([property]) => !laidOutByPage.includes(property)),
+    );
     for (const pseudo of PSEUDO_ELEMENTS) {
       const shown =
         pseudo === '::placeholder'
           ? element.matches('input[placeholder], textarea[placeholder]')
           : getComputedStyle(element, pseudo).content !== 'none';
       if (shown) read[`${name}${pseudo}`] = stylesOf(element, pseudo);
+    }
+    if (SCROLLS.test(styles['overflow-x'] ?? '') || SCROLLS.test(styles['overflow-y'] ?? '')) {
+      for (const pseudo of SCROLLBAR_PSEUDO_ELEMENTS) {
+        read[`${name}${pseudo}`] = stylesOf(element, pseudo);
+      }
     }
   });
   return read;
