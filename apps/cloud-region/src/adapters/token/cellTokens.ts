@@ -3,10 +3,14 @@ import {
   CELL_TOKEN_AUDIENCE,
   CELL_TOKEN_KEYS_PATH,
   CLOCK_SKEW_SECONDS,
+  GITHUB_EVENT_TYPE,
   OUTBOX_MESSAGE_TYPE,
 } from '@consola/cloud-contract';
 import { createRemoteJWKSet, errors, type JWTVerifyGetKey, jwtVerify } from 'jose';
 import type { SignatureCheck, TokenVerifier } from '../../application/ports.js';
+
+/** The `typ` of each kind of delivery `cloud-global` signs with the token's key: none is a token. */
+const DELIVERY_TYPES = new Set<unknown>([OUTBOX_MESSAGE_TYPE, GITHUB_EVENT_TYPE]);
 
 /**
  * Where the cell finds the public keys its tokens and outbox deliveries are signed with (one key
@@ -74,9 +78,9 @@ export function keyNamedBy(keys: CellTokenKeys): CellTokenKeys {
  * Checks cell tokens with jose against `keys`, as the contract has it: `CELL_TOKEN_ALGORITHM`
  * alone, `CELL_TOKEN_AUDIENCE`, and `CLOCK_SKEW_SECONDS` between the clocks, at the moment it is
  * given, so jose and the contract's reader judge the times at the same instant. A token that
- * names no `kid` is refused before any key is looked for, and so is an outbox delivery
- * (`typ` `OUTBOX_MESSAGE_TYPE`): the same key signs both, and whatever its payload holds, a
- * delivery is never a token.
+ * names no `kid` is refused before any key is looked for, and so is a delivery: an outbox
+ * message (`typ` `OUTBOX_MESSAGE_TYPE`) or a GitHub event (`GITHUB_EVENT_TYPE`). The same key
+ * signs all three, and whatever its payload holds, a delivery is never a token.
  *
  * When the keys cannot be had, the token is refused as `keys-unavailable`, never let through,
  * and `report` hears why (never the token). Only a key set that answered but holds no key the
@@ -88,7 +92,7 @@ export function createJoseTokenVerifier(
 ): TokenVerifier {
   const keyNamed = keyNamedBy(keys);
   const keyFor: JWTVerifyGetKey = (header, token) => {
-    if (header.typ === OUTBOX_MESSAGE_TYPE) throw new NotAToken();
+    if (DELIVERY_TYPES.has(header.typ)) throw new NotAToken();
     return keyNamed(header, token);
   };
 

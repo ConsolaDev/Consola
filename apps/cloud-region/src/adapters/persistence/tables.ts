@@ -11,6 +11,7 @@ import {
   bigint,
   boolean,
   foreignKey,
+  index,
   integer,
   pgTable,
   primaryKey,
@@ -180,5 +181,31 @@ export const factoryFiles = pgTable(
         factoryVersions.version,
       ],
     }).onDelete('cascade'),
+  ],
+);
+
+/**
+ * The GitHub events `cloud-global` passed on for each workspace (14.2), kept here because what
+ * happens in a company's repositories is the company's. One row per GitHub delivery, keyed by
+ * the workspace and GitHub's id of the delivery, which GitHub keeps when it sends one again, so
+ * an event is recorded once. The payload is GitHub's JSON as text: `json` and `jsonb` both
+ * refuse a `\u0000` escape, which a pull request's body or a comment can hold. The workspace's
+ * runners and triggers read them later (epics 21 and 39).
+ */
+export const gitHubEvents = pgTable(
+  'github_event',
+  {
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.workspaceId),
+    deliveryId: text('delivery_id').notNull(),
+    event: text('event').notNull(),
+    installationId: bigint('installation_id', { mode: 'number' }).notNull(),
+    payload: text('payload').notNull(),
+    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.workspaceId, table.deliveryId] }),
+    index('github_event_received_idx').on(table.workspaceId, table.receivedAt),
   ],
 );

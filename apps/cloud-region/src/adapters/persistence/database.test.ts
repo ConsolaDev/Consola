@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +19,28 @@ describe('the database', () => {
       sql`select table_name from information_schema.tables where table_schema = 'drizzle'`,
     );
     expect(ledgers.map((row) => row.table_name)).toEqual(['__drizzle_migrations']);
+    await close();
+  });
+
+  it('applies every migration in the journal from empty, the latest included', async () => {
+    const journal = JSON.parse(
+      readFileSync(new URL('../../../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+    ) as { entries: { tag: string }[] };
+    const { db, close } = openDatabase('pglite:memory');
+    await migrateDatabase(db);
+    const [applied] = await rowsOf<{ count: number }>(
+      db,
+      sql`select count(*)::int as count from drizzle.__drizzle_migrations`,
+    );
+    expect(applied?.count).toBe(journal.entries.length);
+    const tables = await rowsOf<{ table_name: string }>(
+      db,
+      sql`select table_name from information_schema.tables where table_schema = 'public'`,
+    );
+    // The tables of the last two migrations: the factories', then GitHub's events.
+    expect(tables.map((row) => row.table_name)).toEqual(
+      expect.arrayContaining(['factory', 'factory_version', 'github_event']),
+    );
     await close();
   });
 

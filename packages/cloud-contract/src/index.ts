@@ -13,6 +13,18 @@ export {
   readCellTokenClaims,
 } from './cellToken.js';
 export {
+  GITHUB_EVENT_ANSWER,
+  GITHUB_EVENT_DELIVERY_MAX_BYTES,
+  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
+  GITHUB_EVENT_DELIVERY_PATH,
+  GITHUB_EVENT_TYPE,
+  GITHUB_PAYLOAD_MAX_BYTES,
+  type GitHubEventMessage,
+  isGitHubDeliveryId,
+  isGitHubEventName,
+  readGitHubEventMessage,
+} from './gitHubEvent.js';
+export {
   GITHUB_TOKEN_PURPOSES,
   GITHUB_TOKEN_REQUEST_AUDIENCE,
   GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,

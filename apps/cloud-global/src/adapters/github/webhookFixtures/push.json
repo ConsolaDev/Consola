@@ -1,0 +1,31 @@
+{
+  "ref": "refs/heads/main",
+  "before": "1111111111111111111111111111111111111111",
+  "after": "2222222222222222222222222222222222222222",
+  "repository": {
+    "id": 520000001,
+    "name": "anvil-orders",
+    "full_name": "acme/anvil-orders",
+    "private": true,
+    "owner": { "login": "acme", "id": 9002, "type": "Organization" },
+    "default_branch": "main"
+  },
+  "pusher": { "name": "dana-ortiz", "email": "dana@acme.test" },
+  "sender": { "login": "dana-ortiz", "id": 7008, "type": "User" },
+  "created": false,
+  "deleted": false,
+  "forced": false,
+  "commits": [
+    {
+      "id": "2222222222222222222222222222222222222222",
+      "message": "Ship anvils to Rotterdam on Tuesdays",
+      "timestamp": "2026-11-22T21:45:00+01:00",
+      "author": { "name": "Dana Ortiz", "email": "dana@acme.test", "username": "dana-ortiz" }
+    }
+  ],
+  "head_commit": {
+    "id": "2222222222222222222222222222222222222222",
+    "message": "Ship anvils to Rotterdam on Tuesdays"
+  },
+  "installation": { "id": 52, "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uNTI=" }
+}

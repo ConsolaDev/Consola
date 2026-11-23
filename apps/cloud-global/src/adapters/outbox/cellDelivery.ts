@@ -24,7 +24,7 @@ const statusWords = (status: number) => {
  * What a failed connection was, as the code Node gives it (`ECONNREFUSED`), never its message:
  * it is recorded and logged, and only ids and statuses are.
  */
-function connectionFailure(error: unknown): string {
+export function connectionFailure(error: unknown): string {
   const seen = new Set<unknown>();
   let current = error;
   while (current instanceof Error && !seen.has(current)) {

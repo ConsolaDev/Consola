@@ -3,8 +3,9 @@
 The global part of Consola Cloud's control plane, shared by every region:
 Google sign-in, sessions, the workspaces people make, each in a region, the
 short-lived token a regional cell trusts, the outbox that tells each cell of
-its workspaces and their members, and the GitHub App installations workspaces
-connect. The web app is `apps/cloud-web`; the
+its workspaces and their members, the GitHub App installations workspaces
+connect, and the App's webhooks, which it passes on to each workspace's cell.
+The web app is `apps/cloud-web`; the
 browser only talks to the web app, which proxies `/api` to this service.
 
 Sign-in is open to any Google account with a verified email, and anyone signed
@@ -87,8 +88,9 @@ has one webhook address, so each environment needs its own.
   the redirect's one-time code for your GitHub token, checks with GitHub that
   you own the account the installation is on, then revokes the token. GitHub
   greys out the Setup URL once this is on; the callback replaces it.
-- **Webhook URL:** your Cloudflare tunnel's address plus
-  `/api/github/webhooks` (14.2), with a secret from `openssl rand -hex 32`.
+- **Webhook:** Active, its URL your Cloudflare tunnel's address plus
+  `/api/github/webhooks`, and a secret: see "Receive GitHub's webhooks"
+  below.
 - **Repository permissions:** Metadata read, Contents read and write, Pull
   requests read and write. Each token Consola mints is narrowed below these.
 - **Organization permissions:** Members read. It is how Consola tells an
@@ -109,6 +111,74 @@ finish with. If the app is already installed on an account, Connect takes you
 to its settings on GitHub, and saving them there brings you back connected.
 Disconnecting removes Consola's record only; the app stays installed on GitHub
 until you uninstall it there, which the page links to.
+
+## Receive GitHub's webhooks
+
+GitHub sends the App's webhooks (a pull request opened, a push) to one public
+address. In development a Cloudflare tunnel brings them to the API on this
+machine; nothing is deployed. The API checks each delivery's signature, finds
+the workspace that holds the event's installation and passes the event on to
+that workspace's cell, which keeps it. It keeps none of it itself.
+
+1. **Make the secret.** Once, and keep it in `apps/cloud-global/.env` only:
+
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   Put the line it prints after `GITHUB_WEBHOOK_SECRET=` in `.env`, and
+   restart `pnpm dev:cloud`. A secret shorter than 32 characters stops the API
+   from starting; with none, every delivery is refused (503).
+
+2. **Start the cell** the events go to, beside `pnpm dev:cloud`:
+   `pnpm dev:cloud-region` runs the EU cell at `CELL_URL_EU`. An event for a
+   workspace whose region has no cell set is refused (503), and so is one the
+   cell has not been told of yet (502): the outbox tells it of a workspace
+   within seconds of the cell starting.
+
+3. **Start the tunnel**, in a terminal of its own:
+
+   ```bash
+   pnpm --filter @consola/cloud-global webhooks:tunnel
+   ```
+
+   It runs `cloudflared` (`brew install cloudflared`) to the API's port and
+   prints the webhook URL to set: the tunnel's address plus
+   `/api/github/webhooks`. By default it is a quick tunnel, which needs no
+   Cloudflare account and gets a new `*.trycloudflare.com` address each time
+   it starts, so the URL is set again after every start. For an address that
+   stays put, make a named tunnel on a domain of yours (`cloudflared tunnel
+   login`, `cloudflared tunnel create <name>`, `cloudflared tunnel route dns
+   <name> <hostname>`) and set `CLOUDFLARE_TUNNEL_NAME=<name>` and
+   `CLOUDFLARE_TUNNEL_HOSTNAME=<hostname>` in `.env`: the script then runs it
+   and prints `https://<hostname>/api/github/webhooks`. Ctrl+C stops it.
+
+4. **Set it on the App** (GitHub, Settings, Developer settings, GitHub Apps,
+   your app, General, Webhook): **Active** on, **Webhook URL** the address the
+   script printed, **Secret** the same value as `GITHUB_WEBHOOK_SECRET`. Then,
+   under Permissions & events, subscribe to the events you want: Pull request
+   and Push to begin with. GitHub sends a `ping` at once, which the API
+   answers.
+
+5. **Try it.** Open a pull request on a repository the connected installation
+   covers. The API logs `Passed GitHub delivery <id> (pull_request) on to
+   workspace <id>'s cell (eu).`, and the cell keeps the event in its
+   `github_event` table. The App's Advanced page lists every delivery with
+   the API's answer, and Redeliver sends one again.
+
+What the API answers GitHub:
+
+| Answer | When |
+| --- | --- |
+| 200 `delivered` | the workspace's cell recorded the event |
+| 200 `pong` | GitHub's ping |
+| 400 | signed, but a header or the body is not what GitHub sends |
+| 401 | no signature, or not one made with the secret over this body |
+| 409 | the cell had this delivery already (a Redeliver after a success, or a replay) |
+| 413 | over the 25 MB GitHub sends at most |
+| 422 | the event came through an installation no workspace holds (installed on GitHub, but not connected from Consola), or none: dropped and logged |
+| 502 | the cell did not take it: Redeliver once it is up |
+| 503 | no `GITHUB_WEBHOOK_SECRET`, or no cell for the workspace's region |
 
 ## GitHub tokens for a cell
 

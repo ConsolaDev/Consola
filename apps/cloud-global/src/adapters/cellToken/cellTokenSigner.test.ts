@@ -4,9 +4,12 @@ import {
   CELL_TOKEN_AUDIENCE,
   CLOCK_SKEW_SECONDS,
   cellTokenClaims,
+  GITHUB_EVENT_TYPE,
+  type GitHubEventMessage,
   OUTBOX_MESSAGE_TYPE,
   type OutboxMessage,
   readCellTokenClaims,
+  readGitHubEventMessage,
   readOutboxMessage,
 } from '@consola/cloud-contract';
 import { compactVerify, createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
@@ -144,6 +147,33 @@ describe('createCellTokenSigner', () => {
     await expect(
       compactVerify(await theirs.signOutboxMessage(message), createLocalJWKSet(ours.publicKeys())),
     ).rejects.toThrow();
+  });
+
+  it('signs a GitHub event as a compact JWS its published key checks, typed as one', async () => {
+    const signer = await createCellTokenSigner(newKey());
+    const event: GitHubEventMessage = {
+      workspaceId: 'sprocket-workspace',
+      region: 'us',
+      deliveryId: '72d3162e-cc78-11e3-81ab-4c9367dc0958',
+      event: 'pull_request',
+      installationId: 41,
+      payload: { action: 'opened', number: 7, installation: { id: 41 } },
+    };
+    const jws = await signer.signGitHubEvent(event);
+    const [published] = signer.publicKeys().keys;
+
+    expect(jws.split('.')).toHaveLength(3);
+    const { payload, protectedHeader } = await compactVerify(
+      jws,
+      createLocalJWKSet(signer.publicKeys()),
+      { algorithms: [CELL_TOKEN_ALGORITHM] },
+    );
+    expect(protectedHeader).toEqual({ alg: 'EdDSA', kid: published?.kid, typ: GITHUB_EVENT_TYPE });
+    const text = new TextDecoder().decode(payload);
+    expect(readGitHubEventMessage(JSON.parse(text))).toEqual({ ok: true, value: event });
+    // An event is no outbox message, and no cell token either.
+    expect(readOutboxMessage(JSON.parse(text)).ok).toBe(false);
+    await expect(verify(jws, signer.publicKeys())).rejects.toThrow();
   });
 
   it('refuses a key whose `x` is not the public key of its `d`, without quoting it', async () => {

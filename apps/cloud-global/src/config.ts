@@ -45,6 +45,12 @@ export type CloudConfig = {
   cellPublicKeys: Partial<Record<Region, Ed25519PublicJwk>>;
   /** Null when none of its settings is set: then nothing can be connected to GitHub. */
   github: GitHubAppConfig | null;
+  /**
+   * The secret GitHub signs the app's webhook deliveries with (`X-Hub-Signature-256`), the same
+   * value as in the app's webhook settings. Null when unset: then every delivery is refused. It
+   * is never logged.
+   */
+  githubWebhookSecret: string | null;
 };
 
 /** The variable that names a region's cell: `CELL_URL_EU` for `eu`. */
@@ -257,6 +263,26 @@ const GITHUB_SETTINGS = [
   'GITHUB_APP_PRIVATE_KEY_PATH',
 ] as const;
 
+/** The shortest webhook secret taken: `openssl rand -hex 32` makes one of 64 characters. */
+const WEBHOOK_SECRET_MIN = 32;
+
+/**
+ * The webhook secret, null when unset or empty, or what is wrong with it, never quoting it. It
+ * is taken exactly as written, since GitHub signs with it byte for byte.
+ */
+function readWebhookSecret(
+  value: string | undefined,
+): { ok: true; secret: string | null } | { ok: false; problem: string } {
+  if (value === undefined || value === '') return { ok: true, secret: null };
+  if (value.length < WEBHOOK_SECRET_MIN) {
+    return {
+      ok: false,
+      problem: `GITHUB_WEBHOOK_SECRET: must be at least ${WEBHOOK_SECRET_MIN} characters (make one with \`openssl rand -hex 32\`, and set the same value in the GitHub App's webhook settings)`,
+    };
+  }
+  return { ok: true, secret: value };
+}
+
 /** Lowercase letters and digits, with single dashes between: how GitHub spells an app's slug. */
 const GITHUB_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -302,11 +328,12 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
   const result = rawEnv.safeParse(input);
   const cellResult = cellEnv.safeParse(input);
   const github = readGitHubApp(env);
+  const webhookSecret = readWebhookSecret(env.GITHUB_WEBHOOK_SECRET);
   const cellKeys = readCellPublicKeys(
     env,
     result.success ? result.data.CELL_TOKEN_PRIVATE_KEY.x : undefined,
   );
-  if (!result.success || !cellResult.success || !github.ok || !cellKeys.ok) {
+  if (!result.success || !cellResult.success || !github.ok || !cellKeys.ok || !webhookSecret.ok) {
     const issues = [
       ...(result.success ? [] : result.error.issues),
       ...(cellResult.success ? [] : cellResult.error.issues),
@@ -315,6 +342,7 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
       ...issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
       ...(github.ok ? [] : github.problems),
       ...(cellKeys.ok ? [] : cellKeys.problems),
+      ...(webhookSecret.ok ? [] : [webhookSecret.problem]),
     ]);
   }
   const parsed = result.data;
@@ -333,5 +361,6 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
     cellUrls: cells,
     cellPublicKeys: cellKeys.keys,
     github: github.app,
+    githubWebhookSecret: webhookSecret.secret,
   };
 }

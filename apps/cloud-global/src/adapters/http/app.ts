@@ -14,9 +14,11 @@ import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
 import { listActiveWorkspaceMembers } from '../../application/members.js';
 import type {
+  CellEvents,
   CellRequestVerifier,
   CellTokenSigner,
   GitHubApp,
+  GitHubEventSigner,
   GitHubTokenMinter,
   HealthProbe,
   InstallationStore,
@@ -24,6 +26,7 @@ import type {
   MembershipStore,
   SessionStore,
   TokenMintStore,
+  WebhookSignatures,
   WorkspaceStore,
 } from '../../application/ports.js';
 import {
@@ -53,6 +56,7 @@ import {
   putActiveWorkspace,
   putActiveWorkspaceIcon,
 } from './contract.js';
+import { type WebhookLog, webhookRoutes } from './webhooks.js';
 
 const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
@@ -135,6 +139,13 @@ export function createApp(deps: {
   /** Checks a cell's signed request for a GitHub token. */
   cellRequests: CellRequestVerifier;
   tokenMints: TokenMintStore;
+  /** GitHub's webhooks: null signatures when no webhook secret is set (`webhooks.ts`). */
+  webhooks: {
+    signatures: WebhookSignatures | null;
+    signer: GitHubEventSigner;
+    cells: CellEvents;
+    log?: WebhookLog;
+  };
 }): OpenAPIHono {
   const {
     handleAuth,
@@ -150,6 +161,7 @@ export function createApp(deps: {
     health,
     cellRequests,
     tokenMints,
+    webhooks,
   } = deps;
   // A body of the wrong shape is 400 `invalid_request` unless its route says otherwise, never
   // the validator's own answer, which is not in the contract.
@@ -218,6 +230,10 @@ export function createApp(deps: {
         return c.json({ error: 'github_unavailable' } as const, 503);
     }
   });
+
+  // GitHub's webhooks, before the origin check: GitHub sends no Origin and no cookie, and the
+  // signature over the body is what says a delivery is GitHub's.
+  webhookRoutes(app, { ...webhooks, installations, log: webhooks.log ?? console });
 
   app.use('/api/*', async (c, next) => {
     if (!CHANGES.has(c.req.method) || c.req.header('origin') === webOrigin) return next();

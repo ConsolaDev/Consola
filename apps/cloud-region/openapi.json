@@ -3,7 +3,7 @@
   "info": {
     "title": "Consola Cloud regional cell",
     "version": "0",
-    "description": "What a workspace holds in its region. Every route but the health check and the outbox's deliveries takes a cell token, minted by cloud-global for one workspace (`Authorization: Bearer`), and reads and writes that workspace alone."
+    "description": "What a workspace holds in its region. Every route but the health check, the outbox's deliveries and the GitHub events cloud-global passes on takes a cell token, minted by cloud-global for one workspace (`Authorization: Bearer`), and reads and writes that workspace alone."
   },
   "components": {
     "schemas": {
@@ -649,6 +649,186 @@
           },
           "421": {
             "description": "A message about a workspace in another region.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "otherRegion"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys or its database.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/github/events": {
+      "post": {
+        "summary": "Deliver one of GitHub’s webhook events, passed on by cloud-global",
+        "description": "Only cloud-global calls it, for a workspace whose GitHub installation the event came through. The body is the event, signed as a compact JWS with the cell token’s key (`packages/cloud-contract`, \"Passing on a GitHub event\"), so it takes no token. The cell records each delivery once, by GitHub’s id of it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/jose": {
+              "schema": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The cell had recorded the event before: a delivery sent again, which changed nothing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recorded": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "recorded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "The cell recorded the event now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "recorded": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "recorded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Not sent as a signed event, over the size an event can be, or not an event the contract reads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unreadable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Not signed by cloud-global as an event.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsigned"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The cell does not hold the workspace yet: cloud-global has not delivered its creation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "workspacePending"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "An event for a workspace in another region.",
             "content": {
               "application/json": {
                 "schema": {
