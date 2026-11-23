@@ -36,8 +36,10 @@ The app is built in layers, and imports point inward only.
   (`runs.ts`: the contract's run types, `PHASES`, `mergeRefresh`, the poll
   delays, `starterOf`, `safeItemUrl`, `RunsAnswer`, `RunAnswer`), the list's
   filters (`runFilters.ts`), where the section is (`runsRoute.ts`), how a run
-  is said (`runWords.ts`), how a step is traced (`stepTrace.ts`) and the
-  pages' sentences (`runMessages.ts`; see "Runs"); where the running source is
+  is said (`runWords.ts`), how a step is traced (`stepTrace.ts`), the file
+  behind a run (`runFile.ts`, shaded by the desktop's YAML tokenizer,
+  `yamlTokens.ts`), approving one (`runApproval.ts`) and the pages'
+  sentences (`runMessages.ts`; see "Runs"); where the running source is
   (`source.ts`); and how the address names a dashboard section (`sections.ts`:
   `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a settings page
   (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
@@ -59,7 +61,8 @@ The app is built in layers, and imports point inward only.
   `openHash`, `replaceHash`, `onHashChange`; `settingsAddress.ts`:
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
   `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`; `runsAddress.ts`:
-  `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`), whether the
+  `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`,
+  `showRunPlace`), whether the
   page is in view (`pageVisibility.ts`), and the browser's storage, for a
   convenience only (`foldStore.ts`: `readUnfolded`, `writeUnfolded`;
   `runPagePrefs.ts`, what this browser keeps of a run's page). A service
@@ -284,11 +287,13 @@ the factory's orchestrator; the automations it starts are its children.
 - **The address holds the place.** The list is `#/runs`, its filters after
   `?` (`runFilters.ts`: `filtersOfQuery`, `queryOfFilters`, one order for one
   set, `background=1` for the three background triggers, an unknown value
-  dropped); a run is `#/runs/<id>` (`runsRoute.ts`). A run opens as a new
-  history entry (its row is a link); a filter replaces the list's entry
-  (`showRunsFilters`, which tells its listeners, since `replaceState` fires
-  no `hashchange`). The run's page leads back to the list as the section last
-  showed it.
+  dropped); a run is `#/runs/<id>` (`runsRoute.ts`), and where on its page
+  after `?`: its file rather than its steps (`view=file`) and the step
+  chosen (`step=<id>`, `placeOfQuery`). A run opens as a new history entry
+  (its row is a link); a filter, a view or a step chosen replaces the entry
+  (`showRunsFilters`, `showRunPlace`, which tell their listeners, since
+  `replaceState` fires no `hashchange`). The run's page leads back to the
+  list as the section last showed it.
 - **Filters**: the factory picker (every factory, a team's, or one, under
   their teams: `factoriesByTeam`), My runs, a chip per phase with the cell's
   count (Running, Complete, Failed, Blocked for `needs-you`, Cancelled for
@@ -341,12 +346,40 @@ the factory's orchestrator; the automations it starts are its children.
   newline and a tab, and the characters that reorder text; a carriage return
   redraws its line). Nothing opens a session or an artifact's content yet,
   and an agent step says its conversation comes later.
+- **The file behind a run** (`ui/RunFileView.tsx`, the design mock's File
+  view, with no lines drawn between steps): when the cell holds it
+  (`RunDetail.source`), Steps and File are a tablist at the trace's head.
+  File shows the automation's file at the version the run executed, shaded
+  (`yamlTokens`), numbered, with its path, `v<n> · latest` or `latest is
+  v<m>`, and Copy; in a `factory.yml` that holds others, the automation's own
+  lines are whole and the rest quieter. The steps it holds are named above
+  it, the keyboard's way to them. The chosen step's lines are lit; a click on
+  a step's lines chooses it and offers Show in steps; an open step offers
+  "View in file · lines a–b", which shows and lights its lines once. An
+  address naming a step arrives at it once, in either view.
+- **Definition** (the info panel, after Run, only for a run with a `source`):
+  the file (a link to File), the version against the latest, the trigger,
+  the mode and what it applies to (`runFile.ts`).
+- **Approving a run** (`ui/ApprovalCard.tsx`, at the top of either pane while
+  `RunDetail.approval` is set): the cell's reason, what approving lets run
+  (each command, each agent with its prompt's first line; a request has
+  none), and "Anyone on <team> can approve this." Anyone on the factory's
+  owning team (the cell's `mayAnswer`) gets Approve and Dismiss, which asks
+  once, in place; everyone else reads the card alone. `approveRun` sends
+  `POST /api/runs/{runId}/approval` for the version asked about; the cell
+  records the first answer for that version and the run's runner acts on
+  it, so the card becomes a one-line receipt ("Approved by you · 2m ago. It
+  starts when its runner picks it up.") and the page reads the run again.
+  Every refusal (not on the team, the run gone, not waiting, answered first,
+  the version moved, the cell's own states) has its own sentence
+  (`messageForApproveAnswer`) and reads the run again. This is the one thing
+  on the pages that writes.
 - **The conversation comes later.** A request's pane is where `AgentChat`
   (`@consola/agent-ui`) will mount once requests run in cloud sessions; this
   app imports no workspace package yet. Until then (`conversation === null`)
   it shows the request as the person gave it and says what will join it. An
   open question's words are not in the cell, so the page says when it was
-  asked and its deadline. Nothing on the pages changes a run yet.
+  asked and its deadline.
 - **Text a run carries is untrusted** (a request may be a pasted ticket): it
   is shown as text, never markup, and an item's address is a link only on
   `https:` (`safeItemUrl`), which the cell also holds it to.
@@ -483,7 +516,8 @@ under a topbar of their own.
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/NewFactoryDialog.css`,
   `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
-  `ui/TeamsPage.css`, `ui/RunsList.css`), imported by the page.
+  `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
+  `ui/ApprovalCard.css`), imported by the page.
 - **Motion plays once, or answers the person.** The map's region ripples on as
   the page opens, a factory's chevron turns as it folds, a new icon pops
   into its tile, the slug's icon

@@ -17,7 +17,7 @@ import './RunsSection.css';
  * The section remembers the list's address as it last showed it, so a run's page leads back to
  * the list the person came from, filters and all.
  */
-export function RunsSection({ workspace }: SectionProps) {
+export function RunsSection({ me, workspace }: SectionProps) {
   const hash = useSyncExternalStore(onRunsAddressChange, currentRunsHash);
   const route = useMemo(() => runsRouteOfHash(hash), [hash]);
   const listHash = useRef(hashOfRunsList(NO_FILTERS));
@@ -31,6 +31,8 @@ export function RunsSection({ workspace }: SectionProps) {
       key={route.runId}
       workspace={workspace}
       runId={route.runId}
+      place={route.place}
+      meId={me.user.id}
       members={members}
       listHash={listHash.current}
     />

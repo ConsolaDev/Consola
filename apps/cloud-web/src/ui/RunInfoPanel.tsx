@@ -5,19 +5,31 @@ import {
   Coins,
   CornerLeftUp,
   Factory,
+  FileCode,
+  GitCommitVertical,
   GitPullRequest,
   Link2,
   MessageCircleQuestion,
   Radar,
+  ShieldCheck,
+  Tag,
   Timer,
   Webhook,
   Workflow,
+  Zap,
 } from 'lucide-react';
 import type { ReactNode } from 'react';
+import {
+  appliesToWords,
+  fileVersionWords,
+  modeWords,
+  triggerDefinitionWords,
+} from '../domain/runFile';
 import { NO_CHILDREN_WORDS } from '../domain/runMessages';
 import {
   isLive,
   type RunDetail,
+  type RunSource,
   type RunSummary,
   safeItemUrl,
   type Starter,
@@ -48,13 +60,15 @@ import { StatusGlyph } from './RunStatusIcon';
 const ICON = 14;
 
 /** The info panel's sections, by id: what the page keeps folded. */
-export type RunInfoSectionId = 'request' | 'automations' | 'budget' | 'run';
+export type RunInfoSectionId = 'request' | 'automations' | 'budget' | 'run' | 'definition';
 
 /**
  * A run's facts beside it, as the desktop's info panel states a session's. A request has three
  * sections: the request itself, the automations it started (each live, each opening its own
- * page) and its budget. An automation run has one: what it is, what started it (its request,
- * when one did, which it links to) and what it cost.
+ * page) and its budget. An automation run has what it is, what started it (its request, when one
+ * did, which it links to) and what it cost; then, when the cell holds the file it ran, its
+ * Definition: the file (a link to its File view), the version against the latest, the trigger,
+ * the mode and what it applies to.
  */
 export function RunInfoPanel({
   detail,
@@ -140,7 +154,51 @@ export function RunInfoPanel({
           <InfoRow icon={<Coins size={ICON} />} label="Cost" value={costInWords(run.costUsd)} />
         )}
       </InfoSection>
+      {detail.source && (
+        <InfoSection title="Definition" {...fold('definition')}>
+          <DefinitionRows runId={run.id} source={detail.source} />
+        </InfoSection>
+      )}
     </InfoPanel>
+  );
+}
+
+/** What the run executed, as its factory's file defines it. */
+function DefinitionRows({ runId, source }: { runId: string; source: RunSource }) {
+  return (
+    <>
+      <InfoRow
+        icon={<FileCode size={ICON} />}
+        label={<code className="run-info-code run-info-path">{source.path}</code>}
+        title={`Show ${source.path} as the run executed it`}
+        href={hashOfRun(runId, { view: 'file', step: null })}
+      />
+      <InfoRow
+        icon={<GitCommitVertical size={ICON} />}
+        label={fileVersionWords(source.version, source.latestVersion)}
+        title="The version this run executed, and the factory’s latest"
+      />
+      <InfoRow
+        icon={<Zap size={ICON} />}
+        label={
+          source.trigger.detail ? (
+            <>
+              {triggerDefinitionWords(source.trigger.kind)}{' '}
+              <code className="run-info-code">{source.trigger.detail}</code>
+            </>
+          ) : (
+            triggerDefinitionWords(source.trigger.kind)
+          )
+        }
+        title="Trigger"
+      />
+      <InfoRow icon={<ShieldCheck size={ICON} />} label={modeWords(source.mode)} title="Mode" />
+      <InfoRow
+        icon={<Tag size={ICON} />}
+        label={appliesToWords(source.appliesTo)}
+        title="Applies to"
+      />
+    </>
   );
 }
 

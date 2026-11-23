@@ -1,11 +1,12 @@
-import { Hand, MessageCircleQuestion, MessagesSquare } from 'lucide-react';
+import { MessageCircleQuestion, MessagesSquare } from 'lucide-react';
+import type { ReactNode } from 'react';
 import {
-  APPROVAL_ELSEWHERE_WORDS,
   CONVERSATION_LATER_TITLE,
   CONVERSATION_LATER_WORDS,
   questionOpenWords,
 } from '../domain/runMessages';
 import { type RunDetail, type RunSummary, starterOf } from '../domain/runs';
+import type { RunPlace } from '../domain/runsRoute';
 import { agoInWords, fullTime } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import { Avatar } from './Avatar';
@@ -24,10 +25,13 @@ export function RequestPane({
   detail,
   members,
   now,
+  lead,
 }: {
   detail: RunDetail;
   members: WorkspaceMember[] | null;
   now: number;
+  /** What comes before the conversation: the approval card, while the request waits for one. */
+  lead?: ReactNode;
 }) {
   const { run, request } = detail;
   if (!request) return null;
@@ -40,6 +44,7 @@ export function RequestPane({
         : 'Someone';
   return (
     <div className="run-conversation">
+      {lead}
       <ol className="run-messages" aria-label="Conversation">
         <li className="run-message">
           <div className="run-message-head">
@@ -97,21 +102,29 @@ function Outcome({ run }: { run: RunSummary }) {
 }
 
 /**
- * An automation run's main pane: what waits on someone, how it ended, then its steps traced as
- * the desktop traces them (`StepTrace`). A failed run's own note says where it broke.
+ * An automation run's main pane: the approval card while it waits for one (`lead`), how it ended,
+ * then its steps traced as the desktop traces them, or the file behind them (`StepTrace`). A failed
+ * run's own note says where it broke.
  */
-export function StepsPane({ detail, now }: { detail: RunDetail; now: number }) {
+export function StepsPane({
+  detail,
+  now,
+  place,
+  onPlace,
+  lead,
+}: {
+  detail: RunDetail;
+  now: number;
+  place: RunPlace;
+  onPlace: (place: RunPlace) => void;
+  lead?: ReactNode;
+}) {
   const { run } = detail;
   return (
     <div className="run-steps-pane">
-      {run.status === 'needs-approval' && (
-        <div className="run-callout" data-tone="warning" role="status">
-          <Hand size={16} aria-hidden="true" />
-          <p>{APPROVAL_ELSEWHERE_WORDS}</p>
-        </div>
-      )}
+      {lead}
       {run.phase !== 'failed' && <Outcome run={run} />}
-      <StepTrace detail={detail} now={now} />
+      <StepTrace detail={detail} now={now} place={place} onPlace={onPlace} />
     </div>
   );
 }

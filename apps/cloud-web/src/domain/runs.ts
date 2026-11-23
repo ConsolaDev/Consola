@@ -28,6 +28,10 @@ export type StepDefinition = Schemas['StepDefinition'];
 export type RunList = Schemas['RunList'];
 export type RunDetail = Schemas['RunDetail'];
 
+export type LineRange = Schemas['LineRange'];
+export type RunSource = Schemas['RunSource'];
+export type RunApproval = Schemas['RunApproval'];
+
 /** What the filter menus offer: the factories, teams and automations the person sees. */
 export type RunFacets = RunList['facets'];
 

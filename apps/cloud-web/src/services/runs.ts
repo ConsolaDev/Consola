@@ -1,5 +1,6 @@
 import type { CellRefusal } from '../domain/cell';
 import type { paths } from '../domain/cellApiContract';
+import type { ApprovalDecision, ApproveAnswer } from '../domain/runApproval';
 import type { RunFilters } from '../domain/runFilters';
 import type { MembersAnswer, RunAnswer, RunsAnswer } from '../domain/runs';
 import type { WorkspaceMember } from '../domain/teams';
@@ -72,6 +73,27 @@ function isRunDetail(body: unknown): boolean {
   );
 }
 
+/** A body that has the shape of a run's approval: the parts the card reads before anything else. */
+function isApproval(body: unknown): boolean {
+  return (
+    isObject(body) &&
+    typeof body.version === 'number' &&
+    typeof body.mayAnswer === 'boolean' &&
+    isObject(body.team) &&
+    isObject(body.will) &&
+    Array.isArray(body.will.commands) &&
+    Array.isArray(body.will.agents)
+  );
+}
+
+/** The cell's 409s to an answer, by their code. */
+const ANSWER_CONFLICTS: Record<string, ApproveAnswer> = {
+  not_waiting: { kind: 'not-waiting' },
+  already_answered: { kind: 'already-answered' },
+  version_moved: { kind: 'version-moved' },
+  workspace_pending: { kind: 'pending' },
+};
+
 /** The workspace's cell said it does not hold the workspace yet. */
 function pendingOr(status: number, error: unknown): CellRefusal {
   return status === 409 && codeOf(error) === 'workspace_pending' ? PENDING : UNAVAILABLE;
@@ -88,6 +110,15 @@ export type RunsService = {
   loadRun(workspace: { id: string }, runId: string): Promise<RunAnswer>;
   /** The workspace's members, to name who started each run. */
   loadMembers(workspace: { id: string }): Promise<MembersAnswer>;
+  /**
+   * Answers a run that waits for approval, for the version it asks about: the cell records the
+   * first answer for that version, and the run's runner acts on it.
+   */
+  approveRun(
+    workspace: { id: string },
+    runId: string,
+    answer: { decision: ApprovalDecision; version: number },
+  ): Promise<ApproveAnswer>;
 };
 
 /**
@@ -141,6 +172,36 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
           return { kind: 'not-found' };
         }
         return pendingOr(response.status, error);
+      } catch {
+        return UNAVAILABLE;
+      }
+    },
+
+    async approveRun(workspace, runId, { decision, version }) {
+      try {
+        const answer = await onCell(workspace.id, (cell) =>
+          cell.POST('/api/runs/{runId}/approval', {
+            params: { path: { runId } },
+            body: { decision, version },
+          }),
+        );
+        if ('kind' in answer) return answer;
+        const { data, error, response } = answer;
+        if (response.status === 201 && data && isApproval(data)) {
+          return { kind: 'answered', approval: data };
+        }
+        const code = codeOf(error);
+        if (response.status === 400 && code === 'invalid_request') return { kind: 'invalid' };
+        if (response.status === 403 && code === 'not_allowed') return { kind: 'not-allowed' };
+        if (response.status === 404 && code === 'run_not_found') return { kind: 'not-found' };
+        if (
+          response.status === 409 &&
+          typeof code === 'string' &&
+          Object.hasOwn(ANSWER_CONFLICTS, code)
+        ) {
+          return ANSWER_CONFLICTS[code];
+        }
+        return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;
       }

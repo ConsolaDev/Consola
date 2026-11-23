@@ -210,6 +210,12 @@
   font-size: var(--font-size-xs);
 }
 
+/* A file's path, as the factory spells it, in a row's own colour. */
+.run-info-path {
+  margin-left: 0;
+  color: inherit;
+}
+
 /* A budget's meter, under its row, lined up with the row's label. It fills once, as it shows. */
 .run-budget {
   display: flex;
