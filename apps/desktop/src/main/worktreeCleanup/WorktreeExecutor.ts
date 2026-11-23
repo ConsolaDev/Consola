@@ -1,5 +1,6 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { runCloneGitDirFor } from '@consola/automation-engine';
 import type { Session } from '../../shared/workspace';
 import {
   type CleanupTrigger,
@@ -43,9 +44,24 @@ export interface ExecutorDeps {
     ): Promise<{ deleted: true } | { deleted: false; reason: string }>;
     writeKeepRef(mainRepo: string, ref: string, commit: string): Promise<void>;
     deleteKeepRef(mainRepo: string, ref: string): Promise<void>;
+    /** What a keep-ref points at now, or null. */
+    keepRefAt(mainRepo: string, ref: string): Promise<string | null>;
+    /** A run's own checkout's branch into its clone as `keepRef`, which must then be its head (slice 3-B, Call 10). */
+    fetchKeepRef(inspection: WorktreeInspection, keepRef: string): Promise<void>;
+    /** A run's own checkout and its git folder, gone; refuses anything else. */
+    removeRunClone(inspection: WorktreeInspection): Promise<void>;
   };
   /** Mark every listed session's worktree removed, in one write. */
   recordRemoved(entries: Array<{ sessionId: string; removed: RemovedWorktree }>): void;
+  /**
+   * The run's own record of its removed checkout (slice 3-B, review S3:
+   * a run of only `run:` steps has no session to carry it), or `null` to
+   * clear it: `AutomationService.recordCheckoutRemoved`.
+   */
+  recordRunCheckoutRemoved?(
+    runId: string,
+    removed: { commit: string; keepRef: string; at: string } | null,
+  ): void;
   /** Clear the mark from every session naming this path. */
   clearRemoved(worktreePath: string): void;
   /** Called after a removal, for the history. */
@@ -82,6 +98,10 @@ const PROCESS_POLL_MS = 250;
  * 5. `git worktree remove`, never `--force`: git's own refusal of a dirty
  *    tree is the last guard. If it refuses, the records are cleared.
  * 6. Only when the verdict says so, the branch, compare-and-swap at HEAD.
+ *
+ * A run's own checkout (slice 3-B) is a clone, so steps 4–6 differ
+ * (`removeRunOwned`): the keep-ref is fetched into the person's clone,
+ * the record goes on the run too, and the clone goes whole.
  */
 export class WorktreeExecutor {
   constructor(private readonly deps: ExecutorDeps) {}
@@ -111,6 +131,9 @@ export class WorktreeExecutor {
 
     const stays = SESSION_STAYS.has(verdict.trigger);
     const keepRef = keepRefFor(tree);
+    if (inspection.runOwned) {
+      return this.removeRunOwned(verdict, inspection, stays ? sessions : [], keepRef);
+    }
     if (stays) {
       try {
         await this.deps.worktrees.writeKeepRef(inspection.mainRepo, keepRef, inspection.head);
@@ -163,6 +186,87 @@ export class WorktreeExecutor {
       inspection,
       branch,
       notes,
+    };
+    this.safely(() => this.deps.removed?.(execution));
+    return execution;
+  }
+
+  /**
+   * A run's own checkout, in this order (plan Call 10): its branch fetched
+   * into the person's clone as the keep-ref, which must be the head just
+   * judged (a moved branch removes nothing); the record, on every session
+   * that stays and on its run while history has it, so Retry can rebuild a
+   * run with no session; then both folders. Always a record and a keep-ref,
+   * whatever the trigger: the run outlives its sessions, and a failed run
+   * can be retried. The keep-ref is never deleted here: after a rebuild it
+   * is what keeps the folder's commits from `gc` (review NB2), so a failed
+   * fetch puts back the one it replaced, and a failed removal leaves it.
+   */
+  private async removeRunOwned(
+    verdict: Extract<TreeVerdict, { decision: 'remove' }>,
+    inspection: WorktreeInspection,
+    sessions: Session[],
+    keepRef: string,
+  ): Promise<Execution> {
+    const tree = verdict.tree;
+    const runId = inspection.runOwned!.runId;
+    const { mainRepo, head, branch } = inspection;
+    const previous = await this.deps.worktrees.keepRefAt(mainRepo, keepRef).catch(() => null);
+    try {
+      await this.deps.worktrees.fetchKeepRef(inspection, keepRef);
+    } catch (error) {
+      if (previous) {
+        await this.deps.worktrees.writeKeepRef(mainRepo, keepRef, previous).catch(() => {});
+      }
+      return { kind: 'failed', error: describeError(error) };
+    }
+    const at = this.deps.now();
+    const removed: RemovedWorktree = {
+      path: tree,
+      mainRepo,
+      commit: head,
+      branch,
+      keepRef,
+      trigger: verdict.trigger,
+      removedAt: at,
+      kind: 'run-owned',
+      runId,
+    };
+    const forget = () => {
+      this.safely(() => this.deps.clearRemoved(tree));
+      this.safely(() => this.deps.recordRunCheckoutRemoved?.(runId, null));
+    };
+    try {
+      if (sessions.length > 0) {
+        this.deps.recordRemoved(sessions.map((session) => ({ sessionId: session.id, removed })));
+      }
+      this.deps.recordRunCheckoutRemoved?.(runId, {
+        commit: head,
+        keepRef,
+        at: new Date(at).toISOString(),
+      });
+    } catch (error) {
+      forget();
+      return { kind: 'failed', error: describeError(error) };
+    }
+    try {
+      await this.deps.worktrees.removeRunClone(inspection);
+    } catch (error) {
+      // Refused before anything went: the records would only claim a removal that never
+      // happened. Part-way, the records stay, so a Retry or an open rebuilds it.
+      const whole =
+        fs.existsSync(path.join(tree, '.git')) && fs.existsSync(runCloneGitDirFor(tree));
+      if (whole) forget();
+      const kept = whole ? '' : ' Retrying its run or opening its session rebuilds it.';
+      return { kind: 'failed', error: `${describeError(error)}${kept}` };
+    }
+    const execution: Extract<Execution, { kind: 'removed' }> = {
+      kind: 'removed',
+      verdict,
+      inspection,
+      // Its branch lived in its own clone; the keep-ref keeps the commit and a rebuild the branch.
+      branch: 'none',
+      notes: [],
     };
     this.safely(() => this.deps.removed?.(execution));
     return execution;

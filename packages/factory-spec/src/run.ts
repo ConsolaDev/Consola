@@ -20,6 +20,7 @@ export type RunStatus =
   | 'queued'
   | 'running'
   | 'needs-approval'
+  | 'waiting'
   | 'completed'
   | 'failed'
   | 'rejected';
@@ -29,12 +30,14 @@ export type RunnerKind = 'local' | 'cloud' | (string & {});
 
 /**
  * A step's status. Like a run's, the set only grows: nothing may assume these
- * eight are all there will be.
+ * nine are all there will be. `waiting`: a gate asking a person, a loop at its
+ * exhaustion gate, or a step waiting out a declared retry.
  */
 export type StepRunStatus =
   | 'pending'
   | 'queued'
   | 'running'
+  | 'waiting'
   | 'completed'
   | 'failed'
   | 'skipped'
@@ -47,10 +50,33 @@ export type StepRunStatus =
  */
 export interface StepRun {
   id: string;
-  kind: 'agent' | 'run';
+  /** `gate` asks a person; `repeat` is a loop's own row, its steps' rows right after it. */
+  kind: 'agent' | 'run' | 'gate' | 'repeat';
   status: StepRunStatus;
   /** 1-based: the nth time this step ran in this run; names its folder. */
   attempt: number;
+  /**
+   * Inside a loop: the round this execution belongs to. On a loop's own row:
+   * the round it is in.
+   */
+  round?: number;
+  /** A loop's row: its `max`, written when round 1 starts, so a list row can say "round 2 of 3". */
+  max?: number;
+  /**
+   * A gate's (or a loop's exhaustion gate's) question: when it was asked, and
+   * once answered, the decision, by whom and when. A gate's answer is a
+   * person's, given only from Consola's own window.
+   */
+  gate?: { askedAt: string; decision?: string; by?: 'person'; at?: string };
+  /** When a step waiting out a declared retry (`on_failure`) runs again. */
+  retryAt?: string;
+  /** The declared retries this execution has used; spent once it equals the step's `on_failure.retry`. */
+  retries?: number;
+  /**
+   * One line the status cannot say: how a loop ended, why a step did not run
+   * after `then: stop`, a dry run's report of a gate. Shown, never parsed.
+   */
+  note?: string;
   queuedAt?: string;
   startedAt?: string;
   finishedAt?: string;
@@ -67,6 +93,29 @@ export interface StepRun {
   model?: string;
   /** The agent file's name (`agents/<name>.md`), when the step named one. */
   agent?: string;
+  /**
+   * A write step's agent `tools:` (slice 3-B), written when it starts: what
+   * a restart reads to fail a write step it cannot resume. Absent: read-only.
+   */
+  tools?: 'edit' | 'write';
+  /**
+   * A step in a run's own checkout (slice 3-B): the commit it started from,
+   * and once Consola settled it, the commit it ended at, the files changed
+   * and the paths flagged for a person's look.
+   */
+  checkout?: { before: string; after?: string; files?: number; flagged?: string[] };
+  /**
+   * A write step's environment as it launched (slice 3-B): its isolation,
+   * the CLI's version, and which of its `env:` names the person's
+   * environment had (`passed`) and lacked (`missing`).
+   */
+  environment?: {
+    name: string;
+    isolation: 'host' | 'sandbox';
+    cliVersion?: string;
+    passed?: string[];
+    missing?: string[];
+  };
   /**
    * The latest attempt's turns, summed: its first turn, a resume, its
    * reminder. `costUsd` is the CLI's estimate, present only when a turn
@@ -95,6 +144,10 @@ export interface StepRun {
     finishedAt?: string;
     costUsd?: number;
     turns?: number;
+    /** Inside a loop: the round that execution belonged to. */
+    round?: number;
+    /** A gate's: the answer it was given. */
+    decision?: string;
   }>;
 }
 
@@ -186,8 +239,46 @@ export interface RunRecord {
   previous?: { runId: string };
   /** The run only reported what its commands would do. */
   dryRun?: boolean;
-  /** Where an item run worked; `head` is the commit it checked out. */
-  checkout?: { cwd: string; scopeId?: string; head?: string };
+  /**
+   * Where the run worked; `head` is the commit it checked out (an item's) or
+   * is now at (a checkout the run owns). `kind` is written from slice 3-B
+   * on; a record without it reads as slice 1 decided it. A checkout the run
+   * owns (slice 3-B) also records its repository, its branch, the commit it
+   * cut from (`base`), what people's sessions left there (`byPerson`), the
+   * session last seen holding it (`lastHolder`), and, once worktree cleanup
+   * removed it, where its commit was kept (`removed`).
+   */
+  checkout?: {
+    cwd: string;
+    scopeId?: string;
+    head?: string;
+    kind?: 'item' | 'scope' | 'run-owned';
+    repo?: string;
+    branch?: string;
+    base?: string;
+    byPerson?: Array<{
+      /** The session the run last saw holding it; absent when none was seen. */
+      session?: string;
+      before: string;
+      after: string;
+      files: number;
+      flagged?: string[];
+      at: string;
+    }>;
+    lastHolder?: string;
+    removed?: { commit: string; keepRef: string; at: string };
+  };
+  /**
+   * What holds this run before it can start: another run's gate holds its
+   * item (`automation`, `run` and `step` name that gate). In a checkout the
+   * run owns, a person's session open there (`session`, its id) holds it
+   * between steps (slice 3-B).
+   */
+  waitingFor?: { gate?: { automation: string; run: string; step: string }; session?: string };
+  /** Times the run started again by itself (the entry's `on_failure`). */
+  retried?: number;
+  /** When the entry's own declared retry runs: a wait on the run, since it can come before any step ran. */
+  retryAt?: string;
   error?: string;
   /** Every attempt of every step, summed; the CLI's estimate. Absent while none reported one. */
   costUsd?: number;
@@ -219,8 +310,11 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  *
  * A `steps:` entry is covered whole: prompts, action names, agent names,
  * commands, env templates, `if`, outputs, artifacts, reads, timeouts and
- * `dry_run`. Its `resolvedBody` is `stepsResolvedBody`'s: the bodies of the
- * actions its steps name and, when a step names one, its agents' hashes.
+ * `dry_run`, and its loops, gates and retries, which its steps carry. Its
+ * `checkout`, `budget` and `on_failure` are covered only when written, so an
+ * entry without them hashes as before. Its `resolvedBody` is
+ * `stepsResolvedBody`'s: the bodies of the actions its steps name and, when a
+ * step names one, its agents' hashes.
  *
  * `resolvedBody` is what the runner resolved the target to — an action's
  * prompt, which lives in the workspace's settings rather than the file — so
@@ -229,7 +323,9 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  */
 export function automationVersion(
   automation: Pick<Automation, 'run' | 'steps' | 'mode' | 'trigger'> &
-    Partial<Pick<Automation, 'filter' | 'scope' | 'appliesTo'>>,
+    Partial<
+      Pick<Automation, 'filter' | 'scope' | 'appliesTo' | 'checkout' | 'budget' | 'onFailure'>
+    >,
   resolvedBody?: string,
 ): string {
   const { trigger } = automation;
@@ -258,6 +354,10 @@ export function automationVersion(
         : undefined,
     // Which items a run on demand takes.
     appliesTo: automation.appliesTo,
+    // Where a run works, what it may spend, and how often it starts again by itself (slice 3).
+    checkout: automation.checkout,
+    budget: automation.budget,
+    onFailure: automation.onFailure,
     resolvedBody,
   });
   return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
@@ -266,7 +366,9 @@ export function automationVersion(
 /**
  * A steps entry's `resolvedBody`: today's `stableStringify({ <stepId>: <action body> })`, or undefined, when no step
  * names an agent; `stableStringify({ actions, agents: { <agent>: <agentHash> } })` when one does (`actions` absent
- * when none is used). Every runner hashes an entry through this.
+ * when none is used); and, when an agent names an environment (slice 3-B),
+ * `stableStringify({ actions, agents, environments: { <name>: <environmentHash> } })`. Every runner hashes an entry
+ * through this.
  *
  * So an entry no step of which names an agent (every slice-1 entry) hashes byte for byte as before, and an agent
  * file, a skill it names or a server it names changes the version of exactly the entries that use that agent.
@@ -274,8 +376,18 @@ export function automationVersion(
 export function stepsResolvedBody(
   actionBodies: Readonly<Record<string, string>>,
   agentHashes: Readonly<Record<string, string>>,
+  environmentHashes?: Readonly<Record<string, string>>,
 ): string | undefined {
   const actions = Object.keys(actionBodies).length > 0 ? actionBodies : undefined;
+  // An environment a write agent names is in the version too (slice 3-B); none moves no hash.
+  const environments =
+    environmentHashes !== undefined && Object.keys(environmentHashes).length > 0
+      ? environmentHashes
+      : undefined;
+  if (environments !== undefined) {
+    const agents = Object.keys(agentHashes).length > 0 ? agentHashes : undefined;
+    return stableStringify({ actions, agents, environments });
+  }
   if (Object.keys(agentHashes).length === 0)
     return actions === undefined ? undefined : stableStringify(actions);
   return stableStringify({ actions, agents: agentHashes });

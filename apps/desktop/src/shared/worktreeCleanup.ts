@@ -10,6 +10,8 @@
  * What asked for a worktree to go.
  *
  * - `pr-finished`, `settled`, `run-finished`: the sweep's rules. The session stays.
+ * - `run-forgotten`: the sweep's rule for a run's own checkout (slice 3-B) whose
+ *   run history no longer has.
  * - `session-deleted`: a person deleted the session.
  * - `tool-stale`, `tool-delete`: Consola's cleanup tools (agents, automations).
  *   Those delete the session too.
@@ -19,6 +21,7 @@ export type CleanupTrigger =
   | 'session-deleted'
   | 'settled'
   | 'run-finished'
+  | 'run-forgotten'
   | 'tool-stale'
   | 'tool-delete';
 
@@ -35,10 +38,12 @@ export type BlockerKind =
   | 'busy'
   /** A session on it is open in a window. */
   | 'shown'
-  /** An automation run is holding a session on it. */
+  /** An automation run is holding a session on it, or holds it as its checkout. */
   | 'held'
   /** A session on it was active within the quiet period. */
   | 'recent'
+  /** A run's own checkout (slice 3-B) whose automation run is still open. */
+  | 'run-open'
   /** Someone was just handed this folder to start a session in. */
   | 'recently-prepared'
   /** A process still runs inside the folder. */
@@ -104,6 +109,14 @@ export interface RemovedWorktree {
   keepRef: string;
   trigger: CleanupTrigger;
   removedAt: number;
+  /**
+   * A run's own checkout (slice 3-B): a clone of `mainRepo` with its git
+   * folder outside it, rebuilt by `rebuildRunClone`, never by
+   * `git worktree add`; `keepRef` stays after the rebuild (review NB2).
+   */
+  kind?: 'run-owned';
+  /** For `kind: 'run-owned'`: the run whose checkout it is, written into its rebuilt git folder. */
+  runId?: string;
 }
 
 /** The ref a removal writes in the clone so the commit outlives the folder. */
@@ -126,6 +139,11 @@ export interface WorktreeCleanupRules {
   settledDays: number;
   /** Its automation run ended this long ago. */
   runFinished: { enabled: boolean; afterMinutes: number };
+  /**
+   * A run's own checkout (slice 3-B) whose run is no longer in history. Off
+   * when absent: nothing records it then but the folder itself.
+   */
+  runForgotten?: boolean;
 }
 
 export const SETTLED_DAYS_CHOICES = [0, 1, 3, 7, 14, 30] as const;
@@ -143,7 +161,11 @@ export const DEFAULT_WORKTREE_CLEANUP_RULES: WorktreeCleanupRules = {
 export function anyRuleOn(rules: WorktreeCleanupRules | null): boolean {
   return (
     !!rules &&
-    (rules.prFinished || rules.sessionDeleted || rules.settledDays > 0 || rules.runFinished.enabled)
+    (rules.prFinished ||
+      rules.sessionDeleted ||
+      rules.settledDays > 0 ||
+      rules.runFinished.enabled ||
+      rules.runForgotten === true)
   );
 }
 
@@ -161,6 +183,9 @@ export function normalizeRules(
   ) as Record<string, unknown>;
   const days = row.settledDays;
   const minutes = run.afterMinutes;
+  // Absent is off: written only when on, so every rules value from before it reads as it did.
+  const forgotten =
+    typeof row.runForgotten === 'boolean' ? row.runForgotten : fallback.runForgotten === true;
   return {
     prFinished: typeof row.prFinished === 'boolean' ? row.prFinished : fallback.prFinished,
     sessionDeleted:
@@ -176,6 +201,7 @@ export function normalizeRules(
           ? Math.floor(minutes)
           : fallback.runFinished.afterMinutes,
     },
+    ...(forgotten ? { runForgotten: true } : {}),
   };
 }
 
@@ -210,7 +236,13 @@ export function normalizeWorkspaceOverride(value: unknown): WorkspaceWorktreeCle
 
 /** Whether any rule that runs on its own (not on delete) is on. */
 export function anySweepRuleOn(rules: WorktreeCleanupRules | null): boolean {
-  return !!rules && (rules.prFinished || rules.settledDays > 0 || rules.runFinished.enabled);
+  return (
+    !!rules &&
+    (rules.prFinished ||
+      rules.settledDays > 0 ||
+      rules.runFinished.enabled ||
+      rules.runForgotten === true)
+  );
 }
 
 /** One worktree in a preview or a run's report. Every sentence is main's. */
@@ -261,6 +293,8 @@ export function describeTrigger(trigger: CleanupTrigger): string {
       return 'It has been settled long enough';
     case 'run-finished':
       return 'Its automation run ended';
+    case 'run-forgotten':
+      return 'Its automation run is no longer in history';
     case 'session-deleted':
       return 'Its session was deleted';
     case 'tool-stale':

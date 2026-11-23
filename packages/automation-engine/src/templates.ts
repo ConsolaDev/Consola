@@ -1,8 +1,10 @@
 import { describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import {
+  ASSIGNED_REVIEWS_GATED_NAME,
   ASSIGNED_REVIEWS_NAME,
   assignedReviewsEntry,
+  assignedReviewsGatedEntry,
   RE_REVIEW_NAME,
   reReviewEntry,
   yamlName,
@@ -241,6 +243,19 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
       ].join('\n'),
     // A prompt on review requests, whatever it says: an action there is a review, another template.
     matches: (automation) => onReviewRequest(automation) && automation.run?.kind === 'prompt',
+  }),
+  template({
+    id: ASSIGNED_REVIEWS_GATED_NAME,
+    title: 'Review assigned pull requests; approve only when you say so',
+    description:
+      'Reviews each pull request you are asked to review and posts its comments or requested changes. When the ' +
+      'reviewer would approve, it asks you first, and posts the approval only if you pick it.',
+    // As slice 1's review: the same gallery, services and the account it posts as.
+    category: 'Code review',
+    services: ['github', 'git'],
+    needs: [GITHUB],
+    entry: () => assignedReviewsGatedEntry(),
+    matches: ({ name }) => name === ASSIGNED_REVIEWS_GATED_NAME,
   }),
 ];
 

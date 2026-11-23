@@ -14,6 +14,7 @@ import {
   LOG_CAP_BYTES,
   logWasCapped,
   notRunReason,
+  retryLine,
   retryScope,
   skippedCondition,
   stepCounts,
@@ -24,6 +25,9 @@ import {
   turnLine,
   variableRows,
   visibleTail,
+  writeRows,
+  artifactTitle,
+  diffMarkdown,
 } from './stepDetail';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
@@ -555,5 +559,232 @@ describe('agentFacts (2-C)', () => {
   it('gives nothing for an agent naming neither, or no agent', () => {
     expect(agentFacts(agent({}))).toEqual([]);
     expect(agentFacts({})).toEqual([]);
+  });
+});
+
+// Slice 3: a row parked at a gate or out a retry, a gate's answer, a loop's notes.
+describe('gates, retries and loops in the trace', () => {
+  const T1 = '2026-11-12T11:55:00.000Z';
+  const gateRow = (status: StepRun['status'], gate?: StepRun['gate']) =>
+    step({ id: 'decide', kind: 'gate', status, ...(gate ? { gate } : {}) });
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+  it('a waiting gate asks, a waiting retry waits to retry', () => {
+    expect(stepTone(gateRow('waiting', { askedAt: T1 }), false)).toBe('asks');
+    expect(
+      stepTone(step({ id: 'look', kind: 'agent', status: 'waiting', retryAt: T1 }), false),
+    ).toBe('retrying');
+    // A loop's row at its exhaustion gate asks too.
+    expect(
+      stepTone(
+        step({ id: 'polish', kind: 'repeat', status: 'waiting', gate: { askedAt: T1 } }),
+        false,
+      ),
+    ).toBe('asks');
+    expect(stepOutcome('asks', null)).toBe('Waiting for you');
+    expect(stepOutcome('retrying', null)).toBe('Waiting to retry');
+    // Only a status, as before: nothing to say it parked.
+    expect(stepTone('waiting', false)).toBe('pending');
+  });
+
+  it('says where a parked row waits, and how a gate was answered', () => {
+    const running = run({ status: 'waiting' });
+    expect(stepSummary(gateRow('waiting', { askedAt: T1 }), running)).toBe(
+      'waiting for you at decide',
+    );
+    expect(
+      stepSummary(step({ id: 'look', kind: 'agent', status: 'waiting', retryAt: T1 }), running),
+    ).toBe(`retries at ${clock(T1)}`);
+    expect(
+      stepSummary(
+        gateRow('completed', { askedAt: T1, decision: 'comment', by: 'person', at: T1 }),
+        run(),
+        NOW,
+      ),
+    ).toBe('answered comment by you 5m ago');
+    expect(
+      stepSummary(
+        step({ id: 'polish', kind: 'repeat', status: 'completed', note: 'clean after round 2' }),
+        run(),
+      ),
+    ).toBe('clean after round 2');
+    expect(stepSummary({ ...gateRow('reported'), note: 'Would have asked: Post it?' }, run())).toBe(
+      'Would have asked: Post it?',
+    );
+  });
+
+  it('draws a gate the person rejected as rejected, never as passed (3-A code review S2)', () => {
+    const rejected = { askedAt: T1, decision: 'reject', by: 'person' as const, at: T1 };
+    const gate = gateRow('completed', rejected);
+    const ended = run({ status: 'rejected' });
+    expect(stepTone(gate, true)).toBe('rejected');
+    expect(stepOutcome('rejected', null)).toBe('Rejected');
+    expect(stepSummary(gate, ended, NOW)).toBe('rejected by you 5m ago');
+    // A loop rejected at its exhaustion gate: its row is completed with the decision, and no note.
+    const loop = step({ id: 'polish', kind: 'repeat', status: 'completed', gate: rejected });
+    expect(stepTone(loop, true)).toBe('rejected');
+    expect(stepSummary(loop, ended, NOW)).toBe('rejected by you 5m ago');
+    // An approved one still passes.
+    expect(stepTone(gateRow('completed', { ...rejected, decision: 'approve' }), true)).toBe(
+      'passed',
+    );
+    // Counted as rejected, not completed.
+    const steps = [
+      step({ id: 'look', kind: 'agent', status: 'completed' }),
+      gate,
+      step({ id: 'publish', status: 'not-run' }),
+    ];
+    expect(stepCounts(steps, true)).toBe('3 steps · 1 completed · 1 rejected · 1 did not run');
+  });
+
+  it("reads a not-run step's note, then a gate's rejection", () => {
+    const thenStopped = run({
+      status: 'completed',
+      steps: [
+        step({ id: 'not-ours', status: 'completed' }),
+        step({ id: 'fix', status: 'not-run', note: 'the run stopped after `not-ours`' }),
+      ],
+    });
+    expect(notRunReason(thenStopped, thenStopped.steps![1])).toBe(
+      'the run stopped after `not-ours`',
+    );
+    expect(stepSummary(thenStopped.steps![1], thenStopped)).toBe(
+      'the run stopped after `not-ours`',
+    );
+    const rejected = run({
+      status: 'rejected',
+      steps: [
+        step({ id: 'review', kind: 'agent', status: 'completed' }),
+        gateRow('completed', { askedAt: T1, decision: 'reject', by: 'person', at: T1 }),
+        step({ id: 'publish-decided', status: 'not-run' }),
+      ],
+    });
+    expect(notRunReason(rejected, rejected.steps![2])).toBe(
+      'The run was rejected at `decide` before this step.',
+    );
+    // Turned down before it started: as before.
+    expect(notRunReason(run({ status: 'rejected' }), step({ status: 'not-run' }))).toBe(
+      'The run was turned down before it started.',
+    );
+    // Turned away after it started, at no gate (3-A code review M6): it did start.
+    expect(
+      notRunReason(
+        { status: 'rejected', steps: [], startedAt: '2026-11-12T11:00:00.000Z' },
+        step({ status: 'not-run' }),
+      ),
+    ).toBe('The run was turned away before reaching it.');
+  });
+
+  it('names the step a run failed at inside a loop, not the loop (review S10)', () => {
+    const steps = [
+      step({ id: 'polish', kind: 'repeat', status: 'failed', round: 2, max: 3 }),
+      step({ id: 'review', kind: 'agent', status: 'completed', round: 2 }),
+      step({ id: 'address', kind: 'agent', status: 'failed', round: 2 }),
+      step({ id: 'pr', status: 'not-run' }),
+    ];
+    expect(notRunReason(run({ status: 'failed', steps }), steps[3])).toBe(
+      'The run stopped at address before reaching it.',
+    );
+  });
+
+  it("says when a step's retry runs, and which of its tries it will be", () => {
+    const waiting = { retryAt: T1, retries: 1 };
+    expect(retryLine(waiting, { onFailure: { retry: 2 } })).toBe(
+      `retries at ${clock(T1)}, attempt 2 of 3`,
+    );
+    expect(retryLine(waiting)).toBe(`retries at ${clock(T1)}`);
+    expect(retryLine({})).toBeNull();
+  });
+
+  it("counts a loop's steps, not its row, and words the parked ones", () => {
+    const steps = [
+      step({ id: 'polish', kind: 'repeat', status: 'running', round: 1, max: 3 }),
+      step({ id: 'look', kind: 'agent', status: 'waiting', retryAt: T1 }),
+      gateRow('waiting', { askedAt: T1 }),
+    ];
+    expect(stepCounts(steps, false)).toBe('2 steps · 1 waiting for you · 1 waiting to retry');
+  });
+});
+
+describe("a write step's detail (slice 3-B Task 22)", () => {
+  const FIX_STEP = step({
+    id: 'fix',
+    kind: 'agent',
+    agent: 'ui-bugfixer',
+    tools: 'write',
+    environment: {
+      name: 'sandboxed',
+      isolation: 'sandbox',
+      cliVersion: '2.1.330',
+      passed: ['CI'],
+      missing: [],
+    },
+    checkout: {
+      before: 'b0b0b0b0b0b0',
+      after: 'c1c1c1c1c1c1',
+      files: 2,
+      flagged: ['.github/workflows/ci.yml'],
+    },
+  });
+  const FIX_ON_HOST = step({
+    ...FIX_STEP,
+    environment: { name: 'my-machine', isolation: 'host', passed: [], missing: ['CI'] },
+  });
+
+  it("a write step's detail says its environment, version, variables and commits", () =>
+    expect(writeRows(FIX_STEP)).toEqual([
+      ['Environment', 'sandboxed · sandbox, enforced'],
+      ['Claude', '2.1.330'],
+      ['Passed', 'CI'],
+      ['Missing', 'none'],
+      ['Commits', 'b0b0b0b → c1c1c1c · 2 files'],
+      ['Flagged', 'changed .github/workflows/ci.yml'],
+    ]));
+
+  it('host reads as a convention', () =>
+    expect(writeRows(FIX_ON_HOST)[0]).toEqual(['Environment', 'my-machine · host, a convention']));
+
+  it('says what it does not know, and only what was recorded', () => {
+    expect(writeRows(FIX_ON_HOST)).toEqual([
+      ['Environment', 'my-machine · host, a convention'],
+      ['Passed', 'none'],
+      ['Missing', 'CI'],
+      ['Commits', 'b0b0b0b → c1c1c1c · 2 files'],
+      ['Flagged', 'changed .github/workflows/ci.yml'],
+    ]);
+    // Started, nothing committed yet (running, or failed with its changes kept apart).
+    expect(writeRows(step({ kind: 'agent', checkout: { before: 'b0b0b0b0' } }))).toEqual([
+      ['Commits', 'started at b0b0b0b, nothing committed'],
+    ]);
+    // A command in a run's own checkout: its commits, no environment (3-B runs commands on host).
+    expect(
+      writeRows(step({ checkout: { before: 'c1c1c1c1', after: 'c1c1c1c1', files: 0 } })),
+    ).toEqual([['Commits', 'c1c1c1c → c1c1c1c · 0 files']]);
+    expect(writeRows(step())).toEqual([]);
+  });
+});
+
+describe("what a write step's detail opens (slice 3-B Task 22)", () => {
+  it('a kept patch reads as a diff, in a fence no line of it can close', () => {
+    expect(diffMarkdown('-a\n+b\n')).toBe('```diff\n-a\n+b\n```');
+    expect(diffMarkdown('+```js\n+x\n')).toBe('````diff\n+```js\n+x\n````');
+  });
+
+  it('a path artifact is titled with its path', () => {
+    const paths = [{ name: 'notes', path: 'docs/fixes/SHOP-42.md' }];
+    expect(artifactTitle('notes', paths)).toBe('notes · docs/fixes/SHOP-42.md');
+    expect(artifactTitle('handover', paths)).toBe('handover');
+    expect(artifactTitle('notes', undefined)).toBe('notes');
+  });
+
+  it('a running write step is not said to work read-only', () => {
+    const run = { status: 'running' as const, steps: [], startedAt: NOW.toISOString() };
+    expect(stepSummary(step({ kind: 'agent', status: 'running' }), run, NOW)).toBe(
+      'Working in a read-only session',
+    );
+    expect(stepSummary(step({ kind: 'agent', status: 'running', tools: 'write' }), run, NOW)).toBe(
+      "Working in this run's checkout",
+    );
   });
 });

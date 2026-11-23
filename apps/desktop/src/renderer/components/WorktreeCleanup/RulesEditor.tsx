@@ -22,7 +22,7 @@ function withCurrent(choices: readonly number[], current: number): number[] {
 }
 
 /**
- * The four cleanup rules, each switched on separately. Shared by Settings
+ * The five cleanup rules, each switched on separately. Shared by Settings
  * and the workspace's own rules, so both say the same thing the same way.
  */
 export function RulesEditor({
@@ -121,6 +121,22 @@ export function RulesEditor({
           ))}
         </select>
       </div>
+
+      <label className="worktree-rule" htmlFor={`${id}-forgotten`}>
+        <input
+          id={`${id}-forgotten`}
+          type="checkbox"
+          checked={rules.runForgotten === true}
+          disabled={disabled}
+          onChange={(event) => onChange({ ...rules, runForgotten: event.target.checked })}
+        />
+        <span className="worktree-rule-text">
+          <span className="worktree-rule-label">
+            Remove a run's own checkout once its run is no longer in history
+          </span>
+          <span className="worktree-rule-hint">Its commits stay in your clone.</span>
+        </span>
+      </label>
     </div>
   );
 }
@@ -142,6 +158,7 @@ export function removesMore(
     runFinished: { enabled: false, afterMinutes: 0 },
   };
   if (next.prFinished && !before.prFinished) return true;
+  if (next.runForgotten === true && before.runForgotten !== true) return true;
   if (next.settledDays > 0 && (before.settledDays === 0 || next.settledDays < before.settledDays)) {
     return true;
   }

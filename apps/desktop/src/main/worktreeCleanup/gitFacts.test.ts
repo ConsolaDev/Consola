@@ -3,8 +3,16 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  DEFAULT_WORKTREE_CLEANUP_RULES,
+  type TreeVerdict,
+  type WorktreeCleanupRules,
+} from '../../shared/worktreeCleanup';
 import { WorktreeService } from '../WorktreeService';
+import type { GatherOptions } from './FactGatherer';
 import { ignoredAtRisk } from './localFiles';
+import { runCloneGitDirFor } from '@consola/automation-engine';
+import { BRANCH, RUN_ID, RunOwnedRig } from './runOwned.test-helpers';
 
 /**
  * The facts that decide whether a removal could lose something git does not
@@ -180,5 +188,185 @@ describe('managedTreeOf', () => {
     expect(service.managedTreeOf(clone)).toBeNull();
     expect(service.managedTreeOf(path.dirname(tree))).toBeNull();
     expect(service.managedTreeOf(path.join(path.dirname(tree), 'gone'))).toBeNull();
+  });
+});
+
+describe("a run's own checkout, as the cleanup reads it (slice 3-B Task 19)", () => {
+  const rigs: RunOwnedRig[] = [];
+  afterAll(() => {
+    for (const made of rigs) made.dispose();
+  });
+  const SWEEP: GatherOptions = {
+    request: { trigger: 'sweep', targets: new Set(), now: Date.now() },
+  };
+  const ON: WorktreeCleanupRules = {
+    ...DEFAULT_WORKTREE_CLEANUP_RULES,
+    runFinished: { enabled: true, afterMinutes: 60 },
+  };
+  async function rigged(): Promise<RunOwnedRig> {
+    const made = await new RunOwnedRig().make();
+    rigs.push(made);
+    made.rules = ON;
+    return made;
+  }
+  const blockersOf = (verdict: TreeVerdict) =>
+    verdict.decision === 'keep' ? verdict.blockers.map((blocker) => blocker.detail) : [];
+
+  it('is recognised by its run record, and once history drops it, by its own config', async () => {
+    const rig = await rigged();
+    rig.push();
+    const known = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(known.facts.disk).toMatchObject({
+      managed: true,
+      run: { endedAt: rig.record!.endedAt },
+      gitFolder: null,
+    });
+    expect(known.inspection).toMatchObject({
+      mainRepo: rig.source,
+      runOwned: { runId: RUN_ID },
+      branch: BRANCH,
+      head: rig.head,
+    });
+    expect(known.verdict).toMatchObject({ decision: 'remove', trigger: 'run-finished' });
+    rig.record = null;
+    const dropped = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(dropped.facts.disk).toMatchObject({ managed: true, run: { endedAt: undefined } });
+    expect(dropped.facts.disk.run).toHaveProperty('endedAt', undefined);
+  });
+
+  it("a plain clone, or one whose config names another run, stays a clone's own checkout", async () => {
+    const rig = await rigged();
+    const plain = path.join(rig.root, 'catalog-portal-run-0badc0de');
+    rig.git(rig.base, 'clone', '-q', rig.source, plain);
+    const clone = await rig.service().evaluateTree(plain, SWEEP);
+    expect(clone.facts.disk.managed).toBe(false);
+    expect(blockersOf(clone.verdict)[0]).toBe('it is not a worktree Consola created');
+
+    // A copy under a name that is not its run's: its run record names it, its config the run.
+    const misnamed = path.join(rig.root, 'catalog-portal-run-aaaaaaaa');
+    fs.cpSync(rig.dir, misnamed, { recursive: true });
+    fs.cpSync(rig.gitDir, runCloneGitDirFor(misnamed), { recursive: true });
+    const anyTree = rig.ruleSources();
+    const copied = await rig
+      .service({
+        rules: {
+          ...anyTree,
+          runOwnedOf: () => ({
+            runId: RUN_ID,
+            source: rig.source,
+            endedAt: rig.record!.endedAt,
+            workspaceId: 'ws',
+          }),
+        },
+      })
+      .evaluateTree(misnamed, SWEEP);
+    expect(copied.facts.disk.managed).toBe(false);
+    expect(blockersOf(copied.verdict)[0]).toBe('it is not a worktree Consola created');
+
+    rig.git(
+      rig.base,
+      'config',
+      '--file',
+      path.join(rig.gitDir, 'config'),
+      'consola.run',
+      '99999999',
+    );
+    for (const record of [rig.record, null]) {
+      rig.record = record;
+      const other = await rig.service().evaluateTree(rig.dir, SWEEP);
+      expect(other.facts.disk.managed).toBe(false);
+      expect(blockersOf(other.verdict)[0]).toBe('it is not a worktree Consola created');
+    }
+  });
+
+  it("the run record's source wins: a git folder whose consola.source names another clone is not managed (review M6)", async () => {
+    const rig = await rigged();
+    rig.push();
+    rig.git(
+      rig.base,
+      'config',
+      '--file',
+      path.join(rig.gitDir, 'config'),
+      'consola.source',
+      '/elsewhere/clone',
+    );
+    const read = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(read.facts.disk.managed).toBe(false);
+    expect(read.verdict.decision).toBe('keep');
+  });
+
+  it('keeps one with unpushed commits, and one whose run is open', async () => {
+    const rig = await rigged();
+    rig.record = { endedAt: null };
+    const open = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(blockersOf(open.verdict)).toContain('its automation run is still open');
+    rig.record = { endedAt: Date.now() - 2 * 60 * 60_000 };
+    const ended = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(blockersOf(ended.verdict)).toContain('it has commits that exist only locally');
+  });
+
+  it("Consola's git there reads none of the person's global config: an fsmonitor in it never runs (Call 9)", async () => {
+    const rig = await rigged();
+    rig.push();
+    const marker = path.join(rig.base, 'global-fsmonitor-ran');
+    const global = path.join(rig.base, 'global-with-fsmonitor');
+    fs.writeFileSync(global, `[core]\n\tfsmonitor = "touch '${marker}'; false"\n`);
+    // The same config runs it for git in the person's own clone: the row's marker is real.
+    execFileSync('git', ['ls-files', '-v'], {
+      cwd: rig.source,
+      env: { ...rig.env, GIT_CONFIG_GLOBAL: global },
+      stdio: 'ignore',
+    });
+    expect(fs.existsSync(marker)).toBe(true);
+    fs.rmSync(marker);
+    vi.stubEnv('GIT_CONFIG_GLOBAL', global);
+    try {
+      const read = await rig.service().evaluateTree(rig.dir, SWEEP);
+      expect(read.verdict.decision).toBe('remove');
+      expect(read.facts.disk).toMatchObject({ hidden: { kind: 'none' }, published: 'published' });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("its package caches (`.consola-cache/`, ignored by its git folder's exclude) never keep it", async () => {
+    const rig = await rigged();
+    rig.push();
+    fs.mkdirSync(path.join(rig.dir, '.consola-cache', 'npm'), { recursive: true });
+    fs.writeFileSync(path.join(rig.dir, '.consola-cache', 'npm', 'index-v5'), 'cache');
+    const read = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(read.facts.disk.ignored).toEqual({ count: 0, paths: [], complete: true });
+    expect(read.verdict.decision).toBe('remove');
+  });
+
+  it('a run-owned folder whose pointer was rewritten is kept as unknown, and no git runs in it (review NS1)', async () => {
+    const rig = await rigged();
+    rig.push();
+    const marker = path.join(rig.base, 'fsmonitor-ran');
+    const evil = path.join(rig.dir, 'evil');
+    fs.mkdirSync(evil);
+    fs.cpSync(path.join(rig.gitDir, 'objects'), path.join(evil, 'objects'), { recursive: true });
+    fs.cpSync(path.join(rig.gitDir, 'refs'), path.join(evil, 'refs'), { recursive: true });
+    fs.copyFileSync(path.join(rig.gitDir, 'HEAD'), path.join(evil, 'HEAD'));
+    fs.writeFileSync(
+      path.join(evil, 'config'),
+      `[core]\n\trepositoryformatversion = 0\n\tfsmonitor = "touch '${marker}'; false"\n`,
+    );
+    fs.writeFileSync(path.join(rig.dir, '.git'), `gitdir: ${evil}\n`);
+    // A git that follows the pointer runs the planted config: the row's marker is real.
+    execFileSync('git', ['status', '--porcelain'], { cwd: rig.dir, env: rig.env, stdio: 'ignore' });
+    expect(fs.existsSync(marker)).toBe(true);
+    fs.rmSync(marker);
+
+    const read = await rig.service().evaluateTree(rig.dir, SWEEP);
+    expect(blockersOf(read.verdict)).toContain(
+      "its git folder changed (.git in the checkout is not Consola's pointer), so Consola did not read it",
+    );
+    expect(read.facts.disk.head).toBeUndefined();
+    expect(read.inspection).toBeNull();
+    // And `inspect` on its own reads nothing there either.
+    expect(await rig.worktrees.inspect(rig.dir)).toBeNull();
+    expect(fs.existsSync(marker)).toBe(false);
   });
 });

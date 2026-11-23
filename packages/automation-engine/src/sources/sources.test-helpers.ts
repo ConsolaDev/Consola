@@ -133,6 +133,8 @@ function fakeWorkItems(
       `https://github.com/${ref.repo}/${ref.type === 'pr' ? 'pull' : 'issues'}/${ref.number}`,
     inWorkspace: (_workspaceId, ref) =>
       [...world().clonedRepos].some((repo) => repo.toLowerCase() === ref.repo.toLowerCase()),
+    repoCloned: (_workspaceId, wanted) =>
+      [...world().clonedRepos].some((repo) => repo.toLowerCase() === wanted.toLowerCase()),
   };
 }
 

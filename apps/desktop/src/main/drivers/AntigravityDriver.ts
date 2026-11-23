@@ -179,6 +179,15 @@ export class AntigravityDriver implements HarnessDriver {
   public readonly initialPromptViaArgs = true;
   public readonly retryResumeAsFresh = false;
 
+  /**
+   * What it pins, else `~/.gemini`: the folder that holds its data dir
+   * (`~/.gemini/antigravity-cli`) and the CLI's own sign-in beside it, so a
+   * write step's sandbox denies both (plan Call 21). It reads no variable.
+   */
+  public profileDir(config: HarnessConfig): string {
+    return config.configDir || path.join(os.homedir(), '.gemini');
+  }
+
   public resolveBinary(config: HarnessConfig): string {
     if (config.binaryPath) return config.binaryPath;
     const dirs = (getLoginEnv().PATH ?? '').split(path.delimiter).filter(Boolean);

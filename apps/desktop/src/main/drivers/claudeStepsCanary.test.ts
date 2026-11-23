@@ -6,7 +6,8 @@ import { skillHash } from '@consola/factory-spec';
 import { describe, expect, it, vi } from 'vitest';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import { ClaudeDriver } from './ClaudeDriver';
-import { buildStepPlugin } from './claudeAgent';
+import { buildStepPlugin, compileClaudeAgent } from './claudeAgent';
+import { denyReadList, fileToolDenyRules } from './claudeWriteAgent';
 import type { SessionLaunch } from './HarnessDriver';
 
 // (vi.mock is hoisted above the imports.) The real probe runs the user's interactive login shell.
@@ -202,5 +203,113 @@ setTimeout(() => {}, 10000);`,
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("the real-CLI canary's write agent flags (slice 3-B Task 17)", () => {
+  type WriteAgentFlags = (options: {
+    tools: 'edit' | 'write';
+    settings?: Record<string, unknown>;
+    deny?: string[];
+    strict?: boolean;
+    pluginDir?: string;
+    skills?: string[];
+  }) => string[];
+  type DenyReadListFor = (input: {
+    home: string;
+    userData: string;
+    factoryRoot: string;
+    profiles?: string[];
+  }) => string[];
+  const load = async () =>
+    (await import(pathToFileURL(FLAGS).href)) as {
+      writeAgentFlags: WriteAgentFlags;
+      denyReadListFor: DenyReadListFor;
+    };
+  const CHECKOUT = '/w/catalog-portal-run-3f2a91c0';
+  const DENY = ['/h/Library/Keychains', '/h/.claude-work'];
+  const grantsFor = (tools: 'edit' | 'write', isolation: 'host' | 'sandbox'): ClaudeAgentGrants => {
+    const compiled = compileClaudeAgent({
+      config: { extraArgs: [] },
+      harnessName: 'Claude',
+      agent: {
+        tools,
+        mcpServers: [],
+        skills: [],
+        environment: { name: 'sandboxed', isolation, network: ['registry.npmjs.org'], env: [] },
+      },
+      checkout: 'run-owned',
+      servers: [],
+      accountFile: '/h/.claude.json',
+      host: { platform: 'darwin', denyRead: DENY, cliVersion: '2.1.330', settingsFiles: [] },
+      checkoutPath: CHECKOUT,
+    });
+    if (!compiled.ok) throw new Error(compiled.problem);
+    return compiled.grants;
+  };
+  /** From `--settings` to `--restricted`, less the report and the cap. */
+  const policyPart = (argv: string[]): string[] => {
+    const kept = argv.slice(argv.indexOf('--settings'), argv.indexOf('--restricted') + 1);
+    for (const dropped of [
+      ['--output-format', 'stream-json', '--verbose'],
+      ['--max-turns', '40'],
+    ]) {
+      const from = kept.indexOf(dropped[0]);
+      expect(kept.slice(from, from + dropped.length)).toEqual(dropped);
+      kept.splice(from, dropped.length);
+    }
+    return kept;
+  };
+  const withoutConsolaTools = (flags: string[]) =>
+    flags.filter((flag) => !flag.startsWith('mcp__consola__'));
+
+  it.each([
+    ['write', 'sandbox'],
+    ['edit', 'sandbox'],
+    ['write', 'host'],
+  ] as const)('compiles a %s agent on %s as the canary launches one', async (tools, isolation) => {
+    const { writeAgentFlags } = await load();
+    const grants = grantsFor(tools, isolation);
+    const launched = new ClaudeDriver().buildSessionArgs(
+      { extraArgs: [] },
+      {
+        sessionId: 's1',
+        resume: false,
+        toolPolicy: tools,
+        unattended: true,
+        reportTurn: true,
+        initialPrompt: 'p',
+        maxTurns: 40,
+        attentionUrl: 'http://127.0.0.1:9/h',
+        grants,
+      },
+    );
+    if (!Array.isArray(launched)) throw new Error('expected a plain array');
+    const hooks = JSON.parse(launched[launched.indexOf('--settings') + 1]).hooks;
+    expect(withoutConsolaTools(policyPart(launched))).toEqual(
+      withoutConsolaTools(
+        writeAgentFlags({
+          tools,
+          settings: isolation === 'sandbox' ? { sandbox: grants.sandbox?.settings } : { hooks },
+          deny: [
+            ...fileToolDenyRules(DENY, CHECKOUT),
+            ...(tools === 'write' && isolation === 'host'
+              ? ['Bash(git push:*)', 'Bash(gh:*)']
+              : []),
+          ],
+        }),
+      ),
+    );
+  });
+
+  it("the deny list equals the canary's on one input", async () => {
+    const { denyReadListFor } = await load();
+    const input = {
+      home: '/h',
+      userData: '/h/Library/Application Support/Consola',
+      factoryRoot: '/h/.consola/workspaces',
+      profiles: ['/h/.claude-work'],
+    };
+    expect(denyReadList(input)).toEqual(denyReadListFor(input));
   });
 });

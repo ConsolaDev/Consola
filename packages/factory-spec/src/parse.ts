@@ -9,6 +9,7 @@ import {
   type LineRange,
 } from './issues';
 import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
+import { flatSteps } from './steps';
 import { documentValue } from './yamlValue';
 
 export type { FactorySpecIssue };
@@ -33,6 +34,8 @@ export interface FactoryYmlResult extends FactorySpecParseResult {
   entryPath(name: string): Array<string | number> | undefined;
   /** Every name an entry gives itself, loaded or not, once each, in file order. */
   entryNames: string[];
+  /** `repos:`, the repositories the factory may write (slice 3-B), as written; none when absent or the file is unreadable. */
+  repos: string[];
 }
 
 const FILE = 'factory.yml';
@@ -59,6 +62,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     automations: Automation[],
     issues: FactorySpecIssue[],
     unreadable: boolean,
+    repos: string[] = [],
   ): FactoryYmlResult => ({
     automations,
     issues: issues.map((issue) => ({ ...issue, file: FILE })),
@@ -70,6 +74,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
       return index === undefined ? undefined : ['automations', index];
     },
     entryNames: [...named.keys()],
+    repos,
   });
 
   if (doc.errors.length > 0) {
@@ -131,7 +136,7 @@ export function parseFactoryYml(text: string): FactoryYmlResult {
     automations.push({ ...parsed.data, ...(line ? { line } : {}), file: FILE });
   });
 
-  return result(automations, issues, false);
+  return result(automations, issues, false, envelope.data.repos ?? []);
 }
 
 /**
@@ -148,9 +153,10 @@ export function parseFactorySpec(text: string): FactorySpecParseResult {
   const automations: Automation[] = [];
   const issues = read.issues.map(withoutFile);
   for (const automation of read.automations) {
+    // A loop's steps too, each at its own line (`steps[i].steps[j].agent`).
     const agentSteps = isStepsEntry(automation)
-      ? automation.steps.flatMap((step, index) =>
-          step.kind === 'agent' && step.agent !== undefined ? [{ agent: step.agent, index }] : [],
+      ? flatSteps(automation.steps).flatMap(({ step, path }) =>
+          step.kind === 'agent' && step.agent !== undefined ? [{ agent: step.agent, path }] : [],
         )
       : [];
     if (agentSteps.length === 0) {
@@ -158,8 +164,8 @@ export function parseFactorySpec(text: string): FactorySpecParseResult {
       continue;
     }
     const base = read.entryPath(automation.name) ?? [];
-    for (const { agent, index } of agentSteps) {
-      const path = [...base, 'steps', index, 'agent'];
+    for (const { agent, path: at } of agentSteps) {
+      const path = [...base, 'steps', ...at, 'agent'];
       const line = read.lineAt(path);
       issues.push({
         message: `\`agent: ${agent}\` names agents/${agent}.md, and this factory.yml is read without its folder.`,

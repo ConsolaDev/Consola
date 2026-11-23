@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SessionRemover } from './SessionRemover';
+import { releaseRemovedWorktreeWith, SessionRemover } from './SessionRemover';
 
 function harness(
   deleteRecord: (workspaceId: string, sessionId: string) => void = () => {},
@@ -120,5 +120,63 @@ describe('SessionRemover', () => {
     expect(calls).toEqual(expect.arrayContaining(['captures s-1', 'handoffs s-1']));
     expect(error).toHaveBeenCalled();
     error.mockRestore();
+  });
+});
+
+describe('releaseRemovedWorktree (what main hands SessionRemover)', () => {
+  const removed = (kind?: 'run-owned') => ({
+    removedWorktree: {
+      path: '/wt/catalog-portal-run-3f2a91c0',
+      mainRepo: '/src/catalog-portal',
+      commit: 'a'.repeat(40),
+      branch: 'fix/SHOP-42',
+      keepRef: 'refs/consola/worktrees/catalog-portal-run-3f2a91c0',
+      trigger: 'run-finished' as const,
+      removedAt: 0,
+      ...(kind ? { kind, runId: '3f2a91c0aabbccdd' } : {}),
+    },
+  });
+  function release(facts: { stillNamed?: boolean; runNames?: boolean; exists?: boolean }) {
+    const deleteKeepRef = vi.fn(async () => {});
+    const run = releaseRemovedWorktreeWith({
+      stillNamed: () => facts.stillNamed ?? false,
+      runNames: () => facts.runNames ?? false,
+      exists: () => facts.exists ?? false,
+      deleteKeepRef,
+    });
+    return { run, deleteKeepRef };
+  }
+
+  it('lets a linked worktree’s keep-ref go once no other session names it', () => {
+    const named = release({ stillNamed: true });
+    named.run(removed());
+    expect(named.deleteKeepRef).not.toHaveBeenCalled();
+    const alone = release({ runNames: true, exists: true });
+    alone.run(removed());
+    expect(alone.deleteKeepRef).toHaveBeenCalledWith(
+      '/src/catalog-portal',
+      'refs/consola/worktrees/catalog-portal-run-3f2a91c0',
+    );
+  });
+
+  it("keeps a run's own checkout's keep-ref while anything can still rebuild it, or the folder is there (review NB2)", () => {
+    for (const facts of [{ stillNamed: true }, { runNames: true }, { exists: true }]) {
+      const kept = release(facts);
+      kept.run(removed('run-owned'));
+      expect(kept.deleteKeepRef).not.toHaveBeenCalled();
+    }
+    const gone = release({});
+    gone.run(removed('run-owned'));
+    expect(gone.deleteKeepRef).toHaveBeenCalledTimes(1);
+    expect(gone.deleteKeepRef).toHaveBeenCalledWith(
+      '/src/catalog-portal',
+      'refs/consola/worktrees/catalog-portal-run-3f2a91c0',
+    );
+  });
+
+  it('does nothing for a session whose worktree was never removed', () => {
+    const none = release({});
+    none.run({});
+    expect(none.deleteKeepRef).not.toHaveBeenCalled();
   });
 });

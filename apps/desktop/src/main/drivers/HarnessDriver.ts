@@ -54,6 +54,15 @@ export interface HarnessDriver {
   resolveBinary(config: HarnessConfig): string;
 
   /**
+   * The folder this harness's CLI keeps its profile in: what it pins, else
+   * the login environment's variable for it, else the CLI's own default. A
+   * write step's sandbox denies every harness's (plan Call 21), so the deny
+   * list never branches on a driver id. `loginEnv` defaults to the ambient
+   * login environment.
+   */
+  profileDir(config: HarnessConfig, loginEnv?: NodeJS.ProcessEnv): string;
+
+  /**
    * argv for an interactive session, including the harness's extra args.
    *
    * Throws when `launch.toolPolicy` is set and `toolPolicyProblem` says it
@@ -255,7 +264,7 @@ export interface HarnessDriver {
  * `CheckoutKind`: the host hands one to the other, so the compiler keeps
  * them equal, and this contract imports nothing from the engine.
  */
-export type CheckoutKind = 'item' | 'scope';
+export type CheckoutKind = 'item' | 'scope' | 'run-owned';
 
 /** One MCP server as a harness's CLI reports it: what a step could be granted. */
 export interface McpServerReport {
@@ -279,11 +288,33 @@ export interface McpServerReport {
  * both imports under another name.
  */
 export interface AgentRequirements {
-  tools: 'read-only';
+  /** `edit` and `write` (slice 3-B): the agent changes its run's checkout. */
+  tools: 'read-only' | 'edit' | 'write';
   /** As the agent names them, each optionally narrowed to its tools. */
   mcpServers: Array<{ name: string; tools?: string[] }>;
   /** Folder names in the factory's skills/. */
   skills: string[];
+  /** A write agent's environment, as its file says it; absent on a read-only agent. */
+  environment?: {
+    name: string;
+    isolation: 'host' | 'sandbox';
+    network: readonly string[];
+    env: readonly string[];
+  };
+}
+
+/**
+ * What only the host knows of the machine a write agent compiles for
+ * (plan Call 14): its platform, what its sandbox denies the shell (Call 21),
+ * the CLI version (`unknown` when it could not be read), and the person's
+ * own settings files as read (Call 24; `text: null` is a file that is not
+ * there, `unreadable` one that could not be read).
+ */
+export interface CompileHost {
+  platform: string;
+  denyRead: readonly string[];
+  cliVersion: string;
+  settingsFiles: ReadonlyArray<{ path: string; text: string | null; unreadable?: string }>;
 }
 
 /** What `compileAgent` compiles from. */
@@ -302,17 +333,31 @@ export interface CompileAgentInput {
    * it, which the plugin is built, and every later launch checked, against.
    */
   skillHashes?: Readonly<Record<string, string>>;
+  /** What a write agent compiles against; absent, a write agent is refused. */
+  host?: CompileHost;
+  /** A run-owned step's checkout, at launch: what its sandbox and file rules name. Absent at apply. */
+  checkoutPath?: string;
 }
 
-/** The grants an agent compiles to, with what the person should know of them; or why not. */
+/**
+ * The grants an agent compiles to, with what the person should know of
+ * them; or why not. `about: 'agent'` marks a refusal of the agent itself
+ * (a write agent's checkout, machine or settings), not of a server it names.
+ */
 export type CompiledAgent =
   | { ok: true; grants: AgentGrants; warnings: string[] }
-  | { ok: false; problem: string };
+  | { ok: false; problem: string; about?: 'agent' };
 
 /** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
 export interface AttentionHooks {
   /** Translate one posted payload. Null for an event that says nothing about attention. */
   parse(body: unknown): AttentionSignal | null;
+  /**
+   * Whether a payload is the CLI saying its turn ended (Claude's `Stop`),
+   * while it waits on the answer: when a write step's descendants are
+   * recorded (slice 3-B, Call 8). Absent: never.
+   */
+  endsTurn?(body: unknown): boolean;
 }
 
 /** A driver's usage-limit reporting, asked of the CLI itself. */
@@ -387,6 +432,11 @@ export interface TurnReader {
   push(chunk: string): TurnEvent[];
   /** Whether the stream has said this turn stopped on a usage limit, so far. */
   readonly limitNotice: boolean;
+  /**
+   * Whether the turn's last word (its result) has arrived: the CLI is about
+   * to exit, and its children are not yet reparented. Absent: never said.
+   */
+  readonly resultSeen?: boolean;
   /** At exit: the events of a last line with no newline, and the report (`maxTurns` is the launcher's to add). */
   end(): { events: TurnEvent[]; report: TurnReport };
 }
@@ -419,8 +469,9 @@ export interface SessionLaunch {
   /**
    * Run one turn non-interactively, with `initialPrompt` as its argument,
    * and exit: nobody is there to type, so there is no composer to type
-   * into. Only for a read-only session — a non-interactive turn skips the
-   * CLI's folder-trust prompt — and a driver that cannot do it refuses.
+   * into. Only for a session with a tool policy — a non-interactive turn
+   * skips the CLI's folder-trust prompt — and a driver that cannot do it
+   * refuses.
    */
   unattended?: boolean;
   /**
@@ -441,6 +492,12 @@ export interface SessionLaunch {
   reportTurn?: boolean;
   /** The most turns this launch may take. Ignored on an interactive launch. */
   maxTurns?: number;
+  /**
+   * What is left of the run's budget, in US dollars, for an unattended
+   * reporting turn of a run that has one (plan Call 15). Ignored on an
+   * interactive launch, and by a driver whose CLI was not seen to stop at it.
+   */
+  maxBudgetUsd?: number;
   /**
    * What a step's agent was granted, compiled by this driver when the
    * attempt launched; replayed on every launch, interactive ones included.

@@ -16,7 +16,13 @@ import { useAutomationsStore } from '../../stores/automationsStore';
 import { AllowCard } from './AllowCard';
 import { AutomationInsights } from './AutomationInsights';
 import { EntrySource, PipelineGraph } from './AutomationPipeline';
-import { allowBannerWords, checkStatusLine, pollRunsEmptyWords, skippedWords } from './checkWords';
+import {
+  allowBannerWords,
+  checkStatusLine,
+  notClonedWords,
+  pollRunsEmptyWords,
+  skippedWords,
+} from './checkWords';
 import { RunOnPicker } from './RunOnPicker';
 import { RunItem, RunNowButton, StatusIcon, useArrivals, useIntent, useNow } from './parts';
 import {
@@ -26,6 +32,7 @@ import {
   latestRun,
   NO_RUN_FILTER,
   runInsights,
+  runWaitingForYou,
   type LatestRun,
   type RunInsights,
 } from './presentation';
@@ -82,7 +89,8 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   const place = (runId: string) => snapshot.queue[runId];
   const latest = latestRun([...runs].reverse(), now, place);
   const insights = runInsights(runs);
-  const waiting = runs.find((run) => run.status === 'needs-approval');
+  // Awaiting approval, else parked at a gate: "Run now" would only hand that run back (`inLine`).
+  const waiting = runWaitingForYou(runs);
   const running = runs.some((run) => run.status === 'running');
   const openRun = (runId: string) => openPanel({ kind: 'run', runId });
   // The file the entry lives in: factory.yml, or its own automations/<name>.yaml.
@@ -311,6 +319,9 @@ function LeadState({
         {!automation.needsAllow && automation.check && (
           <CheckStatus check={automation.check} now={now} />
         )}
+        {automation.notCloned && (
+          <p className="automations-lead-meta">{notClonedWords(automation.notCloned)}</p>
+        )}
         <p className="automations-lead-meta">
           <button
             type="button"
@@ -331,7 +342,7 @@ function LeadState({
 /** How a poll's last check went, and what it left out, under the lead. */
 function CheckStatus({ check, now }: { check: CheckView; now: Date }) {
   const status = checkStatusLine(check, now);
-  const skipped = skippedWords(check.skipped ?? 0);
+  const skipped = skippedWords(check.skipped ?? 0, check.skippedWhy);
   if (!status && !skipped) return null;
   return (
     <p className={`automations-lead-meta ${check.error ? 'automations-check-failed' : ''}`}>

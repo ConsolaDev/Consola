@@ -40,15 +40,28 @@ export interface ParsedAgent {
   description?: string;
   harness?: string;
   model?: string;
-  tools: 'read-only';
+  /**
+   * What it may change (slice 3-B): `read-only` reads and calls its servers;
+   * `edit` also changes files in its run's checkout, with no shell; `write`
+   * also runs commands there. Absent in the file: `read-only`.
+   */
+  tools: AgentTools;
+  /** `environments/<name>`'s name: where a write agent works. Present only on an `edit` or `write` agent. */
+  environment?: string;
   mcpServers: AgentServer[];
   skills: string[];
   maxTurns?: number;
   /** The text after the frontmatter, exactly as written. */
   body: string;
   /** 1-based file lines of the keys a later check points at. */
-  lines: Partial<Record<'harness' | 'model' | 'mcpServers' | 'skills', number>>;
+  lines: Partial<
+    Record<'harness' | 'model' | 'tools' | 'environment' | 'mcpServers' | 'skills', number>
+  >;
 }
+
+/** An agent file's `tools:`. */
+export type AgentTools = 'read-only' | 'edit' | 'write';
+const AGENT_TOOLS: readonly AgentTools[] = ['read-only', 'edit', 'write'];
 
 export interface AgentDefinition extends ParsedAgent {
   /** `agentHash` of it, with the hashes of the skills it names. */
@@ -60,6 +73,7 @@ const AGENT_KEYS = [
   'harness',
   'model',
   'tools',
+  'environment',
   'mcpServers',
   'skills',
   'max_turns',
@@ -67,7 +81,6 @@ const AGENT_KEYS = [
 const COMPILED =
   "Consola compiles an agent's permissions from `tools`, `mcpServers` and `skills`; it takes no others.";
 const REFUSED_AGENT_KEYS: Readonly<Record<string, string>> = {
-  environment: laterKeyMessage('environment'),
   secrets: laterKeyMessage('secrets'),
   hooks: COMPILED,
   permissionMode: COMPILED,
@@ -77,7 +90,13 @@ const REFUSED_AGENT_KEYS: Readonly<Record<string, string>> = {
 };
 
 const MESSAGES = {
-  tools: 'Write tools arrive with write steps; an agent is read-only until then.',
+  tools: '`tools:` is `read-only`, `edit` or `write`.',
+  needsEnvironment:
+    'A write agent must name its environment (invariant 9); add `environment: <name>`.',
+  readOnlyEnvironment:
+    'A read-only agent has no shell, so an environment would contain nothing; remove it.',
+  environment:
+    'Expected `environment` to be the name of a file in environments/, without `.yaml`: lowercase letters, digits and dashes, e.g. `environment: sandboxed`.',
   description: `Expected \`description\` to be one line of at most ${MAX_DESCRIPTION_CHARS} characters.`,
   harness:
     "Expected `harness` to be a harness's id, as Settings › Harnesses shows it: letters, digits, `_` and `-`.",
@@ -236,7 +255,21 @@ export function parseAgentFile(
       issue(`Unrecognized key in an agent file: \`${key}\`.`, key, lineOf(key));
   }
 
-  if (has('tools') && front.tools !== 'read-only') issue(MESSAGES.tools, 'tools', lineOf('tools'));
+  let tools: AgentTools = 'read-only';
+  if (has('tools')) {
+    if (AGENT_TOOLS.includes(front.tools as AgentTools)) tools = front.tools as AgentTools;
+    else issue(MESSAGES.tools, 'tools', lineOf('tools'));
+  }
+
+  // A write agent says where it works (invariant 9); a read-only one has no shell to contain.
+  let environment: string | undefined;
+  if (has('environment')) {
+    if (typeof front.environment !== 'string' || !AUTOMATION_NAME_PATTERN.test(front.environment))
+      issue(MESSAGES.environment, 'environment', lineOf('environment'));
+    else if (tools === 'read-only' && (!has('tools') || front.tools === 'read-only'))
+      issue(MESSAGES.readOnlyEnvironment, 'environment', lineOf('environment'));
+    else environment = front.environment;
+  } else if (tools !== 'read-only') issue(MESSAGES.needsEnvironment, 'tools', lineOf('tools'));
 
   let description: string | undefined;
   if (has('description')) {
@@ -320,13 +353,19 @@ export function parseAgentFile(
   for (const key of ['harness', 'model', 'mcpServers', 'skills'] as const) {
     if (has(key)) lines[key] = lineOf(key);
   }
+  // Only a write agent's: a read-only agent parses to what it did before write agents (contract 14).
+  if (tools !== 'read-only') {
+    lines.tools = lineOf('tools');
+    lines.environment = lineOf('environment');
+  }
   return {
     agent: {
       name: fileName,
       ...(description !== undefined ? { description } : {}),
       ...(harness !== undefined ? { harness } : {}),
       ...(model !== undefined ? { model } : {}),
-      tools: 'read-only',
+      tools,
+      ...(environment !== undefined ? { environment } : {}),
       mcpServers,
       skills,
       ...(maxTurns !== undefined ? { maxTurns } : {}),
@@ -340,7 +379,7 @@ export function parseAgentFile(
 /**
  * `sha256(stableStringify({ frontmatter, body, skills }))`, full hex: the
  * frontmatter as parsed and normalised (each absent key absent, `tools`
- * always `read-only`), the body exactly, and the hash of every skill the agent
+ * `read-only` when not written), the body exactly, and the hash of every skill the agent
  * names. So one byte in the body, a key, a server or its narrowing, or a named
  * skill's file changes it; a skill it does not name does not. A later parser
  * of this format must add nothing to the normalised frontmatter, or every
@@ -360,6 +399,8 @@ export function agentHash(
       harness: agent.harness,
       model: agent.model,
       tools: agent.tools,
+      // Absent on a read-only agent, so its hash is what it was before write agents (slice 3-B).
+      environment: agent.environment,
       mcpServers: agent.mcpServers,
       skills: agent.skills,
       max_turns: agent.maxTurns,

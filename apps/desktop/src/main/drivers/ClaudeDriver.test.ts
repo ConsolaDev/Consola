@@ -4,10 +4,17 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { skillHash } from '@consola/factory-spec';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
-import { buildStepPlugin } from './claudeAgent';
+import { buildStepPlugin, compileClaudeAgent } from './claudeAgent';
 import { claudeSettings } from './claudeHooks';
+import {
+  ALLOW_READ_CHECKED,
+  FILE_TOOL_RULES_NEEDED,
+  MAX_BUDGET_CHECKED,
+  PINNED_SOCKET_KEYS,
+  UNIX_SOCKETS_PINNED,
+} from './claudeWriteAgent';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
-import type { HarnessConfig, SessionLaunch } from './HarnessDriver';
+import type { CompileAgentInput, CompileHost, HarnessConfig, SessionLaunch } from './HarnessDriver';
 import { stepTurnProblem } from './index';
 import { RESULT_OK } from './streamJson.test-helpers';
 
@@ -1222,5 +1229,271 @@ setTimeout(() => {}, 10000);`,
         'These grants were compiled for another CLI, so this session cannot launch on Claude.',
       );
     });
+  });
+});
+
+describe("a write agent's launch (slice 3-B Task 17)", () => {
+  const HOST: CompileHost = {
+    platform: 'darwin',
+    denyRead: ['/h/Library/Keychains', '/h/.claude-work'],
+    cliVersion: '2.1.330',
+    settingsFiles: [],
+  };
+  const CHECKOUT = '/w/catalog-portal-run-3f2a91c0';
+  const URL = 'http://127.0.0.1:9/h';
+  const extraArgs = ['--append-system-prompt', 'x'];
+  const compiled = (
+    tools: 'edit' | 'write',
+    isolation: 'host' | 'sandbox',
+    over: Partial<CompileAgentInput> = {},
+  ): ClaudeAgentGrants => {
+    const result = compileClaudeAgent({
+      config: { extraArgs: [] },
+      harnessName: 'Claude work',
+      agent: {
+        tools,
+        mcpServers: [],
+        skills: [],
+        environment: { name: 'sandboxed', isolation, network: ['registry.npmjs.org'], env: ['CI'] },
+      },
+      checkout: 'run-owned',
+      servers: [],
+      accountFile: '/h/.claude-work/.claude.json',
+      host: HOST,
+      checkoutPath: CHECKOUT,
+      ...over,
+    });
+    if (!result.ok) throw new Error(result.problem);
+    return result.grants;
+  };
+  const turn = (
+    toolPolicy: SessionLaunch['toolPolicy'],
+    grants?: ClaudeAgentGrants,
+  ): SessionLaunch => ({
+    sessionId: 'S',
+    resume: false,
+    cwd: CHECKOUT,
+    unattended: true,
+    reportTurn: true,
+    initialPrompt: 'P',
+    toolPolicy,
+    mcpConfigPath: '/m/consola.json',
+    attentionUrl: URL,
+    maxTurns: 60,
+    ...(grants ? { grants } : {}),
+  });
+  const argvOf = (launch: SessionLaunch, config: HarnessConfig = { extraArgs }): string[] => {
+    const built = driver.buildSessionArgs(config, launch);
+    if (!Array.isArray(built)) throw new Error('expected a plain array');
+    return built;
+  };
+  const value = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
+
+  it.each([
+    ['edit', 'host'],
+    ['edit', 'sandbox'],
+    ['write', 'host'],
+    ['write', 'sandbox'],
+  ] as const)('a %s agent on %s compiles its flags, --restricted last', (tools, isolation) => {
+    const argv = argvOf(turn(tools, compiled(tools, isolation)));
+    expect(argv[argv.indexOf('--') - 1 - extraArgs.length]).toBe('--restricted');
+    expect(argv.slice(argv.indexOf('--restricted') + 1, argv.indexOf('--'))).toEqual(extraArgs);
+    expect(value(argv, '--tools')).toBe(
+      tools === 'write' ? 'Read,Grep,Glob,Edit,Write,Bash' : 'Read,Grep,Glob,Edit,Write',
+    );
+    const settings = JSON.parse(value(argv, '--settings'));
+    // The ruling on canary row 39: a sandboxed step launches with no HTTP attention hooks.
+    expect(Object.keys(settings)).toEqual(isolation === 'sandbox' ? ['sandbox'] : ['hooks']);
+    if (isolation === 'sandbox')
+      expect(settings.sandbox).toEqual({
+        enabled: true,
+        autoAllowBashIfSandboxed: true,
+        allowUnsandboxedCommands: false,
+        network: {
+          allowedDomains: ['registry.npmjs.org'],
+          ...(UNIX_SOCKETS_PINNED ? PINNED_SOCKET_KEYS : {}),
+        },
+        filesystem: {
+          denyRead: ['/h/Library/Keychains', '/h/.claude-work'],
+          denyWrite: ['/w/catalog-portal-run-3f2a91c0/.git'],
+        },
+      });
+    if (isolation === 'sandbox') expect(value(argv, '--settings')).not.toContain('127.0.0.1');
+    expect(argv.includes('Bash(git push:*)')).toBe(tools === 'write' && isolation === 'host');
+    expect(argv).toEqual(
+      expect.arrayContaining([
+        'Edit(//w/catalog-portal-run-3f2a91c0/.git)',
+        'Write(//w/catalog-portal-run-3f2a91c0/.git)',
+      ]),
+    );
+    expect(argv.some((a) => a.startsWith('Read(//'))).toBe(FILE_TOOL_RULES_NEEDED);
+    expect(argv.filter((a) => a === '--settings')).toHaveLength(1);
+    expect(argv).not.toContain('--add-dir');
+    expect(value(argv, '--max-turns')).toBe('60');
+  });
+
+  it('a reopen replays the same policy, attended, still --restricted', () => {
+    const grants = compiled('write', 'sandbox');
+    const reopen = argvOf({
+      ...turn('write', grants),
+      unattended: false,
+      reportTurn: false,
+      resume: true,
+    });
+    expect(reopen.slice(0, 2)).toEqual(['--resume', 'S']);
+    expect(reopen.at(-1 - extraArgs.length)).toBe('--restricted');
+    expect(value(reopen, '--tools')).toBe('Read,Grep,Glob,Edit,Write,Bash');
+  });
+
+  it('a connector merges into the one --settings, drops --strict-mcp-config, and is allowed by its rule', () => {
+    const grants = compiled('write', 'sandbox', {
+      agent: {
+        tools: 'write',
+        mcpServers: [{ name: 'claude.ai Linear' }],
+        skills: [],
+        environment: { name: 'sandboxed', isolation: 'sandbox', network: [], env: [] },
+      },
+      servers: [
+        {
+          name: 'claude.ai Linear',
+          source: 'connector',
+          transport: 'claudeai-proxy',
+          url: 'https://mcp.linear.example/mcp',
+          status: 'connected',
+        },
+      ],
+    });
+    const argv = argvOf(turn('write', grants));
+    expect(Object.keys(JSON.parse(value(argv, '--settings')))).toEqual([
+      'sandbox',
+      'allowedMcpServers',
+    ]);
+    expect(argv).not.toContain('--strict-mcp-config');
+    expect(argv).toContain('mcp__claude_ai_Linear__*');
+  });
+
+  it('an unattended turn is allowed for every policy, and refused with none', () => {
+    expect(() => argvOf(turn('read-only'))).not.toThrow();
+    expect(() => argvOf(turn('edit', compiled('edit', 'sandbox')))).not.toThrow();
+    expect(() => argvOf(turn('write', compiled('write', 'host')))).not.toThrow();
+    expect(() => argvOf(turn(undefined))).toThrow(
+      'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a session with a tool policy, which runs --restricted.',
+    );
+  });
+
+  it('a write policy without its grants, or with grants of another policy or less than compiled, never launches', () => {
+    const words = 'A step that writes launches only with the grants its agent compiled.';
+    expect(() => argvOf(turn('write'))).toThrow(words);
+    expect(() => argvOf(turn('write', compiled('edit', 'sandbox')))).toThrow(words);
+    expect(() => argvOf(turn('edit', compiled('write', 'sandbox')))).toThrow(words);
+    const { sandbox: _sandbox, ...noSandbox } = compiled('write', 'sandbox');
+    expect(() => argvOf(turn('write', noSandbox))).toThrow(words);
+    const { fileDeny: _rules, ...noRules } = compiled('write', 'host');
+    expect(() => argvOf(turn('write', noRules))).toThrow(words);
+    // A read-only session never takes a write agent's grants.
+    expect(() => argvOf(turn('read-only', compiled('write', 'sandbox')))).toThrow(words);
+  });
+
+  it('--max-budget-usd follows --max-turns on a reporting turn, only once canary row 40 passed', () => {
+    const argv = argvOf({ ...turn('write', compiled('write', 'sandbox')), maxBudgetUsd: 4.97 });
+    const at = argv.indexOf('--max-turns');
+    expect(argv.slice(at, at + 4)).toEqual(
+      MAX_BUDGET_CHECKED
+        ? ['--max-turns', '60', '--max-budget-usd', '4.97']
+        : ['--max-turns', '60', ...argv.slice(at + 2, at + 4)],
+    );
+    expect(argv.includes('--max-budget-usd')).toBe(MAX_BUDGET_CHECKED);
+    // An interactive launch, or one with no budget, carries none.
+    expect(argvOf({ ...turn('read-only'), maxBudgetUsd: 4.97, unattended: false })).not.toContain(
+      '--max-budget-usd',
+    );
+    expect(argvOf(turn('read-only'))).not.toContain('--max-budget-usd');
+  });
+
+  it.each([
+    ['--settings'],
+    ['--add-dir'],
+    ['--tools'],
+    ['--permission-mode'],
+    ['--max-budget-usd'],
+  ])('a harness whose extra args carry %s refuses a write step', (flag) => {
+    const config: HarnessConfig = { extraArgs: [flag, 'x'] };
+    expect(
+      driver.toolPolicyProblem(config, 'write') ?? driver.stepTurnProblem(config),
+    ).not.toBeNull();
+    expect(() => argvOf(turn('write', compiled('write', 'sandbox')), config)).toThrow();
+  });
+
+  it('its skills load from --plugin-dir alone, never --add-dir, with the Skill tool and the asked deny list', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-write-skills-'));
+    try {
+      const TRIAGE = '# Triage\n';
+      const hash = skillHash([{ path: 'SKILL.md', bytes: new TextEncoder().encode(TRIAGE) }]);
+      const skillsDir = path.join(dir, 'skills');
+      fs.mkdirSync(path.join(skillsDir, 'incident-triage'), { recursive: true });
+      fs.writeFileSync(path.join(skillsDir, 'incident-triage', 'SKILL.md'), TRIAGE);
+      const pluginDir = path.join(dir, 'plugin');
+      await buildStepPlugin(skillsDir, pluginDir, ['incident-triage'], { 'incident-triage': hash });
+      const script = path.join(dir, 'cli.cjs');
+      fs.writeFileSync(
+        script,
+        `require('readline').createInterface({ input: process.stdin }).on('line', (line) => {
+  const message = JSON.parse(line);
+  process.stdout.write(JSON.stringify({ type: 'control_response', response: { subtype: 'success',
+    request_id: message.request_id, response: { commands: [{ name: 'dataviz' }, { name: 'consola-step:incident-triage' }] } } }) + '\\n');
+});
+setTimeout(() => {}, 10000);`,
+      );
+      const cli = path.join(dir, 'claude');
+      fs.writeFileSync(cli, `#!/bin/sh\nexec "${process.execPath}" "${script}" "$@"\n`);
+      fs.chmodSync(cli, 0o755);
+      const grants = compiled('write', 'sandbox', {
+        agent: {
+          tools: 'write',
+          mcpServers: [],
+          skills: ['incident-triage'],
+          environment: { name: 'sandboxed', isolation: 'sandbox', network: [], env: [] },
+        },
+        pluginDir,
+        skillHashes: { 'incident-triage': hash },
+      });
+      const argv = await driver.buildSessionArgs(
+        { binaryPath: cli, extraArgs: [] },
+        { ...turn('write', grants), cwd: dir },
+      );
+      expect(argv.slice(argv.indexOf('--plugin-dir'), argv.indexOf('--plugin-dir') + 2)).toEqual([
+        '--plugin-dir',
+        pluginDir,
+      ]);
+      expect(argv).not.toContain('--add-dir');
+      expect(value(argv, '--tools')).toBe('Read,Grep,Glob,Edit,Write,Bash,Skill');
+      expect(argv).toContain('Skill(consola-step:incident-triage)');
+      const deny = argv.slice(argv.indexOf('--disallowedTools') + 1, argv.indexOf('--restricted'));
+      expect(deny).toEqual([
+        'Edit(//w/catalog-portal-run-3f2a91c0/.git)',
+        'Write(//w/catalog-portal-run-3f2a91c0/.git)',
+        'Skill(dataviz)',
+      ]);
+      expect(JSON.parse(value(argv, '--settings')).sandbox.filesystem.allowRead).toEqual(
+        ALLOW_READ_CHECKED ? [pluginDir] : undefined,
+      );
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Claude's profile folder (slice 3-B Task 17, Call 21)", () => {
+  it('is what the harness pins, else the login environment’s CLAUDE_CONFIG_DIR, else ~/.claude', () => {
+    expect(
+      driver.profileDir(
+        { configDir: '/h/.claude-work', extraArgs: [] },
+        { CLAUDE_CONFIG_DIR: '/h/x' },
+      ),
+    ).toBe('/h/.claude-work');
+    expect(driver.profileDir({ extraArgs: [] }, { CLAUDE_CONFIG_DIR: '/h/.claude-ambient' })).toBe(
+      '/h/.claude-ambient',
+    );
+    expect(driver.profileDir({ extraArgs: [] }, {})).toBe(path.join(os.homedir(), '.claude'));
   });
 });

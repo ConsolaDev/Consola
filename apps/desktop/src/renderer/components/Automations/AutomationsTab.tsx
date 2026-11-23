@@ -53,8 +53,9 @@ import {
   recentRuns,
   recentRunsInWords,
   runAbout,
+  runWorked,
   runTitle,
-  statusLabel,
+  runStatusLabel,
   tableShowsUnseenFailures,
   triggerInWords,
   triggerLabel,
@@ -600,8 +601,7 @@ function HistoryBar({
   // A run that lands while the strip shows grows in, so Run now visibly adds one.
   const grows = useArrivedOnMount(arrived);
   const about = runAbout(run);
-  const worked = run.status === 'completed' || run.status === 'failed' || run.status === 'running';
-  const duration = worked ? formatDuration(run, now) : null;
+  const duration = runWorked(run) ? formatDuration(run, now) : null;
   return (
     <Tooltip.Root>
       <Tooltip.Trigger asChild>
@@ -618,7 +618,7 @@ function HistoryBar({
         >
           <span className="automations-bar-tooltip-head">
             <StatusDot status={run.status} />
-            <strong>{statusLabel(run.status)}</strong>
+            <strong>{runStatusLabel(run)}</strong>
             <span className="automations-bar-tooltip-when">
               {formatRunWhen(run.createdAt, now)}
             </span>

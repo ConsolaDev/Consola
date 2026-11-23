@@ -1,5 +1,37 @@
 import type { Session } from '../shared/workspace';
 
+/** What deciding to let a removed worktree's keep-ref go reads. */
+export interface KeepRefReleaseDeps {
+  /** Whether any session still names the folder in its `removedWorktree`. */
+  stillNamed(worktreePath: string): boolean;
+  /** Whether a run in history names the folder as its own checkout (slice 3-B): it can still rebuild it. */
+  runNames(worktreePath: string): boolean;
+  exists(worktreePath: string): boolean;
+  deleteKeepRef(mainRepo: string, ref: string): Promise<void>;
+}
+
+/**
+ * `SessionRemover`'s `releaseRemovedWorktree`: once a deleted session's
+ * removed worktree is named by no other session, nothing will rebuild it,
+ * and its keep-ref goes. A run's own checkout (slice 3-B, review NB2) is
+ * also its run's: its keep-ref stays while a run in history names the
+ * folder, and while the folder exists (a rebuilt clone borrows its
+ * objects from the person's clone, so the keep-ref is what keeps them).
+ */
+export function releaseRemovedWorktreeWith(
+  deps: KeepRefReleaseDeps,
+): (session: Pick<Session, 'removedWorktree'>) => void {
+  return ({ removedWorktree: removed }) => {
+    if (!removed) return;
+    if (deps.stillNamed(removed.path)) return;
+    if (removed.kind === 'run-owned' && (deps.runNames(removed.path) || deps.exists(removed.path)))
+      return;
+    void deps
+      .deleteKeepRef(removed.mainRepo, removed.keepRef)
+      .catch((error) => console.error(`Could not delete ${removed.keepRef}:`, error));
+  };
+}
+
 export interface SessionRemoverDeps {
   /** WorkspaceService.deleteSession: writes to disk, and throws if it cannot. */
   deleteRecord(workspaceId: string, sessionId: string): void;

@@ -11,6 +11,8 @@ import { WorktreeCleanupService } from '.';
 import type { GatherOptions } from './FactGatherer';
 import { PathLock } from './PathLock';
 import type { ProcessSnapshot } from './ProcessCwdIndex';
+import { runCloneGitDirFor } from '@consola/automation-engine';
+import { BRANCH, KEEP_REF, RUN_ID, RunOwnedRig } from './runOwned.test-helpers';
 
 vi.setConfig({ testTimeout: 30_000, hookTimeout: 30_000 });
 
@@ -115,6 +117,7 @@ class Rig {
       status: (instanceId) => this.statuses.get(instanceId) ?? 'exited',
       isShown: () => false,
       heldSessionIds: () => new Set(),
+      runHolds: () => false,
       lastActiveAt: (session) => session.lastActiveAt,
       ownProcessIds: () => ({ agents: new Set(), shells: new Set() }),
       worktrees: Object.assign(Object.create(worktrees), {
@@ -313,5 +316,173 @@ describe('WorktreeExecutor', () => {
     const result = await service.remove(mine.dir, deleting(mine.session.id));
     expect(result).toMatchObject({ kind: 'removed', branch: 'kept' });
     expect(git(rig.clone, 'branch', '--list', 'consola/session-a')).toContain('consola/session-a');
+  });
+});
+
+describe("a run's own checkout, removed (slice 3-B Task 19)", () => {
+  const rigs: RunOwnedRig[] = [];
+  afterAll(() => {
+    for (const made of rigs) made.dispose();
+  });
+  async function rigged(): Promise<RunOwnedRig> {
+    const made = await new RunOwnedRig().make();
+    rigs.push(made);
+    made.rules = {
+      ...DEFAULT_WORKTREE_CLEANUP_RULES,
+      runFinished: { enabled: true, afterMinutes: 60 },
+    };
+    return made;
+  }
+  const exists = (dir: string) => fs.existsSync(dir);
+  const keptAt = (made: RunOwnedRig, ref = KEEP_REF) => {
+    try {
+      return made.git(made.source, 'rev-parse', '--verify', '-q', ref);
+    } catch {
+      return null;
+    }
+  };
+
+  it("removes a clean, pushed one: the keep-ref in the person's clone, the session's and the run's record, both folders gone", async () => {
+    const made = await rigged();
+    made.push();
+    const session = made.session();
+    const result = await made.service().remove(made.dir, sweep());
+
+    expect(result).toMatchObject({ kind: 'removed', branch: 'none' });
+    expect(exists(made.dir)).toBe(false);
+    expect(exists(made.gitDir)).toBe(false);
+    expect(exists(`${made.gitDir}.consola.json`)).toBe(false);
+    // In the person's clone (review S2), never in the run clone's git folder, which went with it.
+    expect(keptAt(made)).toBe(made.head);
+    expect(made.recorded).toEqual([
+      {
+        sessionId: session.id,
+        removed: expect.objectContaining({
+          kind: 'run-owned',
+          runId: RUN_ID,
+          path: made.dir,
+          mainRepo: made.source,
+          commit: made.head,
+          branch: BRANCH,
+          keepRef: KEEP_REF,
+          trigger: 'run-finished',
+        }),
+      },
+    ]);
+    expect(made.runRecorded).toEqual([
+      { runId: RUN_ID, removed: { commit: made.head, keepRef: KEEP_REF, at: expect.any(String) } },
+    ]);
+    expect(session.removedWorktree?.kind).toBe('run-owned');
+  });
+
+  it('a run of only run: steps, with no session, is recorded on the run and rebuilt for Retry from it (review S3)', async () => {
+    const made = await rigged();
+    made.push();
+    const report = await made.service().sweep();
+
+    expect(report.removed.map((entry) => entry.tree)).toEqual([made.dir]);
+    expect(made.recorded).toEqual([]);
+    expect(made.runRecorded[0]).toMatchObject({ runId: RUN_ID, removed: { commit: made.head } });
+    const rebuilt = await made.rebuilder().restoreAt(made.dir);
+    expect(rebuilt.rebuilt).toBe(true);
+    expect(made.run('rev-parse', 'HEAD')).toBe(made.head);
+    expect(made.runRecorded.at(-1)).toEqual({ runId: RUN_ID, removed: null });
+  });
+
+  it('a branch moved since Consola read its head removes nothing, and leaves an earlier keep-ref as it was (review S2)', async () => {
+    const made = await rigged();
+    made.push();
+    // A keep-ref already there, as after a rebuild: what keeps that folder's commits (review NB2).
+    made.git(made.source, 'update-ref', KEEP_REF, made.base0);
+    const moving = Object.assign(Object.create(made.worktrees), {
+      // The slow checks run after the head was read and before the keep-ref is fetched.
+      nestedRepos: async (tree: string) => {
+        made.run('update-ref', `refs/heads/${BRANCH}`, made.base0);
+        return made.worktrees.nestedRepos(tree);
+      },
+    }) as WorktreeService;
+    const result = await made.service({ worktrees: moving }).remove(made.dir, sweep());
+
+    expect(result).toEqual({
+      kind: 'failed',
+      error: "the run's branch is not at the commit Consola recorded; nothing was removed",
+    });
+    expect(exists(made.dir)).toBe(true);
+    expect(exists(made.gitDir)).toBe(true);
+    expect(keptAt(made)).toBe(made.base0);
+    expect(made.recorded).toEqual([]);
+    expect(made.runRecorded).toEqual([]);
+  });
+
+  it('a forged remote-tracking ref loses nothing: the keep-ref holds the commit', async () => {
+    const made = await rigged();
+    // Published as far as the clone can tell, never pushed: a step can write its own remote-tracking refs (A2).
+    made.run('update-ref', `refs/remotes/origin/${BRANCH}`, 'HEAD');
+    expect(() => made.git(made.remote, 'rev-parse', '--verify', '-q', BRANCH)).toThrow();
+    made.session();
+    const result = await made.service().remove(made.dir, sweep());
+
+    expect(result).toMatchObject({ kind: 'removed' });
+    expect(keptAt(made)).toBe(made.head);
+    const rebuilt = await made
+      .rebuilder()
+      .ensureCheckout(made.workspace, made.workspace.sessions[0]);
+    expect(rebuilt.rebuilt).toBe(true);
+    expect(made.run('rev-parse', 'HEAD')).toBe(made.head);
+    expect(fs.readFileSync(path.join(made.dir, 'fix.txt'), 'utf8')).toBe('fixed\n');
+  });
+
+  it("a folder in the person's clone, or one whose config names another run, is never removed through this path", async () => {
+    const made = await rigged();
+    const own = (await made.worktrees.inspect(made.dir))!;
+    const clone = (await made.worktrees.inspect(made.source))!;
+    // A copy under a name that is not its run's, its git folder saying the run.
+    const misnamed = path.join(made.root, 'catalog-portal-run-aaaaaaaa');
+    fs.cpSync(made.dir, misnamed, { recursive: true });
+    fs.cpSync(made.gitDir, runCloneGitDirFor(misnamed), { recursive: true });
+    for (const inspection of [
+      clone,
+      { ...own, toplevel: made.source },
+      { ...clone, runOwned: { runId: RUN_ID } },
+      { ...own, runOwned: { runId: '99999999aaaa' } },
+      { ...own, toplevel: misnamed },
+    ]) {
+      await expect(made.worktrees.removeRunClone(inspection)).rejects.toThrow(
+        `Refusing to remove ${inspection.toplevel}: it is not a run's own checkout.`,
+      );
+    }
+    made.git(
+      made.base,
+      'config',
+      '--file',
+      path.join(made.gitDir, 'config'),
+      'consola.run',
+      '3f2a91c0ffff',
+    );
+    await expect(made.worktrees.removeRunClone(own)).rejects.toThrow(
+      "it is not a run's own checkout",
+    );
+    expect(exists(made.source)).toBe(true);
+    expect(exists(made.dir)).toBe(true);
+    expect(exists(made.gitDir)).toBe(true);
+    expect(exists(misnamed)).toBe(true);
+  });
+
+  it('a removal refused before anything went clears both records and keeps the folder and its keep-ref', async () => {
+    const made = await rigged();
+    made.push();
+    const session = made.session();
+    const refusing = Object.assign(Object.create(made.worktrees), {
+      removeRunClone: async () => {
+        throw new Error('EBUSY: resource busy');
+      },
+    }) as WorktreeService;
+    const result = await made.service({ worktrees: refusing }).remove(made.dir, sweep());
+
+    expect(result).toEqual({ kind: 'failed', error: 'EBUSY: resource busy' });
+    expect(session.removedWorktree).toBeUndefined();
+    expect(made.runRecorded.at(-1)).toEqual({ runId: RUN_ID, removed: null });
+    expect(exists(made.dir)).toBe(true);
+    expect(keptAt(made)).toBe(made.head);
   });
 });

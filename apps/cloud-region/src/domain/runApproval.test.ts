@@ -75,6 +75,46 @@ describe('willRun', () => {
     });
     expect(willRun(null)).toEqual({ commands: [], agents: [] });
   });
+
+  it('lists the steps inside a loop, and nothing for a gate or the loop itself', () => {
+    const SHIP = `on: { manual: {} }
+scope: storefront
+steps:
+  - id: fix
+    prompt: Fix the bug.
+  - id: polish
+    repeat: { max: 3, until: steps.check.clean }
+    steps:
+      - id: check
+        run: pnpm lint --format json
+        outputs: { clean: boolean }
+      - id: tidy
+        agent: reviewer
+        prompt: Tidy what the check found.
+  - id: decide
+    gate: { ask: Ship it? }
+`;
+    const [ship] = parseFactory({
+      factoryYml: 'version: 1\n',
+      automations: { ship: SHIP },
+      agents: { reviewer: '---\ndescription: Reviews.\n---\nYou review.\n' },
+      skills: {},
+      stray: [],
+      laterFolders: [],
+      unread: [],
+      outside: [],
+    }).automations;
+    if (!ship) throw new Error('the automation did not parse');
+
+    // Approving lets every command and agent step run, those a loop repeats too.
+    expect(willRun(ship)).toEqual({
+      commands: [{ step: 'check', command: 'pnpm lint --format json' }],
+      agents: [
+        { step: 'fix', agent: null, prompt: 'Fix the bug.' },
+        { step: 'tidy', agent: 'reviewer', prompt: 'Tidy what the check found.' },
+      ],
+    });
+  });
 });
 
 describe('approvalOf', () => {

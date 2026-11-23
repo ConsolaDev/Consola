@@ -21,7 +21,7 @@ const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
 
 /**
  * One workspace's folder under `~/.consola/workspaces/<id>`: the home of its
- * factory (`factory.yml`, `automations/`, `agents/`, `skills/`) and of
+ * factory (`factory.yml`, `automations/`, `agents/`, `skills/`, `environments/`) and of
  * slice 1's `runs/` and `checks/`. Under `~/.consola` with the worktrees rather
  * than in Consola's own state, so the files are text a person can keep with
  * their dotfiles. Keyed by id, not name, so renaming a workspace never orphans
@@ -42,6 +42,8 @@ export function workspaceFactoryPath(workspaceId: string): string {
 const FACTORY_YML = 'factory.yml';
 const AUTOMATION_FILE = /^(.+)\.yaml$/;
 const AGENT_FILE = /^(.+)\.md$/;
+/** `environments/<name>.yaml`, its name a name (slice 3-B): anything else there is a stray. */
+const ENVIRONMENT_FILE = /^(.+)\.yaml$/;
 const OVER = 'it is over 1 MB';
 /** How much of a file one read takes: a small file is never given a buffer the size of the cap. */
 const READ_CHUNK = 64 * 1024;
@@ -189,13 +191,15 @@ function namesOrNone(dir: string): string[] {
 /**
  * One workspace's factory folder: read, watched and written.
  *
- * It reads `factory.yml`, `automations/*`, `agents/*` and `skills/**` only:
+ * It reads `factory.yml`, `automations/*`, `agents/*`, `skills/**` and
+ * `environments/*` only:
  * dotfiles and what editors and the OS leave beside a file
  * (`isIgnoredFileName`), `runs/`, `checks/` and every other root entry are
  * not the factory's. `factory.yml` and the agent and automation files are read
  * through a symlink only while its real path stays inside the folder's
- * (`locateInFolder`); one that leaves it, or a folder of the three that
- * does, is `outside`, never read nor written through. Nothing inside
+ * (`locateInFolder`); one that leaves it, or a folder of the four that
+ * does, is `outside`, never read nor written through. An environment file is
+ * read as an agent file is. Nothing inside
  * `skills/` is read through a link at all, so a skill can deliver nothing
  * from outside its folder.
  *
@@ -219,11 +223,13 @@ export class FactoryFolder implements FactoryFolderHandle {
   }
 
   public async read(): Promise<FactoryFolderRead> {
+    const environments: Record<string, string> = {};
     const files: FactoryFiles = {
       factoryYml: null,
       automations: {},
       agents: {},
       skills: {},
+      environments,
       stray: [],
       laterFolders: [],
       unread: [],
@@ -237,6 +243,14 @@ export class FactoryFolder implements FactoryFolderHandle {
     await this.readTexts('automations', AUTOMATION_FILE, files.automations, files, realFolder);
     await this.readTexts('agents', AGENT_FILE, files.agents, files, realFolder);
     await this.readSkills(files, realFolder);
+    await this.readTexts(
+      'environments',
+      ENVIRONMENT_FILE,
+      environments,
+      files,
+      realFolder,
+      (name) => AUTOMATION_NAME_PATTERN.test(name),
+    );
     for (const folder of Object.keys(LATER_FOLDERS)) {
       if (statOrNull(path.join(this.folderPath, folder), true)?.isDirectory())
         files.laterFolders.push(folder);
@@ -290,13 +304,17 @@ export class FactoryFolder implements FactoryFolderHandle {
     return { exists: true, text: decode(read.bytes) };
   }
 
-  /** `automations/<name>.yaml` or `agents/<name>.md`, by name; anything else in the folder is a stray. */
+  /**
+   * `automations/<name>.yaml`, `agents/<name>.md` or `environments/<name>.yaml`,
+   * by name; anything else in the folder, or a name `named` refuses, is a stray.
+   */
   private async readTexts(
-    folder: 'automations' | 'agents',
+    folder: 'automations' | 'agents' | 'environments',
     pattern: RegExp,
     into: Record<string, string>,
     files: FactoryFiles,
     realFolder: string,
+    named: (name: string) => boolean = () => true,
   ): Promise<void> {
     let entries: fs.Dirent[];
     try {
@@ -309,7 +327,7 @@ export class FactoryFolder implements FactoryFolderHandle {
     for (const entry of entries) {
       const relative = `${folder}/${entry.name}`;
       const name = pattern.exec(entry.name)?.[1];
-      if (name === undefined) {
+      if (name === undefined || !named(name)) {
         files.stray.push(relative);
         continue;
       }
@@ -323,7 +341,7 @@ export class FactoryFolder implements FactoryFolderHandle {
     }
   }
 
-  /** One of the three folders links outside: it is `outside`, and not listed. Throws as `realpath` does. */
+  /** One of the four folders links outside: it is `outside`, and not listed. Throws as `realpath` does. */
   private folderLeaves(folder: string, files: FactoryFiles, realFolder: string): boolean {
     const place = placeIn(realFolder, path.join(this.folderPath, folder));
     if (place === null || place.inside) return false;
@@ -425,8 +443,8 @@ export class FactoryFolder implements FactoryFolderHandle {
   }
 
   /**
-   * What the poll compares: `factory.yml`, the three folders and each entry of
-   * `automations/` and `agents/` by `stat` (through links), each entry under
+   * What the poll compares: `factory.yml`, the four folders and each entry of
+   * `automations/`, `agents/` and `environments/` by `stat` (through links), each entry under
    * `skills/` by `lstat` (a link there is refused anyway), bounded as the
    * read is, and which later folders exist. A path whose stat fails counts as
    * missing. Never throws.
@@ -452,7 +470,7 @@ export class FactoryFolder implements FactoryFolderHandle {
     const line = (relative: string, file: string) =>
       outsideLine(relative, file) ?? statLine(relative, statOrNull(file, true));
     const lines: string[] = [line(FACTORY_YML, this.filePath)];
-    for (const folder of ['automations', 'agents']) {
+    for (const folder of ['automations', 'agents', 'environments']) {
       const dir = path.join(this.folderPath, folder);
       const leaves = outsideLine(`${folder}/`, dir);
       lines.push(leaves ?? statLine(`${folder}/`, statOrNull(dir, true)));
@@ -595,7 +613,8 @@ export class FactoryFolder implements FactoryFolderHandle {
       relative === FACTORY_YML ||
       named(/^automations\/([^/]+)\.yaml$/.exec(relative)?.[1]) ||
       named(/^agents\/([^/]+)\.md$/.exec(relative)?.[1]) ||
-      named(/^skills\/([^/]+)\/SKILL\.md$/.exec(relative)?.[1]);
+      named(/^skills\/([^/]+)\/SKILL\.md$/.exec(relative)?.[1]) ||
+      named(/^environments\/([^/]+)\.yaml$/.exec(relative)?.[1]);
     return own ? path.join(this.folderPath, relative) : null;
   }
 

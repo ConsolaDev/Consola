@@ -237,6 +237,9 @@ export function createClaudeTurnReader(): TurnReader {
     get limitNotice() {
       return limitNotice;
     },
+    get resultSeen() {
+      return result !== undefined;
+    },
     end() {
       const events: TurnEvent[] = [];
       if (pending) readLine(pending, events);

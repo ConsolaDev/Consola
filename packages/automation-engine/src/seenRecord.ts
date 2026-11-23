@@ -27,8 +27,13 @@ export interface SeenRecord {
   at: string;
 }
 
-/** Whether a run on an item is open: `waiting` for a person, or `working`. */
-export type OpenState = 'waiting' | 'working';
+/**
+ * Whether a run on an item is open, and how: `not-started` (waiting for a
+ * person's approval, or in line without ever having started), which absorbs
+ * a new revision; or `working` (started, or parked at a gate or a declared
+ * retry, which holds no process but holds its item), which holds it.
+ */
+export type OpenState = 'not-started' | 'working';
 
 /**
  * One successful poll applied to an automation's record: the record to write
@@ -42,8 +47,8 @@ export type OpenState = 'waiting' | 'working';
  * An item is a candidate when it passes and either has not fired since it
  * entered the set, or carries a `rev` different from the one it fired at
  * (absent reads as ''). A candidate whose run is `working` is held, left as
- * it was; one whose run is `waiting` is absorbed, marked fired at the new
- * revision without firing; any other fires. Items that left the set are
+ * it was; one whose run is `not-started` is absorbed, marked fired at the
+ * new revision without firing; any other fires. Items that left the set are
  * forgotten, revision included.
  */
 export function advanceSeen(
@@ -84,13 +89,27 @@ export function advanceSeen(
     if (candidate && open !== 'working') {
       now = true;
       if (rev !== undefined) nowRev = rev;
-      if (open !== 'waiting') fire.push(key);
+      if (open !== 'not-started') fire.push(key);
     }
     if (!now) continue;
     fired.push(key);
     if (nowRev !== undefined) revs[key] = nowRev;
   }
   return { record: record(fired), fire };
+}
+
+/**
+ * Whether a newer revision of `item` is held: it carries a `rev` the record
+ * has not marked fired (absent reads as '', as `advanceSeen` reads it), so
+ * it fires once the run that holds it ends (Call 12). An item with no
+ * revision (an Inbox item) never has one held.
+ */
+export function heldRevision(
+  record: SeenRecord | undefined,
+  item: { key: string; rev?: string } | undefined,
+): boolean {
+  if (!record || item?.rev === undefined) return false;
+  return (record.revs?.[item.key] ?? '') !== item.rev;
 }
 
 /**

@@ -4,9 +4,18 @@ import {
   type RunRecord,
   type StepRun,
   type StepRunStatus,
+  type StepsRunPreview,
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
-import { formatElapsed, type RunFacts } from './presentation';
+import {
+  clockTime,
+  formatAgo,
+  formatDuration,
+  formatElapsed,
+  rejectedAfterStart,
+  rejectedAtGate,
+  type RunFacts,
+} from './presentation';
 
 /**
  * What a run's own page shows, as a CI service shows one run of a pipeline:
@@ -42,7 +51,7 @@ export interface RunStage {
   /** For a `step` stage: the step this node is, as the record has it. */
   step?: {
     id: string;
-    kind: 'agent' | 'run';
+    kind: StepRun['kind'];
     status: StepRunStatus;
     skipped?: string;
     error?: string;
@@ -117,7 +126,8 @@ function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
   const stages: RunStage[] = [{ key: 'trigger', state: 'passed', ms: null }];
   if (run.mode === 'confirm') {
     const waiting = run.status === 'needs-approval';
-    const turnedDown = run.status === 'rejected' && !run.approvedAt;
+    // A run rejected after it started (at a gate, or turned away) ran first: its approval passed, whatever an old record says of it.
+    const turnedDown = run.status === 'rejected' && !run.approvedAt && !rejectedAfterStart(run);
     const created = Date.parse(run.createdAt);
     const until = waiting
       ? nowMs
@@ -131,7 +141,7 @@ function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
     });
   }
   for (const step of run.steps ?? []) {
-    const state = stepStageState(step.status, open);
+    const state = stepStageState(step, open);
     const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
     const live = step.status === 'running' || step.status === 'queued';
     const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
@@ -152,14 +162,18 @@ function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
   return stages;
 }
 
-function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
-  switch (status) {
+function stepStageState(step: StepRun, open: boolean): RunStageState {
+  // The gate a person rejected the run at: where it was stopped, as an approval turned down is.
+  if (step.gate?.decision === 'reject') return 'stopped';
+  switch (step.status) {
     case 'pending':
       return open ? 'pending' : 'skipped';
     case 'queued':
       return 'queued';
     case 'running':
       return 'running';
+    case 'waiting':
+      return 'waiting';
     case 'completed':
       return 'passed';
     case 'failed':
@@ -178,11 +192,15 @@ function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
 
 /**
  * The step a failed run retries from, as the engine's `retryTargetOf` reads
- * it: the one it failed at, else (it ended between steps, or before the
- * first) the first it did not run.
+ * it: the step it failed at (a failed step before the failed row of the loop
+ * it is in), else a failed loop's row (out of rounds, or stopped between
+ * them), else (it ended between steps, or before the first) the first it did
+ * not run. The engine refuses any other id; `retryTarget.parity.test.ts`
+ * keeps this copy the engine's (the renderer loads none of its runtime).
  */
 export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
   return (
+    steps.find((step) => step.status === 'failed' && step.kind !== 'repeat') ??
     steps.find((step) => step.status === 'failed') ??
     steps.find((step) => step.status === 'not-run')
   );
@@ -255,6 +273,127 @@ export function retryWarningOf(
   return `${how} while it ran and may have done its work; check ${check} first.`;
 }
 
+/** Whether the run page offers Stop: a running run, or a waiting one (at a gate, or out a retry). */
+export function stopOffered(run: Pick<RunFacts, 'status'>): boolean {
+  return run.status === 'running' || run.status === 'waiting';
+}
+
+/**
+ * The lead's detail beside its label: `for 2m 5s` while it runs, its place
+ * in line, `asked 5m ago` while it waits for approval or at a gate (from
+ * when the gate asked), `retries at 10:42` while it waits out a retry (the
+ * step's, or the whole run's); otherwise how long it took and when it ended.
+ */
+export function leadDetail(run: RunFacts, now: Date, place: number | undefined): string {
+  if (run.status === 'running') return `for ${formatDuration(run, now) ?? '0s'}`;
+  if (run.status === 'queued')
+    return place !== undefined ? `${place} in line` : formatAgo(run.createdAt, now);
+  if (run.status === 'needs-approval') return `asked ${formatAgo(run.createdAt, now)}`;
+  if (run.status === 'waiting') {
+    const waiting = run.steps?.find((step) => step.status === 'waiting');
+    if (waiting?.gate) return `asked ${formatAgo(waiting.gate.askedAt, now)}`;
+    const retryAt = waiting?.retryAt ?? run.retryAt;
+    if (retryAt) return `retries at ${clockTime(retryAt)}`;
+    return formatAgo(run.updatedAt, now);
+  }
+  const duration = run.startedAt ? formatDuration(run, now) : null;
+  return [
+    duration ? `${run.status === 'failed' ? 'after' : 'in'} ${duration}` : null,
+    formatAgo(run.finishedAt ?? run.updatedAt, now),
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/** What a step that ran ended as: completed, failed or reported. */
+const RAN: ReadonlySet<string> = new Set(['completed', 'failed', 'reported']);
+
+/**
+ * How a run a person rejected at a gate reads: `` rejected at `decide` by
+ * you, after 2 steps ``, counting the agent and command steps that ran, in
+ * their latest attempt or an earlier one. A rejected run reached nothing
+ * past its gate, but a loop's steps come after the loop's own row and ran
+ * in its earlier rounds, which a loop rejected at its exhaustion gate, or
+ * at a gate inside it, counts (3-A code review S3). Null for any other run.
+ */
+export function rejectedWords(run: Pick<RunFacts, 'status' | 'steps'>): string | null {
+  const gate = rejectedAtGate(run);
+  if (gate === undefined) return null;
+  const ran = (run.steps ?? []).filter(
+    (step) =>
+      (step.kind === 'agent' || step.kind === 'run') &&
+      (RAN.has(step.status) || (step.previous ?? []).some((line) => RAN.has(line.status))),
+  ).length;
+  return `rejected at \`${gate}\` by you, after ${ran} ${ran === 1 ? 'step' : 'steps'}`;
+}
+
+/** One row of a steps run's trace: a step, or a loop's row with the rows of its steps. */
+export type TraceRow =
+  | { kind: 'step'; row: StepRun }
+  | { kind: 'loop'; row: StepRun; inner: StepRun[]; round?: number; max?: number };
+
+/**
+ * The trace's rows, in record order: each top-level row, and a loop's row
+ * holding the rows of its steps, which follow it. Which rows are its steps
+ * is the run's preview's (`loops`, from `loopsOf`); a run without one (an
+ * older record) takes the rows after it that carry a round.
+ */
+export function traceRows(
+  run: Pick<RunFacts, 'steps'>,
+  loops: Record<string, string[]>,
+): TraceRow[] {
+  const steps = run.steps ?? [];
+  const rows: TraceRow[] = [];
+  for (let at = 0; at < steps.length; at++) {
+    const row = steps[at];
+    if (row.kind !== 'repeat') {
+      rows.push({ kind: 'step', row });
+      continue;
+    }
+    const named = loops[row.id];
+    const belongs = (step: StepRun) =>
+      step.kind !== 'repeat' && (named ? named.includes(step.id) : step.round !== undefined);
+    const inner: StepRun[] = [];
+    while (at + 1 < steps.length && belongs(steps[at + 1])) inner.push(steps[++at]);
+    rows.push({
+      kind: 'loop',
+      row,
+      inner,
+      ...(row.round !== undefined ? { round: row.round } : {}),
+      ...(row.max !== undefined ? { max: row.max } : {}),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Each round's execution of a step inside a loop, oldest first: its earlier
+ * attempts (`previous`) and itself, each that ran in a round. An attempt a
+ * retry gave in the same round is listed with that round.
+ */
+export function roundsOf(
+  row: StepRun,
+): Array<{ round: number; attempt: number; status: StepRunStatus }> {
+  const executions = [...(row.previous ?? []), row]
+    .filter((execution) => execution.round !== undefined)
+    .map((execution) => ({
+      round: execution.round as number,
+      attempt: execution.attempt,
+      status: execution.status,
+    }));
+  return executions.sort((a, b) => a.attempt - b.attempt);
+}
+
+/** By loop, the ids of its steps, from the run's preview: `{ polish: ['review', 'address'] }`. */
+export function loopsOf(preview: Pick<StepsRunPreview, 'steps'>): Record<string, string[]> {
+  const loops: Record<string, string[]> = {};
+  for (const step of preview.steps) {
+    if (step.loop === undefined) continue;
+    loops[step.loop] = [...(loops[step.loop] ?? []), step.id];
+  }
+  return loops;
+}
+
 /** The stage the run is in now, or ended in, and how. */
 function stopPoint(
   run: RunRecord,
@@ -266,6 +405,10 @@ function stopPoint(
   switch (run.status) {
     case 'needs-approval':
       return { key: 'approval', state: 'waiting' };
+    case 'waiting':
+      // Only a steps run parks (at a gate or a retry), and its stages come from its steps;
+      // a legacy run never waits, so this is the compiler's case.
+      return { key: last, state: 'waiting' };
     case 'queued':
       return { key: has('queue') ? 'queue' : last, state: 'queued' };
     case 'running':

@@ -1,25 +1,27 @@
 /**
  * The factory folder, parsed whole: `factory.yml`, `automations/<name>.yaml`,
- * `agents/<name>.md` and `skills/<name>/`. Every check of each file runs,
+ * `agents/<name>.md`, `skills/<name>/` and `environments/<name>.yaml`. Every check of each file runs,
  * then the references across files: each step's `agent:` names a valid agent
  * file, each agent's `skills:` a valid skill folder, and no automation name is
  * defined twice. The texts come in already read (a runner's adapter reads the
  * folder), so this does no I/O and every runner parses a folder alike.
  */
 import { agentHash, parseAgentFile, type AgentDefinition } from './agents';
+import { parseEnvironmentFile, type EnvironmentDefinition } from './environments';
 import { parseAutomationFile } from './automationFile';
 import { formatPath, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
+import { isRunOwnedCheckout } from './flow';
 import { isStepsEntry, type Automation } from './schema';
 import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
+import { flatSteps, leafSteps } from './steps';
 
 /** The largest text file the folder's reader reads; a larger one is reported as not read. */
 export const MAX_FACTORY_TEXT_BYTES = 1024 * 1024;
 
 /** Folders a later slice reads, and the slice: the notice's words. */
 export const LATER_FOLDERS: Readonly<Record<string, string>> = {
-  environments: 'slice 3 (write steps)',
   connections: 'slice 5 (connections as data)',
   evals: 'slice 8 (evals)',
 };
@@ -54,6 +56,12 @@ export interface FactoryFiles {
   agents: Record<string, string>;
   /** `skills/<name>/`, by `<name>`, each entry's path relative to the skill's folder. */
   skills: Record<string, SkillFileEntry[]>;
+  /**
+   * `environments/<name>.yaml`, by `<name>` (slice 3-B). Optional: an
+   * adapter or a persisted version from before environments has none, read
+   * as none.
+   */
+  environments?: Record<string, string>;
   /** Paths in the three folders that are none of these, but for the names `isIgnoredFileName` passes over. */
   stray: string[];
   /** Which of `LATER_FOLDERS`' keys exist. */
@@ -83,6 +91,8 @@ export interface FactoryParseResult {
   agents: Record<string, AgentDefinition>;
   /** The valid skills. */
   skills: Record<string, SkillDefinition>;
+  /** The valid environments, by name (slice 3-B). */
+  environments: Record<string, EnvironmentDefinition>;
   /** Each with `file`. */
   issues: FactorySpecIssue[];
   notices: FactoryNotice[];
@@ -95,6 +105,8 @@ export interface FactoryParseResult {
   present: string[];
   /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread or outside path. */
   unreadable: string[];
+  /** `factory.yml`'s `repos:` (slice 3-B): the repositories a run-owned checkout may name. None without a readable factory.yml. */
+  repos: string[];
 }
 
 /** One automation that parsed, and how to point inside its entry. */
@@ -122,6 +134,8 @@ function strayMessage(path: string): string {
     return `\`${path}\` is not an automation: automation files are \`automations/<name>.yaml\`.`;
   if (path.startsWith('skills/'))
     return `\`${path}\` is not a skill: a skill is a folder, \`skills/<name>/SKILL.md\`.`;
+  if (path.startsWith('environments/'))
+    return `\`${path}\` is not an environment: environment files are \`environments/<name>.yaml\`.`;
   return `\`${path}\` is not an agent, an automation or a skill.`;
 }
 
@@ -173,6 +187,20 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   }
   const skillIsThere = (name: string) => own(files.skills, name) || unreadUnder(`skills/${name}/`);
 
+  // Environments (slice 3-B): the valid ones are kept, for the write agents that name them.
+  const environments: Record<string, EnvironmentDefinition> = {};
+  for (const name of sortedKeys(files.environments ?? {})) {
+    const file = `environments/${name}.yaml`;
+    present.push(file);
+    const read = guarded(() => parseEnvironmentFile(name, files.environments![name]));
+    if (!read.ok) {
+      issues.push(couldNotRead(file, read.reason));
+      continue;
+    }
+    issues.push(...read.value.issues);
+    if (read.value.environment) environments[name] = read.value.environment;
+  }
+
   // Agents: each skill an agent names must be a valid skill, or the agent is not kept.
   const agents: Record<string, AgentDefinition> = {};
   for (const name of sortedKeys(files.agents)) {
@@ -201,6 +229,21 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
       });
     }
     if (missing.length > 0) continue;
+    // A write agent's environment must be a valid one, or the agent is not kept (slice 3-B).
+    if (agent.environment !== undefined && !own(environments, agent.environment)) {
+      const env = agent.environment;
+      const there = own(files.environments ?? {}, env) || coveredBy(`environments/${env}.yaml`);
+      issues.push({
+        message: there
+          ? `\`${env}\` has problems of its own in environments/${env}.yaml; this agent applies once they are fixed.`
+          : `\`${env}\` is not an environment here: there is no environments/${env}.yaml.`,
+        file,
+        path: 'environment',
+        ...(agent.lines.environment !== undefined ? { line: agent.lines.environment } : {}),
+        ...(there ? { cause: `environments/${env}.yaml` } : {}),
+      });
+      continue;
+    }
     const skillHashes: Record<string, string> = {};
     for (const skill of agent.skills) skillHashes[skill] = skills[skill].hash;
     agents[name] = { ...agent, hash: agentHash(agent, skillHashes) };
@@ -275,15 +318,34 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   }
   candidates = candidates.filter((candidate) => !twice.has(candidate.automation.name));
 
+  // A run-owned checkout names one of factory.yml's `repos:`, or its entry is not kept (slice 3-B).
+  const repos = yml?.repos ?? [];
+  const listed = new Set(repos.map((repo) => repo.toLowerCase()));
+  candidates = candidates.filter((candidate) => {
+    const { checkout } = candidate.automation;
+    if (!isRunOwnedCheckout(checkout) || listed.has(checkout.repo.toLowerCase())) return true;
+    const path = candidate.pathTo(['checkout', 'repo']);
+    const line = candidate.lineAt(path);
+    issues.push({
+      message: `\`${checkout.repo}\` is not in \`repos:\` in factory.yml.`,
+      file: candidate.file,
+      path: formatPath(path),
+      ...(line !== undefined ? { line } : {}),
+      automation: candidate.automation.name,
+    });
+    return false;
+  });
+
   // Each step's agent must be a kept agent, or its entry is not kept.
   candidates = candidates.filter((candidate) => {
     const { automation } = candidate;
     if (!isStepsEntry(automation)) return true;
     let kept = true;
-    automation.steps.forEach((step, index) => {
+    // A loop's steps too, each at its own line (`steps[i].steps[j].agent`).
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
       if (step.kind !== 'agent' || step.agent === undefined || own(agents, step.agent)) return;
       kept = false;
-      const path = candidate.pathTo(['steps', index, 'agent']);
+      const path = candidate.pathTo(['steps', ...at, 'agent']);
       const line = candidate.lineAt(path);
       const there = agentIsThere(step.agent);
       issues.push({
@@ -300,13 +362,91 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     return kept;
   });
 
+  // A write agent changes code only on a branch its run cuts (invariant 9): its entry owns its checkout (slice 3-B).
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation) || isRunOwnedCheckout(automation.checkout)) return true;
+    let kept = true;
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'agent' || step.agent === undefined) return;
+      if (agents[step.agent].tools === 'read-only') return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'agent']);
+      const line = candidate.lineAt(path);
+      issues.push({
+        message:
+          'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9). Add `checkout: { repo: …, branch: … }`.',
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+      });
+    });
+    return kept;
+  });
+
+  // A path artifact is a file the step leaves in the checkout: only an agent that writes leaves one (slice 3-B).
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation)) return true;
+    let kept = true;
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'agent' || step.pathArtifacts === undefined) return;
+      // A step that names no agent runs on the workspace's default harness, read-only.
+      if (step.agent !== undefined && agents[step.agent].tools !== 'read-only') return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'artifacts']);
+      const line = candidate.lineAt(path);
+      issues.push({
+        message: `A read-only agent writes no files; \`${step.pathArtifacts[0].name}\` with a \`path:\` needs an \`edit\` or \`write\` agent.`,
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+      });
+    });
+    return kept;
+  });
+
+  // Only what cannot have acted retries by itself (slice 3, Call 8): an agent naming a server may have posted,
+  // and a write agent on `host` may have done anything the person can (slice 3-B).
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation)) return true;
+    let kept = true;
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0)
+        return;
+      const agent = agents[step.agent];
+      const onHost =
+        agent.tools === 'write' &&
+        agent.environment !== undefined &&
+        environments[agent.environment].isolation === 'host';
+      if (agent.mcpServers.length === 0 && !onHost) return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'on_failure']);
+      const line = candidate.lineAt(path);
+      issues.push({
+        message:
+          agent.mcpServers.length > 0
+            ? `\`${step.id}\`'s agent names an MCP server, which may post or change things, so it never retries by itself; a person retries it from the run page.`
+            : `\`${step.id}\`'s agent writes and runs commands on \`host\`, so it never retries by itself; a person retries it from the run page.`,
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+      });
+    });
+    return kept;
+  });
+
   // A dry run's agents may name no server: naming one grants all its tools, writes included.
   candidates = candidates.filter((candidate) => {
     const { automation } = candidate;
     if (automation.mode !== 'notify' || !isStepsEntry(automation)) return true;
     const named = new Set<string>();
     const pairs: string[] = [];
-    for (const step of automation.steps) {
+    for (const step of leafSteps(automation.steps)) {
       if (step.kind !== 'agent' || step.agent === undefined || named.has(step.agent)) continue;
       named.add(step.agent);
       for (const server of agents[step.agent].mcpServers)
@@ -353,18 +493,20 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     automations: candidates.map((candidate) => candidate.automation),
     agents,
     skills,
+    environments,
     issues,
     notices,
     present,
     unreadable,
+    repos,
   };
 }
 
 /**
  * A persisted version's texts, by path relative to the folder, and its skill
  * files, by skill name, each by its path inside the skill's folder, as
- * `parseFactory`'s input: `factory.yml`, `automations/<n>.yaml` and
- * `agents/<n>.md`; any other text path is ignored. No strays, no later
+ * `parseFactory`'s input: `factory.yml`, `automations/<n>.yaml`,
+ * `agents/<n>.md` and `environments/<n>.yaml`; any other text path is ignored. No strays, no later
  * folders, nothing unread or outside; no skills when none are given.
  */
 export function factoryFilesOf(
@@ -384,9 +526,14 @@ export function factoryFilesOf(
   for (const path of Object.keys(texts)) {
     const automation = /^automations\/([^/]+)\.yaml$/.exec(path);
     const agent = /^agents\/([^/]+)\.md$/.exec(path);
+    const environment = /^environments\/([^/]+)\.yaml$/.exec(path);
     if (path === 'factory.yml') files.factoryYml = texts[path];
     else if (automation) files.automations[automation[1]] = texts[path];
     else if (agent) files.agents[agent[1]] = texts[path];
+    else if (environment) {
+      if (files.environments === undefined) files.environments = {};
+      files.environments[environment[1]] = texts[path];
+    }
   }
   for (const name of Object.keys(skills ?? {}))
     files.skills[name] = skills![name].map((entry) => ({ path: entry.path, bytes: entry.bytes }));

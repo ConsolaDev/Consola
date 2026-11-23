@@ -1,6 +1,14 @@
-import { automationVersion, parseAutomationEntry, stableStringify } from '@consola/factory-spec';
+import {
+  automationVersion,
+  factoryFilesOf,
+  parseAutomationEntry,
+  parseFactory,
+  stableStringify,
+  stepsResolvedBody,
+} from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import { GRAMMAR_EXAMPLES } from './capabilities';
+import { fileVersion } from './factory/apply';
 import { AUTOMATION_TEMPLATES } from './templates';
 import type { WorkspaceView } from './views';
 
@@ -82,6 +90,14 @@ describe('versions before agents as files', () => {
           "Steps with a turn cap, on a schedule",
           "e5bfa2615d0f2688",
         ],
+        [
+          "A review loop with a gate, on an event",
+          "c1616b18265e1061",
+        ],
+        [
+          "A Jira bug to a pull request, in a sandbox",
+          "e7c59dbce05c7185",
+        ],
       ]
     `);
     expect(
@@ -108,7 +124,42 @@ describe('versions before agents as files', () => {
           "brief-review-requests",
           "fb5d5b162f96759e",
         ],
+        [
+          "review-assigned-prs-gated",
+          "d6c6eabaac1e1c69",
+        ],
       ]
     `);
+  });
+});
+
+/**
+ * Slice 3-B's first pin: a run-owned entry with a write agent, its version
+ * covering the agent's hash and its environment's. Taken when 3-B Task 6
+ * landed; a later task that moves it changes what such a file means.
+ */
+describe('versions of write agents (slice 3-B)', () => {
+  it('a run-owned entry with a write agent hashes with its environment', () => {
+    const read = parseFactory(
+      factoryFilesOf({
+        'factory.yml':
+          'version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n  - name: fix\n    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }\n    steps:\n      - id: fix\n        agent: fixer\n        prompt: Fix it.\n',
+        'agents/fixer.md':
+          '---\nharness: claude-work\ntools: write\nenvironment: sandboxed\n---\nFix it.\n',
+        'environments/sandboxed.yaml': 'isolation: sandbox\nnetwork: [registry.npmjs.org]\n',
+      }),
+    );
+    expect(read.issues).toEqual([]);
+    const [fix] = read.automations;
+    const version = automationVersion(
+      fix,
+      stepsResolvedBody(
+        {},
+        { fixer: read.agents.fixer.hash },
+        { sandboxed: read.environments.sandboxed.hash },
+      ),
+    );
+    expect(version).toBe('421215b867a8df04');
+    expect(fileVersion(fix, read.agents, read.environments)).toBe(version);
   });
 });

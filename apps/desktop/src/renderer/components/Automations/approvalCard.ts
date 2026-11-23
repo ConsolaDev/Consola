@@ -1,10 +1,58 @@
-import type { RunDefinition, StepDetail } from '../../../shared/automations';
+import type { RunDefinition, StepDetail, WriteBlocks } from '../../../shared/automations';
 import { agentStepHead, serverGrantLine, skillsLine } from './agentGrantWords';
+import { gateChoiceLabel } from './gateCardWords';
 
-type DefinitionStep = RunDefinition['automation']['steps'][number];
+type DefinitionEntry = RunDefinition['automation']['steps'][number];
+type DefinitionStep = Exclude<DefinitionEntry, { kind: 'repeat' }>;
+
+/*
+ * The renderer's copy of factory-spec's `flatSteps` and `leafSteps`: the
+ * renderer loads no factory-spec runtime (its `run.ts` imports Node's
+ * crypto), only its types. `src/main/automations/stepTree.parity.test.ts`
+ * keeps the two one rule.
+ */
+
+/** Record order: each entry, and right after a loop its steps, each with `loop`, the loop's id. */
+export function definitionEntries(
+  entries: readonly DefinitionEntry[],
+): Array<{ step: DefinitionEntry; loop?: string }> {
+  return entries.flatMap(
+    (step): Array<{ step: DefinitionEntry; loop?: string }> =>
+      step.kind === 'repeat'
+        ? [{ step }, ...step.steps.map((inner) => ({ step: inner, loop: step.id }))]
+        : [{ step }],
+  );
+}
+
+/** The approval card's rows: record order, a loop's steps at depth 1 under its own row. */
+export function definitionRows(
+  automation: RunDefinition['automation'],
+): Array<{ step: DefinitionEntry; depth: 0 | 1 }> {
+  return definitionEntries(automation.steps).map(({ step, loop }) => ({
+    step,
+    depth: loop === undefined ? 0 : 1,
+  }));
+}
+
+/** How a loop ends when its `until` is still not met after its last round, as its frame's foot says it. */
+export function loopFoot(exhausted: 'fail' | 'continue' | 'gate' | undefined): string {
+  if (exhausted === 'continue') return 'then goes on';
+  return exhausted === 'gate' ? 'then asks you' : 'then fails';
+}
+
+/** A gate's answers as its card offers them: `Approve, Comment or Reject`; without choices, `Approve or Reject`. */
+export function gateChoicesWords(choices: readonly string[] | undefined): string {
+  const labels = [...(choices ?? ['approve'])].map(gateChoiceLabel);
+  return `${labels.join(', ')} or Reject`;
+}
+
+/** Every leaf step, a loop's included, in file order: what every "does any step…" question reads. */
+export function definitionLeaves(entries: readonly DefinitionEntry[]): DefinitionStep[] {
+  return entries.flatMap((step) => (step.kind === 'repeat' ? step.steps : [step]));
+}
 
 const hasCommand = (definition: RunDefinition) =>
-  definition.automation.steps.some((step) => step.kind === 'run');
+  definitionLeaves(definition.automation.steps).some((step) => step.kind === 'run');
 
 /**
  * What a steps run's approval says besides its steps: whose logins a command
@@ -32,7 +80,7 @@ export function approvalNotes(
  * card names them whether or not this run is a dry run.
  */
 export function dryRunCommands(definition: RunDefinition): string[] {
-  return definition.automation.steps
+  return definitionLeaves(definition.automation.steps)
     .filter(
       (step): step is Extract<DefinitionStep, { kind: 'run' }> =>
         step.kind === 'run' && step.dryRun === 'run',
@@ -93,4 +141,37 @@ export function approvalSkills(
   return {
     texts: detail.skillTexts.map(({ name, text }) => ({ file: `skills/${name}/SKILL.md`, text })),
   };
+}
+
+/** One line of a card's write block: the checkout, an agent's head (bold) or one of its sentences, a command, the environment's variables. */
+export type WriteRow =
+  | { kind: 'checkout'; text: string }
+  | { kind: 'head'; agent: string; text: string }
+  | { kind: 'sentence'; agent: string; text: string }
+  | { kind: 'command'; text: string }
+  | { kind: 'variables'; text: string };
+
+/**
+ * What an entry writes, as both approval cards show it (slice 3-B Task 21):
+ * the checkout it cuts, then each write agent's head and its sentences, then
+ * a line per command that runs after a write step, then what passes from the
+ * person's environment. Every sentence is main's (`describeWrites`); none
+ * when the view has no `writes`.
+ */
+export function writeBlocks(view: { writes?: WriteBlocks }): WriteRow[] {
+  const writes = view.writes;
+  if (!writes) return [];
+  return [
+    ...(writes.checkout !== undefined
+      ? [{ kind: 'checkout' as const, text: writes.checkout }]
+      : []),
+    ...writes.agents.flatMap(({ agent, head, sentences }): WriteRow[] => [
+      { kind: 'head', agent, text: head },
+      ...sentences.map((text): WriteRow => ({ kind: 'sentence', agent, text })),
+    ]),
+    ...writes.commands.map((text): WriteRow => ({ kind: 'command', text })),
+    ...(writes.variables !== undefined
+      ? [{ kind: 'variables' as const, text: writes.variables }]
+      : []),
+  ];
 }

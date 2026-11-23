@@ -46,8 +46,8 @@ const jsonLines = (stdout: string) =>
 
 const readLog = (file: string) => fs.readFileSync(file, 'utf8').trimEnd().split('\n');
 
-/** A stdio MCP server that answers every tool call, but fails `failTool`'s. */
-function fakeConsola(dir: string, failTool = ''): string {
+/** A stdio MCP server that answers every tool call, but fails `failTool`'s; `echo` puts each call's arguments in its answer. */
+function fakeConsola(dir: string, failTool = '', echo = false): string {
   const server = path.join(dir, 'fake-consola.cjs');
   fs.writeFileSync(
     server,
@@ -60,7 +60,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
       ? { protocolVersion: '2025-06-18', capabilities: {}, serverInfo: { name: 'fake', version: '1' } }
       : message.params.name === ${JSON.stringify(failTool)}
         ? { content: [{ type: 'text', text: 'No such output: x\\nmore' }], isError: true }
-        : { content: [{ type: 'text', text: 'ok ' + message.params.name }] };
+        : { content: [{ type: 'text', text: 'ok ' + message.params.name + (${JSON.stringify(echo)} ? ' ' + JSON.stringify(message.params.arguments) : '') }] };
   process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }) + '\\n');
 });
 `,
@@ -383,6 +383,66 @@ describe('the stub claude in stream-json', { timeout: 30_000 }, () => {
     expect(stderr).toBe('');
     expect(status).toBe(0);
     expect(readLog(log)).toEqual([`${process.cwd()} :: -p --session-id s1 -- hi`, 'END s1 exit 0']);
+  });
+
+  it('STUB_CLAUDE_OUTPUTS_SEQ sets the next outputs at each launch, the last once it runs out, and beats STUB_CLAUDE_OUTPUTS', () => {
+    const dir = scratch();
+    const sequence = path.join(dir, 'outputs-seq.json');
+    fs.writeFileSync(sequence, JSON.stringify([{ findings: 1 }, { findings: 0 }]));
+    const outputs = path.join(dir, 'outputs.json');
+    fs.writeFileSync(outputs, JSON.stringify({ findings: 7 }));
+    const log = path.join(dir, 'claude.log');
+    const config = fakeConsola(dir, '', true);
+    const launch = (id: string, env: Record<string, string>) => {
+      const before = fs.existsSync(log) ? readLog(log).length : 0;
+      const { status } = spawnSync(
+        process.execPath,
+        [STUB, '-p', '--session-id', id, ...REPORT, '--mcp-config', config, '--', 'hi'],
+        {
+          env: {
+            PATH: process.env.PATH,
+            CLAUDE_CONFIG_DIR: scratch(),
+            STUB_CLAUDE_LOG: log,
+            ...env,
+          },
+          encoding: 'utf8',
+        },
+      );
+      expect(status).toBe(0);
+      return readLog(log)
+        .slice(before)
+        .filter((line) => line.startsWith('TOOL '));
+    };
+    const set = (findings: number) => [
+      `TOOL consola_set_outputs ok consola_set_outputs {"outputs":{"findings":${findings}}}`,
+    ];
+    // Each launch, a new conversation as each loop round is, takes the next entry.
+    expect(launch('r1', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(1));
+    expect(launch('r2', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(0));
+    expect(fs.readFileSync(`${sequence}.n`, 'utf8')).toBe('2');
+    // Past the end, the last again.
+    expect(launch('r3', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(0));
+    // With both set, the sequence wins; without it, STUB_CLAUDE_OUTPUTS is as before.
+    fs.rmSync(`${sequence}.n`);
+    expect(
+      launch('r4', { STUB_CLAUDE_OUTPUTS_SEQ: sequence, STUB_CLAUDE_OUTPUTS: outputs }),
+    ).toEqual(set(1));
+    expect(launch('r5', { STUB_CLAUDE_OUTPUTS: outputs })).toEqual(set(7));
+    // A `null` entry sets nothing, and still moves the count on (a write step between two that set outputs).
+    fs.writeFileSync(sequence, JSON.stringify([null, { findings: 2 }]));
+    fs.rmSync(`${sequence}.n`);
+    expect(
+      launch('r7', { STUB_CLAUDE_OUTPUTS_SEQ: sequence, STUB_CLAUDE_OUTPUTS: outputs }),
+    ).toEqual([]);
+    expect(launch('r8', { STUB_CLAUDE_OUTPUTS_SEQ: sequence })).toEqual(set(2));
+    fs.writeFileSync(sequence, JSON.stringify([{ findings: 1 }, { findings: 0 }]));
+    // A sequence file that is not there sets what STUB_CLAUDE_OUTPUTS says.
+    expect(
+      launch('r6', {
+        STUB_CLAUDE_OUTPUTS_SEQ: path.join(dir, 'absent.json'),
+        STUB_CLAUDE_OUTPUTS: outputs,
+      }),
+    ).toEqual(set(7));
   });
 
   it('logs nothing new without the new knobs', () => {
@@ -807,5 +867,211 @@ describe('what a print turn of the stub loads', { timeout: 30_000 }, () => {
     const init = jsonLines(stdout)[0];
     expect(init.skills).toEqual(['consola-step:incident-triage']);
     expect(init.tools).toEqual(['Read', 'Grep', 'Glob']);
+  });
+});
+
+/*
+ * Slice 3-B Task 23: the knobs that make the stub write in its checkout,
+ * leave a process, move `HEAD` and log its environment. Every knob but the
+ * environment log acts only on a launch whose `--tools` holds `Write`, and
+ * counts only those (review S6): in §4.1 a read-only step launches in the
+ * same checkout as the write steps.
+ */
+describe('the stub claude in a write step', { timeout: 30_000 }, () => {
+  const WRITE_TOOLS = ['--tools', 'Read,Grep,Glob,Edit,Write,Bash'];
+  const READ_TOOLS = ['--tools', 'Read,Grep,Glob'];
+  const git = (cwd: string, ...args: string[]) =>
+    spawnSync('git', args, { cwd, encoding: 'utf8' }).stdout.trim();
+
+  /** A git repository with one commit, `src/app.ts` reading `broken`. */
+  function repo(): string {
+    const dir = fs.realpathSync(scratch());
+    spawnSync('git', ['init', '-q', '-b', 'main', dir]);
+    fs.mkdirSync(path.join(dir, 'src'));
+    fs.writeFileSync(path.join(dir, 'src', 'app.ts'), 'broken');
+    git(dir, 'add', '-A');
+    git(dir, '-c', 'user.name=t', '-c', 'user.email=t@e', 'commit', '-q', '-m', 'base');
+    return dir;
+  }
+
+  /** One print launch in `cwd`, its own process group leader, as node-pty starts the CLI. */
+  function launch(
+    cwd: string,
+    id: string,
+    tools: string[],
+    env: Record<string, string>,
+    extra: string[] = ['-p'],
+  ): Promise<{ status: number | null; pid: number }> {
+    const child = spawn(
+      process.execPath,
+      [STUB, ...extra, '--session-id', id, ...tools, '--', 'hi'],
+      {
+        cwd,
+        detached: true,
+        env: { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: scratch(), ...env },
+        stdio: 'ignore',
+      },
+    );
+    return new Promise((resolve) => {
+      child.on('exit', (status) => resolve({ status, pid: child.pid! }));
+    });
+  }
+
+  const alive = (pid: number) => {
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it('writes each Write launch its entry and commits nothing; a read-only launch takes none', async () => {
+    const dir = repo();
+    const knobs = scratch();
+    const writes = path.join(knobs, 'writes.json');
+    fs.writeFileSync(
+      writes,
+      JSON.stringify([
+        { files: { 'src/app.ts': 'fixed' } },
+        { files: { 'src/app.ts': 'fixed twice' } },
+      ]),
+    );
+    const log = path.join(knobs, 'claude.log');
+    const leave = path.join(knobs, 'leftover.pid');
+    const head = git(dir, 'rev-parse', 'HEAD');
+    const env = {
+      STUB_CLAUDE_LOG: log,
+      STUB_CLAUDE_WRITES: writes,
+      STUB_CLAUDE_MOVE_HEAD: '1',
+      STUB_CLAUDE_LEAVE_PROCESS: leave,
+    };
+    // Review S6: a read-only launch in the same checkout takes no entry, moves no HEAD, leaves no process.
+    expect((await launch(dir, 'triage', READ_TOOLS, env)).status).toBe(0);
+    expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('broken');
+    expect(git(dir, 'symbolic-ref', '-q', 'HEAD')).toBe('refs/heads/main');
+    expect(fs.existsSync(leave)).toBe(false);
+    expect(fs.existsSync(`${writes}.n`)).toBe(false);
+
+    // The write launches without the other two knobs: this row is about the files.
+    const quiet = { STUB_CLAUDE_LOG: log, STUB_CLAUDE_WRITES: writes };
+    expect((await launch(dir, 'fix', WRITE_TOOLS, quiet)).status).toBe(0);
+    expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('fixed');
+    // It never commits (review S1: Consola commits every step).
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(head);
+    expect(git(dir, 'status', '--porcelain')).toBe('M src/app.ts');
+    expect(readLog(log)).toContain('WROTE src/app.ts');
+    // The next Write launch takes the second entry, and past the end the last.
+    expect((await launch(dir, 'address', WRITE_TOOLS, quiet)).status).toBe(0);
+    expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('fixed twice');
+    expect(fs.readFileSync(`${writes}.n`, 'utf8')).toBe('2');
+  });
+
+  it('STUB_CLAUDE_HOLD_WRITE holds a Write launch only, after its files are written', async () => {
+    const dir = repo();
+    const knobs = scratch();
+    const log = path.join(knobs, 'claude.log');
+    const gate = path.join(knobs, 'hold');
+    const writes = path.join(knobs, 'writes.json');
+    fs.writeFileSync(writes, JSON.stringify([{ files: { 'src/app.ts': 'fixed' } }]));
+    const env = { STUB_CLAUDE_LOG: log, STUB_CLAUDE_HOLD_WRITE: gate, STUB_CLAUDE_WRITES: writes };
+    // A read-only launch passes straight through.
+    expect((await launch(dir, 'triage', [...READ_TOOLS, ...REPORT], env)).status).toBe(0);
+    expect(readLog(log)).not.toContain('HOLD waiting');
+    const held = launch(dir, 'fix', [...WRITE_TOOLS, ...REPORT], env);
+    const deadline = Date.now() + 20_000;
+    while (!readLog(log).includes('HOLD waiting') && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    // Held, with its files already written.
+    expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('fixed');
+    expect(readLog(log).some((line) => line.startsWith('END fix '))).toBe(false);
+    fs.writeFileSync(gate, '');
+    expect((await held).status).toBe(0);
+    expect(readLog(log)).toContain('HOLD open');
+  });
+
+  it('STUB_CLAUDE_MOVE_HEAD detaches HEAD after a Write launch only', async () => {
+    const dir = repo();
+    const env = { STUB_CLAUDE_MOVE_HEAD: '1' };
+    await launch(dir, 'review', READ_TOOLS, env);
+    expect(git(dir, 'symbolic-ref', '-q', 'HEAD')).toBe('refs/heads/main');
+    await launch(dir, 'fix', WRITE_TOOLS, env);
+    expect(git(dir, 'symbolic-ref', '-q', 'HEAD')).toBe('');
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(git(dir, 'rev-parse', 'main'));
+  });
+
+  it("STUB_CLAUDE_LEAVE_PROCESS leaves a live process in the checkout, in the launch's own group, once", async () => {
+    const dir = repo();
+    const leave = path.join(scratch(), 'leftover.pid');
+    const first = await launch(dir, 'fix', WRITE_TOOLS, { STUB_CLAUDE_LEAVE_PROCESS: leave });
+    expect(first.status).toBe(0);
+    const pid = Number(fs.readFileSync(leave, 'utf8'));
+    onTestFinished(() => {
+      if (alive(pid)) process.kill(pid, 'SIGKILL');
+    });
+    expect(alive(pid)).toBe(true);
+    expect(fs.existsSync(`${leave}.done`)).toBe(true);
+    // Its group is the launch's: the CLI's, which Consola ends after the turn.
+    const group = spawnSync('ps', ['-o', 'pgid=', '-p', String(pid)], { encoding: 'utf8' });
+    expect(Number(group.stdout.trim())).toBe(first.pid);
+    const cwd = spawnSync('lsof', ['-a', '-p', String(pid), '-d', 'cwd', '-Fn'], {
+      encoding: 'utf8',
+    });
+    expect(cwd.stdout.split('\n')).toContain(`n${dir}`);
+    // Once: the next Write launch leaves none.
+    fs.rmSync(leave);
+    await launch(dir, 'address', WRITE_TOOLS, { STUB_CLAUDE_LEAVE_PROCESS: leave });
+    expect(fs.existsSync(leave)).toBe(false);
+    process.kill(pid, 'SIGKILL');
+  });
+
+  it('STUB_CLAUDE_ENV_LOG logs every launch’s variable names, never a value', async () => {
+    const dir = repo();
+    const envLog = path.join(scratch(), 'env.log');
+    await launch(dir, 'fix', WRITE_TOOLS, {
+      STUB_CLAUDE_ENV_LOG: envLog,
+      GH_TOKEN: 'gh-e2e-dummy',
+      CI: '1',
+    });
+    await launch(dir, 'review', READ_TOOLS, { STUB_CLAUDE_ENV_LOG: envLog }, ['-p']);
+    const lines = readLog(envLog);
+    expect(lines).toHaveLength(2);
+    const [fix, review] = lines;
+    expect(fix.startsWith('ENV fix :: ')).toBe(true);
+    const names = fix.slice('ENV fix :: '.length).split(' ');
+    expect(names).toEqual([...names].sort());
+    expect(names).toEqual(expect.arrayContaining(['CI', 'GH_TOKEN', 'PATH']));
+    expect(fix).not.toContain('gh-e2e-dummy');
+    expect(review.startsWith('ENV review :: ')).toBe(true);
+    expect(review).not.toContain('GH_TOKEN');
+  });
+
+  it('an interactive Write launch with STUB_CLAUDE_WRITES_OPEN writes, then stays open until told to close', async () => {
+    const dir = repo();
+    const knobs = scratch();
+    const open = path.join(knobs, 'open.json');
+    fs.writeFileSync(open, JSON.stringify([{ files: { 'NOTES.md': 'notes' } }]));
+    const log = path.join(knobs, 'claude.log');
+    const ended = launch(
+      dir,
+      'fix',
+      WRITE_TOOLS,
+      { STUB_CLAUDE_LOG: log, STUB_CLAUDE_WRITES_OPEN: open },
+      [],
+    );
+    const deadline = Date.now() + 20_000;
+    while (!(fs.existsSync(log) && readLog(log).includes('OPEN waiting')) && Date.now() < deadline)
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(fs.readFileSync(path.join(dir, 'NOTES.md'), 'utf8')).toBe('notes');
+    expect(readLog(log)).not.toContain('OPEN closed');
+    fs.writeFileSync(`${open}.close`, '');
+    expect((await ended).status).toBe(0);
+    expect(readLog(log)).toEqual(
+      expect.arrayContaining(['WROTE NOTES.md', 'OPEN waiting', 'OPEN closed']),
+    );
+    // A print launch does not take its entries: they are an open session's.
+    fs.rmSync(path.join(dir, 'NOTES.md'));
+    await launch(dir, 'fix', WRITE_TOOLS, { STUB_CLAUDE_WRITES_OPEN: open });
+    expect(fs.existsSync(path.join(dir, 'NOTES.md'))).toBe(false);
   });
 });

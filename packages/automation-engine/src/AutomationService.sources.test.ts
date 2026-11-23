@@ -1007,6 +1007,20 @@ describe('firing', () => {
     end?: (h: SourcesHarness, run: RunRecord, gate: { release?: () => void }) => Promise<void>;
   }
 
+  /** The template with a gate before it publishes: a run on #51 parks there (slice 3). */
+  const GATED = RE_REVIEW_ENTRY.replace(
+    '    - id: publish\n',
+    '    - id: decide\n      gate: { ask: Post the review? }\n    - id: publish\n',
+  );
+  /** A gated run's review ends: its verdict set, its handover written; it parks at `decide`. */
+  const reviewEnds = async (h: SourcesHarness, run: RunRecord) => {
+    await stepCommand(h, run, 'fresh').end({ outputs: 'needed=true\n' });
+    const session = h.store.get(run.id)!.steps!.find((step) => step.id === 'review')!.sessionId!;
+    h.world.setOutputs(session, { verdict: 'comment' });
+    h.world.writeArtifact(session, 'handover', 'Looks fine.');
+    await h.world.endTurn(session);
+  };
+
   // biome-ignore-start lint/suspicious/noThenProperty: a row’s `then` is what the item does next; the table is never awaited.
   const STATES: Array<[string, StateRow]> = [
     [
@@ -1105,6 +1119,25 @@ describe('firing', () => {
       },
     ],
     [
+      'waiting at a gate',
+      {
+        entry: GATED,
+        into: async (h, run) => {
+          await reviewEnds(h, run);
+          expect(h.store.get(run.id)!.steps!.find((step) => step.id === 'decide')).toMatchObject({
+            status: 'waiting',
+          });
+        },
+        status: 'waiting',
+        started: true,
+        then: 'held',
+        end: async (h, run) => {
+          h.service.answerGate(run.id, 'decide', 'reject');
+          await h.flush();
+        },
+      },
+    ],
+    [
       'completed',
       {
         into: async (h, run) => stepCommand(h, run, 'fresh').end({ outputs: 'needed=false\n' }),
@@ -1178,6 +1211,87 @@ describe('firing', () => {
     // Exactly one: a check that sees the same head again makes nothing.
     await h.checkSees([at('b')]);
     expect(runsOn51(h)).toHaveLength(2);
+  });
+
+  it('a run waiting at a gate holds a new head of its pull request, and its card says so', async () => {
+    const h = await watching(GATED);
+    await h.checkSees([at('a')]);
+    const [run] = runsOn51(h);
+    await reviewEnds(h, run);
+    expect(h.service.gateOf(run.id, 'decide')).not.toHaveProperty('newerRevision');
+    await h.checkSees([at('b')]);
+    expect(runsOn51(h)).toHaveLength(1);
+    expect(revOf51(h)).toBe('a');
+    expect(h.service.gateOf(run.id, 'decide')?.newerRevision).toBe('pull-request');
+    // The same head as it read: nothing newer.
+    await h.checkSees([at('a')]);
+    expect(h.service.gateOf(run.id, 'decide')).not.toHaveProperty('newerRevision');
+  });
+
+  describe('a poll with key: and changed:', () => {
+    const TICKETS = `- name: tickets
+  on:
+    poll: { every: 1h, run: ./tickets, key: .id, changed: .rev }
+  scope: api
+  mode: auto
+  steps:
+    - id: decide
+      gate: { ask: Look at it? }
+    - id: note
+      run: ./note
+`;
+    const T = (rev: string) => ({ id: 'T-1', title: 'The cart forgets its items', rev });
+    const ticketRuns = (h: SourcesHarness) =>
+      h.store.runs().filter((run) => run.automationId === 'tickets');
+    const ticketRev = (h: SourcesHarness) => h.store.seen(`${WORKSPACE_ID} tickets`)?.revs?.['T-1'];
+    async function ticketsWatching(): Promise<SourcesHarness> {
+      const h = await watching(TICKETS, {}, 'tickets');
+      await h.checkSees([T('a')], 'tickets');
+      return h;
+    }
+
+    it('a run waiting at a gate holds a new revision of its item, which fires once after it ends', async () => {
+      const h = await ticketsWatching();
+      const [run] = ticketRuns(h);
+      expect(h.store.get(run.id)?.status).toBe('waiting');
+      await h.checkSees([T('b')], 'tickets');
+      expect(ticketRuns(h)).toHaveLength(1);
+      expect(ticketRev(h)).toBe('a');
+      expect(h.service.gateOf(run.id, 'decide')?.newerRevision).toBe('item');
+      h.service.answerGate(run.id, 'decide', 'approve');
+      await h.flush();
+      await stepCommand(h, run, 'note').end();
+      expect(h.store.get(run.id)?.status).toBe('completed');
+      await h.checkSees([T('b')], 'tickets');
+      expect(ticketRuns(h)).toHaveLength(2);
+      expect(ticketRev(h)).toBe('b');
+      await h.checkSees([T('b')], 'tickets');
+      expect(ticketRuns(h)).toHaveLength(2);
+    });
+
+    it('a run waiting out a declared retry holds a new revision too (review M10)', async () => {
+      const h = await ticketsWatching();
+      const [run] = ticketRuns(h);
+      // As a declared retry's wait leaves it (Task 14 makes it; the record is enough here).
+      h.store.update(run.id, {
+        status: 'waiting',
+        steps: h.store
+          .get(run.id)!
+          .steps!.map((step) =>
+            step.id === 'decide'
+              ? { ...step, status: 'completed', gate: undefined, outputs: { decision: 'approve' } }
+              : { ...step, status: 'waiting', retryAt: 'later', retries: 1, error: 'exit 1' },
+          ),
+      });
+      await h.checkSees([T('b')], 'tickets');
+      expect(ticketRuns(h)).toHaveLength(1);
+      expect(ticketRev(h)).toBe('a');
+      h.service.stop(run.id);
+      expect(h.store.get(run.id)?.status).toBe('failed');
+      await h.checkSees([T('b')], 'tickets');
+      expect(ticketRuns(h)).toHaveLength(2);
+      expect(ticketRev(h)).toBe('b');
+    });
   });
 
   it('an absorbing run reads the item as it is when it starts', async () => {

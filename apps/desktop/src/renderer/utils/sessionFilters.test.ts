@@ -1,7 +1,13 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
 import { useSessionFilterStore } from '../stores/sessionFilterStore';
-import { deriveFacets, effectiveFilters, hasActiveFilters, matchesFilters } from './sessionFilters';
+import {
+  deriveFacets,
+  effectiveFilters,
+  facetValuesOf,
+  hasActiveFilters,
+  matchesFilters,
+} from './sessionFilters';
 
 function session(overrides: Partial<Session> = {}): Session {
   return {
@@ -38,6 +44,12 @@ describe('deriveFacets', () => {
     expect(facets.automation).toEqual([{ value: 'Review', count: 1 }]);
     expect(facets.repo).toEqual([{ value: 'acme/api', count: 1 }]);
     expect(facets.readOnly).toEqual([{ value: 'read-only', count: 1 }]);
+  });
+});
+
+describe('the read-only filter (slice 3-B)', () => {
+  it.each([['edit'], ['write']] as const)('a %s step is not in the read-only filter', (policy) => {
+    expect(facetValuesOf(session({ toolPolicy: policy }), 'readOnly')).toEqual([]);
   });
 });
 

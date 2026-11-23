@@ -3,11 +3,12 @@ import type {
   AutomationsChange,
   AutomationsSnapshot,
   EntryAgentsView,
+  GateView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
   LogTail,
-  RunDefinition,
+  RunDefinitionView,
   RunListPage,
   RunRecord,
   StepDetail,
@@ -86,7 +87,7 @@ export const automationsBridge = {
     (getAPI() ?? unavailable()).listRuns(workspaceId, query),
 
   /** A steps run's whole definition snapshot; null for a run without one. */
-  getRunDefinition: async (runId: string): Promise<RunDefinition | null> =>
+  getRunDefinition: async (runId: string): Promise<RunDefinitionView | null> =>
     getAPI()?.getRunDefinition(runId) ?? null,
 
   /** A step's latest attempt, with its command and the end of each log; null when there is no such step. */
@@ -107,9 +108,21 @@ export const automationsBridge = {
   ): Promise<{ content: string; bytes: number } | null> =>
     getAPI()?.readArtifact(runId, ref) ?? null,
 
+  /** Open the run's own checkout in the file manager; refused for any other folder. */
+  openRunCheckout: async (runId: string): Promise<void> =>
+    (getAPI() ?? unavailable()).openRunCheckout(runId),
+
   /** Retry a failed steps run from its failed step. */
   retry: async (runId: string, stepId?: string): Promise<RunRecord> =>
     (getAPI() ?? unavailable()).retry(runId, stepId),
+
+  /** A gate the run asked at: its question, material and choices; null when there is none. */
+  getGate: async (runId: string, stepId: string): Promise<GateView | null> =>
+    getAPI()?.getGate(runId, stepId) ?? null,
+
+  /** The person's answer to a run's gate: one of its choices, or `reject`. */
+  answerGate: async (runId: string, stepId: string, decision: string): Promise<RunRecord> =>
+    (getAPI() ?? unavailable()).answerGate(runId, stepId, decision),
 
   stop: async (runId: string): Promise<void> => (getAPI() ?? unavailable()).stop(runId),
 

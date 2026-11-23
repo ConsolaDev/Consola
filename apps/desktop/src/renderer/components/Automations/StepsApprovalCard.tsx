@@ -1,17 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Bot, Terminal } from 'lucide-react';
-import type { RunDefinition } from '../../../shared/automations';
+import { Bot, Hand, Repeat, Terminal } from 'lucide-react';
+import type { RunDefinition, RunDefinitionView } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ITEM_TEXT_LINE } from './agentGrantWords';
-import { approvalAgent, approvalNotes, approvalSkills, dryRunCommands } from './approvalCard';
+import {
+  approvalAgent,
+  approvalNotes,
+  approvalSkills,
+  definitionRows,
+  dryRunCommands,
+  gateChoicesWords,
+  loopFoot,
+} from './approvalCard';
 import { useIntent } from './parts';
+import { WritesBlock } from './WritesBlock';
 
 type Loaded =
   | { state: 'loading' }
   | { state: 'gone' }
   | { state: 'failed'; reason: string }
-  | { state: 'ready'; definition: RunDefinition };
+  | { state: 'ready'; definition: RunDefinitionView };
 
 /** The copy for a definition the run folder no longer has. */
 export const DEFINITION_GONE = "This run's definition is gone, so it cannot be shown or started.";
@@ -73,16 +82,30 @@ export function StepsApprovalCard({
       {ready && (
         <>
           <ol className="automations-approval-steps">
-            {ready.automation.steps.map((step) => (
-              <ApprovalStep
-                key={step.id}
-                runId={runId}
-                step={step}
-                action={ready.actions[step.id]}
-                definition={ready}
-              />
-            ))}
+            {/* Record order: a loop's own row, then its steps set in under it. */}
+            {definitionRows(ready.automation).map(({ step, depth }) =>
+              step.kind === 'repeat' ? (
+                <ApprovalLoop key={step.id} step={step} />
+              ) : (
+                <ApprovalStep
+                  key={step.id}
+                  runId={runId}
+                  step={step}
+                  action={ready.actions[step.id]}
+                  definition={ready}
+                  inner={depth === 1}
+                />
+              ),
+            )}
           </ol>
+          <WritesBlock view={ready} />
+          {ready.flow.length > 0 && (
+            <div className="automations-approval-flow" role="group" aria-label="How this run flows">
+              {ready.flow.map((line) => (
+                <p key={line}>{line}</p>
+              ))}
+            </div>
+          )}
           {approvalNotes(ready, itemType).map((note) => (
             <p key={note} className="automations-hint">
               {note}
@@ -120,29 +143,79 @@ export function StepsApprovalCard({
   );
 }
 
+/** A loop's own row: its bound, its `until`, and how it ends when that is never met. */
+function ApprovalLoop({
+  step,
+}: {
+  step: Extract<RunDefinition['automation']['steps'][number], { kind: 'repeat' }>;
+}) {
+  const { onExhausted } = step;
+  const exhausted =
+    onExhausted === undefined || onExhausted === 'fail'
+      ? 'fail'
+      : onExhausted === 'continue'
+        ? 'continue'
+        : 'gate';
+  return (
+    <li className="automations-approval-step automations-approval-loop">
+      <div className="automations-approval-head">
+        <Repeat size={13} aria-hidden="true" />
+        <span className="automations-approval-id">{step.id}</span>
+        <span className="automations-meta">
+          Loop, up to {step.max} rounds, {loopFoot(exhausted)}
+        </span>
+      </div>
+      {step.if !== undefined && (
+        <div className="automations-approval-field">
+          <span className="automations-approval-label">if</span>
+          <code className="automations-approval-code">{step.if}</code>
+        </div>
+      )}
+      <div className="automations-approval-field">
+        <span className="automations-approval-label">until</span>
+        <code className="automations-approval-code">{step.until}</code>
+      </div>
+      {typeof onExhausted === 'object' && (
+        <div className="automations-approval-field">
+          <span className="automations-approval-label">asks</span>
+          <span>{onExhausted.ask}</span>
+        </div>
+      )}
+    </li>
+  );
+}
+
 function ApprovalStep({
   runId,
   step,
   action,
   definition,
+  inner = false,
 }: {
   runId: string;
-  step: RunDefinition['automation']['steps'][number];
+  step: Exclude<RunDefinition['automation']['steps'][number], { kind: 'repeat' }>;
   action: RunDefinition['actions'][string] | undefined;
   definition: RunDefinition;
+  /** A step inside a loop: set in under the loop's row. */
+  inner?: boolean;
 }) {
-  const Icon = step.kind === 'agent' ? Bot : Terminal;
+  // A gate asks a person and runs nothing: never drawn as a command.
+  const Icon = step.kind === 'agent' ? Bot : step.kind === 'gate' ? Hand : Terminal;
   // The agent it runs as, exactly as approved: who it is, then what this step asks.
   const agent = step.kind === 'agent' ? approvalAgent(definition, step.id) : null;
   const named = agent?.skills !== null && agent?.skills !== undefined;
   const skills = useRunSkills(runId, step.id, named);
   return (
-    <li className="automations-approval-step">
+    <li className={`automations-approval-step ${inner ? 'automations-approval-step-inner' : ''}`}>
       <div className="automations-approval-head">
         <Icon size={13} aria-hidden="true" />
         <span className="automations-approval-id">{step.id}</span>
         <span className="automations-meta">
-          {step.kind === 'agent' ? (agent?.head ?? 'Agent, read-only') : 'Command'}
+          {step.kind === 'agent'
+            ? (agent?.head ?? 'Agent, read-only')
+            : step.kind === 'gate'
+              ? 'Gate'
+              : 'Command'}
         </span>
       </div>
       {step.if !== undefined && (
@@ -198,6 +271,17 @@ function ApprovalStep({
         ) : step.prompt !== undefined || !agent ? (
           <Folded label="The prompt it will send" text={step.prompt ?? ''} />
         ) : null
+      ) : step.kind === 'gate' ? (
+        <>
+          <div className="automations-approval-field">
+            <span className="automations-approval-label">asks</span>
+            <span>{step.ask}</span>
+          </div>
+          <div className="automations-approval-field">
+            <span className="automations-approval-label">answers</span>
+            <span>{gateChoicesWords(step.choices)}</span>
+          </div>
+        </>
       ) : (
         <>
           <Folded label="The command" text={step.run} mono />

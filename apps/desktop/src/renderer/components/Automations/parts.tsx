@@ -43,8 +43,9 @@ import {
   runAgainTitle,
   runAgainTarget,
   runRowWords,
+  runWorked,
   runTitle,
-  statusLabel,
+  runStatusLabel,
   triggerInWords,
   type RunAutomationOption,
   type RunFacts,
@@ -65,6 +66,8 @@ const STATUS_ICONS: Record<RunFacts['status'], LucideIcon> = {
   queued: Clock,
   // A person's hand is what it waits for; the approval step in a pipeline wears the same one.
   'needs-approval': Hand,
+  // Parked at a gate (a person's answer) or a retry: still the hand, as `RunGraph`'s waiting stage.
+  waiting: Hand,
   rejected: CircleSlash,
 };
 
@@ -111,11 +114,10 @@ export function RunItem({
 }) {
   const washed = useArrivedOnMount(arrived);
   const { about, step } = runRowWords(run);
-  const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
+  const status = `${runStatusLabel(run)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
   // With nothing to say about itself, a run's "about" is its status: the title says that instead.
   const title = about !== run.status ? about : status;
-  const worked = run.status === 'completed' || run.status === 'failed' || run.status === 'running';
-  const duration = worked ? formatDuration(run, now) : null;
+  const duration = runWorked(run) ? formatDuration(run, now) : null;
   const fired = triggerInWords(run);
   const name = showName ? runTitle(run) : null;
   const full = formatTime(run.createdAt);
@@ -599,8 +601,13 @@ function outcomeEffect(outcome: SessionOutcome): string {
   return parts.join(' · ');
 }
 
-/** A run still moving: Run again waits for it to end. */
-const MOVING: ReadonlySet<RunRecord['status']> = new Set(['running', 'queued', 'needs-approval']);
+/** A run still moving, a parked one too: Run again waits for it to end. */
+const MOVING: ReadonlySet<RunRecord['status']> = new Set([
+  'running',
+  'queued',
+  'needs-approval',
+  'waiting',
+]);
 
 /**
  * Run again, as a run's page offers it: a new run of the automation's current

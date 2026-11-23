@@ -197,6 +197,38 @@ automations:
       ]);
     });
 
+    it("points at a loop's step that names an agent the folder does not have", () => {
+      const result = parseFactory(
+        files({
+          factoryYml: [
+            'version: 1',
+            'automations:',
+            '  - name: triage',
+            '    on: { cron: "0 9 * * *" }',
+            '    scope: ops',
+            '    steps:',
+            '      - id: polish',
+            '        repeat: { max: 2, until: steps.look.done }',
+            '        steps:',
+            '          - id: look',
+            '            agent: noter',
+            '            outputs: { done: boolean }',
+            '',
+          ].join('\n'),
+        }),
+      );
+      expect(result.automations).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message: '`noter` is not an agent here: there is no agents/noter.md.',
+          file: 'factory.yml',
+          path: 'automations[0].steps[0].steps[0].agent',
+          line: 11,
+          automation: 'triage',
+        },
+      ]);
+    });
+
     it("says an agent whose own file has problems is why the step's entry is left out", () => {
       const folder = ACCEPTANCE();
       folder.agents.summariser = SUMMARISER.replace('model: haiku', 'model: haiku\ntools: write');
@@ -207,7 +239,8 @@ automations:
         {
           file: 'agents/summariser.md',
           path: 'tools',
-          message: expect.stringMatching(/^Write tools/),
+          // `tools: write` with no environment (slice 3-B; before it, write tools were refused outright).
+          message: expect.stringMatching(/^A write agent must name its environment/),
         },
         {
           file: 'automations/investigate-alerts.yaml',
@@ -316,6 +349,7 @@ automations:
       files({
         factoryYml: EMPTY_YML,
         stray: ['agents/notes.txt', 'automations/x.yml', 'skills/readme.md'],
+        // `environments/` is read since slice 3-B: no notice for it any more.
         laterFolders: ['environments', 'evals'],
       }),
     );
@@ -339,10 +373,6 @@ automations:
       },
     ]);
     expect(result.notices).toEqual([
-      {
-        message:
-          '`environments/` is read from slice 3 (write steps); its files have no effect yet.',
-      },
       { message: '`evals/` is read from slice 8 (evals); its files have no effect yet.' },
     ]);
     // Only the folders a later slice owns: any other name gets no notice.
@@ -524,6 +554,32 @@ automations:
       ]);
     });
 
+    it("names the servers of an agent only a loop's step names", () => {
+      const looped = [
+        'on: { cron: "0 9 * * *" }',
+        'scope: ops-notes',
+        'mode: notify',
+        'steps:',
+        '  - id: polish',
+        '    repeat: { max: 2, until: steps.investigate.done }',
+        '    steps:',
+        '      - id: investigate',
+        '        agent: investigator',
+        '        outputs: { done: boolean }',
+        '',
+      ].join('\n');
+      const result = parseFactory(
+        files({
+          automations: { looped },
+          agents: { investigator: INVESTIGATOR },
+          skills: { 'incident-triage': TRIAGE },
+        }),
+      );
+      expect(result.issues.map((issue) => issue.message)).toEqual([
+        "A dry run can't keep a server's tools to reads: use `confirm`, or remove `claude.ai Coralogix` from `investigator`'s servers for this automation.",
+      ]);
+    });
+
     it('names an agent used by two steps once', () => {
       const twice = INVESTIGATE_ALERTS.replace('mode: auto', 'mode: notify').replace(
         '    agent: summariser\n',
@@ -547,6 +603,64 @@ automations:
       );
       expect(result.issues).toEqual([]);
       expect(names(result)).toEqual(['investigate-alerts']);
+    });
+  });
+
+  describe('declared retries (slice 3, Call 8)', () => {
+    const retrying = (agent: string, retry: number, looped = false) =>
+      files({
+        automations: {
+          looked: [
+            'on: { cron: "0 9 * * *" }',
+            'scope: ops-notes',
+            'steps:',
+            ...(looped
+              ? [
+                  '  - id: polish',
+                  '    repeat: { max: 2, until: steps.look.done }',
+                  '    steps:',
+                  '      - id: look',
+                  `        agent: ${agent}`,
+                  '        outputs: { done: boolean }',
+                  `        on_failure: { retry: ${retry} }`,
+                ]
+              : ['  - id: look', `    agent: ${agent}`, `    on_failure: { retry: ${retry} }`]),
+            '',
+          ].join('\n'),
+        },
+        agents: { investigator: INVESTIGATOR, summariser: SUMMARISER },
+        skills: { 'incident-triage': TRIAGE },
+      });
+    const NEVER =
+      "`look`'s agent names an MCP server, which may post or change things, so it never retries by itself; a person retries it from the run page.";
+
+    it('refuses a declared retry on an agent step whose agent names a server, at its on_failure', () => {
+      const result = parseFactory(retrying('investigator', 1));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message: NEVER,
+          file: 'automations/looked.yaml',
+          path: 'steps[0].on_failure',
+          line: 6,
+          automation: 'looked',
+        },
+      ]);
+    });
+
+    it("refuses it on a loop's step too, at the step's own line", () => {
+      const result = parseFactory(retrying('investigator', 2, true));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        expect.objectContaining({ message: NEVER, path: 'steps[0].steps[0].on_failure', line: 10 }),
+      ]);
+    });
+
+    it('takes a retry of 0 on it, and any retry on an agent that names no server', () => {
+      expect(parseFactory(retrying('investigator', 0)).issues).toEqual([]);
+      const plain = parseFactory(retrying('summariser', 3));
+      expect(plain.issues).toEqual([]);
+      expect(names(plain)).toEqual(['looked']);
     });
   });
 
@@ -645,4 +759,302 @@ describe('isIgnoredFileName (review S5)', () => {
       expect(isIgnoredFileName(name)).toBe(false);
     },
   );
+});
+
+describe('repos: across the folder (slice 3-B)', () => {
+  const FIX = (repo: string) =>
+    `  - name: fix\n    on: manual\n    mode: auto\n    checkout: { repo: ${repo}, branch: "consola/run-{{run.id}}" }\n    steps:\n      - run: "true"\n`;
+  /** The same entry as a file of its own, `automations/<name>.yaml` (its name is the file's). */
+  const FIX_FILE = (repo: string) =>
+    `on: manual\nmode: auto\ncheckout: { repo: ${repo}, branch: "consola/run-{{run.id}}" }\nsteps:\n  - run: "true"\n`;
+
+  it('a run-owned checkout names one of repos:', () => {
+    const issues = parseFactory(
+      files({
+        factoryYml: `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${FIX('sprocket/other')}`,
+      }),
+    ).issues;
+    expect(issues.map((i) => i.message)).toContain(
+      '`sprocket/other` is not in `repos:` in factory.yml.',
+    );
+  });
+
+  it('leaves the entry out, at its checkout.repo, and keeps the others', () => {
+    const result = parseFactory(
+      files({
+        factoryYml: `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${FIX('sprocket/other')}  - name: ok\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n`,
+      }),
+    );
+    expect(names(result)).toEqual(['ok']);
+    expect(result.issues).toEqual([
+      {
+        message: '`sprocket/other` is not in `repos:` in factory.yml.',
+        file: 'factory.yml',
+        path: 'automations[0].checkout.repo',
+        line: 7,
+        automation: 'fix',
+      },
+    ]);
+    expect(result.repos).toEqual(['sprocket/catalog-portal']);
+  });
+
+  it('keeps one that does, in factory.yml or a file of its own, case aside', () => {
+    const result = parseFactory(
+      files({
+        factoryYml: `version: 1\nrepos: [Sprocket/Catalog-Portal]\nautomations:\n${FIX('sprocket/catalog-portal')}`,
+        automations: { other: FIX_FILE('SPROCKET/catalog-portal') },
+      }),
+    );
+    expect(result.issues).toEqual([]);
+    expect(names(result)).toEqual(['fix', 'other']);
+  });
+
+  it('refuses an automation file whose checkout names a repository with no factory.yml to list it', () => {
+    const result = parseFactory(
+      files({
+        automations: { fix: FIX_FILE('sprocket/catalog-portal') },
+      }),
+    );
+    expect(names(result)).toEqual([]);
+    expect(result.issues.map((i) => i.message)).toEqual([
+      '`sprocket/catalog-portal` is not in `repos:` in factory.yml.',
+    ]);
+    expect(result.repos).toEqual([]);
+  });
+});
+
+describe('environments/ (slice 3-B)', () => {
+  const EMPTY_FILES = files({ factoryYml: EMPTY_YML });
+
+  it('environments/ is read: no notice, its strays reported, its files parsed', () => {
+    const parsed = parseFactory({
+      ...EMPTY_FILES,
+      environments: { sandboxed: 'isolation: sandbox\n' },
+      stray: ['environments/x.yml'],
+    });
+    expect(parsed.environments.sandboxed.isolation).toBe('sandbox');
+    expect(parsed.notices.map((n) => n.message).join()).not.toContain('environments/');
+    expect(parsed.issues.map((i) => i.message)).toContain(
+      '`environments/x.yml` is not an environment: environment files are `environments/<name>.yaml`.',
+    );
+  });
+
+  it('names each file present, keeps only the valid ones, and says what is wrong in each', () => {
+    const parsed = parseFactory({
+      ...EMPTY_FILES,
+      environments: {
+        sandboxed: 'isolation: sandbox\nenv: [CI]\n',
+        broken: 'isolation: host\nenv: [CI]\n',
+      },
+    });
+    expect(Object.keys(parsed.environments)).toEqual(['sandboxed']);
+    expect(parsed.environments.sandboxed).toMatchObject({ name: 'sandboxed', env: ['CI'] });
+    expect(parsed.present).toEqual(
+      expect.arrayContaining(['environments/broken.yaml', 'environments/sandboxed.yaml']),
+    );
+    expect(parsed.issues).toEqual([
+      expect.objectContaining({
+        file: 'environments/broken.yaml',
+        path: 'env',
+        message: expect.stringContaining('On `host` a step has your whole network'),
+      }),
+    ]);
+  });
+
+  it('reads none when the adapter gives none (every slice-1 and 2 caller)', () => {
+    const parsed = parseFactory(EMPTY_FILES);
+    expect(parsed.environments).toEqual({});
+    expect(parsed.issues).toEqual([]);
+  });
+
+  it('factoryFilesOf reads environments/<n>.yaml back, and nothing else under environments/', () => {
+    const read = factoryFilesOf({
+      'factory.yml': EMPTY_YML,
+      'environments/sandboxed.yaml': 'isolation: sandbox\n',
+      'environments/x.yml': 'isolation: host\n',
+    });
+    expect(read.environments).toEqual({ sandboxed: 'isolation: sandbox\n' });
+  });
+});
+
+describe('write agents across the folder (slice 3-B)', () => {
+  const WRITE_AGENT =
+    '---\nharness: claude-work\ntools: write\nenvironment: sandboxed\n---\nFix it.\n';
+  const OWNED = (steps: string) =>
+    `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n  - name: fix\n    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n${steps}`;
+  const FIX_STEP = '      - id: fix\n        agent: fixer\n        prompt: Fix.\n';
+
+  it('an environment that is not there keeps the agent out, at its environment line', () => {
+    const parsed = parseFactory(files({ agents: { fixer: WRITE_AGENT } }));
+    expect(parsed.agents.fixer).toBeUndefined();
+    expect(parsed.issues).toEqual([
+      {
+        message: '`sandboxed` is not an environment here: there is no environments/sandboxed.yaml.',
+        file: 'agents/fixer.md',
+        path: 'environment',
+        line: 4,
+      },
+    ]);
+  });
+
+  it('one with problems of its own keeps the agent out too, naming its file', () => {
+    const parsed = parseFactory(
+      files({ agents: { fixer: WRITE_AGENT }, environments: { sandboxed: 'isolation: vm\n' } }),
+    );
+    expect(parsed.agents.fixer).toBeUndefined();
+    expect(parsed.issues).toContainEqual({
+      message:
+        '`sandboxed` has problems of its own in environments/sandboxed.yaml; this agent applies once they are fixed.',
+      file: 'agents/fixer.md',
+      path: 'environment',
+      line: 4,
+      cause: 'environments/sandboxed.yaml',
+    });
+  });
+
+  it('keeps a write agent whose environment is valid', () => {
+    const parsed = parseFactory(
+      files({
+        agents: { fixer: WRITE_AGENT },
+        environments: { sandboxed: 'isolation: sandbox\n' },
+      }),
+    );
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.agents.fixer).toMatchObject({ tools: 'write', environment: 'sandboxed' });
+  });
+
+  it('a write agent needs a run-owned checkout, at its step', () => {
+    const parsed = parseFactory(
+      files({
+        agents: { fixer: WRITE_AGENT },
+        environments: { sandboxed: 'isolation: sandbox\n' },
+        factoryYml:
+          'version: 1\nautomations:\n  - name: fix\n    on: manual\n    scope: app\n    steps:\n      - agent: fixer\n        prompt: Fix.\n',
+      }),
+    );
+    expect(names(parsed)).toEqual([]);
+    expect(parsed.issues).toEqual([
+      {
+        message:
+          'A write agent changes code only on a branch the run cuts from one of `repos:` (invariant 9). Add `checkout: { repo: …, branch: … }`.',
+        file: 'factory.yml',
+        path: 'automations[0].steps[0].agent',
+        line: 7,
+        automation: 'fix',
+      },
+    ]);
+  });
+
+  it("an item checkout is not one the run owns: a loop's write agent is refused there too", () => {
+    const parsed = parseFactory(
+      files({
+        agents: { fixer: WRITE_AGENT.replace('tools: write', 'tools: edit') },
+        environments: { sandboxed: 'isolation: sandbox\n' },
+        factoryYml:
+          'version: 1\nautomations:\n  - name: fix\n    on: { github: pull_request.opened }\n    checkout: { pr: item }\n    steps:\n      - id: polish\n        repeat: { max: 2, until: steps.fix.done }\n        steps:\n          - id: fix\n            agent: fixer\n            prompt: Fix.\n            outputs: { done: boolean }\n',
+      }),
+    );
+    expect(names(parsed)).toEqual([]);
+    expect(parsed.issues).toEqual([
+      expect.objectContaining({
+        message: expect.stringContaining('A write agent changes code only on a branch'),
+        path: 'automations[0].steps[0].steps[0].agent',
+      }),
+    ]);
+  });
+
+  it('a write agent on host never retries by itself; one in a sandbox, or an edit agent on host, may', () => {
+    const entry = (env: string, tools = 'write') =>
+      parseFactory(
+        files({
+          agents: {
+            fixer: WRITE_AGENT.replace('sandboxed', env).replace('tools: write', `tools: ${tools}`),
+          },
+          environments: { [env]: env === 'mine' ? 'isolation: host\n' : 'isolation: sandbox\n' },
+          factoryYml: OWNED(`${FIX_STEP}        on_failure: { retry: 1 }\n`),
+        }),
+      );
+    const host = entry('mine');
+    expect(names(host)).toEqual([]);
+    expect(host.issues).toEqual([
+      {
+        message:
+          "`fix`'s agent writes and runs commands on `host`, so it never retries by itself; a person retries it from the run page.",
+        file: 'factory.yml',
+        path: 'automations[0].steps[0].on_failure',
+        line: 11,
+        automation: 'fix',
+      },
+    ]);
+    expect(entry('sandboxed').issues).toEqual([]);
+    expect(names(entry('sandboxed'))).toEqual(['fix']);
+    expect(entry('mine', 'edit').issues).toEqual([]);
+    // A retry of 0 is no retry.
+    expect(
+      parseFactory(
+        files({
+          agents: { fixer: WRITE_AGENT.replace('sandboxed', 'mine') },
+          environments: { mine: 'isolation: host\n' },
+          factoryYml: OWNED(`${FIX_STEP}        on_failure: { retry: 0 }\n`),
+        }),
+      ).issues,
+    ).toEqual([]);
+  });
+
+  it('a read-only agent in a run-owned entry is kept as before', () => {
+    const parsed = parseFactory(
+      files({
+        agents: { reader: '---\nharness: claude-work\n---\nRead it.\n' },
+        factoryYml: OWNED(
+          '      - id: look\n        agent: reader\n        on_failure: { retry: 2 }\n',
+        ),
+      }),
+    );
+    expect(parsed.issues).toEqual([]);
+    expect(names(parsed)).toEqual(['fix']);
+  });
+});
+
+describe('path artifacts across the folder (slice 3-B)', () => {
+  const OWNED = (step: string) =>
+    `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n  - name: fix\n    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n    steps:\n${step}`;
+  const PATH_STEP = (agent: string) =>
+    `      - id: fix\n${agent}        prompt: Fix.\n        artifacts: [notes, { name: spec, path: docs/a.md }]\n`;
+  const NEEDS =
+    'A read-only agent writes no files; `spec` with a `path:` needs an `edit` or `write` agent.';
+  const folder = (yml: string) =>
+    files({
+      factoryYml: yml,
+      agents: {
+        reader: '---\nharness: claude-work\n---\nRead it.\n',
+        fixer: '---\nharness: claude-work\ntools: edit\nenvironment: sandboxed\n---\nFix it.\n',
+      },
+      environments: { sandboxed: 'isolation: sandbox\n' },
+    });
+
+  it('a path artifact needs an agent that writes, at its artifacts', () => {
+    const result = parseFactory(folder(OWNED(PATH_STEP('        agent: reader\n'))));
+    expect(names(result)).toEqual([]);
+    expect(result.issues).toEqual([
+      {
+        message: NEEDS,
+        file: 'factory.yml',
+        path: 'automations[0].steps[0].artifacts',
+        line: 11,
+        automation: 'fix',
+      },
+    ]);
+  });
+
+  it('a step on the default harness is read-only too', () => {
+    expect(parseFactory(folder(OWNED(PATH_STEP('')))).issues.map((i) => i.message)).toEqual([
+      NEEDS,
+    ]);
+  });
+
+  it('an edit or write agent may write one', () => {
+    const result = parseFactory(folder(OWNED(PATH_STEP('        agent: fixer\n'))));
+    expect(result.issues).toEqual([]);
+    expect(names(result)).toEqual(['fix']);
+  });
 });

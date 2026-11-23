@@ -30,11 +30,21 @@ import {
   sidebarRowState,
   tableShowsUnseenFailures,
   unseenFailures,
+  statusLabel,
   statusWord,
+  rejectedAtGate,
+  runStatusLabel,
+  runStatusWord,
+  runWorked,
+  statusCounts,
   stepWords,
+  waitingForWords,
+  waitingForYouRuns,
+  runWaitingForYou,
   mergeRunPages,
   foldDroppedRuns,
   runRowWords,
+  sidebarRunWaits,
   newestRunFirst,
   olderRunsCursor,
   triggerLabel,
@@ -109,6 +119,11 @@ function snapshot(
 }
 
 describe('statusWord', () => {
+  it("calls a parked run's status 'on hold'", () => {
+    expect(statusWord('waiting')).toBe('on hold');
+    expect(statusLabel('waiting')).toBe('On hold');
+  });
+
   it('says where a run stands in a word, using the run statuses the panel shows', () => {
     expect(statusWord('needs-approval')).toBe('waiting');
     expect(statusWord('rejected')).toBe('dismissed');
@@ -250,7 +265,13 @@ describe('foldDroppedRuns', () => {
 
 describe('runRowWords', () => {
   const item = { key: 'k', url: 'u', title: 'Fix the cart' };
-  const step = { id: 'publish', status: 'failed' as const, index: 2, count: 3 };
+  const step = {
+    id: 'publish',
+    status: 'failed' as const,
+    index: 2,
+    count: 3,
+    kind: 'run' as const,
+  };
 
   it("keeps an event run's item title and puts the step beside it", () => {
     const failed = run({
@@ -279,12 +300,38 @@ describe('runRowWords', () => {
   });
 });
 
+describe('sidebarRunWaits (3-A code review M2)', () => {
+  it('says a run at a gate waits for the person there, and only an approval for its approval', () => {
+    const gate = {
+      id: 'decide',
+      status: 'waiting' as const,
+      index: 3,
+      count: 4,
+      kind: 'gate' as const,
+      gate: true as const,
+    };
+    expect(sidebarRunWaits(run({ status: 'waiting', step: gate }))).toBe(
+      'waiting for you at decide',
+    );
+    // A loop's row at its exhaustion gate is a gate too.
+    expect(
+      sidebarRunWaits(run({ status: 'waiting', step: { ...gate, id: 'polish', kind: 'repeat' } })),
+    ).toBe('waiting for you at polish');
+    expect(sidebarRunWaits(run({ status: 'needs-approval' }))).toBe('waiting for your approval');
+  });
+});
+
 describe('stepWords', () => {
   const at = (
     status: RunListEntry['status'],
     stepStatus: 'queued' | 'running' | 'failed' | 'completed' | 'not-run',
     extra: Partial<RunListEntry> = {},
-  ) => run({ status, step: { id: 'publish', status: stepStatus, index: 2, count: 3 }, ...extra });
+  ) =>
+    run({
+      status,
+      step: { id: 'publish', status: stepStatus, index: 2, count: 3, kind: 'run' },
+      ...extra,
+    });
 
   it('says which step a run is at', () => {
     expect(stepWords(at('running', 'running'))).toBe('running · publish');
@@ -303,6 +350,31 @@ describe('stepWords', () => {
     );
   });
 
+  it("names the person's session a run waits on, as Activity's row says it (slice 3-B Task 22)", () => {
+    const held = at('running', 'completed', { waitingFor: { session: 'fix' } });
+    expect(stepWords(held)).toBe('waiting for you to close fix');
+    expect(runRowWords({ ...held, trigger: { ...held.trigger, item: undefined } }).about).toBe(
+      'waiting for you to close fix',
+    );
+    // A step waiting out its retry while a session holds the checkout: the session is what it waits on.
+    expect(
+      stepWords(
+        run({
+          status: 'waiting',
+          waitingFor: { session: 'fix' },
+          step: {
+            id: 'fix',
+            status: 'waiting',
+            index: 1,
+            count: 2,
+            kind: 'agent',
+            retryAt: '2026-11-12T12:10:00.000Z',
+          },
+        }),
+      ),
+    ).toBe('waiting for you to close fix');
+  });
+
   it('is null for a legacy run, and for states with nothing to add', () => {
     expect(stepWords(run({ status: 'running' }))).toBeNull();
     expect(stepWords(run({ status: 'queued', summary: 'queued' }))).toBeNull();
@@ -316,7 +388,7 @@ describe('filterRuns', () => {
       run({
         id: 's',
         kind: 'agent',
-        step: { id: 'review', status: 'completed', index: 1, count: 2 },
+        step: { id: 'review', status: 'completed', index: 1, count: 2, kind: 'agent' },
       }),
       run({ id: 't', kind: 'tool' }),
     ];
@@ -823,6 +895,11 @@ describe('recentRunsInWords', () => {
     expect(recentRunsInWords(runs)).toBe('Last 4 runs: 2 completed, 1 failed, 1 running');
   });
 
+  it('counts a parked run as on hold, right after the ones waiting for approval', () => {
+    const runs = [run(), run({ status: 'waiting' }), run({ status: 'needs-approval' })];
+    expect(recentRunsInWords(runs)).toBe('Last 3 runs: 1 completed, 1 waiting, 1 on hold');
+  });
+
   it('says "all" when every run went the same way', () => {
     expect(recentRunsInWords([run(), run(), run()])).toBe('Last 3 runs: all completed');
     expect(recentRunsInWords([run({ status: 'failed' })])).toBe('Last run: failed');
@@ -1143,6 +1220,13 @@ describe('approvalStep', () => {
         steps: [fetch, agent, fetchMore, second, publish],
       })?.detail,
     ).toBe('Runs review and summarise read-only and fresh and fetch as you; publish only reports.');
+    // A loop's own row runs nothing and reports nothing: only its steps are named (3-A code review M4).
+    const loop = { id: 'polish', kind: 'repeat' as const, summary: 'Up to 3 rounds' };
+    const look = { ...agent, id: 'look', loop: 'polish' };
+    const fix = { ...publish, id: 'fix', loop: 'polish' };
+    expect(
+      approvalStep({ mode: 'notify', kind: 'agent', steps: [loop, look, fix, publish] })?.detail,
+    ).toBe('Runs look read-only; fix, publish only report.');
     // Nothing starts: every step is a command that only reports.
     expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [publish] })).toMatchObject({
       detail: 'Starts nothing',
@@ -1413,6 +1497,10 @@ describe('lastRunWords', () => {
     expect(lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY) }, NOW)).toBe(
       'dismissed 2 days ago',
     );
+    // One turned away after it started was not dismissed (3-A code review M6).
+    expect(
+      lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY), started: true }, NOW),
+    ).toBe('rejected 2 days ago');
   });
 });
 
@@ -1555,5 +1643,379 @@ describe('noticesLine', () => {
         'agents/noter.md: Something about a file.',
     );
     expect(line).not.toContain('\n');
+  });
+});
+
+// Slice 3 (review S2): a run a person rejected at a gate reads as rejected, never as turned down.
+describe('a run rejected at a gate', () => {
+  const T = ago(HOUR);
+  const rejectedRun = run({
+    id: 'rg',
+    status: 'rejected',
+    steps: [
+      {
+        id: 'decide',
+        kind: 'gate',
+        status: 'completed',
+        attempt: 1,
+        gate: { askedAt: T, decision: 'reject', by: 'person', at: T },
+      },
+    ],
+  } as Partial<RunListEntry>);
+  const turnedDownRun = run({ id: 'td', status: 'rejected' });
+
+  it("calls a run rejected at a gate 'rejected', and one turned down 'dismissed'", () => {
+    expect(rejectedAtGate(rejectedRun)).toBe('decide');
+    expect(runStatusWord(rejectedRun)).toBe('rejected');
+    expect(runStatusWord(turnedDownRun)).toBe('dismissed');
+    expect(runStatusWord(run({ status: 'failed' }))).toBe('failed');
+  });
+
+  it('gives a duration to a run that worked, a run rejected after it started included (3-A code review M5)', () => {
+    // Rejected at a gate (its records say so), and turned away after it started: both worked.
+    expect(runWorked(rejectedRun)).toBe(true);
+    expect(runWorked(run({ status: 'rejected', startedAt: ago(2 * HOUR) }))).toBe(true);
+    expect(
+      runWorked(
+        run({
+          status: 'rejected',
+          startedAt: ago(2 * HOUR),
+          step: { id: 'decide', status: 'completed', index: 2, count: 3, kind: 'gate', gate: true },
+        }),
+      ),
+    ).toBe(true);
+    expect(runWorked(turnedDownRun)).toBe(false);
+    for (const status of ['completed', 'failed', 'running'] as const)
+      expect(runWorked(run({ status }))).toBe(true);
+    for (const status of ['queued', 'needs-approval', 'waiting'] as const)
+      expect(runWorked(run({ status }))).toBe(false);
+  });
+
+  it("calls a run turned away after it started 'rejected', never 'dismissed' (3-A code review M6)", () => {
+    // Its entry's retry started it again, and by then a person had started the review by hand.
+    const turnedAway = run({
+      id: 'ta',
+      status: 'rejected',
+      startedAt: ago(2 * HOUR),
+      summary: 'Already started by hand: “Review”.',
+    });
+    expect(runStatusWord(turnedAway)).toBe('rejected');
+    expect(runStatusLabel(turnedAway)).toBe('Rejected');
+    expect(runStatusWord(turnedDownRun)).toBe('dismissed');
+    expect(runStatusLabel(turnedDownRun)).toBe('Dismissed');
+  });
+
+  it("labels them 'Rejected' and 'Dismissed', from a record or a list entry (review S2)", () => {
+    expect(runStatusLabel(rejectedRun)).toBe('Rejected');
+    expect(runStatusLabel(turnedDownRun)).toBe('Dismissed');
+    expect(
+      runStatusLabel({
+        status: 'rejected',
+        step: {
+          id: 'decide',
+          status: 'completed',
+          index: 3,
+          count: 5,
+          kind: 'gate',
+          gate: true,
+        },
+      }),
+    ).toBe('Rejected');
+    // A list entry whose step is no gate's: turned down, as before.
+    expect(
+      runStatusLabel({
+        status: 'rejected',
+        step: { id: 'review', status: 'not-run', index: 1, count: 2, kind: 'agent' },
+      }),
+    ).toBe('Dismissed');
+    expect(runStatusLabel(run({ status: 'waiting' }))).toBe('On hold');
+    // A list entry waiting at a gate names that gate too: it is on hold, not rejected.
+    expect(
+      runStatusLabel({
+        status: 'waiting',
+        step: { id: 'decide', status: 'waiting', index: 3, count: 5, kind: 'gate', gate: true },
+      }),
+    ).toBe('On hold');
+  });
+
+  it('names the gate the run was rejected at, after an earlier one it went past', () => {
+    const twoGates = run({
+      status: 'rejected',
+      steps: [
+        {
+          id: 'decide',
+          kind: 'gate',
+          status: 'completed',
+          attempt: 1,
+          outputs: { decision: 'approve' },
+          gate: { askedAt: T, decision: 'approve', by: 'person', at: T },
+        },
+        {
+          id: 'confirm',
+          kind: 'gate',
+          status: 'completed',
+          attempt: 1,
+          gate: { askedAt: T, decision: 'reject', by: 'person', at: T },
+        },
+      ],
+    } as Partial<RunListEntry>);
+    expect(rejectedAtGate(twoGates)).toBe('confirm');
+  });
+
+  it('counts a run rejected at a gate apart in the strip (review S2)', () => {
+    const runs = [run(), rejectedRun, turnedDownRun];
+    expect(recentRunsInWords(runs)).toBe('Last 3 runs: 1 completed, 1 rejected, 1 dismissed');
+    expect(recentRunsInWords([rejectedRun, rejectedRun])).toBe('Last 2 runs: all rejected');
+    // The insights' colours keep one bucket per status.
+    expect(statusCounts(runs)).toEqual([
+      { status: 'completed', count: 1 },
+      { status: 'rejected', count: 2 },
+    ]);
+  });
+});
+
+// Slice 3: Activity's "Waiting for you", the list rows' words, Run on…'s last run.
+describe('a parked run in the lists', () => {
+  const RETRY_AT = '2026-11-12T12:42:00.000Z';
+  const clock = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const gateStep = {
+    id: 'decide',
+    status: 'waiting' as const,
+    index: 3,
+    count: 5,
+    kind: 'gate' as const,
+    gate: true as const,
+  };
+
+  it.each([
+    [{ status: 'waiting', step: gateStep }, 'waiting for you at decide'],
+    [
+      {
+        status: 'running',
+        step: {
+          id: 'review',
+          status: 'running',
+          index: 3,
+          count: 5,
+          kind: 'agent',
+          round: 2,
+          max: 3,
+          loop: 'polish',
+        },
+      },
+      'round 2 of 3 · review',
+    ],
+    [
+      {
+        status: 'waiting',
+        step: {
+          id: 'fix',
+          status: 'waiting',
+          index: 2,
+          count: 4,
+          kind: 'agent',
+          retryAt: RETRY_AT,
+        },
+      },
+      `retrying fix at ${clock(RETRY_AT)}`,
+    ],
+    // The entry's own retry (3-A code review M1): the run waits, at the step it failed at or before any.
+    [
+      {
+        status: 'waiting',
+        retryAt: RETRY_AT,
+        step: { id: 'look', status: 'failed', index: 1, count: 2, kind: 'agent' },
+      },
+      `retrying the run at ${clock(RETRY_AT)}`,
+    ],
+    [{ status: 'waiting', retryAt: RETRY_AT }, `retrying the run at ${clock(RETRY_AT)}`],
+    // A step that waits is what the run waits on, whatever time an older record left on the run.
+    [
+      {
+        status: 'waiting',
+        retryAt: '2026-11-12T23:00:00.000Z',
+        step: {
+          id: 'fix',
+          status: 'waiting',
+          index: 2,
+          count: 4,
+          kind: 'agent',
+          retryAt: RETRY_AT,
+        },
+      },
+      `retrying fix at ${clock(RETRY_AT)}`,
+    ],
+  ])('words a list row %#', (entry, words) => {
+    expect(stepWords(run(entry as Partial<RunListEntry>))).toBe(words);
+  });
+
+  it('says a run failed at the step inside the loop that failed (review S10)', () => {
+    expect(
+      stepWords(
+        run({
+          status: 'failed',
+          step: {
+            id: 'address',
+            status: 'failed',
+            index: 6,
+            count: 7,
+            kind: 'agent',
+            round: 2,
+            max: 3,
+            loop: 'polish',
+          },
+        }),
+      ),
+    ).toBe('failed at address');
+    // Waiting for a slot inside a loop keeps its words.
+    expect(
+      stepWords(
+        run({
+          status: 'running',
+          step: {
+            id: 'review',
+            status: 'queued',
+            index: 3,
+            count: 5,
+            kind: 'agent',
+            round: 2,
+            max: 3,
+            loop: 'polish',
+          },
+        }),
+      ),
+    ).toBe('waiting for a slot before review');
+  });
+
+  it("says what a run held by another run's gate waits for", () => {
+    const held = {
+      waitingFor: { gate: { automation: 'review-assigned-prs-gated', run: 'r1', step: 'decide' } },
+    };
+    expect(waitingForWords(held)).toBe(
+      'waiting for you at `decide` in `review-assigned-prs-gated`',
+    );
+    expect(waitingForWords({})).toBeNull();
+    // On its row, in place of the checkout's own words.
+    expect(
+      stepWords(run({ status: 'queued', summary: "waiting for this item's checkout", ...held })),
+    ).toBe('waiting for you at `decide` in `review-assigned-prs-gated`');
+  });
+
+  it('puts only runs waiting at a gate first, oldest first, and leaves them out of their day (review S7)', () => {
+    const newer = run({ id: 'g2', status: 'waiting', step: gateStep, createdAt: ago(HOUR) });
+    const older = run({ id: 'g1', status: 'waiting', step: gateStep, createdAt: ago(3 * HOUR) });
+    const retrying = run({
+      id: 'w',
+      status: 'waiting',
+      createdAt: ago(2 * HOUR),
+      step: { ...gateStep, id: 'fix', kind: 'agent', gate: undefined, retryAt: RETRY_AT },
+    });
+    const done = run({ id: 'd', createdAt: ago(4 * HOUR) });
+    // Rejected at a gate: its list entry names that gate, and it waits for no one.
+    const rejected = run({
+      id: 'x',
+      status: 'rejected',
+      createdAt: ago(5 * HOUR),
+      step: { ...gateStep, status: 'completed' },
+    });
+    const runs = [newer, retrying, older, done, rejected];
+    const first = waitingForYouRuns(runs);
+    expect(first.map((one) => one.id)).toEqual(['g1', 'g2']);
+    const rest = runs.filter((one) => !first.includes(one));
+    expect(groupRunsByDay(rest, NOW).flatMap((group) => group.runs.map((one) => one.id))).toEqual([
+      'w',
+      'd',
+      'x',
+    ]);
+  });
+
+  it("names the run an automation's page asks you about: one awaiting approval, else one at a gate (3-A code review M3)", () => {
+    const parked = run({ id: 'g', status: 'waiting', step: gateStep, createdAt: ago(HOUR) });
+    const asking = run({ id: 'a', status: 'needs-approval', createdAt: ago(2 * HOUR) });
+    const retrying = run({
+      id: 'w',
+      status: 'waiting',
+      step: { ...gateStep, id: 'fix', kind: 'agent', gate: undefined, retryAt: RETRY_AT },
+    });
+    expect(runWaitingForYou([parked, asking, retrying])?.id).toBe('a');
+    expect(runWaitingForYou([retrying, parked])?.id).toBe('g');
+    // A retry's wait asks no one.
+    expect(runWaitingForYou([retrying, run({ status: 'running' })])).toBeUndefined();
+  });
+
+  it("speaks for a run waiting at a gate on its automation's row before a running one (review S1)", () => {
+    const running = run({
+      id: 'r',
+      status: 'running',
+      startedAt: ago(60_000),
+      createdAt: ago(HOUR),
+    });
+    const atGate = run({
+      id: 'g',
+      status: 'waiting',
+      step: gateStep,
+      createdAt: ago(2 * HOUR),
+      updatedAt: ago(3 * 60_000),
+    });
+    expect(latestRun([atGate, running], NOW)).toMatchObject({
+      tone: 'waiting',
+      label: 'On hold',
+      detail: 'asked 3m ago',
+    });
+    expect(latestRun([atGate, running], NOW)?.run.id).toBe('g');
+    const asking = run({ id: 'a', status: 'needs-approval', createdAt: ago(DAY) });
+    expect(latestRun([asking, atGate], NOW)?.run.id).toBe('a');
+    const retrying = run({
+      id: 'w',
+      status: 'waiting',
+      step: { ...gateStep, id: 'fix', kind: 'agent', gate: undefined, retryAt: RETRY_AT },
+    });
+    expect(latestRun([retrying], NOW)).toMatchObject({
+      label: 'On hold',
+      detail: `retries at ${clock(RETRY_AT)}`,
+    });
+    // The whole run's wait, on the run itself.
+    expect(latestRun([run({ id: 'e', status: 'waiting', retryAt: RETRY_AT })], NOW)).toMatchObject({
+      detail: `retries at ${clock(RETRY_AT)}`,
+    });
+    // A full record says it by its rows.
+    const record = run({
+      id: 'f',
+      status: 'waiting',
+      updatedAt: ago(4 * 60_000),
+      steps: [
+        { id: 'decide', kind: 'gate', status: 'waiting', attempt: 1, gate: { askedAt: ago(HOUR) } },
+      ],
+    } as Partial<RunListEntry>);
+    expect(latestRun([record, running], NOW)).toMatchObject({ detail: 'asked 4m ago' });
+    expect(latestRun([record, running], NOW)?.run.id).toBe('f');
+    const retryRecord = run({
+      id: 'rr',
+      status: 'waiting',
+      steps: [{ id: 'fix', kind: 'agent', status: 'waiting', attempt: 1, retryAt: RETRY_AT }],
+    } as Partial<RunListEntry>);
+    expect(latestRun([retryRecord], NOW)?.detail).toBe(`retries at ${clock(RETRY_AT)}`);
+    // A run rejected at a gate is labelled so.
+    const rejected = run({
+      id: 'x',
+      status: 'rejected',
+      step: { ...gateStep, status: 'completed' },
+      finishedAt: ago(HOUR),
+    });
+    expect(latestRun([rejected], NOW)?.label).toBe('Rejected');
+  });
+
+  it("says Run on…'s last run waited, retried or was rejected at a gate", () => {
+    expect(lastRunWords({ id: 'r', status: 'waiting', at: ago(HOUR), gate: 'decide' }, NOW)).toBe(
+      'waiting for you at decide',
+    );
+    expect(lastRunWords({ id: 'r', status: 'waiting', at: ago(HOUR) }, NOW)).toBe('retrying');
+    expect(
+      lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY), gate: 'decide' }, NOW),
+    ).toBe('rejected at `decide` 2 days ago');
+    expect(lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY) }, NOW)).toBe(
+      'dismissed 2 days ago',
+    );
   });
 });

@@ -132,6 +132,7 @@ async function runner(
       keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
       urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
       inWorkspace: () => true,
+      repoCloned: () => true,
     },
     registry,
     getWorkspaces: () => [owner],
@@ -234,6 +235,7 @@ describe("the runner against Consola's real tools", () => {
       'clean-up-stale-sessions',
       'morning-inbox-digest',
       'brief-review-requests',
+      'review-assigned-prs-gated',
     ]);
     for (const template of AUTOMATION_TEMPLATES) {
       expect(template.missing(owner), template.id).toBeNull();

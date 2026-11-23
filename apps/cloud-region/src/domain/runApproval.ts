@@ -1,4 +1,4 @@
-import type { Automation, AutomationMode } from '@consola/factory-spec';
+import { type Automation, type AutomationMode, flatSteps } from '@consola/factory-spec';
 import type { RunStatus } from './run.js';
 import type { Team } from './team.js';
 
@@ -74,12 +74,16 @@ export function approvalReason(run: ApprovalRun, mode: AutomationMode | null): s
   return `Version ${run.version} of ${name} hasn't been approved to run on its own yet.`;
 }
 
-/** What approving the automation's run lets run, step by step; nothing for none. */
+/**
+ * What approving the automation's run lets run, step by step, the steps a loop repeats
+ * included; nothing for none. A loop's block runs only its steps, and a gate runs nothing: a
+ * person decides it.
+ */
 export function willRun(automation: Automation | null): WillRun {
   const will: WillRun = { commands: [], agents: [] };
-  for (const step of automation?.steps ?? []) {
+  for (const { step } of flatSteps(automation?.steps ?? [])) {
     if (step.kind === 'run') will.commands.push({ step: step.id, command: step.run });
-    else
+    else if (step.kind === 'agent')
       will.agents.push({ step: step.id, agent: step.agent ?? null, prompt: step.prompt ?? null });
   }
   return will;

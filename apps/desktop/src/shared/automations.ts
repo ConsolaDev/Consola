@@ -14,11 +14,12 @@ import type {
   AgentRunPreview,
   AutomationsSnapshot,
   EntryAgentsView,
+  GateView,
   ItemTarget,
   ItemTargets,
   ListRunsQuery,
   LogTail,
-  RunDefinition,
+  RunDefinitionView,
   RunListPage,
   StepDetail,
   StepsRunPreview,
@@ -47,10 +48,13 @@ export type {
   EntryAgentView,
   EntryAgentsView,
   RunDefinition,
+  RunDefinitionView,
   StepsRunPreview,
   StepDetail,
   LogTail,
   CommandFile,
+  GateView,
+  WriteBlocks,
 } from '@consola/automation-engine';
 
 /** What a new automation's session starts from: one of the file's entries, or a template. */
@@ -119,7 +123,7 @@ export interface AutomationsAPI {
   /** One page of a workspace's history, newest first, narrowed before it is paged; `before` is the last run of the page before. */
   listRuns: (workspaceId: string, query: ListRunsQuery) => Promise<RunListPage>;
   /** A steps run's whole definition snapshot; null for a run without one. */
-  getRunDefinition: (runId: string) => Promise<RunDefinition | null>;
+  getRunDefinition: (runId: string) => Promise<RunDefinitionView | null>;
   /** A step's latest attempt: record, definition, `command.json` and the last 64 KB of each log. Null when there is no such step. */
   getStepDetail: (runId: string, stepId: string) => Promise<StepDetail | null>;
   /** "Show all": a step log up to the 1 MB it holds. Null when there is no such step or log. */
@@ -133,8 +137,21 @@ export interface AutomationsAPI {
     runId: string,
     ref: { step: string; name: string },
   ) => Promise<{ content: string; bytes: number } | null>;
+  /**
+   * The run page's Open folder (slice 3-B): the run's own checkout in the
+   * file manager. Refused unless the run's record names a run-owned
+   * checkout that is a real folder directly under the worktree root.
+   */
+  openRunCheckout: (runId: string) => Promise<void>;
   /** Retry a failed steps run, from its failed step (the only one a retry accepts); the click is the approval. */
   retry: (runId: string, stepId?: string) => Promise<RunRecord>;
+  /** A gate the run asked at (waiting, or answered): its question filled in, its material and its choices; null when there is none. */
+  getGate: (runId: string, stepId: string) => Promise<GateView | null>;
+  /**
+   * A person's answer to the gate a run waits at: one of its choices, or
+   * `reject`. Only the person answers, here; no agent's or MCP tool can.
+   */
+  answerGate: (runId: string, stepId: string, decision: string) => Promise<RunRecord>;
   stop: (runId: string) => Promise<void>;
   /** Add a ready-made automation to the workspace's factory.yml. */
   addTemplate: (workspaceId: string, templateId: string) => Promise<void>;

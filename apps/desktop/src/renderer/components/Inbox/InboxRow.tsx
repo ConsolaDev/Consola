@@ -4,13 +4,17 @@ import {
   CircleDot,
   GitPullRequest,
   GitPullRequestDraft,
+  Hand,
   MessageSquare,
   X,
 } from 'lucide-react';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
+import { useAutomationsStore } from '../../stores/automationsStore';
+import { useNavigationStore } from '../../stores/navigationStore';
 import type { AttentionMap } from '../../utils/sessionStatus';
+import type { GateMark } from './gateMarks';
 import {
   checksLabel,
   hasAccentBar,
@@ -24,9 +28,17 @@ interface InboxRowProps {
   /** This workspace's sessions linked to this item. */
   sessions: Session[];
   attention: AttentionMap;
+  /** A run on this item waiting for the person at a gate: the row says so, and the mark opens it. */
+  gateMark?: GateMark;
   cloned: boolean;
   selected: boolean;
   onSelect: (item: InboxItem) => void;
+}
+
+/** Open a run on the Automations surface, as its notification's click does. */
+function openRun(runId: string): void {
+  useAutomationsStore.getState().openPanel({ kind: 'run', runId });
+  useNavigationStore.getState().openAutomations();
 }
 
 /**
@@ -35,7 +47,15 @@ interface InboxRowProps {
  * then review state, checks and comment count. No verbs -- selecting the
  * row opens the pane, and the pane is where sessions and actions live.
  */
-export function InboxRow({ item, sessions, attention, cloned, selected, onSelect }: InboxRowProps) {
+export function InboxRow({
+  item,
+  sessions,
+  attention,
+  gateMark,
+  cloned,
+  selected,
+  onSelect,
+}: InboxRowProps) {
   const key = workItemKey(item.workItem);
   const review = reviewStateLabel(item);
   const checks = checksLabel(item.checks);
@@ -61,12 +81,11 @@ export function InboxRow({ item, sessions, attention, cloned, selected, onSelect
       <GitPullRequest size={14} className="inbox-row-icon" aria-hidden="true" />
     );
 
-  // A div with role="button" rather than a <button>: the row will host
-  // interactive children later (the pane's affordances migrating into rows
-  // is the obvious next step), and a button may not contain a button. This
-  // row has none yet, so the key handler is a plain Enter/Space activation
-  // with no need to guard against a nested control's own keydown bubbling.
+  // A div with role="button" rather than a <button>: the row hosts
+  // interactive children (a gate's mark), and a button may not contain a
+  // button. A key pressed on a child is the child's, not the row's.
   const handleKeyDown = (event: React.KeyboardEvent) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       onSelect(item);
@@ -105,6 +124,23 @@ export function InboxRow({ item, sessions, attention, cloned, selected, onSelect
                   accessible name from visible content. */}
               <span className="sr-only">{sessionStatus}</span>
               {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
+            </span>
+          )}
+          {gateMark && (
+            <span className="inbox-row-gate">
+              <span className="inbox-row-meta-sep">·</span>
+              <button
+                type="button"
+                className="inbox-row-gate-mark"
+                title={`${gateMark.automation} is waiting for you at ${gateMark.step}`}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  openRun(gateMark.runId);
+                }}
+              >
+                <Hand size={11} aria-hidden="true" />
+                waiting for you
+              </button>
             </span>
           )}
         </span>

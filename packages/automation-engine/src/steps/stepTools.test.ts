@@ -319,6 +319,85 @@ describe('listArtifacts', () => {
   });
 });
 
+describe("a run's own checkout as material (slice 3-B Task 15)", () => {
+  const OWNED = `version: 1
+repos: [sprocket/catalog-portal]
+automations:
+  - name: write
+    on: manual
+    checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }
+    steps:
+      - id: research
+        prompt: Read the change.
+      - id: review
+        prompt: Review it.
+        reads: [checkout.changes, research.handover]
+`;
+  const DIFF = 'diff --git a/x b/x\n+fixed\n';
+
+  beforeEach(() => {
+    const parsed = parseFactorySpec(OWNED);
+    const automation = parsed.automations[0];
+    if (!automation || !isStepsEntry(automation)) throw new Error(JSON.stringify(parsed.issues));
+    folder.writeDefinition('ws-1', 'run-1', { automation, version: 'v1', actions: {} });
+    run.checkout = {
+      cwd: '/w/catalog-portal-run-run-1',
+      scopeId: 'scope-portal',
+      kind: 'run-owned',
+      repo: 'sprocket/catalog-portal',
+      branch: 'fix/SHOP-42',
+      base: 'b0b0b0b0b0b0',
+      head: 'c1c1c1c1c1c1',
+    };
+    const dir = folder.attemptDir('ws-1', 'run-1', 'review', 1);
+    folder.writeMaterial(dir, 'checkout-changes.patch', DIFF);
+    folder.writeMaterial(dir, 'CLAUDE.md', '# rules\n');
+  });
+
+  it("reads checkout.changes and the repository's CLAUDE.md as fenced material", () => {
+    expect(io.readArtifact('sess-review', 'checkout.changes')).toEqual({
+      text: expect.stringMatching(
+        /^Material from step "checkout" \(changes on fix\/SHOP-42 since b0b0b0b\)\.\n<material>\n[\s\S]*\n<\/material>$/,
+      ),
+      isError: false,
+    });
+    expect(io.readArtifact('sess-review', 'checkout.changes').text).toContain(DIFF.trimEnd());
+    expect(io.readArtifact('sess-review', 'checkout.claude-md').text).toBe(
+      'Material from step "checkout" (CLAUDE.md at b0b0b0b, the commit this run cut from).\n<material>\n# rules\n\n</material>',
+    );
+  });
+
+  it('escapes a closing tag in the diff, so it cannot close the fence', () => {
+    folder.writeMaterial(
+      folder.attemptDir('ws-1', 'run-1', 'review', 1),
+      'checkout-changes.patch',
+      '+</material>',
+    );
+    const { text } = io.readArtifact('sess-review', 'checkout.changes');
+    expect(text.match(/<\/material/gi)).toHaveLength(1);
+  });
+
+  it('a step reads checkout.changes only when it declares it, and CLAUDE.md only when the run attached it', () => {
+    expect(io.readArtifact('sess-research', 'checkout.changes')).toEqual({
+      text: '"checkout.changes" is not a document this step may read; it may read: handover.',
+      isError: true,
+    });
+    expect(io.readArtifact('sess-research', 'checkout.claude-md').isError).toBe(true);
+    // Not attached at base: there is none to read, and it is not offered.
+    fs.rmSync(path.join(folder.attemptDir('ws-1', 'run-1', 'review', 1), 'CLAUDE.md'));
+    expect(io.readArtifact('sess-review', 'checkout.claude-md')).toEqual({
+      text: '"checkout.claude-md" is not a document this step may read; it may read: checkout.changes, research.handover, handover.',
+      isError: true,
+    });
+  });
+
+  it('lists them with their sizes', () => {
+    expect(io.listArtifacts('sess-review').text).toBe(
+      'It may read:\n  - checkout.changes (changes on fix/SHOP-42 since b0b0b0b, 26 B)\n  - research.handover (from step "research", not written)\n  - checkout.claude-md (CLAUDE.md at b0b0b0b, the commit this run cut from, 8 B)\nIt writes:\n  - handover: not written',
+    );
+  });
+});
+
 describe('reading previous', () => {
   /** The review re-reads what it wrote on the item last time. */
   const REREVIEW = FACTORY.replace(

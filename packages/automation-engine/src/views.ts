@@ -4,11 +4,29 @@ import type {
   FactorySpecIssue,
   RunRecord,
   RunStatus,
+  StepRun,
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
 
 /** One automation from a workspace's factory folder, as the app shows it. */
+/**
+ * The approval card's account of what an entry writes (slice 3-B, spec
+ * *Isolation, honestly › What the approval card says*), every sentence
+ * main's: the checkout it cuts, each write agent's head line and what it
+ * can change, read, reach and run, each command that runs after a write
+ * step, and what passes from the person's environment.
+ */
+export interface WriteBlocks {
+  /** The checkout sentence: what branch it cuts from where. */
+  checkout?: string;
+  agents: Array<{ agent: string; head: string; sentences: string[] }>;
+  /** One per command step after a write step: every command runs on host in 3-B (review S4). */
+  commands: string[];
+  /** `Passes from your environment: …`, for the sandboxed agents' environments. */
+  variables?: string;
+}
+
 export interface AutomationView {
   name: string;
   mode: AutomationMode;
@@ -28,6 +46,13 @@ export interface AutomationView {
   takesItem?: 'pr' | 'issue' | 'pr-or-issue' | 'item';
   /** A poll's check: its command and interval as written, and how its last check went. */
   check?: CheckView;
+  /**
+   * Why none of its runs can start now: the repository its own checkout is
+   * cut from is cloned in none of the workspace's scopes (slice 3-B, the 3-B
+   * code review's F8). An event entry fires nothing meanwhile, a poll skips
+   * every item.
+   */
+  notCloned?: string;
   /** A poll entry whose command no person has allowed at this version: it does not check. */
   needsAllow?: true;
   /** Present with `needsAllow`: the version Allow sends back, refused once the entry changed. */
@@ -44,10 +69,23 @@ export interface AutomationView {
    */
   steps?: Array<{
     id: string;
-    kind: 'agent' | 'run';
+    /** `repeat`: a loop's own row; its steps follow it, each with `loop`. */
+    kind: 'agent' | 'run' | 'gate' | 'repeat';
     if?: string;
     summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
+    /** A gate's question, as written. */
+    ask?: string;
+    /** A gate's choices, when the file names them; without them it offers approve (and reject). */
+    choices?: string[];
+    /** A step inside a loop: the loop's id. */
+    loop?: string;
+    /** A loop's bound (`repeat.max`). */
+    max?: number;
+    /** A loop's `until`, as written. */
+    until?: string;
+    /** How a loop ends when `until` is still not met after its last round. */
+    exhausted?: 'fail' | 'continue' | 'gate';
     /** The agent it runs as, as its node names it: "investigator · claude-work · opus". */
     agent?: string;
     /** The agent's file, "agents/investigator.md": what the Allow card lists. */
@@ -56,7 +94,31 @@ export interface AutomationView {
     servers?: Array<{ name: string; tools?: string[] }>;
     /** The skills its agent names, by folder name; absent when it names none. */
     skills?: string[];
+    /**
+     * A write agent's step (slice 3-B): the isolation its environment holds
+     * it to, for its node's chip (`ui-bugfixer · writes · sandboxed`).
+     * Absent for any other step, and while the entry does not resolve.
+     */
+    writes?: 'host' | 'sandbox';
   }>;
+  /**
+   * A `steps:` entry's flow in words (`describeFlow`): its loops, gates,
+   * commands inside a loop, declared retries and budget, as the Allow card
+   * and the automation page say them. Absent for a legacy entry.
+   */
+  flow?: string[];
+  /**
+   * What its write agents can change, read, reach and run, and its own
+   * checkout (`describeWrites`, slice 3-B): the approval card's write
+   * blocks. Absent for an entry with no write agent and no checkout of its own.
+   */
+  writes?: WriteBlocks;
+  /**
+   * Its own checkout (`checkout: { repo, branch }`, slice 3-B), as its
+   * pipeline's checkout node draws it: the repository, and the branch as
+   * the card names it (`fix/<ticket>`). Absent for any other entry.
+   */
+  checkout?: { repo: string; branch: string };
   /** The file it lives in, relative to the factory folder: `factory.yml` or `automations/<name>.yaml`. */
   file?: string;
   /** 1-based line in its file: an automation file's entry is its line 1. */
@@ -104,9 +166,11 @@ export interface ItemTargetRow {
   url: string;
   /**
    * This automation's newest run on the item, from run history: `at` is
-   * when it ended, or, while it has not, when it was made.
+   * when it ended, or, while it has not, when it was made; `gate` the gate
+   * it waits at, or the one a person rejected it at; `started` for a
+   * rejected run that had started (turned away, not dismissed).
    */
-  lastRun?: { id: string; status: RunStatus; at: string };
+  lastRun?: { id: string; status: RunStatus; at: string; gate?: string; started?: true };
   /** Why it cannot be run on: "<owner/repo> is not cloned in this workspace." Absent when it can. */
   unavailable?: string;
 }
@@ -135,6 +199,8 @@ export interface CheckView {
   items?: number;
   fired?: number;
   skipped?: number;
+  /** Why every item it skipped was skipped, when one reason covers them all (the 3-B code review's F8). */
+  skippedWhy?: string;
   /** The last check recorded what was there and fired nothing. */
   baseline?: true;
   /** Why the last check failed. */
@@ -273,17 +339,61 @@ export type RunKind = 'agent' | 'tool' | 'request';
  * while it waits (the Waiting card's preview). The panel reads the rest
  * with getRun.
  */
-export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps'> & {
+export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps' | 'waitingFor'> & {
   kind: RunKind;
   result?: unknown;
   /**
-   * Where a steps run is: its queued or running step, else the step it
-   * ended at (the failed one; for a completed run the last that ran).
-   * `index` is 1-based. Absent for a legacy run and for one no step of
-   * which ran. The rest of the steps are `getRun`'s.
+   * What holds the run, as its record says (`RunRecord.waitingFor`), but a
+   * person's session open in the run's own checkout by its name, for
+   * Activity's "waiting for you to close `<session>`" (slice 3-B); the
+   * record keeps its id.
    */
-  step?: { id: string; status: StepRunStatus; index: number; count: number };
+  waitingFor?: { gate?: { automation: string; run: string; step: string }; session?: string };
+  /**
+   * Where a steps run is: its queued, running or waiting step (a loop's row
+   * only while it waits at its exhaustion gate), else the step it ended at
+   * (the failed one, a failed step before the loop it failed; the gate it
+   * was rejected at; for a completed run the last that ran). `index` is
+   * 1-based over every record. `kind` is the row's; `round` its round, and
+   * inside a loop `loop` names the loop and `max` its rounds (a loop's own
+   * row carries its `max`); `retryAt` while it waits out a retry; `gate`
+   * for a row waiting at a gate, or the one a run was rejected at. Absent
+   * for a legacy run and for one no step of which ran. The rest of the
+   * steps are `getRun`'s.
+   */
+  step?: {
+    id: string;
+    status: StepRunStatus;
+    index: number;
+    count: number;
+    kind: StepRun['kind'];
+    round?: number;
+    max?: number;
+    loop?: string;
+    retryAt?: string;
+    gate?: true;
+  };
 };
+
+/**
+ * A gate as its card shows it: the question with its values filled in, the
+ * documents it shows (each read from its step's latest attempt, `label`
+ * `<step>.<name>`, cut at `MAX_ARTIFACT_BYTES`), and the choices the run's
+ * own definition offers besides Reject, which the card always offers.
+ */
+export interface GateView {
+  runId: string;
+  stepId: string;
+  /** Rendered from the run's trusted values. */
+  ask: string;
+  material: Array<{ step: string; name: string; label: string; text: string; truncated: boolean }>;
+  choices: string[];
+  /** An exhaustion gate: the loop, and how many rounds it ran. */
+  loop?: { id: string; rounds: number };
+  /** A newer revision of the run's item is held until the run ends (Task 12). */
+  newerRevision?: 'pull-request' | 'item';
+  answered?: { decision: string; by: 'person'; at: string };
+}
 
 /** How many ended runs a snapshot carries beside every live one. */
 export const SNAPSHOT_ENDED_RUNS = 200;
@@ -437,7 +547,8 @@ export interface SessionView {
   /** The host's key for the item the session is about. */
   workItemKey?: string;
   workItemAction?: string;
-  toolPolicy?: 'read-only';
+  /** Any policy is not full tools (slice 3-B adds `edit` and `write`). */
+  toolPolicy?: 'read-only' | 'edit' | 'write';
 }
 
 export interface WorkspaceView {

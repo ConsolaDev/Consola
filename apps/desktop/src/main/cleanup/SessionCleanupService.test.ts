@@ -173,6 +173,7 @@ class Rig {
       status,
       isShown: (instanceId) => this.shown.has(instanceId),
       heldSessionIds: () => this.held,
+      runHolds: () => false,
       lastActiveAt: (session) => this.activity.get(session.id) ?? session.lastActiveAt,
       ownProcessIds: () => ({ agents: new Set(), shells: new Set() }),
       worktrees: this.worktrees,

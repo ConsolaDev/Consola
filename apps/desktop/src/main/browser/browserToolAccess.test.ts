@@ -1,5 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
-import { closeConnectionsWithoutAccess } from './browserToolAccess';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
+import { browserRefusal, closeConnectionsWithoutAccess } from './browserToolAccess';
+
+describe('browserRefusal by tool policy (slice 3-B)', () => {
+  const WORKSPACE_ON = makeWorkspace();
+
+  it('lets a session with no policy use the browser', () => {
+    expect(browserRefusal(WORKSPACE_ON, makeSession())).toBeNull();
+  });
+
+  it('refuses a read-only session as before', () => {
+    expect(browserRefusal(WORKSPACE_ON, makeSession({ toolPolicy: 'read-only' }))).toMatch(
+      /read-only/,
+    );
+  });
+
+  it.each([['edit'], ['write']] as const)('refuses the browser to a %s session', (policy) =>
+    expect(browserRefusal(WORKSPACE_ON, makeSession({ toolPolicy: policy }))).toBe(
+      "A step's session cannot use the browser.",
+    ),
+  );
+});
 
 describe('closeConnectionsWithoutAccess', () => {
   it('closes the connections of tabs whose session may no longer use the browser, with the reason', () => {

@@ -205,6 +205,22 @@ describe('HarnessSwitcher.preview', () => {
     ).toEqual(['In the middle of a turn.', 'In the middle of a turn.']);
   });
 
+  it.each([['edit'], ['write']] as const)(
+    'a %s session never switches harness (slice 3-B, Call 16)',
+    async (policy) => {
+      const { switcher } = setup({ session: { toolPolicy: policy } });
+      for (const preview of switcher.preview('w', 'session-1'))
+        expect(preview).toMatchObject({
+          ok: false,
+          reason:
+            'A step that writes stays on its harness: its sandbox and environment were compiled for it.',
+        });
+      await expect(switcher.switch('w', 'session-1', 'work')).rejects.toThrow(
+        'A step that writes stays on its harness: its sandbox and environment were compiled for it.',
+      );
+    },
+  );
+
   it('refuses a harness that cannot enforce the session’s tool policy', () => {
     const { switcher } = setup({ session: { toolPolicy: 'read-only' } });
     const [work, codex] = switcher.preview('w', 'session-1');

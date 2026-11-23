@@ -89,6 +89,8 @@ describe('what an agent writing an entry is told', () => {
       'Steps, on an event',
       'Steps, on a poll',
       'Steps with a turn cap, on a schedule',
+      'A review loop with a gate, on an event',
+      'A Jira bug to a pull request, in a sandbox',
     ]);
     // One name, one meaning: no two examples share an entry name.
     const names = GRAMMAR_EXAMPLES.map((example) => /^- name: (\S+)/.exec(example.entry)?.[1]);
@@ -99,6 +101,8 @@ describe('what an agent writing an entry is told', () => {
       if (!parsed.ok) throw new Error(`${example.title}: ${parsed.issues[0].message}`);
       // Each example appears in the grammar text as written.
       expect(grammar().grammar, example.title).toContain(example.entry);
+      // One with files beside it resolves with them (slice 3-B, below).
+      if (example.files) continue;
 
       const h = await sourcesHarness({
         tools: [CLEAN_UP],
@@ -108,6 +112,82 @@ describe('what an agent writing an entry is told', () => {
       expect(listed.name, example.title).toBe(parsed.automation.name);
       expect(listed.problem, example.title).toBeUndefined();
     }
+  });
+
+  it('the writing example parses clean with §4.1’s three agents and its environment, and resolves (slice 3-B)', async () => {
+    const example = GRAMMAR_EXAMPLES.find(
+      (candidate) => candidate.title === 'A Jira bug to a pull request, in a sandbox',
+    )!;
+    const files = example.files!;
+    expect(Object.keys(files).sort()).toEqual([
+      'agents/pre-pr-reviewer.md',
+      'agents/triager.md',
+      'agents/ui-bugfixer.md',
+      'environments/sandboxed.yaml',
+    ]);
+    const yaml = `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${indent(example.entry, '  ')}\n`;
+    const read = parseFactory(factoryFilesOf({ 'factory.yml': yaml, ...files }));
+    expect(read.issues).toEqual([]);
+    expect(read.agents['ui-bugfixer']).toMatchObject({ tools: 'write', environment: 'sandboxed' });
+    expect(read.environments.sandboxed).toMatchObject({
+      isolation: 'sandbox',
+      network: ['registry.npmjs.org'],
+      env: ['CI'],
+    });
+    // Each file appears in the grammar as written, under its path.
+    for (const [file, text] of Object.entries(files))
+      expect(grammar().grammar, file).toContain(`${file}:\n\n${text}`);
+    // Under Call 9 a sandboxed agent cannot commit: Consola commits each step (the re-check's caveat).
+    expect(files['agents/ui-bugfixer.md']).not.toContain('commit with');
+    expect(files['agents/ui-bugfixer.md']).toContain(
+      'Leave your changes in the checkout; Consola commits them after the step, and never commit or push yourself.',
+    );
+    // Resolved on a host that makes a run's checkout and holds a write agent to its environment.
+    const h = await stepsHarness({
+      yaml,
+      files: { ...files },
+      runCheckouts: true,
+      agentHarnesses: { 'claude-work': { name: 'Claude work', problem: null } },
+    });
+    const [listed] = h.service.list(WORKSPACE_ID);
+    expect(listed.name).toBe('ui-bug-to-pr');
+    expect(listed.problem).toBeUndefined();
+    expect(h.service.snapshot(WORKSPACE_ID).issues).toEqual([]);
+  });
+
+  it('tells an agent what a write step is: repos, its own checkout, write tools, environments, path artifacts (slice 3-B)', () => {
+    const text = grammar().grammar;
+    expect(text).toContain(
+      [
+        'Writing:',
+        '- `repos:` in factory.yml lists the repositories a factory may write to, as `owner/name`.',
+        '- `checkout: { repo, branch, from? }` on an automation gives each run a checkout of its own: a clone of `repo` whose git folder sits outside the checkout, on `branch` (a template starting with a literal folder, `fix/{{item.key}}`; also `{{item.number}}`, `{{run.id}}`) cut from the default branch or `from`. Consola commits what each agent step leaves (a `sandbox` agent cannot commit; on `host`, leaving the commit to Consola is a convention, and an agent\'s own commit is kept when the branch still descends from where its step started), checks the branch between steps, and never pushes: a `run:` step does (`git push origin "HEAD:refs/heads/$CONSOLA_BRANCH"`).',
+        "- An agent file's `tools:` is `read-only`, `edit` (files) or `write` (files and a shell); `edit` and `write` need `environment: <name>` and a checkout the run owns, and run on Claude only.",
+        "- `environments/<name>.yaml`: `isolation: host` (your machine as it is: a convention) or `isolation: sandbox` (macOS: its shell writes only in the checkout and Claude's shared temporary folder, reaches `network:` hosts only, gets `env:` names only and no token Consola holds, and cannot read the credential files in your home folder, your harnesses' profiles, each agent CLI's default profile or Consola's data; your keychain is another matter, where Git, `gh` and Claude usually keep their sign-ins: it can still ask macOS for your keychain items through `security`, and other files stay readable).",
+        "- `artifacts: [{ name, path }]` on a write agent's step is a file it writes in the checkout; `reads: [checkout.changes]` and a gate's `show: [checkout.changes]` give the branch's diff.",
+      ].join('\n'),
+    );
+    expect(text).toContain(
+      '- tools: read-only (the default), edit or write; edit and write need environment: and a checkout the run owns.',
+    );
+    expect(text).not.toContain('the only value until write steps');
+    // Canary row 49 (the conductor's binding): the sandbox does not keep the keychain service from the shell.
+    expect(text).not.toContain('cannot read your keychain');
+  });
+
+  it('tells an agent the control flow of steps, and that no tool answers a gate (slice 3)', () => {
+    const text = grammar().grammar;
+    expect(text).toContain(
+      [
+        'Control flow in steps:',
+        '- `gate: { ask, show?, choices? }` is a step of its own: the run waits, with no process, until a person answers in Consola. Its output is `decision` (one of `choices`, or `approve`); Reject ends the run. No tool answers a gate.',
+        '- `repeat: { max, until }` with `steps:` (1 to 10, no loop inside) runs them again until `until` holds, at most `max` (1 to 10) rounds; `on_exhausted:` is `fail` (the default), `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.',
+        '- `then: stop` on a step ends the run, completed, once that step completes.',
+        '- `on_failure: { retry: <0-3> }` on a step retries it by itself only if it cannot have acted: an agent naming no MCP server, or a `dry_run: run` command. On the automation, the whole run starts again only if nothing in it acted.',
+        "- `budget: { usd: <n> }` on the automation stops the run at its next step once its agents' turns cost that much (0.01 to 1000).",
+        "- `checkout: { pr: item }` names the pull request's read-only checkout, where a run on a pull request works anyway.",
+      ].join('\n'),
+    );
   });
 
   it('tells an agent about max_turns, and no longer calls it unsupported', () => {

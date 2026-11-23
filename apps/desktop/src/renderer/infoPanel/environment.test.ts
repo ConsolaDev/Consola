@@ -8,7 +8,8 @@ import {
   type CapabilitiesAnswer,
   folderLine,
   harnessLine,
-  readOnlyLine,
+  offersFixInSession,
+  policyLine,
   splitForMiddle,
 } from './environment';
 
@@ -198,17 +199,53 @@ describe('harnessLine', () => {
   });
 });
 
-describe('readOnlyLine', () => {
-  it('readOnlyLine names the automation that started the session', () => {
+describe('policyLine', () => {
+  it('policyLine names the automation that started a read-only session, and none for full tools', () => {
     expect(
-      readOnlyLine({
+      policyLine({
         ...session,
         toolPolicy: 'read-only',
         automation: { name: 'Nightly review', runId: 'run-1' },
       }),
     ).toBe('Read-only · started by Nightly review');
-    expect(readOnlyLine({ ...session, toolPolicy: 'read-only' })).toBe('Read-only');
-    expect(readOnlyLine(session)).toBeNull();
+    expect(policyLine({ ...session, toolPolicy: 'read-only' })).toBe('Read-only');
+    expect(policyLine(session)).toBeNull();
+  });
+
+  const AUTO = { name: 'ui-bug-to-pr', runId: 'run-1', step: { id: 'fix', attempt: 1 } };
+  const grantsOn = (isolation: 'host' | 'sandbox') => ({
+    driverId: 'claude' as const,
+    servers: [],
+    skills: [],
+    strict: true,
+    allowedTools: [],
+    environment: { name: isolation === 'sandbox' ? 'sandboxed' : 'mine', isolation, envNames: [] },
+  });
+
+  it.each([
+    ['sandbox', 'writes · sandboxed · started by ui-bug-to-pr'],
+    ['host', 'writes · host, a convention · started by ui-bug-to-pr'],
+  ] as const)('names a write step on %s (slice 3-B)', (isolation, line) => {
+    expect(policyLine({ toolPolicy: 'write', automation: AUTO, grants: grantsOn(isolation) })).toBe(
+      line,
+    );
+    expect(policyLine({ toolPolicy: 'edit', automation: AUTO, grants: grantsOn(isolation) })).toBe(
+      line,
+    );
+  });
+
+  it('says only the weaker claim for a write step whose grants name no environment', () => {
+    expect(policyLine({ toolPolicy: 'write', automation: AUTO })).toBe(
+      'writes · host, a convention · started by ui-bug-to-pr',
+    );
+  });
+});
+
+describe('offersFixInSession', () => {
+  it('the work item pane pastes a fix only into a session with full tools (slice 3-B)', () => {
+    expect(offersFixInSession({})).toBe(true);
+    for (const toolPolicy of ['read-only', 'edit', 'write'] as const)
+      expect(offersFixInSession({ toolPolicy })).toBe(false);
   });
 });
 

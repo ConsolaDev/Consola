@@ -39,6 +39,10 @@ vi.mock('./TerminalService', async () => {
     hasClaudeExited() {
       return false;
     }
+    public recorded = 0;
+    async recordStepProcesses() {
+      this.recorded += 1;
+    }
     destroy() {}
   }
   return { TerminalService: FakeTerminalService };
@@ -311,5 +315,51 @@ describe('TerminalManager.relaunch', () => {
     expect(created).toHaveLength(1);
     expect(created[0].relaunched).toEqual([launch]);
     expect(() => manager.relaunch('nope', launch)).toThrow('No terminal for nope.');
+  });
+});
+
+describe("TerminalManager, a write step's Stop (slice 3-B Task 18, Call 8)", () => {
+  /** An endpoint that keeps what each terminal's hooks were registered with. */
+  const endpoint = () => {
+    const registered = new Map<string, ((body: unknown) => Promise<void>) | undefined>();
+    return {
+      registered,
+      urlFor: async (
+        instanceId: string,
+        _parse: unknown,
+        beforeAnswer?: (body: unknown) => Promise<void>,
+      ) => {
+        registered.set(instanceId, beforeAnswer);
+        return 'http://127.0.0.1:1/attention/x';
+      },
+      unregister: () => {},
+    };
+  };
+
+  it("waits for a write step's Stop to be recorded, and for nothing else; no other session waits at all", async () => {
+    const manager = new TerminalManager(() => []);
+    const hooks = endpoint();
+    manager.attentionEndpoint = hooks as never;
+    for (const [id, toolPolicy] of [
+      ['w-1', 'write'],
+      ['e-1', 'edit'],
+      ['r-1', 'read-only'],
+      ['n-1', undefined],
+    ] as const) {
+      manager.startHeadless(id, { ...options, ...(toolPolicy ? { toolPolicy } : {}) });
+      const terminal = created.at(-1)! as unknown as {
+        options: { attentionUrl?: () => Promise<string> };
+      };
+      await terminal.options.attentionUrl?.();
+    }
+    expect(hooks.registered.get('r-1')).toBeUndefined();
+    expect(hooks.registered.get('n-1')).toBeUndefined();
+    const write = hooks.registered.get('w-1')!;
+    const terminal = manager.get('w-1') as unknown as { recorded: number };
+    await write({ hook_event_name: 'Notification' });
+    expect(terminal.recorded).toBe(0);
+    await write({ hook_event_name: 'Stop' });
+    expect(terminal.recorded).toBe(1);
+    expect(hooks.registered.get('e-1')).toBeTypeOf('function');
   });
 });

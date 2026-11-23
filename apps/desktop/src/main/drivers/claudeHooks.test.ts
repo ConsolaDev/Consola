@@ -281,3 +281,26 @@ describe('claudeSettings', () => {
     expect(claudeSettings({})).toBeNull();
   });
 });
+
+describe("claudeSettings with a write step's sandbox (slice 3-B Task 17)", () => {
+  const SANDBOX = {
+    enabled: true as const,
+    autoAllowBashIfSandboxed: true as const,
+    allowUnsandboxedCommands: false as const,
+    network: { allowedDomains: [] },
+    filesystem: { denyRead: ['/h/.ssh'], denyWrite: ['/w/x/.git'] },
+  };
+  it('keeps the order hooks, sandbox, allowedMcpServers, each only when given', () => {
+    const all = JSON.parse(
+      claudeSettings({
+        attentionUrl: 'http://127.0.0.1:1/a',
+        sandbox: SANDBOX,
+        allowedMcpServers: [{ serverName: 'consola' }],
+      })!,
+    );
+    expect(Object.keys(all)).toEqual(['hooks', 'sandbox', 'allowedMcpServers']);
+    expect(all.sandbox).toEqual(SANDBOX);
+    expect(Object.keys(JSON.parse(claudeSettings({ sandbox: SANDBOX })!))).toEqual(['sandbox']);
+    expect(claudeSettings({})).toBeNull();
+  });
+});

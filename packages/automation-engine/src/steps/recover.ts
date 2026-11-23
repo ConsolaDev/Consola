@@ -1,8 +1,17 @@
 import type { RunRecord, StepRun } from '@consola/factory-spec';
+import { isLoopRow } from './stepRecords';
 
 /** What a `run:` step says when Consola quit between its intent and its result. */
 export const INTERRUPTED_COMMAND =
   'Interrupted: Consola quit while this command was running. It may or may not have finished; check, then retry.';
+
+/**
+ * What a write step (its agent `edit` or `write`) says when Consola quit
+ * while it ran (slice 3-B): it was changing the run's checkout, and a
+ * resumed session would go on from a tree nobody checked.
+ */
+export const INTERRUPTED_WRITE =
+  'Interrupted: Consola quit while this step was changing the checkout. Check it, then retry.';
 
 /** What a `run:` step says when Consola quit after its command finished but before the step was settled. */
 export function settleInterrupted(command: { exitCode?: number; signal?: string }): string {
@@ -27,7 +36,11 @@ export function isStepsRun(run: RunRecord): boolean {
  *
  * Read-only agent work goes back to the line, to resume in its session. A
  * command that declared intent and left no result is never re-run: it may have
- * posted, pushed or moved a ticket, so the run fails and says so.
+ * posted, pushed or moved a ticket, so the run fails and says so, and a loop
+ * it was inside, still open, fails with it. So does a write step (its record's
+ * `tools`, slice 3-B): it was changing the checkout. A loop's own row is left as it is
+ * (its round goes on from the record), and a run `waiting` at a gate or a
+ * retry has nothing running: it comes back unchanged.
  */
 export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord | null {
   if (run.status !== 'running') return null;
@@ -44,14 +57,19 @@ export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord |
   if (!run.steps) return { ...run, status: 'queued', updatedAt: nowIso };
 
   // A command is never re-queued: with intent and no result it may have run;
-  // with a result it did, and only the status write was lost.
-  const cut = run.steps.findIndex(commandCutOff);
+  // with a result it did, and only the status write was lost. Nor is a write
+  // step: it was changing the checkout when Consola quit.
+  const cut = run.steps.findIndex((step) => commandCutOff(step) || writeCutOff(step));
   if (cut >= 0) {
-    const error = commandResulted(run.steps[cut])
-      ? settleInterrupted(run.steps[cut].command!)
-      : INTERRUPTED_COMMAND;
+    const error = writeCutOff(run.steps[cut])
+      ? INTERRUPTED_WRITE
+      : commandResulted(run.steps[cut])
+        ? settleInterrupted(run.steps[cut].command!)
+        : INTERRUPTED_COMMAND;
     const steps = run.steps.map((step, index): StepRun => {
       if (index === cut) return { ...step, status: 'failed', error, finishedAt: nowIso };
+      if (isLoopRow(step) && (step.status === 'running' || step.status === 'waiting'))
+        return { ...step, status: 'failed', finishedAt: nowIso };
       if (index > cut && step.status === 'pending') return { ...step, status: 'not-run' };
       return step;
     });
@@ -60,16 +78,27 @@ export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord |
   }
 
   // Anything else that was running (an agent step, or a command that never
-  // declared intent) goes back to the line; the run itself stays running.
-  if (!run.steps.some((step) => step.status === 'running')) return null;
+  // declared intent) goes back to the line; the run itself stays running. A
+  // loop's row is no work under way: it stays `running` in its round.
+  const cutOff = (step: StepRun) => step.status === 'running' && !isLoopRow(step);
+  if (!run.steps.some(cutOff)) return null;
   const steps = run.steps.map(
-    (step): StepRun => (step.status === 'running' ? { ...step, status: 'queued' } : step),
+    (step): StepRun => (cutOff(step) ? { ...step, status: 'queued' } : step),
   );
   return { ...run, steps };
 }
 
 function commandResulted(step: StepRun): boolean {
   return step.command?.exitCode !== undefined || step.command?.signal !== undefined;
+}
+
+/** An agent step whose agent writes (`tools`, written as it starts), cut off while it ran. */
+function writeCutOff(step: StepRun): boolean {
+  return (
+    step.status === 'running' &&
+    step.kind === 'agent' &&
+    (step.tools === 'edit' || step.tools === 'write')
+  );
 }
 
 /** A `run:` step that was running with intent declared, whether or not its result was recorded. */

@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it, vi } from 'vitest';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -9,7 +10,11 @@ import {
   recordLaunchFields,
   reportTurnsFor,
   type ExistingTerminal,
+  type StepContinuation,
 } from './SessionLauncher';
+import { launchedWithFullTools } from './automations/launchAgentRun';
+import { WorktreeService } from './WorktreeService';
+import { worktreePathLock } from './worktreeCleanup/PathLock';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 import type { Harness } from '../shared/harness';
 import type { AgentGrants } from '../shared/agentGrants';
@@ -737,6 +742,42 @@ describe('SessionLauncher', () => {
       ).toBe(false);
     });
 
+    it.each([['edit'], ['write']] as const)(
+      'runs the reminder in a %s session, and never resumes one unattended (slice 3-B)',
+      async (policy) => {
+        const session = sessionFixture({
+          toolPolicy: policy,
+          hasStarted: true,
+          automation: STEP,
+          cwd: targetDir,
+        });
+        const { launcher, workspaces, terminals } = buildLauncher(session);
+        workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+        terminals.get.mockReturnValue({ ...existingTerminal(), hasClaudeExited: () => true });
+        await expect(
+          launcher.relaunchUnattended('ws-1', 'session-1', 'You ended without: notes'),
+        ).resolves.toBeUndefined();
+        expect(terminals.relaunch).toHaveBeenCalledWith(
+          'instance-1',
+          expect.objectContaining({ prompt: 'You ended without: notes', unattended: true }),
+        );
+        await expect(launcher.resumeUnattended('ws-1', 'session-1', 'go on')).rejects.toThrow(
+          'Consola resumes a turn unattended only in a read-only session.',
+        );
+      },
+    );
+
+    it('reminds a step only in a session Consola started for it', async () => {
+      const session = sessionFixture({ hasStarted: true, cwd: targetDir });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      terminals.get.mockReturnValue({ ...existingTerminal(), hasClaudeExited: () => true });
+      await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'remind')).rejects.toThrow(
+        'Consola reminds a step only in a session it started for that step.',
+      );
+      expect(terminals.relaunch).not.toHaveBeenCalled();
+    });
+
     it('a reminder in a live terminal leaves its grants as the terminal has them', async () => {
       const session = sessionFixture({
         toolPolicy: 'read-only',
@@ -1061,15 +1102,300 @@ describe('SessionLauncher', () => {
       expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
-    it('refuses a session that is not read-only, or that is gone', async () => {
+    it('refuses a session with no policy, or that is gone', async () => {
       const { launcher, terminals } = setup({ toolPolicy: undefined }, exited);
+      // A write step's session is reminded too (slice 3-B): only a session with no policy is refused, in these words.
       await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'x')).rejects.toThrow(
-        'Consola resumes a turn unattended only in a read-only session.',
+        'Consola reminds a step only in a session it started for that step.',
       );
       await expect(launcher.relaunchUnattended('ws-1', 'gone', 'x')).rejects.toThrow(
         'Its session was closed.',
       );
       expect(terminals.relaunch).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("a step's full-tools continuation (slice 3-B Task 20)", () => {
+  const made: string[] = [];
+  afterAll(() => {
+    for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
+  });
+  const git = (cwd: string, ...args: string[]) =>
+    execFileSync('git', args, { cwd, encoding: 'utf8' }).trim();
+
+  /** The person's clone, and a review step's automation checkout of PR 51 in a temp worktree root. */
+  function rig() {
+    const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-continue-')));
+    made.push(base);
+    const clone = path.join(base, 'catalog-portal');
+    const root = path.join(base, 'worktrees');
+    fs.mkdirSync(root);
+    git(base, 'init', '-q', '-b', 'main', clone);
+    fs.writeFileSync(path.join(clone, 'README.md'), 'catalog-portal\n');
+    git(clone, 'add', '-A');
+    git(
+      clone,
+      '-c',
+      'user.name=alice',
+      '-c',
+      'user.email=alice@sprocket.example',
+      'commit',
+      '-q',
+      '-m',
+      'first',
+    );
+    const read = git(clone, 'rev-parse', 'HEAD');
+    fs.writeFileSync(path.join(clone, 'LATER.md'), 'later\n');
+    git(clone, 'add', '-A');
+    git(
+      clone,
+      '-c',
+      'user.name=alice',
+      '-c',
+      'user.email=alice@sprocket.example',
+      'commit',
+      '-q',
+      '-m',
+      'later',
+    );
+    const automationCheckoutDir = path.join(root, 'catalog-portal-pr-51-automation');
+    git(clone, 'worktree', 'add', '-q', '--detach', automationCheckoutDir, read);
+    return { base, clone, root, read, automationCheckoutDir, worktrees: new WorktreeService(root) };
+  }
+
+  const STEP_ID = 'a1b2c3d4-0000-4000-8000-000000000001';
+  function launcherFor(
+    source: Session,
+    checkout: ReturnType<StepContinuation['checkoutOf']>,
+    open = false,
+  ) {
+    const built = buildLauncher(sessionFixture());
+    built.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
+    built.workspaces.createSession.mockImplementation(
+      (_workspaceId: string, fields: NewSessionFields) =>
+        ({ ...sessionFixture(), ...fields, id: 'session-2', hasStarted: true }) as Session,
+    );
+    const refusal = vi.fn((_runId: string, _stepId: string) =>
+      open ? 'Continue with full tools after the run ends' : null,
+    );
+    const continuationFolder = vi.fn<StepContinuation['continuationFolder']>();
+    built.launcher.continuation = { refusal, checkoutOf: () => checkout, continuationFolder };
+    return { ...built, refusal, continuationFolder };
+  }
+  const stepSession = (overrides: Partial<Session> = {}) =>
+    sessionFixture({
+      id: STEP_ID,
+      name: 'ui-bugfixer',
+      hasStarted: true,
+      toolPolicy: 'write',
+      automation: { name: 'ui-bug-to-pr', runId: 'run-41', step: { id: 'fix', attempt: 1 } },
+      cwd: targetDir,
+      ...overrides,
+    });
+
+  it("refuses while the step's run is open, and starts nothing", async () => {
+    const source = stepSession();
+    const { launcher, workspaces, terminals, refusal } = launcherFor(
+      source,
+      { kind: 'run-owned', cwd: targetDir, head: 'c'.repeat(40) },
+      true,
+    );
+    await expect(launcher.forkWithFullTools('ws-1', STEP_ID)).rejects.toThrow(
+      'Continue with full tools after the run ends',
+    );
+    expect(refusal).toHaveBeenCalledWith('run-41', 'fix');
+    expect(workspaces.createSession).not.toHaveBeenCalled();
+    expect(terminals.startHeadless).not.toHaveBeenCalled();
+  });
+
+  it("asks the run checkout's git-folder check for the folder it forks in, after any rebuild, and starts nothing when it refuses (3-B code review F11)", async () => {
+    // As cleanup left it: removed, so the fork's launch rebuilds it first, then asks.
+    const source = stepSession({
+      removedWorktree: {
+        path: targetDir,
+        mainRepo: scopeDir,
+        commit: 'a'.repeat(40),
+        branch: null,
+        keepRef: 'refs/consola/worktrees/x',
+        trigger: 'settled',
+        removedAt: 0,
+      },
+    });
+    const { launcher, workspaces, terminals } = launcherFor(source, {
+      kind: 'run-owned',
+      cwd: targetDir,
+      head: 'c'.repeat(40),
+    });
+    const order: string[] = [];
+    launcher.prepareCheckout = vi.fn(async () => {
+      order.push('rebuild');
+      return {};
+    });
+    const asked: Array<Pick<Session, 'cwd' | 'agentCwd'>> = [];
+    let refusal: string | null = "the step changed this checkout's git folder";
+    launcher.spawnRefusal = (session) => {
+      order.push('check');
+      asked.push(session);
+      return refusal;
+    };
+    await expect(launcher.forkWithFullTools('ws-1', STEP_ID)).rejects.toThrow(
+      "the step changed this checkout's git folder",
+    );
+    expect(order).toEqual(['rebuild', 'check']);
+    expect(asked).toEqual([{ cwd: targetDir }]);
+    expect(workspaces.createSession).not.toHaveBeenCalled();
+    expect(terminals.startHeadless).not.toHaveBeenCalled();
+    refusal = null;
+    await launcher.forkWithFullTools('ws-1', STEP_ID);
+    expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({ cwd: targetDir });
+  });
+
+  it('forks a run-owned step in its own folder once the run ended', async () => {
+    const source = stepSession({
+      workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 42 },
+    });
+    const { launcher, workspaces, terminals, continuationFolder } = launcherFor(source, {
+      kind: 'run-owned',
+      cwd: targetDir,
+      head: 'c'.repeat(40),
+    });
+    await launcher.forkWithFullTools('ws-1', STEP_ID);
+    const fields = (workspaces.createSession.mock.calls[0] as unknown[])[1] as NewSessionFields;
+    expect(fields.cwd).toBe(targetDir);
+    expect(fields).not.toHaveProperty('toolPolicy');
+    expect(fields).not.toHaveProperty('automation');
+    expect(continuationFolder).not.toHaveBeenCalled();
+    expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+      cwd: targetDir,
+      forkFrom: source.claudeSessionId,
+    });
+  });
+
+  it("moves a review step's continuation out of the automation checkout, at the commit it read, forked from its conversation (canary row 41)", async () => {
+    const at = rig();
+    const workItem = {
+      provider: 'github' as const,
+      repo: 'sprocket/catalog-portal',
+      type: 'pr' as const,
+      number: 51,
+    };
+    const source = stepSession({
+      name: 'pre-pr-reviewer',
+      toolPolicy: 'read-only',
+      cwd: at.automationCheckoutDir,
+      workItem,
+    });
+    const { launcher, workspaces, terminals, continuationFolder } = launcherFor(source, {
+      kind: 'item',
+      cwd: at.automationCheckoutDir,
+      head: at.read,
+    });
+    continuationFolder.mockImplementation(async (_workspace, step, commit) => {
+      const dir = at.worktrees.continuationWorktreePathFor(step.workItem!, step.id);
+      await at.worktrees.addContinuationWorktree(at.clone, dir, commit);
+      return dir;
+    });
+    const session = await launcher.forkWithFullTools('ws-1', STEP_ID);
+
+    expect(continuationFolder).toHaveBeenCalledWith(expect.anything(), source, at.read);
+    expect(session.cwd).toBe(
+      path.join(at.root, `catalog-portal-pr-51-continue-${STEP_ID.slice(0, 8)}`),
+    );
+    expect(git(session.cwd!, 'rev-parse', 'HEAD')).toBe(at.read);
+    expect(session.toolPolicy).toBeUndefined();
+    expect(session.workItem).toEqual(workItem);
+    expect(launchedWithFullTools(session, at.automationCheckoutDir)).toBe(false);
+    expect(((workspaces.createSession.mock.calls[0] as unknown[])[1] as NewSessionFields).cwd).toBe(
+      session.cwd,
+    );
+    expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+      cwd: session.cwd,
+      forkFrom: source.claudeSessionId,
+    });
+    // The automation checkout is where the step left it.
+    expect(git(at.automationCheckoutDir, 'rev-parse', 'HEAD')).toBe(at.read);
+  });
+
+  it('a second continuation of the same step keeps the worktree the first made', async () => {
+    const at = rig();
+    const workItem = {
+      provider: 'github' as const,
+      repo: 'sprocket/catalog-portal',
+      type: 'pr' as const,
+      number: 51,
+    };
+    const dir = at.worktrees.continuationWorktreePathFor(workItem, STEP_ID);
+    // The clone's own hook never runs for it (a checkout's `post-checkout`).
+    const marker = path.join(at.base, 'hook-ran');
+    const hook = path.join(at.clone, '.git', 'hooks', 'post-checkout');
+    fs.writeFileSync(hook, `#!/bin/sh\ntouch '${marker}'\n`);
+    fs.chmodSync(hook, 0o755);
+    await at.worktrees.addContinuationWorktree(at.clone, dir, at.read);
+    expect(fs.existsSync(marker)).toBe(false);
+    // In use until the session naming it is recorded.
+    expect(worktreePathLock.recentlyPrepared(dir)).toBe(true);
+    fs.writeFileSync(path.join(dir, 'notes.md'), 'mine\n');
+    await at.worktrees.addContinuationWorktree(at.clone, dir, at.read);
+    expect(fs.readFileSync(path.join(dir, 'notes.md'), 'utf8')).toBe('mine\n');
+    // Anything else at that path is left alone: a plain folder, another repository's worktree.
+    const other = at.worktrees.continuationWorktreePathFor({ ...workItem, number: 52 }, STEP_ID);
+    fs.mkdirSync(other);
+    await expect(at.worktrees.addContinuationWorktree(at.clone, other, at.read)).rejects.toThrow(
+      'exists but is not a worktree of',
+    );
+    const stranger = path.join(at.base, 'storefront');
+    git(at.base, 'init', '-q', '-b', 'main', stranger);
+    git(
+      stranger,
+      '-c',
+      'user.name=bob',
+      '-c',
+      'user.email=bob@sprocket.example',
+      'commit',
+      '-q',
+      '--allow-empty',
+      '-m',
+      'x',
+    );
+    const theirs = at.worktrees.continuationWorktreePathFor({ ...workItem, number: 53 }, STEP_ID);
+    git(stranger, 'worktree', 'add', '-q', '--detach', theirs);
+    await expect(at.worktrees.addContinuationWorktree(at.clone, theirs, at.read)).rejects.toThrow(
+      'exists but is not a worktree of',
+    );
+    await expect(
+      at.worktrees.addContinuationWorktree(at.clone, path.join(at.base, 'elsewhere'), at.read),
+    ).rejects.toThrow("is not under Consola's worktree folder");
+  });
+
+  it("a step's session in another folder than its run's checkout forks in place", async () => {
+    const source = stepSession({
+      workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+    });
+    const { launcher, workspaces, continuationFolder } = launcherFor(source, {
+      kind: 'item',
+      cwd: path.join(scopeDir, 'catalog-portal-pr-51-automation'),
+      head: 'c'.repeat(40),
+    });
+    await launcher.forkWithFullTools('ws-1', STEP_ID);
+    expect(continuationFolder).not.toHaveBeenCalled();
+    expect(((workspaces.createSession.mock.calls[0] as unknown[])[1] as NewSessionFields).cwd).toBe(
+      targetDir,
+    );
+  });
+
+  it('a legacy automation session, or one with no runner wired, forks in place as before', async () => {
+    const legacy = sessionFixture({
+      hasStarted: true,
+      toolPolicy: 'read-only',
+      automation: { name: 'review-requests', runId: 'run-1' },
+      cwd: targetDir,
+    });
+    const { launcher, workspaces, refusal } = launcherFor(legacy, null, true);
+    await launcher.forkWithFullTools('ws-1', 'session-1');
+    expect(refusal).not.toHaveBeenCalled();
+    expect(((workspaces.createSession.mock.calls[0] as unknown[])[1] as NewSessionFields).cwd).toBe(
+      targetDir,
+    );
   });
 });

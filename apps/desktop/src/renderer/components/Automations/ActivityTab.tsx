@@ -21,6 +21,7 @@ import {
   type RunAutomationOption,
   type RunFilter,
   type RunListFilter,
+  waitingForYouRuns,
 } from './presentation';
 
 const FILTERS: ReadonlyArray<{ id: RunFilter; label: string }> = [
@@ -152,6 +153,9 @@ function RunList({
   );
   const counts = snapshotRunCounts(snapshot, filter, now);
   const narrowed = isRunFilterNarrowed(filter);
+  // A run waiting for the person at a gate is listed once, in its own group first (review S7).
+  const waiting = waitingForYouRuns(runs);
+  const byDay = waiting.length > 0 ? runs.filter((run) => !waiting.includes(run)) : runs;
   const running = history.filter((run) => run.status === 'running').length;
   const queued = history.filter((run) => run.status === 'queued').length;
 
@@ -234,7 +238,32 @@ function RunList({
       )}
       {runs.length > 0 ? (
         <div ref={listRef} className="automations-run-days" onKeyDown={onKeyDown}>
-          {groupRunsByDay(runs, now).map((group) => (
+          {/* Runs waiting for the person at a gate come first, and only here, not again in their day. */}
+          {waiting.length > 0 && (
+            <div className="automations-run-day automations-run-waiting">
+              <h3 className="automations-run-day-head">
+                Waiting for you
+                <span className="automations-run-day-count">
+                  {waiting.length} {waiting.length === 1 ? 'run' : 'runs'}
+                </span>
+              </h3>
+              <ul className="automations-run-list">
+                {waiting.map((run) => (
+                  <RunItem
+                    key={run.id}
+                    run={run}
+                    now={now}
+                    showName
+                    when="time"
+                    selected={run.id === openRunId}
+                    arrived={arrivals.has(run.id)}
+                    onOpen={() => openPanel({ kind: 'run', runId: run.id })}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+          {groupRunsByDay(byDay, now).map((group) => (
             <div key={group.key} className="automations-run-day">
               <h3 className="automations-run-day-head">
                 {group.label}
@@ -340,7 +369,10 @@ function useRunPages(
   const liveKey = snapshot.runs
     .filter(
       (run) =>
-        run.status === 'queued' || run.status === 'running' || run.status === 'needs-approval',
+        run.status === 'queued' ||
+        run.status === 'running' ||
+        run.status === 'needs-approval' ||
+        run.status === 'waiting',
     )
     .map((run) => `${run.id}:${run.status}`)
     .sort()

@@ -25,7 +25,15 @@ export interface CheckState {
   failures: number;
   /** What the last check that counted came to: how many items, what fired, or why it failed. */
   outcome?:
-    | { at: string; items: number; fired: number; skipped: number; baseline: boolean }
+    | {
+        at: string;
+        items: number;
+        fired: number;
+        skipped: number;
+        baseline: boolean;
+        /** Why every item was skipped, when one reason covers them all: an own checkout's repository not cloned (F8). */
+        skippedWhy?: string;
+      }
     | { at: string; error: string };
   /**
    * The last successful result, kept in memory only, and the entry's version

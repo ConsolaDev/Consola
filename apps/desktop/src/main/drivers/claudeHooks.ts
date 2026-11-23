@@ -1,4 +1,4 @@
-import type { ClaudeAgentGrants } from '../../shared/agentGrants';
+import type { ClaudeAgentGrants, ClaudeSandboxSettings } from '../../shared/agentGrants';
 import type { AttentionSignal } from '../attention/hookSignals';
 import type { AttentionHooks } from './HarnessDriver';
 
@@ -53,18 +53,21 @@ function hooksPostingTo(url: string): Record<string, unknown> {
 
 /**
  * The one `--settings` value a session launches with: hooks posting to
- * `attentionUrl`, a step's allow-list of MCP servers, or both, in that
- * order; null for neither. One value, never two flags: on `main` every
- * session already carries one for its hooks (decision 1).
+ * `attentionUrl`, a write step's `sandbox` (slice 3-B), a step's allow-list
+ * of MCP servers, in that order, each when given; null for none. One value,
+ * never two flags: on `main` every session already carries one for its
+ * hooks (decision 1).
  */
 export function claudeSettings(input: {
   attentionUrl?: string;
+  sandbox?: ClaudeSandboxSettings;
   allowedMcpServers?: ClaudeAgentGrants['allowedMcpServers'];
 }): string | null {
-  const { attentionUrl, allowedMcpServers } = input;
-  if (!attentionUrl && !allowedMcpServers) return null;
+  const { attentionUrl, sandbox, allowedMcpServers } = input;
+  if (!attentionUrl && !sandbox && !allowedMcpServers) return null;
   return JSON.stringify({
     ...(attentionUrl ? { hooks: hooksPostingTo(attentionUrl) } : {}),
+    ...(sandbox ? { sandbox } : {}),
     ...(allowedMcpServers ? { allowedMcpServers } : {}),
   });
 }
@@ -152,4 +155,12 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
   }
 }
 
-export const claudeAttentionHooks: AttentionHooks = { parse: parseClaudeHookEvent };
+/** Claude's `Stop`: the turn is over, and the CLI waits on the hook's answer before it exits. */
+export function endsClaudeTurn(body: unknown): boolean {
+  return asRecord(body)?.hook_event_name === 'Stop';
+}
+
+export const claudeAttentionHooks: AttentionHooks = {
+  parse: parseClaudeHookEvent,
+  endsTurn: endsClaudeTurn,
+};

@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import { isStepsEntry, parseAutomationEntry, parseFactorySpec } from '@consola/factory-spec';
 import {
+  flatSteps,
+  isStepsEntry,
+  parseAutomationEntry,
+  parseFactorySpec,
+  type StepsAutomation,
+} from '@consola/factory-spec';
+import {
+  ASSIGNED_REVIEWS_GATED_NAME,
   ASSIGNED_REVIEWS_NAME,
   assignedReviewsEntry,
+  assignedReviewsGatedEntry,
   factoryTemplate,
   yamlName,
 } from './factoryTemplates';
@@ -234,5 +242,84 @@ describe('factoryTemplate', () => {
     }
     // A plain name stays plain.
     expect(yamlName('Review code')).toBe('Review code');
+  });
+});
+
+/** An entry as a `factory.yml` list item: each line two spaces in. */
+const indent = (text: string) =>
+  text
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n');
+
+/** A step's lines exactly as the entry writes them: from its `- id:` to the next step's, or the end. */
+function stepBlock(entry: string, id: string): string {
+  const lines = entry.split('\n');
+  const start = lines.indexOf(`    - id: ${id}`);
+  expect(start, id).toBeGreaterThan(0);
+  const next = lines.findIndex((line, index) => index > start && line.startsWith('    - id: '));
+  return lines.slice(start, next === -1 ? lines.length : next).join('\n');
+}
+
+describe('assignedReviewsGatedEntry (slice 3)', () => {
+  it("the gated review parses clean, holds its approval behind decide, and keeps slice 1's fresh and review", () => {
+    const parsed = parseFactorySpec(
+      `version: 1\nautomations:\n${indent(assignedReviewsGatedEntry())}`,
+    );
+    expect(parsed.issues).toEqual([]);
+    const entry = parsed.automations[0] as StepsAutomation;
+    expect(entry.name).toBe(ASSIGNED_REVIEWS_GATED_NAME);
+    expect(entry.checkout).toEqual({ pr: 'item' });
+    expect(entry.trigger).toMatchObject({
+      kind: 'event',
+      connection: 'github',
+      events: ['pull_request.review_requested'],
+    });
+    expect(flatSteps(entry.steps).map(({ step }) => [step.id, step.kind])).toEqual([
+      ['fresh', 'run'],
+      ['review', 'agent'],
+      ['decide', 'gate'],
+      ['publish', 'run'],
+      ['publish-decided', 'run'],
+    ]);
+    expect(stepBlock(assignedReviewsGatedEntry(), 'fresh')).toBe(
+      stepBlock(assignedReviewsEntry(), 'fresh'),
+    );
+    expect(stepBlock(assignedReviewsGatedEntry(), 'review')).toBe(
+      stepBlock(assignedReviewsEntry(), 'review'),
+    );
+    expect(entry.steps.find((step) => step.id === 'publish')?.if).toBe(
+      "steps.fresh.needed && steps.review.verdict != 'approve'",
+    );
+    // `publish` is slice 1's, its `if:` aside: COMMENT or REQUEST_CHANGES, pinned to the commit read.
+    expect(stepBlock(assignedReviewsGatedEntry(), 'publish')).toBe(
+      stepBlock(assignedReviewsEntry(), 'publish').replace(
+        'if: steps.fresh.needed',
+        "if: steps.fresh.needed && steps.review.verdict != 'approve'",
+      ),
+    );
+    // The spec's gate: only on an approve verdict, the review shown, approve or comment (or reject).
+    expect(entry.steps.find((step) => step.id === 'decide')).toMatchObject({
+      kind: 'gate',
+      if: "steps.review.verdict == 'approve'",
+      ask: 'The reviewer would approve this pull request. Post the review as an approval?',
+      show: ['review.handover'],
+      choices: ['approve', 'comment'],
+    });
+    const decided = entry.steps.find((step) => step.id === 'publish-decided');
+    expect(decided).toMatchObject({
+      kind: 'run',
+      if: "steps.decide.decision == 'approve' || steps.decide.decision == 'comment'",
+      env: {
+        DECISION: '{{steps.decide.decision}}',
+        BODY_FILE: '{{steps.review.handover.file}}',
+      },
+    });
+    // APPROVE is posted only from the person's answer, pinned to the commit the run read.
+    expect(decided?.kind === 'run' && decided.run).toContain(
+      '-f commit_id="$CONSOLA_CHECKOUT_HEAD"',
+    );
+    expect(decided?.kind === 'run' && decided.run).toContain('tr a-z A-Z');
+    expect(assignedReviewsGatedEntry()).not.toContain('APPROVE');
   });
 });

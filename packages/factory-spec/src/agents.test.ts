@@ -21,6 +21,8 @@ const only = (result: ReturnType<typeof parseAgentFile>) => {
   return result.issues[0];
 };
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
+const ENVIRONMENT_NAME =
+  'Expected `environment` to be the name of a file in environments/, without `.yaml`: lowercase letters, digits and dashes, e.g. `environment: sandboxed`.';
 
 const INVESTIGATOR = `---
 description: Investigates production alerts for the catalog-portal services.
@@ -106,16 +108,33 @@ describe('parseAgentFile', () => {
   });
 
   it.each([
+    // Slice 3-B: a write agent names its environment; a read-only one names none.
     [
       'tools: write\n',
       'tools',
-      'Write tools arrive with write steps; an agent is read-only until then.',
+      'A write agent must name its environment (invariant 9); add `environment: <name>`.',
+    ],
+    [
+      'tools: edit\n',
+      'tools',
+      'A write agent must name its environment (invariant 9); add `environment: <name>`.',
     ],
     [
       'environment: sandbox\n',
       'environment',
-      '`environment` arrives with write steps; it is not supported yet.',
+      'A read-only agent has no shell, so an environment would contain nothing; remove it.',
     ],
+    [
+      'tools: read-only\nenvironment: sandbox\n',
+      'environment',
+      'A read-only agent has no shell, so an environment would contain nothing; remove it.',
+    ],
+    ['tools: admin\n', 'tools', '`tools:` is `read-only`, `edit` or `write`.'],
+    ['tools: [read-only]\n', 'tools', '`tools:` is `read-only`, `edit` or `write`.'],
+    ['tools: Write\n', 'tools', '`tools:` is `read-only`, `edit` or `write`.'],
+    ['tools: write\nenvironment: Sandboxed\n', 'environment', ENVIRONMENT_NAME],
+    ['tools: write\nenvironment: [sandboxed]\n', 'environment', ENVIRONMENT_NAME],
+    ['tools: write\nenvironment: ""\n', 'environment', ENVIRONMENT_NAME],
     [
       'secrets: [x]\n',
       'secrets',
@@ -422,5 +441,57 @@ describe('agentHash', () => {
   it('changes when a named skill’s hash changes, and not for an unnamed one', () => {
     expect(agentHash(base, { 'incident-triage': 'b'.repeat(64) })).not.toBe(baseHash);
     expect(agentHash(base, { ...skills, other: 'c'.repeat(64) })).toBe(baseHash);
+  });
+});
+
+describe('write tools and an environment (slice 3-B)', () => {
+  it.each([['edit'], ['write']])('takes tools: %s with an environment', (tools) =>
+    expect(
+      parseAgentFile('fixer', `---\ntools: ${tools}\nenvironment: sandboxed\n---\nFix it.\n`).agent,
+    ).toMatchObject({ tools, environment: 'sandboxed', lines: { tools: 2, environment: 3 } }),
+  );
+
+  it.each([
+    [
+      'tools: write',
+      'A write agent must name its environment (invariant 9); add `environment: <name>`.',
+    ],
+    [
+      'environment: sandboxed',
+      'A read-only agent has no shell, so an environment would contain nothing; remove it.',
+    ],
+    ['tools: admin', '`tools:` is `read-only`, `edit` or `write`.'],
+  ])('refuses %s', (front, words) =>
+    expect(parseAgentFile('a', `---\n${front}\n---\nx\n`).issues.map((i) => i.message)).toContain(
+      words,
+    ),
+  );
+
+  it('a read-only agent parses and hashes as before', () => {
+    const agent = parseAgentFile(
+      'triager',
+      '---\nharness: claude-work\nmodel: haiku\n---\nTriage it.\n',
+    ).agent!;
+    // Computed with the code before slice 3-B (`cba8d0d6`), from its built package.
+    expect(agentHash(agent, {})).toBe(
+      'c76629419320a660ad2e5ae45011797903b40b253f59e562feadc2b601c08670',
+    );
+    expect(own(agent, 'environment')).toBe(false);
+    expect(agent.lines).toEqual({ harness: 2, model: 3 });
+    const readOnly = parseAgentFile(
+      'triager',
+      '---\nharness: claude-work\nmodel: haiku\ntools: read-only\n---\nTriage it.\n',
+    ).agent!;
+    expect(agentHash(readOnly, {})).toBe(agentHash(agent, {}));
+  });
+
+  it('the hash covers the tools and the environment', () => {
+    const hashOf = (front: string) =>
+      agentHash(parseAgentFile('fixer', `---\n${front}---\nFix it.\n`).agent!, {});
+    const write = hashOf('tools: write\nenvironment: sandboxed\n');
+    expect(hashOf('tools: edit\nenvironment: sandboxed\n')).not.toBe(write);
+    expect(hashOf('tools: write\nenvironment: mine\n')).not.toBe(write);
+    expect(hashOf('')).not.toBe(write);
+    expect(hashOf('environment: sandboxed\ntools: write\n')).toBe(write);
   });
 });

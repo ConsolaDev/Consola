@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { advanceSeen, forgetFired, markFired, type OpenState, type SeenRecord } from './seenRecord';
+import {
+  advanceSeen,
+  forgetFired,
+  heldRevision,
+  markFired,
+  type OpenState,
+  type SeenRecord,
+} from './seenRecord';
 
 const at = '2026-11-05T09:00:00.000Z';
 const later = '2026-11-05T09:03:00.000Z';
@@ -155,9 +162,9 @@ describe('advanceSeen with revisions and open runs', () => {
       ['a'],
     ],
     [
-      'waiting absorbs: marked at the new revision, nothing fired',
+      'not-started absorbs: marked at the new revision, nothing fired',
       rec(['a'], ['a'], { a: 'r1' }),
-      [{ key: 'a', passes: true, rev: 'r2', open: 'waiting' }],
+      [{ key: 'a', passes: true, rev: 'r2', open: 'not-started' }],
       { ...rec(['a'], ['a'], { a: 'r2' }), at: later },
       [],
     ],
@@ -259,5 +266,44 @@ describe('forgetFired', () => {
   it('on a record without fired, every other item still counts as fired', () => {
     const next = forgetFired(rec(['a', 'b'], undefined), 'b');
     expect(advanceSeen(next, 'def', passing('a', 'b'), later).fire).toEqual(['b']);
+  });
+});
+
+describe('heldRevision', () => {
+  const record = (revs?: Record<string, string>): SeenRecord => ({
+    items: ['k'],
+    fired: ['k'],
+    ...(revs ? { revs } : {}),
+    at,
+    definition: 'd',
+  });
+
+  it('says when a newer revision is held', () => {
+    expect(heldRevision(record({ k: 'a' }), { key: 'k', rev: 'b' })).toBe(true);
+    expect(heldRevision(record({ k: 'a' }), { key: 'k', rev: 'a' })).toBe(false);
+    expect(heldRevision(undefined, { key: 'k' })).toBe(false);
+  });
+
+  it('holds nothing for an item with no revision, or none to compare', () => {
+    // An Inbox item carries no revision (Call 12).
+    expect(heldRevision(record({ k: 'a' }), { key: 'k' })).toBe(false);
+    expect(heldRevision(record({ k: 'a' }), undefined)).toBe(false);
+    expect(heldRevision(undefined, { key: 'k', rev: 'b' })).toBe(false);
+    // An absent revision reads as '', as `advanceSeen` reads it.
+    expect(heldRevision(record(), { key: 'k', rev: '' })).toBe(false);
+    expect(heldRevision(record(), { key: 'k', rev: 'b' })).toBe(true);
+  });
+
+  it('holds what a working run held back, as advanceSeen leaves the record', () => {
+    const { record: next } = advanceSeen(
+      record({ k: 'a' }),
+      'd',
+      [{ key: 'k', passes: true, rev: 'b', open: 'working' }],
+      later,
+    );
+    expect(heldRevision(next, { key: 'k', rev: 'b' })).toBe(true);
+    // Once fired at it, nothing is held.
+    const fired = advanceSeen(next, 'd', [{ key: 'k', passes: true, rev: 'b' }], later).record;
+    expect(heldRevision(fired, { key: 'k', rev: 'b' })).toBe(false);
   });
 });

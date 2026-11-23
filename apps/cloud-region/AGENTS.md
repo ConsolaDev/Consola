@@ -416,7 +416,9 @@ changed; every other run is a top-level automation run. The rules are in
   (`automationsOf`, then `stepDefinitionOf`), wherever the automation is
   written, so it is what that version said, never the latest. It is null for
   a request's orchestrator step, an automation the version does not define,
-  and a step it does not. A step stored before these fields existed reads as
+  and a step it does not. A step inside a loop has its own; a loop's block
+  and a gate are null, since neither is an agent or a command step, the two a
+  definition describes. A step stored before these fields existed reads as
   having none (`stepRecordOf`).
 - **The file behind a run** (`source`, `sourceOf` in `domain/runSource.ts`)
   is read the same way: the file the automation is written in at the run's
@@ -431,8 +433,9 @@ changed; every other run is a top-level automation run. The rules are in
   writes a row about a run. A run waiting for approval (`needs-approval`)
   says why (`approvalReason`: its automation asks every time, its version
   was not approved to run on its own, or its orchestrator's was not), what
-  approving lets run (`willRun`) and who may answer: anyone on its factory's
-  owning team, literally the team's members whatever their workspace role
+  approving lets run (`willRun`: every command and agent step, those a loop
+  repeats included; a gate runs nothing) and who may answer: anyone on its
+  factory's owning team, literally the team's members whatever their workspace role
   (decided 2026-11-23), so an owner who sees every run answers only those of
   the teams they are in (`mayAnswer`). The checks run in the route's order:
   the body, the workspace held, the run seen (404 `run_not_found`, so a

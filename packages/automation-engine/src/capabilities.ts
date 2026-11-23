@@ -124,9 +124,15 @@ const REFUSED_KEYS = Object.entries(
 /**
  * One example per kind of entry. Every one is parsed and resolved by a test,
  * and each appears in `GRAMMAR` as written, so the agent is never taught
- * something that fails. Names are unique: one name, one meaning.
+ * something that fails. Names are unique: one name, one meaning. An example
+ * whose steps run as agents carries their files (and its environment's)
+ * beside it, each as written.
  */
-export const GRAMMAR_EXAMPLES: ReadonlyArray<{ title: string; entry: string }> = [
+export const GRAMMAR_EXAMPLES: ReadonlyArray<{
+  title: string;
+  entry: string;
+  files?: Readonly<Record<string, string>>;
+}> = [
   {
     title: 'A tool, on a schedule',
     entry: `- name: clean-up-stale-sessions
@@ -168,6 +174,129 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{ title: string; entry: string }> =
     - id: tell
       prompt: Turn the overnight handover into a short note for the team.
       reads: [look.handover]`,
+  },
+  {
+    title: 'A review loop with a gate, on an event',
+    entry: `- name: review-loop-gated
+  on: { github: pull_request.review_requested }
+  checkout: { pr: item }
+  budget: { usd: 2 }
+  mode: auto
+  steps:
+    - id: polish
+      repeat: { max: 2, until: steps.review.findings == 0 }
+      steps:
+        - id: review
+          prompt: >-
+            Review this pull request with Consola's work_item_context tool. Write each finding that must
+            be fixed, with its file and line, as your handover, and set findings to how many there are.
+          outputs: { findings: integer }
+    - id: decide
+      gate: { ask: Post the review? }
+    - id: publish
+      if: steps.decide.decision == 'approve'
+      run: |
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \\
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event=COMMENT -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        BODY_FILE: "{{steps.review.handover.file}}"`,
+  },
+  {
+    // North-star §4.1 as slice 3 runs it (Call 18: an example, not a gallery template). The one
+    // change from the spec's text: under Call 9 a sandboxed agent cannot commit, so `ui-bugfixer`
+    // leaves its changes for Consola to commit instead of committing them itself.
+    title: 'A Jira bug to a pull request, in a sandbox',
+    entry: `- name: ui-bug-to-pr
+  on:
+    poll:
+      every: 10m
+      run: |
+        acli jira workitem search --json \\
+            --jql 'project = SHOP AND type = Bug AND component = UI AND status = "To Do"' |
+          jq '[.[] | { key, title: .fields.summary }]'
+      key: .key
+  checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }
+  mode: auto
+  budget: { usd: 5 }
+  steps:
+    - id: triage
+      agent: triager
+      outputs:
+        kind: { enum: [bug, feature, unclear] }
+    - id: not-ours
+      if: steps.triage.kind != 'bug'
+      run: acli jira workitem comment create --key "$KEY" --body "$BODY"
+      env: { KEY: "{{item.key}}", BODY: "{{steps.triage.handover}}" }
+      then: stop
+    - id: fix
+      agent: ui-bugfixer
+      prompt: Fix the bug described below. The triage handover is attached.
+      reads: [triage.handover]
+    - id: polish
+      repeat: { max: 3, until: steps.review.findings == 0 }
+      steps:
+        - id: review
+          agent: pre-pr-reviewer
+          reads: [checkout.changes, fix.handover]
+          outputs: { findings: integer }
+        - id: address
+          if: steps.review.findings > 0
+          agent: ui-bugfixer
+          prompt: Address the findings in the review handover.
+          reads: [review.handover]
+      on_exhausted:
+        gate:
+          ask: The review still has findings after 3 rounds. Open the pull request anyway?
+          show: [review.handover, checkout.changes]
+    - id: pr
+      run: |
+        git push origin "HEAD:refs/heads/$CONSOLA_BRANCH"
+        echo "url=$(gh pr create --head "$CONSOLA_BRANCH" --title "$TITLE" --body-file "$BODY_FILE")" >> "$CONSOLA_OUTPUT"
+      env: { TITLE: "{{item.key}}: {{item.title}}", BODY_FILE: "{{steps.fix.handover.file}}" }
+      outputs: { url: string }
+    - id: ticket
+      run: |
+        acli jira workitem transition --key "$KEY" --status "In Review"
+        acli jira workitem comment create --key "$KEY" --body "PR: $PR_URL"
+      env: { KEY: "{{item.key}}", PR_URL: "{{steps.pr.url}}" }`,
+    files: {
+      'agents/triager.md': `---
+description: Triages UI bug reports for catalog-portal.
+harness: claude-work
+model: haiku
+---
+Decide whether the ticket below is a bug in catalog-portal's UI that a code change can fix. Set kind, and say why in
+your handover, in a few lines a person can read on the ticket.
+`,
+      'agents/ui-bugfixer.md': `---
+description: Fixes UI bugs in catalog-portal.
+harness: claude-work
+model: sonnet
+tools: write
+environment: sandboxed
+max_turns: 60
+---
+You fix UI bugs in catalog-portal. Follow the repository's CLAUDE.md, which is attached. Reproduce the bug with a
+test, fix it, and run the tests with \`pnpm test\`. Install with \`pnpm install --frozen-lockfile\`.
+Leave your changes in the checkout; Consola commits them after the step, and never commit or push yourself.
+Your handover is the pull request's description: what was wrong, what you changed, how it was tested.
+`,
+      'agents/pre-pr-reviewer.md': `---
+description: Reviews a fix before it becomes a pull request.
+harness: claude-work
+model: sonnet
+---
+Review the changes on this branch: they are attached as \`checkout.changes\`, with the fix's handover; read the
+files around them where it helps. Count the findings that must be fixed before a pull request, and write each with
+its file and line in your handover.
+`,
+      'environments/sandboxed.yaml': `isolation: sandbox
+network: [registry.npmjs.org]
+env: [CI]
+`,
+    },
   },
 ];
 
@@ -246,9 +375,39 @@ const RUN_AS =
   "your login environment and the workspace's bound account, in the item's own checkout or the scope folder, with git hooks off. " +
   "In a pull request's checkout, a command that builds or tests runs the author's code.";
 
-const EXAMPLES = GRAMMAR_EXAMPLES.map((example) => `${example.title}:\n\n${example.entry}`).join(
-  '\n\n',
-);
+/** What 3-B adds: the repositories a factory writes to, a run's own checkout, write agents and their environments. */
+const WRITING = [
+  'Writing:',
+  '- `repos:` in factory.yml lists the repositories a factory may write to, as `owner/name`.',
+  '- `checkout: { repo, branch, from? }` on an automation gives each run a checkout of its own: a clone of `repo` whose git folder sits outside the checkout, on `branch` (a template starting with a literal folder, `fix/{{item.key}}`; also `{{item.number}}`, `{{run.id}}`) cut from the default branch or `from`. Consola commits what each agent step leaves (a `sandbox` agent cannot commit; on `host`, leaving the commit to Consola is a convention, and an agent\'s own commit is kept when the branch still descends from where its step started), checks the branch between steps, and never pushes: a `run:` step does (`git push origin "HEAD:refs/heads/$CONSOLA_BRANCH"`).',
+  "- An agent file's `tools:` is `read-only`, `edit` (files) or `write` (files and a shell); `edit` and `write` need `environment: <name>` and a checkout the run owns, and run on Claude only.",
+  // Canary row 49 (the conductor's binding): the sandbox does not keep the keychain service from the shell,
+  // and the sign-ins kept there are not files the deny list holds (the 3-B code review's F1).
+  "- `environments/<name>.yaml`: `isolation: host` (your machine as it is: a convention) or `isolation: sandbox` (macOS: its shell writes only in the checkout and Claude's shared temporary folder, reaches `network:` hosts only, gets `env:` names only and no token Consola holds, and cannot read the credential files in your home folder, your harnesses' profiles, each agent CLI's default profile or Consola's data; your keychain is another matter, where Git, `gh` and Claude usually keep their sign-ins: it can still ask macOS for your keychain items through `security`, and other files stay readable).",
+  "- `artifacts: [{ name, path }]` on a write agent's step is a file it writes in the checkout; `reads: [checkout.changes]` and a gate's `show: [checkout.changes]` give the branch's diff.",
+].join('\n');
+
+/** What 3-A adds to steps: loops, gates, stopping early, retrying what cannot have acted, a budget, a named checkout. */
+const CONTROL_FLOW = [
+  'Control flow in steps:',
+  '- `gate: { ask, show?, choices? }` is a step of its own: the run waits, with no process, until a person answers in Consola. Its output is `decision` (one of `choices`, or `approve`); Reject ends the run. No tool answers a gate.',
+  '- `repeat: { max, until }` with `steps:` (1 to 10, no loop inside) runs them again until `until` holds, at most `max` (1 to 10) rounds; `on_exhausted:` is `fail` (the default), `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.',
+  '- `then: stop` on a step ends the run, completed, once that step completes.',
+  '- `on_failure: { retry: <0-3> }` on a step retries it by itself only if it cannot have acted: an agent naming no MCP server, or a `dry_run: run` command. On the automation, the whole run starts again only if nothing in it acted.',
+  "- `budget: { usd: <n> }` on the automation stops the run at its next step once its agents' turns cost that much (0.01 to 1000).",
+  "- `checkout: { pr: item }` names the pull request's read-only checkout, where a run on a pull request works anyway.",
+].join('\n');
+
+const EXAMPLES = GRAMMAR_EXAMPLES.map(
+  (example) =>
+    `${example.title}:\n\n${example.entry}${
+      example.files
+        ? `\n\nWith these files beside it:\n\n${Object.entries(example.files)
+            .map(([file, text]) => `${file}:\n\n${text}`)
+            .join('\n')}`
+        : ''
+    }`,
+).join('\n\n');
 
 const AGENT_FILE_EXAMPLES = AGENT_EXAMPLES.map(
   (example) =>
@@ -271,17 +430,18 @@ const SERVER_RULES =
   'Naming a server grants every tool it has, writing ones included; narrow it to named tools with - <server>: [<tool>, …]. ' +
   "harnesses lists each harness's servers by name, once Consola has asked its CLI.";
 
-const FOLDER_PROSE = `The factory folder. A workspace's automations live in its factory folder (folder.path): factory.yml, automations/<name>.yaml (one automation per file), agents/<name>.md (an agent a step runs as) and skills/<name>/SKILL.md (a skill an agent names). A file's name is its name: ${AUTOMATION_NAME_PATTERN.source}, so agents/investigator.md is the agent investigator. Any other file in automations/, agents/ or skills/ is an issue (dotfiles, and what an editor or the OS leaves beside a file, such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over), and so is a file (or one of those folders) that is a link leading outside the folder: Consola reads only files inside it. environments/, connections/ and evals/ are read from later slices: their files have no effect yet. The folder applies as a unit: while any file has a problem, the version that last applied keeps running, and an automation removed from the files stops at once.
+const FOLDER_PROSE = `The factory folder. A workspace's automations live in its factory folder (folder.path): factory.yml, automations/<name>.yaml (one automation per file), agents/<name>.md (an agent a step runs as), skills/<name>/SKILL.md (a skill an agent names) and environments/<name>.yaml (where a write agent runs: see Writing). A file's name is its name: ${AUTOMATION_NAME_PATTERN.source}, so agents/investigator.md is the agent investigator. Any other file in automations/, agents/, skills/ or environments/ is an issue (dotfiles, and what an editor or the OS leaves beside a file, such as x.md~, #x.md#, x.orig or Thumbs.db, are passed over), and so is a file (or one of those folders) that is a link leading outside the folder: Consola reads only files inside it. connections/ and evals/ are read from later slices: their files have no effect yet. The folder applies as a unit: while any file has a problem, the version that last applied keeps running, and an automation removed from the files stops at once.
 
 Agent files. agents/<name>.md is optional YAML frontmatter between two --- lines, then the agent's standing instructions: its body, at least one line that is not blank, at most 64 KB, with no {{ }} (an agent is the same for every step that uses it: put item values in the step's prompt:). ${FRONTMATTER_FIRST} Keys, each optional:
 - description: one line of at most 200 characters, for the person. It, a server's name and the model are visible text: letters, numbers, punctuation, symbols and plain spaces (no line or paragraph separators, combining marks, invisible fillers or format characters).
 - harness: a harness's id from harnesses (letters, digits, _ and -); absent, the workspace's default harness. Its steps' sessions run there.
 - model: a model the harness's CLI takes (opus, haiku, or a full model id), passed as --model; absent, the harness's own. A model the harness does not list is shown as a notice; a step on a model the CLI does not have fails.
 - max_turns: 1 to 500, the default turn cap of every step that uses the agent; a step's own max_turns overrides it.
-- tools: read-only, the only value until write steps.
+- tools: read-only (the default), edit or write; edit and write need environment: and a checkout the run owns.
+- environment: an environment in environments/, by name: where an edit or write agent's session runs (see Writing). A read-only agent names none.
 - mcpServers: names of servers the harness's CLI already has, each optionally narrowed to its tools (- notion, or - grafana: [query_logs]), at most ${MAX_AGENT_SERVERS}. skills: folder names in skills/, at most ${MAX_AGENT_SKILLS}. An agent that names either names its harness too.
 ${SERVER_RULES}
-Refused, with a reason: name: (the file's name is the agent's), hooks, permissionMode, allowed-tools and allowedTools (Consola compiles an agent's permissions from tools, mcpServers and skills), environment and secrets (later slices), and any other key.
+Refused, with a reason: name: (the file's name is the agent's), hooks, permissionMode, allowed-tools and allowedTools (Consola compiles an agent's permissions from tools, mcpServers and skills), secrets (a later slice), and any other key.
 A step runs as an agent with agent: <name>, the agent's file name without .md. Alone, the agent's body is the step's instructions; beside prompt: or action:, the body comes first and the step's own instruction after it. The step's session runs on the agent's harness, with its model. An entry whose step names no agent file, or one with problems of its own, does not run. agent:, skills: and mcpServers: never go on an entry, and a step names skills and servers only through its agent.
 
 Automation files. automations/<name>.yaml holds one automation, its keys at the top level as a factory.yml entry's are, with no name: (the file's name is the automation's) and no version: (it belongs to factory.yml). A name is unique across the folder: one defined both in factory.yml and as a file is refused in both. New entries saved with consola_save_automation go to factory.yml; one that replaces an entry living in its own file rewrites that file.
@@ -340,6 +500,10 @@ A run: step reads outputs from the file named by $CONSOLA_OUTPUT, one key=value 
 Values: {{ }} works only in prompt: and env:, never in run:. Move {{item.url}} into env: and write "$PR" in the command; shape gh output with --jq. A path is item.<field>, steps.<id>.<output or artifact> (its content), or steps.<id>.<artifact>.file (an absolute path, for big documents). Prompts take trusted values only: item.${TRUSTED_ITEM_FIELDS.join(', ')} and enum, integer, number and boolean outputs; not item.title, item.author, string outputs or artifacts (text someone else wrote: use reads:). env: takes any path. A handover is required only when a later step reads it (reads: or env:).
 
 if: expr := or; or := and ("||" and)*; and := unary ("&&" unary)*; unary := "!" unary | compare; compare := primary (("=="|"!="|"<"|"<="|">"|">=") primary)?; primary := path | 'text' | "text" | number | true | false | "(" expr ")"; path := steps.<id>.<output> | item.<field>. Write it as a YAML string of at most 500 characters (a bare if: true is refused). Types: == and != need matching types and an enum is a string whose literal must be one of its values; < <= > >= take numbers; && || ! take booleans; a boolean output alone works (if: steps.x.blocking). It reads outputs of earlier, named steps only, never an artifact (branch on an output). A step whose if: reads a step that did not complete is skipped.
+
+${CONTROL_FLOW}
+
+${WRITING}
 
 ${EXAMPLES}`;
 

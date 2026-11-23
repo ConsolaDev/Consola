@@ -61,6 +61,37 @@ async function listed(options: StepsHarnessOptions) {
 }
 
 describe('a steps entry, resolved against its workspace', () => {
+  it('an entry with a gate runs: it is not refused for it', async () => {
+    const GATED_ENTRY = file(
+      entry(
+        'gated',
+        ON_REVIEW,
+        '- id: review\n  action: Review',
+        '- id: decide\n  gate: { ask: Post it as an approval?, show: [review.handover] }',
+      ),
+    );
+    const h = await stepsHarness({ yaml: GATED_ENTRY });
+    expect(
+      h.service.list(WORKSPACE_ID).find((view) => view.name === 'gated')?.problem,
+    ).toBeUndefined();
+  });
+
+  it('an entry with a checkout it owns runs only on a host that makes one, and says so (slice 3-B, Call 2)', async () => {
+    const yaml = `version: 1\nrepos: [sprocket/catalog-portal]\nautomations:\n${entry(
+      'fix',
+      '    on: manual\n    checkout: { repo: sprocket/catalog-portal, branch: "consola/run-{{run.id}}" }\n',
+      '- run: "true"',
+    )}`;
+    const h = await stepsHarness({ yaml });
+    expect(h.service.list(WORKSPACE_ID).find((view) => view.name === 'fix')?.problem).toBe(
+      "This runner can't make a run's own checkout, so `checkout: { repo, branch }` can't run here.",
+    );
+    const made = await stepsHarness({ yaml, runCheckouts: true });
+    expect(
+      made.service.list(WORKSPACE_ID).find((view) => view.name === 'fix')?.problem,
+    ).toBeUndefined();
+  });
+
   it("resolves, its version covering each action step's body", async () => {
     const h = await stepsHarness({ yaml: TEMPLATE });
     expect(h.service.list(WORKSPACE_ID)[0]).toMatchObject({ name: NAME, asksFirst: true });
@@ -280,6 +311,18 @@ describe('a steps entry, resolved against its workspace', () => {
     });
     expect(entry.problem).toBeUndefined();
     expect(entry.nextRunAt).not.toBeNull();
+  });
+
+  it("refuses a loop's command on Windows, as any command", async () => {
+    const looped = factory(
+      ON_REVIEW,
+      '- id: polish\n  repeat: { max: 2, until: steps.check.ok }\n  steps:\n    - id: check\n      run: gh pr checks\n      outputs: { ok: boolean }',
+    );
+    expect((await listed({ yaml: looped, platform: 'win32' })).problem).toBe(
+      'run: steps need a POSIX shell, which Windows does not have',
+    );
+    // On a POSIX shell nothing is in its way.
+    expect((await listed({ yaml: looped })).problem).toBeUndefined();
   });
 
   it('needs no POSIX shell for an entry of agent steps only', async () => {
@@ -1330,6 +1373,29 @@ describe('running a steps run', () => {
     expect(h.world.launches[0].prompt).toMatch(
       /\ntitle: "Add retries with backoff"\nauthor: "bob"\n/,
     );
+  });
+
+  it("checkout: { pr: item } names the item's automation checkout, and runs exactly as without it (Call 15)", async () => {
+    const LOOK = '- id: look\n  prompt: Look at {{item.url}}.';
+    const runOn51 = async (yaml: string) => {
+      const h = await watching({ yaml });
+      acceptEvery(h, yaml);
+      expect(h.service.list(WORKSPACE_ID)[0].problem).toBeUndefined();
+      await h.poll([PR51]);
+      const [run] = h.store.runs();
+      return { h, run };
+    };
+    const without = await runOn51(factory(ON_REVIEW_AUTO, LOOK));
+    const named = await runOn51(factory(`${ON_REVIEW_AUTO}    checkout: { pr: item }\n`, LOOK));
+    expect(named.run).toMatchObject({
+      status: 'running',
+      checkout: { cwd: CHECKOUT, scopeId: 'scope-catalog-portal', head: CHECKOUT_HEAD },
+    });
+    expect(named.run.checkout).toEqual(without.run.checkout);
+    expect(named.h.world.checkouts.prepared).toEqual(without.h.world.checkouts.prepared);
+    expect(named.h.world.launches.map((launch) => launch.step?.cwd)).toEqual([CHECKOUT]);
+    // The key is in the version, so the entry that writes it is approved apart.
+    expect(named.run.actionVersion).not.toBe(without.run.actionVersion);
   });
 
   it('a checkout failure fails the run before its first step, saying why', async () => {
@@ -2515,7 +2581,13 @@ describe('the snapshot and history by page', () => {
     });
     const [entry] = h.service.snapshot(WORKSPACE_ID).runs;
     expect(entry).not.toHaveProperty('steps');
-    expect(entry.step).toEqual({ id: 'publish', status: 'queued', index: 3, count: 3 });
+    expect(entry.step).toEqual({
+      id: 'publish',
+      status: 'queued',
+      index: 3,
+      count: 3,
+      kind: 'run',
+    });
   });
 
   describe('the step an ended run names', () => {
@@ -2544,6 +2616,7 @@ describe('the snapshot and history by page', () => {
         status: 'failed',
         index: 2,
         count: 3,
+        kind: 'run',
       });
     });
 
@@ -2559,6 +2632,7 @@ describe('the snapshot and history by page', () => {
         status: 'not-run',
         index: 2,
         count: 3,
+        kind: 'run',
       });
       expect(await stepOf('failed', [step('s1', 'skipped'), step('s2', 'not-run')])).toMatchObject({
         id: 's2',
@@ -2577,12 +2651,14 @@ describe('the snapshot and history by page', () => {
         status: 'completed',
         index: 2,
         count: 3,
+        kind: 'run',
       });
       expect(await stepOf('failed', steps)).toEqual({
         id: 's1',
         status: 'failed',
         index: 1,
         count: 3,
+        kind: 'run',
       });
       expect(
         await stepOf('rejected', [step('s1', 'completed'), step('s2', 'failed')]),
@@ -2601,6 +2677,7 @@ describe('the snapshot and history by page', () => {
         status: 'reported',
         index: 2,
         count: 3,
+        kind: 'run',
       });
     });
 
@@ -3877,6 +3954,7 @@ describe('retry', () => {
       cwd: CHECKOUT,
       scopeId: 'scope-catalog-portal',
       head: NEW_HEAD,
+      kind: 'item',
     });
 
     // Its publish fails; retried, it runs in the checkout as it is, with the head the run recorded.
@@ -3979,6 +4057,8 @@ describe('retry', () => {
     h.world.checkouts.gate = preparing.promise;
     const retrying = h.service.retry(first.id);
     expect(h.service.checkoutHeld(CHECKOUT)).toBe(true);
+    // Both runs failed: only the retry's claim names the folder (3-A code review S1).
+    expect(h.service.heldCheckouts()).toEqual([CHECKOUT]);
     await expect(h.service.retry(second.id)).rejects.toThrow(HELD);
     // The item comes back into the list: each automation's new run waits for the checkout.
     await h.poll([]);
@@ -4720,5 +4800,78 @@ describe('reading a run: failures and the output artifact', () => {
       content: 'hi\n',
       bytes: 3,
     });
+  });
+});
+
+// Slice 3: Run on…'s last run names the gate a run waits at, or was rejected at.
+describe("Run on…'s last run at a gate", () => {
+  const GATED = factory(
+    `${ON_REVIEW}    mode: auto\n`,
+    '- id: look\n  prompt: Look at {{item.url}}.',
+    '- id: decide\n  gate: { ask: Post it? }',
+    '- id: after\n  run: echo posted',
+  );
+
+  async function parked(): Promise<{ h: StepsHarness; run: RunRecord }> {
+    const h = await watching({ yaml: GATED });
+    acceptEvery(h, GATED);
+    await h.poll([PR51]);
+    const [run] = h.store.runs();
+    await h.world.endTurn(run.steps![0].sessionId!);
+    expect(h.store.get(run.id)?.status).toBe('waiting');
+    return { h, run: h.store.get(run.id)! };
+  }
+  const lastRunOn51 = (h: StepsHarness) =>
+    h.service.listRunTargets(WORKSPACE_ID, NAME).inbox.find((row) => row.url === PR51.url)?.lastRun;
+
+  it('names the gate a run on the item waits at', async () => {
+    const { h, run } = await parked();
+    expect(lastRunOn51(h)).toEqual({
+      id: run.id,
+      status: 'waiting',
+      at: run.createdAt,
+      gate: 'decide',
+    });
+  });
+
+  it('names the gate a run on the item was rejected at', async () => {
+    const { h, run } = await parked();
+    h.service.answerGate(run.id, 'decide', 'reject');
+    await h.flush();
+    expect(lastRunOn51(h)).toMatchObject({ id: run.id, status: 'rejected', gate: 'decide' });
+  });
+
+  it('says a run turned away after it started did start (3-A code review M6)', async () => {
+    const { h, run } = await parked();
+    // As a run its entry's retry started again ends when a review was started by hand meanwhile.
+    h.store.update(run.id, {
+      status: 'rejected',
+      summary: 'Already started by hand: “Review”.',
+      steps: run.steps!.map((step) => ({ ...step, status: 'not-run', gate: undefined })),
+      finishedAt: h.now().toISOString(),
+    });
+    expect(lastRunOn51(h)).toEqual({
+      id: run.id,
+      status: 'rejected',
+      at: h.store.get(run.id)!.finishedAt,
+      started: true,
+    });
+    // One never started (dismissed, or turned away at its fire) says nothing of it.
+    h.store.update(run.id, { startedAt: undefined });
+    expect(lastRunOn51(h)).not.toHaveProperty('started');
+  });
+
+  it('names no gate for a run that went past it', async () => {
+    const { h, run } = await parked();
+    h.service.answerGate(run.id, 'decide', 'approve');
+    await h.flush();
+    await h.world.commands.at(-1)!.end();
+    expect(h.store.get(run.id)?.status).toBe('completed');
+    expect(lastRunOn51(h)).toEqual({
+      id: run.id,
+      status: 'completed',
+      at: h.store.get(run.id)!.finishedAt,
+    });
+    expect(lastRunOn51(h)).not.toHaveProperty('gate');
   });
 });
