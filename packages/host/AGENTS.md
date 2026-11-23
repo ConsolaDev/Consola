@@ -706,8 +706,9 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
   not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
-  a query or a fragment (it is logged; `cellUrlProblem`), no secret, a repository `isRepository` refuses, no API key
-  (no harness to offer), and no sandbox provider. No message quotes a secret.
+  a query or a fragment (it is logged; `cellUrlProblem`), no secret, a
+  repository `isRepository` refuses, no API key (no harness to offer), and no
+  sandbox provider. No message quotes a secret.
 - **The provider.** `runnerCommand(argv, env, providerFor)` takes the provider
   from a factory of the environment (`ProviderFor`). Production's
   (`productionProvider`) has none yet, so the shipped runner fails at start
