@@ -1257,6 +1257,27 @@ describe('approvalStep', () => {
     );
   });
 
+  it("never says a gate or a loop runs as you, beside a loop's call that does (the merge with slice 3)", () => {
+    const look = { id: 'look', kind: 'agent' as const, summary: 'Look' };
+    const decide = { id: 'decide', kind: 'gate' as const, summary: 'Post it?' };
+    const polish = { id: 'polish', kind: 'repeat' as const, summary: 'Up to 2 rounds' };
+    const lookup = {
+      id: 'lookup',
+      kind: 'uses' as const,
+      summary: 'tracker#lookup',
+      dryRun: true as const,
+      loop: 'polish',
+    };
+    const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr create' };
+    expect(
+      approvalStep({
+        mode: 'notify',
+        kind: 'agent',
+        steps: [look, decide, polish, lookup, publish],
+      })?.detail,
+    ).toBe('Runs look read-only and lookup as you; decide, publish only report.');
+  });
+
   it('says what a command node does by mode', () => {
     expect(commandFoot({}, 'notify')).toBe('Reports what it would run');
     expect(commandFoot({ dryRun: true }, 'notify')).toBe('Runs as you');
