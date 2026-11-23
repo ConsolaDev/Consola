@@ -10,6 +10,7 @@ import {
 import type * as Cause from 'effect/Cause';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
+import * as Fiber from 'effect/Fiber';
 import * as Queue from 'effect/Queue';
 import { describe, expect, it } from 'vite-plus/test';
 import { type SandboxSessions, makeSandboxSessions } from './sandboxSessions.ts';
@@ -74,6 +75,7 @@ const harness = Effect.fn('harness')(function* (
     readonly maxLifetime?: Duration.Input;
     readonly exitLineGrace?: Duration.Input;
     readonly stopTimeout?: Duration.Input;
+    readonly shutdownStopTimeout?: Duration.Input;
     readonly offer?: { readonly repositories: string[]; readonly harnesses: Harness[] };
   } = {},
 ) {
@@ -90,6 +92,9 @@ const harness = Effect.fn('harness')(function* (
     maxLifetime: options.maxLifetime ?? Duration.hours(8),
     exitLineGrace: options.exitLineGrace ?? Duration.seconds(30),
     ...(options.stopTimeout === undefined ? {} : { stopTimeout: options.stopTimeout }),
+    ...(options.shutdownStopTimeout === undefined
+      ? {}
+      : { shutdownStopTimeout: options.shutdownStopTimeout }),
     report: (update) =>
       Effect.sync(() => {
         sent.push(update);
@@ -573,6 +578,81 @@ describe('makeSandboxSessions', () => {
         }),
       ),
   );
+
+  it("says each session's end when the runner stops before its sandbox's stop returns, and gives that stop less than the grace", () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          shutdownStopTimeout: Duration.millis(300),
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+          provider: (fake) => ({
+            create: async (options) => {
+              const sandbox = await fake.create(options);
+              return { ...sandbox, stop: () => new Promise<void>(() => undefined) };
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-20'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        // The normal stop timeout is the default 30 s: only the shutdown's bound can end this.
+        const stopping = yield* h.sessions.stopAll.pipe(Effect.forkChild);
+        expect(yield* h.next).toEqual({
+          type: 'session.update',
+          sessionId: 'session-acme-20',
+          status: 'stopped',
+        });
+        expect(h.logged).not.toContain('session session-acme-20: ended');
+        yield* Fiber.join(stopping).pipe(
+          Effect.timeoutOrElse({
+            duration: ENDED_TIMEOUT,
+            orElse: () =>
+              Effect.die(new Error(`stopAll never returned; logged ${h.logged.join(' | ')}`)),
+          }),
+        );
+        expect(h.logged).toContain(
+          'session session-acme-20: its sandbox did not stop within 0.3 s of the runner stopping; the runner goes on without it',
+        );
+        expect(finalsOf(h.sent, 'session-acme-20')).toHaveLength(1);
+      }),
+    ));
+
+  it('asks again a sandbox whose stop fails, and stops it', () =>
+    run(
+      Effect.gen(function* () {
+        let stops = 0;
+        const h = yield* harness({
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+          provider: (fake) => ({
+            create: async (options) => {
+              const sandbox = await fake.create(options);
+              return {
+                ...sandbox,
+                stop: async () => {
+                  stops += 1;
+                  if (stops <= 2) {
+                    throw new SandboxError('provider', `E2B: kill failed (token ${GIT_TOKEN})`);
+                  }
+                  await sandbox.stop();
+                },
+              };
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-21'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        yield* h.sessions.stop('session-acme-21');
+        expect(stops).toBe(3);
+        expect(h.fake.sandboxes[0]?.state).toBe('stopped');
+        expect(h.logged.filter((each) => each.includes('did not stop'))).toEqual([
+          'session session-acme-21: its sandbox did not stop (attempt 1 of 3): E2B: kill failed (token [redacted])',
+          'session session-acme-21: its sandbox did not stop (attempt 2 of 3): E2B: kill failed (token [redacted])',
+        ]);
+        expect(finalsOf(h.sent, 'session-acme-21')).toEqual([
+          { type: 'session.update', sessionId: 'session-acme-21', status: 'stopped' },
+        ]);
+        expectNoSecret(h);
+      }),
+    ));
 
   it("stops a sandbox on the cell's stop before its host is ready, and says stopped", () =>
     run(

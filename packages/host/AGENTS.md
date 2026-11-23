@@ -754,14 +754,19 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   in no `hello` and the cell could never ask for that stop. The
   runner also stops it on the cell's `session.stop`, `EXIT_LINE_GRACE` (30 s,
   over the host's 15 s shutdown grace) after the host's `exit` line, at the
-  lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it stops
-  every sandbox and says each end while the socket is still open, then closes
-  the socket (1001) and exits 0. A sandbox's stop is asked once and given
-  `SANDBOX_STOP_TIMEOUT` (30 s): one that fails or hangs is logged, and the
-  session's end is said anyway. However the runner begins to stop (a signal, a
-  replacement, a failure), it first arms the forced exit (`HostStopping`, which
-  `runHostProcess` provides): past 15 s of stopping it exits 1, saying "the
-  runner did not stop in time".
+  lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it says
+  each session's end while the socket is still open, then stops every sandbox,
+  then closes the socket (1001) and exits 0. A sandbox's stop is asked once per
+  session, and a stop that fails is asked again (`STOP_ATTEMPTS`, 3, after
+  0.5 s then 1 s), each failure logged with its reason; all of it within
+  `SANDBOX_STOP_TIMEOUT` (30 s) while running, and within
+  `SHUTDOWN_STOP_TIMEOUT` (10 s) of the runner beginning to stop, which leaves
+  the socket's close its 3 s inside the 15 s grace. Past either, it is logged
+  and the session's end is said anyway. However the runner begins to stop (a
+  signal, a replacement, a failure), it first arms the forced exit
+  (`HostStopping`, which `runHostProcess` provides), the backstop should
+  stopping still hang: past 15 s it exits 1, saying "the runner did not stop
+  in time".
 - **The socket** (`adapters/cellSocket.ts`, on `ws`: Node's own WebSocket cannot
   portably send `Authorization`). Each connection opens with `hello` (the offer,
   `runningSessionIds`, and `endedSessions`), then every live session's state
@@ -775,10 +780,10 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   64 KiB frame limit sends its ends without their messages. A drop is dialled again
   after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
   once a connection has held 10 s. A close with 4000 means another process with
-  this secret said hello and replaced this one: it stops its sandboxes, stops
-  dialling and exits 1 saying so (or, past 15 s of stopping, saying it did not
-  stop in time), so two runners sharing a secret never take the socket from
-  each other in a loop. Frames over 64 KiB close the socket (1009); a frame
+  this secret said hello and replaced this one: it stops its sandboxes (as at
+  SIGTERM, within the shutdown's bound), stops dialling and exits 1 saying so,
+  so two runners sharing a secret never take the socket from each other in a
+  loop. Frames over 64 KiB close the socket (1009); a frame
   `readCellMessage` refuses is logged with its reason and dropped. A failure of
   the runner's own while connected ends that connection, never the dialling.
   **The heartbeat** (`Pings`): a ping at least every `HEARTBEAT_INTERVAL_MS`
@@ -805,7 +810,8 @@ a `session.start` with a real key, `running` at `http://127.0.0.1:<port>` where
 the replayed host answers, then SIGTERM: `stopped`, the socket closed with 1001,
 exit 0, no process left, and no secret on stderr. With
 `CONSOLA_TEST_SANDBOX_STOP=hangs` (`LocalProvider`'s `stopHangsForTests`) no
-sandbox's stop returns, and a replacement (4000) still exits 1 within the grace.
+sandbox's stop returns: SIGTERM still says `stopped` and exits 0, and a
+replacement (4000) exits 1 saying why, both within the grace.
 It runs the real bin for each start failure. `sandboxSessions.test.ts` drives the sessions over the fake
 provider, and `cellSocket.test.ts` the socket against a `ws` server.
 
