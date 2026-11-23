@@ -485,4 +485,50 @@ steps:
   it('is null for a step the automation does not define', () => {
     expect(stepDefinitionOf(automation, 'deploy', 4)).toBeNull();
   });
+
+  it('describes the steps inside a loop, and none for a gate or the loop itself', () => {
+    const SHIP = `on: { manual: {} }
+scope: storefront
+steps:
+  - id: fix
+    prompt: Fix the bug.
+  - id: polish
+    repeat: { max: 3, until: steps.check.clean }
+    steps:
+      - id: check
+        run: pnpm lint --format json
+        outputs: { clean: boolean }
+      - id: tidy
+        agent: reviewer
+        prompt: Tidy what the check found.
+  - id: decide
+    gate: { ask: Ship it? }
+`;
+    const [ship] = parseFactory({
+      factoryYml: 'version: 1\n',
+      automations: { ship: SHIP },
+      agents: { reviewer: '---\ndescription: Reviews.\n---\nYou review.\n' },
+      skills: {},
+      stray: [],
+      laterFolders: [],
+      unread: [],
+      outside: [],
+    }).automations;
+    if (!ship) throw new Error('the automation did not parse');
+
+    expect(stepDefinitionOf(ship, 'check', 4)).toMatchObject({
+      kind: 'run',
+      run: 'pnpm lint --format json',
+      outputs: [{ name: 'clean' }],
+    });
+    expect(stepDefinitionOf(ship, 'tidy', 4)).toMatchObject({
+      kind: 'agent',
+      agent: 'reviewer',
+      prompt: 'Tidy what the check found.',
+    });
+    // A loop runs nothing itself, and a gate is a person's decision: neither is an agent
+    // or a command step, the two a definition describes.
+    expect(stepDefinitionOf(ship, 'polish', 4)).toBeNull();
+    expect(stepDefinitionOf(ship, 'decide', 4)).toBeNull();
+  });
 });

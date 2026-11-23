@@ -2,6 +2,7 @@ import {
   AUTOMATION_NAME_PATTERN,
   type Automation,
   describeOutputType,
+  flatSteps,
   type LineRange,
   type RunStatus as EngineRunStatus,
   type StepRunStatus,
@@ -223,7 +224,9 @@ export type StepSummary = StepRecord & { readonly definition: StepDefinition | n
 
 /**
  * A step's definition, from its automation as the factory version's files define it, or null
- * when the automation has no such step (or no steps at all: a legacy entry).
+ * when the automation has no such step (or no steps at all: a legacy entry). A step inside a
+ * loop has its own; a loop's block runs nothing itself and a gate is a person's decision, so
+ * neither is an agent or a command step, the two a definition describes, and both are null.
  */
 export function stepDefinitionOf(
   automation: Automation,
@@ -231,8 +234,10 @@ export function stepDefinitionOf(
   version: number,
   range: LineRange | null = null,
 ): StepDefinition | null {
-  const step = automation.steps?.find((candidate) => candidate.id === stepId);
-  if (!step) return null;
+  const step = flatSteps(automation.steps ?? []).find(
+    (candidate) => candidate.step.id === stepId,
+  )?.step;
+  if (!step || (step.kind !== 'agent' && step.kind !== 'run')) return null;
   const outputs = Object.entries(step.outputs).map(([name, type]) => ({
     name,
     type: describeOutputType(type),
