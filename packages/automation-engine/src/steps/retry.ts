@@ -5,6 +5,7 @@ import {
   type StepRun,
   type StepRunStatus,
 } from '@consola/factory-spec';
+import { CALL_SETTLE_INTERRUPTED, INTERRUPTED_CALL } from './recover';
 
 /*
  * What may start again by itself (slice 3, `on_failure`, Call 8), as pure
@@ -12,7 +13,9 @@ import {
  * whose agent names no MCP server, and a command safe to run in a dry run
  * (`dry_run: run`) that ran to a result, may retry; a command that may push or
  * post, an agent whose server may change things, and a gate a person answered
- * never do. A person's stop and a run over its budget retry nothing.
+ * never do. A call (`uses:`, slice 5a) retries when nothing was sent, or when
+ * it is safe in a dry run, but never once the tool reported an error or a quit
+ * cut it off. A person's stop and a run over its budget retry nothing.
  */
 
 /** The waits before a declared retry: 1, 5, then 15 minutes for every one after. */
@@ -47,6 +50,15 @@ export function stepMayRetry(input: {
     if (input.agentTools === 'write' && input.agentIsolation === 'host') return false;
     return !input.agentNamesServer;
   }
+  if (step.kind === 'uses') {
+    // The tool answered with an error: it did its work, or part of it.
+    if (record.call?.isError) return false;
+    // No intent recorded: nothing was sent, so it cannot have acted.
+    if (record.call?.intentAt === undefined) return true;
+    // Sent: it may have happened. Only a call safe in a dry run goes again, never one a quit cut off.
+    const cutOff = record.error === INTERRUPTED_CALL || record.error === CALL_SETTLE_INTERRUPTED;
+    return step.dryRun === 'run' && !cutOff;
+  }
   // A command with a result ran to its end (a timeout ends in a signal); one with only intent may have done its work.
   const ended = record.command?.exitCode !== undefined || record.command?.signal !== undefined;
   return step.dryRun === 'run' && ended;
@@ -66,9 +78,11 @@ function started(record: StepRun): boolean {
   const own =
     record.kind === 'run'
       ? record.command?.intentAt !== undefined
-      : record.kind === 'gate'
-        ? record.gate?.decision !== undefined
-        : record.startedAt !== undefined;
+      : record.kind === 'uses'
+        ? record.call?.intentAt !== undefined
+        : record.kind === 'gate'
+          ? record.gate?.decision !== undefined
+          : record.startedAt !== undefined;
   return own || (record.previous ?? []).some((line) => !NEVER_STARTED.includes(line.status));
 }
 
@@ -77,7 +91,8 @@ function started(record: StepRun): boolean {
  * is left, no one stopped it, it is within its budget, and nothing in it
  * could have acted: no command without `dry_run: run`, no agent step naming
  * a server, no write step (its record's `tools`, slice 3-B: its run's
- * checkout is not where it was), and no gate started in any attempt. A row the definition does not
+ * checkout is not where it was), no call without `dry_run: run` that
+ * recorded its intent (slice 5a), and no gate started in any attempt. A row the definition does not
  * name could have been anything, so it counts as one that acted.
  */
 export function entryMayRetry(input: {
