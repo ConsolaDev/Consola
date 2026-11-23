@@ -10,6 +10,7 @@ import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Exit from 'effect/Exit';
+import * as Logger from 'effect/Logger';
 import * as Option from 'effect/Option';
 import type * as Scope from 'effect/Scope';
 import * as Stream from 'effect/Stream';
@@ -156,6 +157,54 @@ describe('ThreadRuntime', () => {
           expect(handle.snapshot().thread.runtimeMode).toBe('approval-required');
           expect(ThreadRuntime.HOST_RUNTIME_MODE).toBe('approval-required');
         }).pipe(Effect.scoped, Effect.provide(ThreadRuntime.layer({ stateDir }))),
+      ).pipe(Effect.runPromise),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'fails `ended` once the stream that keeps its snapshot current ends, and only then',
+    () =>
+      withState((stateDir) =>
+        Effect.gen(function* () {
+          const spec = sessionSpec('stream-ends', stateDir);
+          const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
+          const ended = yield* Effect.flip(handle.ended);
+          expect(ended).toBeInstanceOf(ThreadRuntime.ThreadStreamEnded);
+          expect(ended.message).toBe(
+            `Session ${spec.sessionId} stopped: its thread's event stream ended, so what it shows would go stale.`,
+          );
+        }).pipe(
+          Effect.scoped,
+          Effect.provide(ThreadRuntime.layerForTests({ stateDir }, { endEventsAfter: 0 })),
+        ),
+      ).pipe(Effect.runPromise),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'keeps `ended` pending while the stream runs, and says nothing when its scope closes',
+    () =>
+      withState((stateDir) =>
+        Effect.gen(function* () {
+          const logged: string[] = [];
+          const spec = sessionSpec('stream-runs', stateDir);
+          yield* Effect.scoped(
+            Effect.gen(function* () {
+              const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
+              const early = yield* handle.ended.pipe(Effect.timeoutOption(Duration.millis(500)));
+              expect(Option.isNone(early)).toBe(true);
+            }),
+          ).pipe(
+            Effect.provide(
+              Logger.layer([
+                Logger.make(({ message }) => {
+                  logged.push((Array.isArray(message) ? message : [message]).map(String).join(' '));
+                }),
+              ]),
+            ),
+          );
+          expect(logged.filter((line) => /event stream/i.test(line))).toEqual([]);
+        }).pipe(Effect.provide(ThreadRuntime.layer({ stateDir }))),
       ).pipe(Effect.runPromise),
     REPLAY_TIMEOUT_MS,
   );

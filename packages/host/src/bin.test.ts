@@ -343,6 +343,40 @@ describe('consola-host session', () => {
   );
 
   it(
+    "exits 1 with a message when the stream that keeps the thread's snapshot current ends",
+    () =>
+      Effect.gen(function* () {
+        const sessionId = 'session-sprocket-stream';
+        const host = yield* startHost(
+          REPLAY_ENTRY,
+          [
+            'simple',
+            'full-access',
+            'session',
+            '--dev',
+            '--session-id',
+            sessionId,
+            '--harness',
+            'claude',
+            '--port',
+            '0',
+          ],
+          { CONSOLA_TEST_EVENT_STREAM: 'ends' },
+        );
+        expect(yield* host.next).toMatchObject({ type: 'ready' });
+        expect(yield* host.exited).toEqual({ code: 1, signal: null });
+        // The last line on stderr says why: the runner reports it as the session's error.
+        const lines = host.stderr().trimEnd().split('\n');
+        expect(lines.at(-1)).toBe(
+          `consola-host: Session ${sessionId} stopped: its thread's event stream ended, so what it shows would go stale.`,
+        );
+        expect(typesOf(host.printed)).not.toContain('exit');
+        expectOnlyHostLines(host.printed);
+      }).pipe(Effect.scoped, Effect.runPromise),
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
     'exits 1, saying so, when its stop after an idle exit hangs past the grace',
     () =>
       Effect.gen(function* () {

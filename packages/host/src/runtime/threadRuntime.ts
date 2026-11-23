@@ -13,8 +13,10 @@ import {
   type TurnItemId,
 } from '@t3tools/contracts';
 import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
+import * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
 import * as Context from 'effect/Context';
+import * as Deferred from 'effect/Deferred';
 import * as Effect from 'effect/Effect';
 import * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
@@ -86,6 +88,12 @@ export type ThreadHandle = {
   readonly server: ThreadServerView;
   /** When the thread last did anything: a stored event or a dispatch, in epoch milliseconds. */
   lastActivityMs(): number;
+  /**
+   * Fails once the stream that keeps `snapshot()` current ends (t3's `streamStoredEvents`, which
+   * runs as long as the orchestration does): from then on the snapshot, the status and the title
+   * would go stale, so the session must stop. Never succeeds; closing the scope ends it quietly.
+   */
+  readonly ended: Effect.Effect<never, ThreadStreamEnded>;
 };
 
 /**
@@ -122,6 +130,16 @@ export class ThreadRuntimeError extends Schema.TaggedError<ThreadRuntimeError>()
   }
 }
 
+/** The stream that keeps a session's snapshot current ended (`ThreadHandle.ended`). */
+export class ThreadStreamEnded extends Schema.TaggedError<ThreadStreamEnded>()(
+  'ThreadStreamEnded',
+  { sessionId: Schema.String },
+) {
+  override get message(): string {
+    return `Session ${this.sessionId} stopped: its thread's event stream ended, so what it shows would go stale.`;
+  }
+}
+
 export class NotOfferedError extends Schema.TaggedError<NotOfferedError>()('NotOfferedError', {
   commandType: Schema.String,
 }) {
@@ -148,6 +166,11 @@ export interface ThreadRuntimeTestSeam {
   readonly drivers?: ReadonlyArray<AnyProviderDriver<HostDriversEnv>>;
   /** The mode a replayed fixture was recorded in, in place of `HOST_RUNTIME_MODE`. */
   readonly runtimeMode?: RuntimeMode;
+  /**
+   * The stream that keeps the snapshot current ends after this many stored events, as if t3's
+   * `streamStoredEvents` had ended (`ThreadHandle.ended`).
+   */
+  readonly endEventsAfter?: number;
 }
 
 /**
@@ -175,6 +198,7 @@ const make = (
   options: ThreadRuntimeOptions,
   runtimeMode: RuntimeMode,
   orchestration: typeof layerOrchestration,
+  endEventsAfter?: number,
 ) =>
   Layer.succeed(
     ThreadRuntime,
@@ -256,8 +280,15 @@ const make = (
         );
 
         // Every stored event refreshes the snapshot, so a request waits there with no one
-        // watching. `streamStoredEvents` is the unbounded subscription t3 gives its workers.
-        yield* orchestrator.streamStoredEvents.pipe(
+        // watching. `streamStoredEvents` is the unbounded subscription t3 gives its workers: it
+        // ends only with the orchestration, so its end, or its failure, ends the session
+        // (`ended`). Its interruption, as the scope closes, is the session's own stop, and quiet.
+        const streamEnded = yield* Deferred.make<never, ThreadStreamEnded>();
+        const storedEvents =
+          endEventsAfter === undefined
+            ? orchestrator.streamStoredEvents
+            : orchestrator.streamStoredEvents.pipe(Stream.take(endEventsAfter));
+        yield* storedEvents.pipe(
           Stream.filter((stored) => stored.sequence > current.snapshotSequence),
           Stream.runForEachArray(() =>
             refresh.pipe(
@@ -266,7 +297,11 @@ const make = (
               ),
             ),
           ),
-          Effect.catchCause((cause) => Effect.logError('Session event stream ended.', cause)),
+          Effect.catchCauseIf(
+            (cause) => !Cause.hasInterruptsOnly(cause),
+            (cause) => Effect.logError('Session event stream failed.', cause),
+          ),
+          Effect.andThen(Deferred.fail(streamEnded, new ThreadStreamEnded({ sessionId }))),
           toStderr,
           Effect.forkScoped,
         );
@@ -301,6 +336,7 @@ const make = (
             logsDir: config.logsDir,
           },
           lastActivityMs: () => lastActivity,
+          ended: Deferred.await(streamEnded),
         };
         return handle;
       }),
@@ -323,9 +359,13 @@ export const layerForTests = (
   options: ThreadRuntimeOptions,
   seam: ThreadRuntimeTestSeam,
 ): Layer.Layer<ThreadRuntime> =>
-  make(options, seam.runtimeMode ?? HOST_RUNTIME_MODE, (orchestrationOptions) =>
-    layerOrchestrationForTests(
-      orchestrationOptions,
-      seam.drivers ?? [hostDriverFor(orchestrationOptions.harness)],
-    ),
+  make(
+    options,
+    seam.runtimeMode ?? HOST_RUNTIME_MODE,
+    (orchestrationOptions) =>
+      layerOrchestrationForTests(
+        orchestrationOptions,
+        seam.drivers ?? [hostDriverFor(orchestrationOptions.harness)],
+      ),
+    seam.endEventsAfter,
   );

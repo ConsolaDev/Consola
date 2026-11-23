@@ -10,7 +10,8 @@
  * the host's runtime mode; a fixture recorded in another (`simple` was recorded in `full-access`)
  * names it, or its first frame would not match the recording. With
  * `CONSOLA_TEST_SESSION_STOP=hangs`, the session's thread never finishes closing, as a provider
- * session whose stop hangs.
+ * session whose stop hangs; with `CONSOLA_TEST_EVENT_STREAM=ends`, the stream that keeps the
+ * thread's snapshot current ends at once (`endEventsAfter`).
  */
 import type { RuntimeMode } from '@t3tools/contracts';
 import * as Effect from 'effect/Effect';
@@ -21,6 +22,7 @@ import { loadReplay, replayClaudeDriver, withState } from './replay.ts';
 
 const [fixture = '', mode = 'default', ...argv] = process.argv.slice(2);
 const stopHangsForTests = process.env.CONSOLA_TEST_SESSION_STOP === 'hangs';
+const eventStreamEnds = process.env.CONSOLA_TEST_EVENT_STREAM === 'ends';
 
 /** `runtime`, its threads' close hanging: each `open` leaves a finalizer that never returns. */
 const withHangingStop = (
@@ -47,6 +49,7 @@ runHostProcess(
         const runtime = ThreadRuntime.layerForTests(options, {
           drivers: [replayClaudeDriver(transcript)],
           ...(mode === 'default' ? {} : { runtimeMode: mode as RuntimeMode }),
+          ...(eventStreamEnds ? { endEventsAfter: 0 } : {}),
         });
         return stopHangsForTests ? withHangingStop(runtime) : runtime;
       }),

@@ -331,7 +331,10 @@ export type RuntimeFor = (
 export const runSession = (
   args: SessionArgs,
   runtimeFor: RuntimeFor,
-): Effect.Effect<void, StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError> =>
+): Effect.Effect<
+  void,
+  StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError | ThreadRuntime.ThreadStreamEnded
+> =>
   Effect.gen(function* () {
     const cellKey =
       args.access.type === 'key' ? yield* readPassKey(args.access.publicKeyFile) : null;
@@ -369,7 +372,8 @@ export const runSession = (
       });
     }
     const reporting = yield* reportSession(handle, writeHostLine).pipe(Effect.forkScoped);
-    yield* untilIdle(handle, listening, args.idleMinutes);
+    // Idle, or a thread whose snapshot would go stale (`ended`): the session fails, exit 1.
+    yield* Effect.raceFirst(untilIdle(handle, listening, args.idleMinutes), handle.ended);
     yield* Fiber.interrupt(reporting);
     yield* writeHostLine({ type: 'exit', reason: 'idle' });
   }).pipe(
@@ -385,7 +389,11 @@ export const sessionCommand = (
   runtimeFor: RuntimeFor,
 ): Effect.Effect<
   void,
-  UsageError | StartFailed | PassKeyInvalid | ThreadRuntime.ThreadRuntimeError
+  | UsageError
+  | StartFailed
+  | PassKeyInvalid
+  | ThreadRuntime.ThreadRuntimeError
+  | ThreadRuntime.ThreadStreamEnded
 > => parseSessionArgs(argv).pipe(Effect.flatMap((args) => runSession(args, runtimeFor)));
 
 /** What `consola-host runner` was asked to run: its flags, and what it read of its environment. */
@@ -618,7 +626,8 @@ const describeFailure = (cause: Cause.Cause<unknown>): string => {
   if (
     Schema.is(StartFailed)(error) ||
     Schema.is(PassKeyInvalid)(error) ||
-    Schema.is(RunnerReplaced)(error)
+    Schema.is(RunnerReplaced)(error) ||
+    Schema.is(ThreadRuntime.ThreadStreamEnded)(error)
   ) {
     return error.message;
   }

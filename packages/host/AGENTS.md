@@ -144,6 +144,7 @@ type ThreadHandle = {
   commandOutput(itemId: TurnItemId): Stream<OrchestrationV2CommandOutputFrame, OrchestrationV2CommandOutputError>;
   server: ThreadServerView; // what the server-config and provider RPCs read
   lastActivityMs(): number;
+  ended: Effect<never, ThreadStreamEnded>; // fails once snapshot() would stop following the thread
 };
 
 type ThreadServerView = {
@@ -172,6 +173,13 @@ type ThreadServerView = {
   accepted is not run again (t3 answers its first sequence).
 - `commandOutput(itemId)` is t3's `CommandOutputHub.subscribe` for one of the
   thread's command rows: the hub its provider sessions write to.
+- `ended` fails with `ThreadStreamEnded` once the stream that keeps
+  `snapshot()` current (t3's `streamStoredEvents`, which runs as long as the
+  orchestration does) ends or fails: from then on the snapshot, and the status
+  and title the host prints from it, would go stale. The session command then
+  stops with exit 1 (below). Its interruption as the scope closes is the
+  session's own stop, and logs nothing. `layerForTests`'s `endEventsAfter`
+  ends it early, for the tests.
 - `server` hands out the services of the composition t3's `ws.ts` builds its
   server config and provider list from, so nothing served is made up: t3's
   `ProviderRegistry` (one snapshot per provider instance, its changes and
@@ -690,6 +698,12 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   process exits 0; after, the program's handlers have it, as above
   (`bin.test.ts` signals a host 400 ms after spawning it, before `ready`, and
   sees exit 0). Task 7's bundle keeps this entry.
+- **A stale thread ends the session.** Should the thread's event stream end
+  (`ThreadHandle.ended`), the host stops as from a failure: its scope closes
+  under the grace, and it exits 1 with `consola-host: Session <id> stopped:
+  its thread's event stream ended, so what it shows would go stale.` as the
+  last line on stderr, which the runner reports as the session's `failed`
+  error (`bin.test.ts`, with `CONSOLA_TEST_EVENT_STREAM=ends`).
 - **Start failures** (a bad flag, a key file that cannot be read or is not an
   Ed25519 public key, `--cwd` not a folder, a port taken): a message on stderr
   (`consola-host: …`, with the usage for a bad flag), exit 1, nothing on
