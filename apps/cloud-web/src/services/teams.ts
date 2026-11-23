@@ -1,19 +1,30 @@
-import type { CellRefusal } from '../domain/cell';
-import { isTeamProblem, type TeamChange, type TeamsState } from '../domain/teams';
-import { type CellApi, type CellDeps, codeOf, createCellAccess } from './cell';
+import {
+  isTeamProblem,
+  type TeamChange,
+  type TeamsState,
+  type WorkspaceMember,
+} from '../domain/teams';
+import {
+  type CellApi,
+  type CellDeps,
+  type CellRefusal,
+  type CellSession,
+  codeOf,
+  createCellSession,
+  PENDING,
+  pageCellSession,
+  SIGNED_OUT,
+  SWITCHED,
+  UNAVAILABLE,
+} from './cell';
 
 /*
- * A workspace's teams, from its regional cell, reached through `cell.ts`: the cell's address on
- * the page's own origin, and a cell token for the workspace the page shows with every call.
- *
- * Every call answers in domain types. Only a 401 from `cloud-global` means signed out; anything
- * the calls do not expect, a cell that does not answer included, is `unavailable`.
+ * A workspace's teams, from its regional cell (`cell.ts`: the token, the address, the states a
+ * cell answers), and its members from `cloud-global`, to name the people in them. Every call
+ * answers in domain types. Only a 401 from `cloud-global` means signed out; anything the calls do
+ * not expect, a cell that does not answer included, is `unavailable`.
  */
 
-export { type CellApi, cellBaseUrl, createCellApi } from './cell';
-
-const UNAVAILABLE = { kind: 'unavailable' } as const;
-const PENDING = { kind: 'pending' } as const;
 const CHANGED = { kind: 'changed' } as const;
 
 export type TeamsService = {
@@ -31,12 +42,13 @@ export type TeamsService = {
 };
 
 /**
- * The teams service, holding the token it last minted. The page uses `teamsService`; a test
- * builds its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin
- * to resolve the cell's address against.
+ * The teams service. The page uses `teamsService`, on the page's way to its cell; a test builds
+ * its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin to
+ * resolve the cell's address against.
  */
-export function createTeamsService(deps: CellDeps = {}): TeamsService {
-  const { onCell, membersOf } = createCellAccess(deps);
+export function createTeamsService(deps: CellDeps & { session?: CellSession } = {}): TeamsService {
+  const session = deps.session ?? createCellSession(deps);
+  const { api, onCell } = session;
 
   /** What a change's answer comes to, for the statuses every change shares. */
   function changeOf(answer: { error?: unknown; response: Response } | CellRefusal): TeamChange {
@@ -72,6 +84,16 @@ export function createTeamsService(deps: CellDeps = {}): TeamsService {
     } catch {
       return UNAVAILABLE;
     }
+  }
+
+  /** The workspace's members from `cloud-global`, or why they could not be had. */
+  async function membersOf(): Promise<WorkspaceMember[] | CellRefusal> {
+    const { data, error, response } = await api.GET('/api/me/workspace/members');
+    if (response.status === 401) return SIGNED_OUT;
+    if (response.status === 200 && Array.isArray(data?.members)) return data.members;
+    const code = codeOf(error);
+    if (code === 'no_active_workspace' || code === 'not_a_member') return SWITCHED;
+    return UNAVAILABLE;
   }
 
   return {
@@ -129,4 +151,4 @@ export function createTeamsService(deps: CellDeps = {}): TeamsService {
 }
 
 /** The page's teams service. */
-export const teamsService = createTeamsService();
+export const teamsService = createTeamsService({ session: pageCellSession });

@@ -58,7 +58,7 @@ export function TeamsPage({ workspace }: SectionProps) {
             className="settings-button accent"
             onClick={() => setCreating(true)}
           >
-            <Plus size={14} aria-hidden="true" />
+            <Plus size={16} aria-hidden="true" />
             New team
           </button>
         )}

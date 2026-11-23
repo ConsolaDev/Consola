@@ -120,13 +120,15 @@ format `packages/factory-spec` defines (`factory.yml`, `automations/`,
 `agents/`, `skills/`). Each save is a new version, and every earlier version
 stays readable. Owners and admins see every factory; a member sees the
 factories of the teams they are in, and a factory they do not see is 404.
-Whoever sees a factory may save it, and may make one for a team they see.
+Whoever sees a factory may save it and rename it, and may make one for a team
+they see or move one there.
 
 | Route | Does |
 | --- | --- |
 | `GET /api/factories` | the factories the caller sees |
 | `POST /api/factories` `{"name","teamId"}` | make a blank factory, owned by the team: its first version holds no files |
 | `GET /api/factories/{factoryId}` | the factory, and its latest version with its files |
+| `PATCH /api/factories/{factoryId}` `{"name"?,"teamId"?}` | rename it, move it to another team, or both at once |
 | `GET /api/factories/{factoryId}/versions/{version}` | one version, an earlier one or the latest |
 | `POST /api/factories/{factoryId}/versions` `{"baseVersion","files"}` | save the files as the next version |
 

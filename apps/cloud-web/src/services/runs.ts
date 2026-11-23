@@ -2,7 +2,14 @@ import type { CellRefusal } from '../domain/cell';
 import type { paths } from '../domain/cellApiContract';
 import type { RunFilters } from '../domain/runFilters';
 import type { MembersAnswer, RunAnswer, RunsAnswer } from '../domain/runs';
-import { type CellDeps, codeOf, createCellAccess } from './cell';
+import type { WorkspaceMember } from '../domain/teams';
+import {
+  type CellDeps,
+  type CellSession,
+  codeOf,
+  createCellSession,
+  pageCellSession,
+} from './cell';
 
 /*
  * A workspace's runs, from its regional cell, reached through `cell.ts` as Teams reaches its
@@ -87,8 +94,19 @@ export type RunsService = {
  * The runs service, holding the token it last minted. The page uses `runsService`; a test builds
  * its own with `cloud-global`'s client and the cell's `fetch` stood in for, as Teams' does.
  */
-export function createRunsService(deps: CellDeps = {}): RunsService {
-  const { onCell, membersOf } = createCellAccess(deps);
+export function createRunsService(deps: CellDeps & { session?: CellSession } = {}): RunsService {
+  const session = deps.session ?? createCellSession(deps);
+  const { onCell, api } = session;
+
+  /** The workspace's members from `cloud-global`, or why they could not be had. */
+  async function membersOf(): Promise<WorkspaceMember[] | CellRefusal> {
+    const { data, error, response } = await api.GET('/api/me/workspace/members');
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 200 && Array.isArray(data?.members)) return data.members;
+    const code = codeOf(error);
+    if (code === 'no_active_workspace' || code === 'not_a_member') return { kind: 'switched' };
+    return UNAVAILABLE;
+  }
 
   return {
     async loadRuns(workspace, filters, page = {}) {
@@ -140,4 +158,4 @@ export function createRunsService(deps: CellDeps = {}): RunsService {
 }
 
 /** The page's runs service. */
-export const runsService = createRunsService();
+export const runsService = createRunsService({ session: pageCellSession });

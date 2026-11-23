@@ -52,7 +52,7 @@ export function AccountMenu({ user }: { user: Me['user'] }) {
             <span className="account-menu-email">{user.email}</span>
           </DropdownMenu.Label>
           <DropdownMenu.Item disabled={pending} onSelect={() => void run()}>
-            <LogOut size={14} aria-hidden="true" />
+            <LogOut size={16} aria-hidden="true" />
             Sign out
           </DropdownMenu.Item>
         </DropdownMenu.Content>

@@ -36,7 +36,7 @@ export function CopySlug({ slug }: { slug: string }) {
       >
         <span className="slug-value">{slug}</span>
         <span className="slug-icon" aria-hidden="true">
-          {outcome === 'copied' ? <Check key="check" size={11} /> : <Copy key="copy" size={11} />}
+          {outcome === 'copied' ? <Check key="check" size={12} /> : <Copy key="copy" size={12} />}
         </span>
       </button>
       <span className={outcome === 'refused' ? 'slug-refused' : 'sr-only'} role="status">

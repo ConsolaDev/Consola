@@ -56,6 +56,7 @@ import {
   listFactories,
   listRuns,
   listTeams,
+  patchFactory,
   patchTeam,
   postFactory,
   postFactoryVersion,
@@ -1357,6 +1358,104 @@ describe('factories', () => {
     }
   });
 
+  it('are renamed and moved by whoever sees them, to a team they see', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const platform = await makeTeam('Platform');
+    const deploys = await makeFactory('Deploys', team.id);
+    const path = `/api/factories/${deploys.id}`;
+
+    // The member, in General alone, renames it.
+    expect(await ask(patchFactory, path, member, { body: { name: ' Ship it ' } })).toEqual({
+      status: 200,
+      body: { ...deploys, name: 'Ship it' },
+    });
+    // An admin, in General alone too, moves it to Platform and renames it, in one change.
+    expect(
+      await ask(patchFactory, path, admin, {
+        body: { name: 'Platform deploys', teamId: platform.id },
+      }),
+    ).toEqual({
+      status: 200,
+      body: { ...deploys, name: 'Platform deploys', teamId: platform.id },
+    });
+    expect((await ask(getFactory, path, owner)).body).toMatchObject({
+      factory: { name: 'Platform deploys', teamId: platform.id, latestVersion: 1 },
+      version: { version: 1, files: [] },
+    });
+    // Platform owns it now, and General owns nothing.
+    expect(await ask(deleteTeam, `/api/teams/${platform.id}`, owner)).toEqual({
+      status: 409,
+      body: { error: 'owns_factories' },
+    });
+  });
+
+  it('are renamed or moved by a member only while theirs, and only to a team they are in', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const platform = await makeTeam('Platform');
+    const deploys = await makeFactory('Deploys', platform.id);
+    const reviews = await makeFactory('Reviews', team.id);
+    const factoryNotFound = { status: 404, body: { error: 'factory_not_found' } };
+    const teamNotFound = { status: 404, body: { error: 'team_not_found' } };
+
+    // Platform's factory is not the member's: not found, renamed or moved.
+    for (const body of [{ name: 'Mine' }, { teamId: team.id }]) {
+      expect(await ask(patchFactory, `/api/factories/${deploys.id}`, member, { body })).toEqual(
+        factoryNotFound,
+      );
+    }
+    // General's is, but Platform is no team of theirs to move it to.
+    const path = `/api/factories/${reviews.id}`;
+    expect(await ask(patchFactory, path, member, { body: { teamId: platform.id } })).toEqual(
+      teamNotFound,
+    );
+    expect(
+      await ask(patchFactory, path, member, { body: { name: 'Mine', teamId: platform.id } }),
+    ).toEqual(teamNotFound);
+    expect(await ask(patchFactory, path, owner, { body: { teamId: 'no-such-team' } })).toEqual(
+      teamNotFound,
+    );
+    expect((await ask(getFactory, path, owner)).body).toMatchObject({ factory: reviews });
+
+    // Once in Platform, they may move it there.
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+    expect(await ask(patchFactory, path, member, { body: { teamId: platform.id } })).toEqual({
+      status: 200,
+      body: { ...reviews, teamId: platform.id },
+    });
+  });
+
+  it('keep their names unique when renamed, and refuse a change that is none', async () => {
+    await acmeWithMembers();
+    const team = await general();
+    const deploys = await makeFactory('Deploys', team.id);
+    await makeFactory('Reviews', team.id);
+    const path = `/api/factories/${deploys.id}`;
+
+    expect(await ask(patchFactory, path, owner, { body: { name: 'REVIEWS' } })).toEqual({
+      status: 409,
+      body: { error: 'name_taken' },
+    });
+    expect((await ask(patchFactory, path, owner, { body: { name: 'deploys' } })).status).toBe(200);
+    expect(await ask(patchFactory, path, owner, { body: { name: ' ' } })).toEqual({
+      status: 400,
+      body: { error: 'invalid_factory', problems: ['name_missing'] },
+    });
+    for (const body of [{}, { name: 7 }, { teamId: null }, { colour: 'blue' }, [], 'not json']) {
+      expect(await ask(patchFactory, path, owner, { body })).toEqual({
+        status: 400,
+        body: { error: 'invalid_request' },
+      });
+    }
+    expect(
+      await ask(patchFactory, path, owner, {
+        body: JSON.stringify({ name: 'Ship' }),
+        headers: { 'content-type': 'text/plain' },
+      }),
+    ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
+  });
+
   it('refuse a save from a version that is no longer the latest, naming the latest', async () => {
     await acmeWithMembers();
     const deploys = await makeFactory('Deploys', (await general()).id);
@@ -1401,6 +1500,9 @@ describe('factories', () => {
     expect(
       await ask(postFactory, '/api/factories', owner, { body: { name: 'Mine', teamId: 'x' } }),
     ).toEqual(pending);
+    expect(await ask(patchFactory, '/api/factories/x', owner, { body: { name: 'Mine' } })).toEqual(
+      pending,
+    );
   });
 
   it("of another workspace are none of the caller's: not found, never saved", async () => {
@@ -1417,6 +1519,12 @@ describe('factories', () => {
     expect(await factoriesSeenBy(stranger)).toEqual([]);
     expect(await ask(getFactory, `/api/factories/${deploys.id}`, stranger)).toEqual(notFound);
     expect(await saveFiles(deploys.id, stranger, { baseVersion: 1, files: [] })).toEqual(notFound);
+    expect(
+      await ask(patchFactory, `/api/factories/${deploys.id}`, stranger, { body: { name: 'Mine' } }),
+    ).toEqual(notFound);
+    expect((await ask(getFactory, `/api/factories/${deploys.id}`, owner)).body).toMatchObject({
+      factory: deploys,
+    });
   });
 
   it('keep the team that owns them: it is not deleted', async () => {

@@ -99,7 +99,7 @@ export function WorkspaceSwitcher({
                     openSettingsPage(WORKSPACE_SETTINGS_PAGE);
                   }}
                 >
-                  <Settings size={14} aria-hidden="true" />
+                  <Settings size={16} aria-hidden="true" />
                   Workspace settings…
                 </DropdownMenu.Item>
               )}
@@ -118,7 +118,7 @@ export function WorkspaceSwitcher({
                 {workspaces.map((workspace) => (
                   <DropdownMenu.RadioItem key={workspace.id} value={workspace.id}>
                     <span className="icon-slot">
-                      <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={14} />
+                      <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={16} />
                     </span>
                     <span className="switcher-item-name">{workspace.name}</span>
                     <span className="switcher-item-region">{regionName(workspace.region)}</span>
@@ -129,7 +129,7 @@ export function WorkspaceSwitcher({
           )}
           <DropdownMenu.Separator />
           <DropdownMenu.Item onSelect={onCreate}>
-            <Plus size={14} aria-hidden="true" />
+            <Plus size={16} aria-hidden="true" />
             Create workspace…
           </DropdownMenu.Item>
         </DropdownMenu.Content>

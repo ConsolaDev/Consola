@@ -496,6 +496,26 @@ export const NewFactory = z.object({ name: z.string(), teamId: z.string() }).ope
   description: `A name (trimmed, 1 to ${FACTORY_NAME_MAX} characters, no control characters), unique in the workspace whatever its case, and the id of the team that owns it.`,
 });
 
+export const FactoryChange = z
+  .object({
+    name: z
+      .string()
+      .optional()
+      .openapi({
+        description: `Its new name (trimmed, 1 to ${FACTORY_NAME_MAX} characters, no control characters), unique in the workspace whatever its case.`,
+      }),
+    teamId: z
+      .string()
+      .optional()
+      .openapi({ description: 'The id of the team that owns it from now on.' }),
+  })
+  .refine((change) => change.name !== undefined || change.teamId !== undefined)
+  .openapi('FactoryChange', {
+    minProperties: 1,
+    description:
+      'What changes, at least one of the two: both at once is one change, made whole or not at all. Its files and where they come from are not changed here.',
+  });
+
 export const NewFactoryVersion = z
   .object({
     baseVersion: z.number().int().openapi({
@@ -563,6 +583,45 @@ export const getFactory = createRoute({
     200: json(FactoryWithFiles, 'The factory and its latest version.'),
     404: factoryNotFound,
     409: workspacePending,
+    ...tokenFailures,
+  },
+});
+
+export const patchFactory = createRoute({
+  method: 'patch',
+  path: '/api/factories/{factoryId}',
+  summary: 'Rename a factory, or move it to another team',
+  description:
+    'Whoever sees the factory may rename it. Moving it needs the caller to see the team it moves to as well: owners and admins any team, a member a team they are in. Its versions stay as they are.',
+  request: { params: factoryParams, ...body(FactoryChange) },
+  responses: {
+    200: json(Factory, 'The factory, changed.'),
+    400: {
+      content: {
+        'application/json': { schema: z.union([InvalidFactory, failure('invalid_request')]) },
+      },
+      description:
+        'The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one.',
+    },
+    404: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('factory_not_found'), failure('team_not_found')]),
+        },
+      },
+      description:
+        'The caller sees no such factory (`factory_not_found`), or no such team to move it to (`team_not_found`): none, or one a member is not in.',
+    },
+    409: {
+      content: {
+        'application/json': {
+          schema: z.union([failure('name_taken'), failure('workspace_pending')]),
+        },
+      },
+      description:
+        'Another factory of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`).',
+    },
+    415: unsupportedMediaType,
     ...tokenFailures,
   },
 });
@@ -1015,6 +1074,7 @@ export const ROUTES = [
   listFactories,
   postFactory,
   getFactory,
+  patchFactory,
   getFactoryVersion,
   postFactoryVersion,
   listRuns,

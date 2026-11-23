@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
 import {
+  changeFactory,
   createFactory,
   listFactories as listFactoriesUseCase,
   readFactory,
@@ -14,6 +15,7 @@ import {
   getFactory,
   getFactoryVersion,
   listFactories,
+  patchFactory,
   postFactory,
   postFactoryVersion,
 } from './contract.js';
@@ -74,6 +76,30 @@ export function factoryRoutes(
         return c.json(FACTORY_NOT_FOUND, 404);
       case 'workspace-pending':
         return c.json(WORKSPACE_PENDING, 409);
+    }
+  });
+
+  app.openapi(patchFactory, async (c) => {
+    const answer = await changeFactory(
+      teams,
+      factories,
+      c.var.caller,
+      c.req.valid('param').factoryId,
+      c.req.valid('json'),
+    );
+    switch (answer.kind) {
+      case 'changed':
+        return c.json(answer.factory, 200);
+      case 'invalid':
+        return c.json({ error: 'invalid_factory', problems: answer.problems } as const, 400);
+      case 'not-found':
+        return c.json(FACTORY_NOT_FOUND, 404);
+      case 'team-not-found':
+        return c.json({ error: 'team_not_found' } as const, 404);
+      case 'workspace-pending':
+        return c.json(WORKSPACE_PENDING, 409);
+      case 'name-taken':
+        return c.json({ error: 'name_taken' } as const, 409);
     }
   });
 

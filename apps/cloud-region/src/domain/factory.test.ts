@@ -9,6 +9,7 @@ import {
   type Factory,
   type FactoryFile,
   factoriesSeenBy,
+  judgeFactoryChange,
 } from './factory.js';
 import type { Team } from './team.js';
 
@@ -219,21 +220,23 @@ describe('checkFactoryFiles', () => {
   });
 });
 
+const team = (id: string, memberIds: string[]): Team => ({
+  id,
+  name: id,
+  first: false,
+  memberIds,
+});
+
+const factory = (id: string, teamId: string): Factory => ({
+  id,
+  name: id,
+  teamId,
+  source: { kind: 'stored' },
+  latestVersion: 1,
+  updatedAt: '2026-11-22T10:00:00.000Z',
+});
+
 describe('factoriesSeenBy', () => {
-  const team = (id: string, memberIds: string[]): Team => ({
-    id,
-    name: id,
-    first: false,
-    memberIds,
-  });
-  const factory = (id: string, teamId: string): Factory => ({
-    id,
-    name: id,
-    teamId,
-    source: { kind: 'stored' },
-    latestVersion: 1,
-    updatedAt: '2026-11-22T10:00:00.000Z',
-  });
   const teams = [team('platform', ['person-fay']), team('apps', ['person-gus'])];
   const factories = [factory('deploys', 'platform'), factory('reviews', 'apps')];
 
@@ -250,5 +253,44 @@ describe('factoriesSeenBy', () => {
     expect(factoriesSeenBy(fay, teams, factories)).toEqual([factories[0]]);
     const nobody = { personId: 'person-hal', role: 'member' } as const;
     expect(factoriesSeenBy(nobody, teams, factories)).toEqual([]);
+  });
+});
+
+describe('judgeFactoryChange', () => {
+  const deploys = factory('deploys', 'platform');
+  // Fay is in Platform and General; Gus in Apps and General.
+  const withGeneral = [
+    team('general', ['person-fay', 'person-gus']),
+    team('platform', ['person-fay']),
+    team('apps', ['person-gus']),
+  ];
+  const fay = { personId: 'person-fay', role: 'member' } as const;
+  const gus = { personId: 'person-gus', role: 'member' } as const;
+
+  it('lets whoever sees a factory rename it, and no one else', () => {
+    expect(judgeFactoryChange(fay, withGeneral, deploys, { name: 'Ship' })).toBe('allowed');
+    expect(judgeFactoryChange(gus, withGeneral, deploys, { name: 'Ship' })).toBe('not-found');
+  });
+
+  it('lets a member move a factory they see only to a team they are in', () => {
+    expect(judgeFactoryChange(fay, withGeneral, deploys, { teamId: 'general' })).toBe('allowed');
+    expect(judgeFactoryChange(fay, withGeneral, deploys, { teamId: 'apps' })).toBe(
+      'team-not-found',
+    );
+    expect(judgeFactoryChange(fay, withGeneral, deploys, { teamId: 'no-such-team' })).toBe(
+      'team-not-found',
+    );
+    // Not their factory: not found, whatever team it would go to.
+    expect(judgeFactoryChange(gus, withGeneral, deploys, { teamId: 'apps' })).toBe('not-found');
+  });
+
+  it('lets owners and admins move any factory to any team of the workspace', () => {
+    for (const role of ['owner', 'admin'] as const) {
+      const person = { personId: 'person-dana', role };
+      expect(judgeFactoryChange(person, withGeneral, deploys, { teamId: 'apps' })).toBe('allowed');
+      expect(
+        judgeFactoryChange(person, withGeneral, deploys, { name: 'Ship', teamId: 'nope' }),
+      ).toBe('team-not-found');
+    }
   });
 });

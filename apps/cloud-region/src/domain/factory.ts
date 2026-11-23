@@ -24,8 +24,8 @@ import { type Team, teamsSeenBy } from './team.js';
  *
  * Who sees a factory follows its team (decided 2026-11-21): a person sees the factories of the
  * teams they see (`teamsSeenBy`), so owners and admins see every factory and a member the
- * factories of the teams they are in. Whoever sees a factory may save its files, and may make one
- * for any team they see.
+ * factories of the teams they are in. Whoever sees a factory may save its files and rename it, and
+ * may make one for any team they see, or move one they see to it.
  */
 
 /** Where a factory's files come from. Only stored here, for now; a repo's comes with 9.4. */
@@ -245,6 +245,27 @@ export function factoriesSeenBy(
 ): Factory[] {
   const seen = new Set(teamsSeenBy(person, teams).map((team) => team.id));
   return factories.filter((factory) => seen.has(factory.teamId));
+}
+
+/** A change to a factory: a new name, a new owning team, or both. What it leaves out stays. */
+export type FactoryChange = { readonly name?: string; readonly teamId?: string };
+
+/**
+ * Whether a person may make a change to a factory, as making one is judged: they must see the
+ * factory (`not-found` when not, so a member learns nothing of another team's), and a move must
+ * be to a team they see as well (`team-not-found` when not), so owners and admins may move it to
+ * any team and a member only to a team they are in. Whoever sees a factory may rename it.
+ */
+export function judgeFactoryChange(
+  person: { personId: string; role: WorkspaceRole },
+  teams: readonly Team[],
+  factory: Factory,
+  change: FactoryChange,
+): 'allowed' | 'not-found' | 'team-not-found' {
+  const seen = new Set(teamsSeenBy(person, teams).map((team) => team.id));
+  if (!seen.has(factory.teamId)) return 'not-found';
+  if (change.teamId !== undefined && !seen.has(change.teamId)) return 'team-not-found';
+  return 'allowed';
 }
 
 /**

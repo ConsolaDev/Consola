@@ -127,6 +127,36 @@ export function createFactoryStore(db: Database): FactoryStore {
       }
     },
 
+    async change(workspaceId, factoryId, { name, teamId }) {
+      const set = {
+        ...(name === undefined ? {} : { name }),
+        ...(teamId === undefined ? {} : { teamId }),
+      };
+      try {
+        return await db.transaction(async (tx) => {
+          // One statement, so a rename and a move land together or not at all. A move is checked
+          // by the factory's foreign key to its team, which holds the team's row (`for key
+          // share`) until the transaction ends: a delete of that team in between waits for it,
+          // then finds the team owns a factory; one made first leaves no team to move to.
+          if (Object.keys(set).length > 0) {
+            const changed = await tx
+              .update(factories)
+              .set(set)
+              .where(inFactory(workspaceId, factoryId))
+              .returning({ id: factories.factoryId });
+            if (changed.length === 0) return 'not-found' as const;
+          }
+          const [factory] = await readFactories(tx, workspaceId, factoryId);
+          return factory ?? ('not-found' as const);
+        });
+      } catch (error) {
+        if (failedWith(error, UNIQUE_VIOLATION)) return 'name-taken';
+        // The only key a change can break is the one to its team: the factory's own stays.
+        if (failedWith(error, FOREIGN_KEY_VIOLATION)) return 'team-not-found';
+        throw error;
+      }
+    },
+
     version(workspaceId, factoryId, version) {
       return readVersion(db, workspaceId, factoryId, version);
     },
