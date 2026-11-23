@@ -1,0 +1,98 @@
+/* Where a factory's files come from: a choice drawn as the create workspace form draws its
+   regions, one source to a tile. What comes later is dashed, and never chosen. Every class here
+   is `factories-source*`, beside `factories-later`. */
+
+/* A legend is not a flex item, so the fieldset spaces its parts with margins. */
+.factories-sources {
+  display: block;
+}
+
+.factories-sources .label {
+  margin-bottom: 6px;
+}
+
+.factories-sources .hint {
+  margin-top: 6px;
+}
+
+.factories-source-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.factories-source {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+}
+
+.factories-source:has(input:checked) {
+  border-color: var(--cyan);
+  background: var(--cyan-muted);
+}
+
+.factories-source[data-unavailable] {
+  border-style: dashed;
+  color: var(--text-2);
+}
+
+.factories-source:has(input:focus-visible) {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.factories-source input {
+  margin: 3px 0 0;
+  accent-color: var(--cyan);
+}
+
+.factories-source input:focus-visible {
+  outline: none;
+}
+
+.factories-source-mark {
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--text-2);
+}
+
+.factories-source[data-unavailable] .factories-source-mark {
+  opacity: 0.6;
+}
+
+.factories-source-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.factories-source-name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.factories-source-description {
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+/* Settings' chip: what comes later. A literal radius: Radix's is 0 inside its theme. */
+.factories-later {
+  padding: 0 7px;
+  border: 1px solid var(--gray-a6);
+  border-radius: 999px;
+  color: var(--gray-a10);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 17px;
+}

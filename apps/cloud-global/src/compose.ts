@@ -1,11 +1,14 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { type CloudAuth, createAuth, currentSessionOf } from './adapters/auth/betterAuth.js';
+import { createCellRequestVerifier } from './adapters/cellToken/cellRequestVerifier.js';
 import { createCellTokenSigner } from './adapters/cellToken/cellTokenSigner.js';
 import { createGitHubApp, loadGitHubAppKey } from './adapters/github/gitHubApp.js';
 import { createInstallStateSigner } from './adapters/github/installStateSigner.js';
+import { createWebhookSignatures } from './adapters/github/webhookSignatures.js';
 import { createApp } from './adapters/http/app.js';
 import { createCellDelivery } from './adapters/outbox/cellDelivery.js';
+import { createCellEventDelivery } from './adapters/outbox/eventDelivery.js';
 import { createOutboxWorker, type OutboxWorker } from './adapters/outbox/outboxWorker.js';
 import type { Database } from './adapters/persistence/database.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
@@ -65,6 +68,15 @@ export async function composeApi(
     github,
     installStates: createInstallStateSigner(config.authSecret),
     health: stores.health,
+    cellRequests: await createCellRequestVerifier(config.cellPublicKeys),
+    tokenMints: stores.tokenMints,
+    webhooks: {
+      signatures: config.githubWebhookSecret
+        ? createWebhookSignatures(config.githubWebhookSecret)
+        : null,
+      signer,
+      cells: createCellEventDelivery({ cellUrls: config.cellUrls }),
+    },
   });
 
   return { app, auth, outbox };

@@ -1,0 +1,211 @@
+/* Settings → General, after the desktop's General page (`WorkspaceSettings/styles.css`, "Manifest"
+   and "ws-icon-*"): the workspace's icon in a tile beside its name, over a row of its facts in
+   the monospace face, and the icon picker that opens from the tile. Sizes are the desktop's. */
+
+.general-manifest {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.general-manifest-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.general-manifest-name {
+  margin: 0;
+  overflow: hidden;
+  color: var(--gray-12);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The desktop's fact row: its parts set apart by a dot of their own, never by a typed one. */
+.general-manifest-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin: 0;
+  color: var(--gray-a10);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.general-manifest-facts > span + span::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 3px;
+  margin: 0 8px;
+  border-radius: 50%;
+  background: currentColor;
+  vertical-align: middle;
+  opacity: 0.6;
+}
+
+.general .settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---- The icon's tile, and the picker it opens ---- */
+
+.icon-picker-tile {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--gray-a5);
+  border-radius: 6px;
+  background: var(--gray-2);
+  color: var(--gray-a11);
+}
+
+button.icon-picker-tile {
+  cursor: pointer;
+  transition:
+    background 120ms ease,
+    border-color 120ms ease;
+}
+
+button.icon-picker-tile:hover,
+button.icon-picker-tile[data-state="open"] {
+  border-color: var(--gray-a7);
+  background: var(--gray-a3);
+}
+
+button.icon-picker-tile:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 2px;
+}
+
+/* A new icon arrives with a small pop: the answer to the person's pick. */
+.icon-picker-tile .workspace-icon {
+  animation: icon-arrive 320ms var(--ease-out-expo);
+}
+
+@keyframes icon-arrive {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+.icon-picker {
+  box-sizing: border-box;
+  width: 320px;
+  max-width: calc(100vw - 24px);
+  padding: 12px;
+  font-size: var(--font-size-md);
+}
+
+.icon-picker-search {
+  box-sizing: border-box;
+  width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 6px;
+  background: var(--color-background);
+  color: var(--gray-12);
+  font: inherit;
+}
+
+.icon-picker-search::placeholder {
+  color: var(--gray-a9);
+}
+
+.icon-picker-search:focus {
+  border-color: var(--accent-8);
+  outline: none;
+}
+
+.icon-picker .rt-TabsList {
+  margin: 8px 0;
+}
+
+.icon-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+  max-height: 208px;
+  overflow-y: auto;
+}
+
+.icon-picker-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 40px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--gray-12);
+  cursor: pointer;
+  transition: background 100ms ease;
+}
+
+.icon-picker-choice:hover:not(:disabled) {
+  background: var(--gray-a3);
+}
+
+.icon-picker-choice[aria-pressed="true"] {
+  border-color: var(--accent-8);
+  background: var(--gray-a3);
+}
+
+.icon-picker-choice:focus-visible,
+.icon-picker-reset:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 1px;
+}
+
+.icon-picker-choice:disabled,
+.icon-picker-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.icon-picker-empty,
+.icon-picker-error {
+  margin: 0;
+  padding: 8px 2px;
+  color: var(--gray-a10);
+}
+
+.icon-picker-error {
+  color: var(--red-11);
+}
+
+.icon-picker-reset {
+  width: 100%;
+  margin-top: 8px;
+  padding: 8px 2px 0;
+  border: none;
+  border-top: 1px solid var(--gray-a5);
+  background: none;
+  color: var(--gray-a11);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.icon-picker-reset:hover:not(:disabled) {
+  color: var(--gray-12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .icon-picker-tile .workspace-icon {
+    animation: none;
+  }
+}

@@ -33,6 +33,11 @@ export interface ContractSubject {
   readonly provider: SandboxProvider;
   /** A template whose sandboxes have `CONTRACT_PROGRAMS` and a writable /tmp. */
   readonly template: string;
+  /**
+   * Lets `seconds` of the provider's time pass, for the checks about lifetimes: a real
+   * provider's subject waits that long, the fake's moves the fake's clock (`elapse`).
+   */
+  readonly elapse: (seconds: number) => Promise<void>;
 }
 
 export interface ContractCheck {
@@ -46,30 +51,41 @@ export interface ContractCheck {
 /** Where checks keep the files they write. */
 const DIR = '/tmp/consola-contract';
 
+/**
+ * The lifetime the lifetime checks give a sandbox, and how long they then let pass for it to
+ * run out: long enough for a real provider to start a sandbox and use it before then, and to
+ * stop it on time after. A provider is held to stopping it within the margin between the two.
+ */
+const LIFETIME = 10;
+const PAST_LIFETIME = 15;
+
 interface Scene {
   readonly sandboxes: Sandboxes;
   readonly template: string;
+  readonly elapse: ContractSubject['elapse'];
   /** A second sandbox of the same template, stopped when `use` settles. */
   another(use: (sandbox: Sandbox) => Promise<void>): Promise<void>;
 }
 
-/** A check that runs `body` in a fresh sandbox, created with `env`. */
+/** A check that runs `body` in a fresh sandbox, created with `options`. */
 function inSandbox(
   body: (sandbox: Sandbox, scene: Scene) => Promise<void>,
-  env?: CreateSandboxOptions['env'],
+  options: Omit<CreateSandboxOptions, 'template'> = {},
 ): ContractCheck['run'] {
-  return async ({ provider, template }) => {
+  return async ({ provider, template, elapse }) => {
     const sandboxes = sandboxesFrom(provider);
     const scene: Scene = {
       sandboxes,
       template,
+      elapse,
       another: (use) => sandboxes.withSandbox({ template }, use),
     };
-    await sandboxes.withSandbox({ template, env }, (sandbox) => body(sandbox, scene));
+    await sandboxes.withSandbox({ template, ...options }, (sandbox) => body(sandbox, scene));
   };
 }
 
 const MISSING_FILE = `${DIR}/no-such-file`;
+const NO_SUCH_SANDBOX = 'consola-contract-no-such-sandbox';
 
 export const sandboxContract: readonly ContractCheck[] = [
   {
@@ -178,7 +194,12 @@ export const sandboxContract: readonly ContractCheck[] = [
         same(after.stdout, 'from the sandbox\n', "The next command's variables");
         same(after.exitCode, 1, "printenv's exit code, once the command's own variable is gone");
       },
-      { CONSOLA_CONTRACT_SANDBOX: 'from the sandbox', CONSOLA_CONTRACT_BOTH: 'from the sandbox' },
+      {
+        env: {
+          CONSOLA_CONTRACT_SANDBOX: 'from the sandbox',
+          CONSOLA_CONTRACT_BOTH: 'from the sandbox',
+        },
+      },
     ),
   },
   {
@@ -342,6 +363,107 @@ export const sandboxContract: readonly ContractCheck[] = [
     },
   },
   {
+    name: 'stops a sandbox on its own once its lifetime runs out, ending its commands',
+    run: inSandbox(
+      async (sandbox, { sandboxes, elapse }) => {
+        const sleeping = await sandbox.start({ argv: ['sleep', '600'] });
+        await elapse(PAST_LIFETIME);
+        // Asked before waiting: a sandbox that outlived its lifetime would keep `sleep` running.
+        await rejectsWith(
+          () => sandbox.run({ argv: ['true'] }),
+          'not-running',
+          'A sandbox whose lifetime ran out, asked to run',
+        );
+        await rejectsWith(
+          () => sandboxes.attach(sandbox.id),
+          'not-found',
+          'Attaching to a sandbox whose lifetime ran out',
+        );
+        same((await sleeping.wait()).exitCode, null, 'A command running when its lifetime ran out');
+      },
+      { lifetimeSeconds: LIFETIME },
+    ),
+  },
+  {
+    name: 'attaches to a running sandbox by its id, and leaves its lifetime as it was',
+    run: inSandbox(
+      async (sandbox, { sandboxes, elapse }) => {
+        await sandbox.writeFile(`${DIR}/attached.txt`, 'attached\n');
+        const attached = await sandboxes.attach(sandbox.id);
+        same(attached.id, sandbox.id, 'The id of the sandbox attached to');
+        same(
+          await attached.readTextFile(`${DIR}/attached.txt`),
+          'attached\n',
+          'A file read through the attached handle',
+        );
+        same(
+          (await attached.run({ argv: ['printf', 'here'] })).stdout,
+          'here',
+          'A command run through the attached handle',
+        );
+        await elapse(PAST_LIFETIME);
+        await rejectsWith(
+          () => attached.run({ argv: ['true'] }),
+          'not-running',
+          'An attached sandbox once the lifetime it was created with ran out',
+        );
+      },
+      { lifetimeSeconds: LIFETIME },
+    ),
+  },
+  {
+    name: 'refuses to attach to a sandbox that is not there, or has stopped, as not-found',
+    run: async ({ provider, template }) => {
+      const sandboxes = sandboxesFrom(provider);
+      await rejectsWith(
+        () => sandboxes.attach(NO_SUCH_SANDBOX),
+        'not-found',
+        'Attaching to a sandbox that does not exist',
+      );
+      const stopped = await sandboxes.create({ template });
+      await stopped.stop();
+      await rejectsWith(
+        async () => {
+          const attached = await sandboxes.attach(stopped.id);
+          await attached.stop();
+        },
+        'not-found',
+        'Attaching to a sandbox that has stopped',
+      );
+    },
+  },
+  {
+    name: 'stops a sandbox by its id from anywhere, ending its commands, however often asked',
+    run: async ({ provider, template }) => {
+      const sandboxes = sandboxesFrom(provider);
+      const sandbox = await sandboxes.create({ template });
+      try {
+        const sleeping = await sandbox.start({ argv: ['sleep', '600'] });
+        await sandboxes.stop(sandbox.id);
+        // Asked before waiting: a sandbox left running would keep `sleep` running.
+        await rejectsWith(
+          () => sandbox.run({ argv: ['true'] }),
+          'not-running',
+          'A sandbox stopped by its id, asked to run through a handle on it',
+        );
+        await rejectsWith(
+          () => sandboxes.attach(sandbox.id),
+          'not-found',
+          'Attaching to a sandbox stopped by its id',
+        );
+        same(
+          (await sleeping.wait()).exitCode,
+          null,
+          'A command running when its sandbox was stopped by its id',
+        );
+        await sandboxes.stop(sandbox.id);
+        await sandboxes.stop(NO_SUCH_SANDBOX);
+      } finally {
+        await sandbox.stop();
+      }
+    },
+  },
+  {
     name: 'pauses a sandbox, and resumes it by its id with its files',
     needs: 'pausing',
     run: inSandbox(async (sandbox, { sandboxes }) => {
@@ -428,5 +550,34 @@ export const sandboxContract: readonly ContractCheck[] = [
       );
       await snapshots.remove(template);
     }),
+  },
+  {
+    name: "renews a sandbox's lifetime from now, longer or shorter, until it has run out",
+    needs: 'keepAlive',
+    run: inSandbox(
+      async (sandbox, { sandboxes, elapse }) => {
+        const keepAlive = requireCapability(sandboxes, 'keepAlive');
+        await keepAlive.renew(sandbox, LIFETIME * 6);
+        await elapse(PAST_LIFETIME);
+        same(
+          (await sandbox.run({ argv: ['printf', 'alive'] })).stdout,
+          'alive',
+          'A sandbox renewed past the lifetime it was created with',
+        );
+        await keepAlive.renew(sandbox, LIFETIME);
+        await elapse(PAST_LIFETIME);
+        await rejectsWith(
+          () => sandbox.run({ argv: ['true'] }),
+          'not-running',
+          'A sandbox renewed for less, once that ran out',
+        );
+        await rejectsWith(
+          () => keepAlive.renew(sandbox, LIFETIME),
+          'not-running',
+          'Renewing a sandbox whose lifetime ran out',
+        );
+      },
+      { lifetimeSeconds: LIFETIME },
+    ),
   },
 ];

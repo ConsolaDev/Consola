@@ -43,13 +43,21 @@ export function placeMessage(sequence: number, lastApplied: number | null): Plac
  * copy that differs from `cloud-global`'s records (a member already there, or missing) ends up
  * where `cloud-global` is rather than refusing the message, which `cloud-global` would send
  * again and again while its workspace's later messages wait.
+ *
+ * Each also keeps the workspace's teams true to it (`team.ts`), in the same transaction.
  */
 export type CopyChange =
-  /** The copy starts holding the workspace, with no members. */
+  /** The copy starts holding the workspace, with no members, and with its first team. */
   | { kind: 'open-workspace' }
-  /** The person is a member with `role`: added if they are not one, their role set if they are. */
+  /**
+   * The person is a member with `role`: added if they are not one, their role set if they are.
+   * A person added joins the workspace's first team; one already a member keeps their teams.
+   */
   | { kind: 'put-member'; personId: string; role: WorkspaceRole }
-  /** The person is not a member: removed if they are one, and nothing changes if not. */
+  /**
+   * The person is not a member: removed if they are one, leaving every team of the workspace,
+   * and nothing changes if not.
+   */
   | { kind: 'drop-member'; personId: string };
 
 /**

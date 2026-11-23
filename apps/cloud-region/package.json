@@ -11,12 +11,15 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
+    "openapi:generate": "vitest run src/adapters/http/openapi.test.ts --update",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@consola/cloud-contract": "workspace:*",
+    "@consola/factory-spec": "workspace:*",
     "@electric-sql/pglite": "^0.5.17",
     "@hono/node-server": "^2.1.11",
+    "@hono/zod-openapi": "^1.6.3",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.19",
     "jose": "^6.2.10",

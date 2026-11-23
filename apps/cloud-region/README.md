@@ -7,9 +7,12 @@ cloud sessions need. Accounts are not here: they are global, in
 `apps/cloud-global`, and the cell refers to a person by their global id.
 
 Today the cell keeps a copy of each workspace in its region and its members
-(ids and roles only), from `cloud-global`'s outbox. It answers a health route
-to anyone, takes the outbox's signed deliveries, and answers everything else
-only with a cell token `cloud-global` minted.
+(ids and roles only), from `cloud-global`'s outbox, the workspace's teams, its
+factories with their files, versioned, and the GitHub events
+`cloud-global` passes on for it. It answers a health route to anyone, takes
+the outbox's and the GitHub events' signed deliveries, and
+answers everything else only with a cell token `cloud-global` minted. Every
+route is in `openapi.json`, generated from the routes themselves.
 
 ## Run
 
@@ -68,19 +71,87 @@ messages once, in order:
 
 What the cell keeps is in the `workspace` and `workspace_member` tables.
 
+## GitHub's events
+
+`cloud-global` receives the GitHub App's webhooks, checks GitHub's signature,
+finds the workspace that holds the event's installation and passes the event
+on to that workspace's cell at `POST /api/github/events`, one a request, with
+no cell token: like an outbox delivery, the body is the event signed with the
+cell token's key (`packages/cloud-contract`, "Passing on a GitHub event"). The
+cell records each delivery once, by GitHub's id of it, in the `github_event`
+table, the payload as GitHub sent it, for the workspace's runners and triggers
+to read later:
+
+| Answer | When |
+| --- | --- |
+| 201 | recorded now |
+| 200 | recorded before: a delivery sent again changes nothing |
+| 400 | not `application/jose`, over 36 MiB, or no event the contract reads |
+| 401 | not signed by `cloud-global` as an event |
+| 409 | the outbox has not delivered the workspace's creation yet |
+| 421 | a workspace in another region |
+| 503 | the keys or the database cannot be had |
+
+## Teams
+
+Every workspace starts with one team, **General**, made as the cell applies
+the workspace's creation; everyone who joins the workspace joins it, and
+someone who leaves the workspace leaves every team. Owners and admins manage
+teams; a member sees the teams they are in. All of these take a cell token for
+the workspace, and act on that workspace alone:
+
+| Route | Does |
+| --- | --- |
+| `GET /api/teams` | the teams the caller sees, and whether they may manage them (`canManage`) |
+| `POST /api/teams` `{"name"}` | make a team, with nobody in it |
+| `PATCH /api/teams/{teamId}` `{"name"}` | rename one, General included |
+| `DELETE /api/teams/{teamId}` | delete one; General, and a team that owns a factory, are never deleted (409) |
+| `PUT /api/teams/{teamId}/members/{personId}` | add a member of the workspace, by global id |
+| `DELETE /api/teams/{teamId}/members/{personId}` | take a person out |
+
+Names are unique in a workspace whatever their case. Until `cloud-global`'s
+outbox has delivered the workspace's creation, every one of them is 409
+`workspace_pending`. The tables are `team` and `team_member`.
+
+## Factories
+
+A factory belongs to a team, and holds the files of a factory folder in the
+format `packages/factory-spec` defines (`factory.yml`, `automations/`,
+`agents/`, `skills/`). Each save is a new version, and every earlier version
+stays readable. Owners and admins see every factory; a member sees the
+factories of the teams they are in, and a factory they do not see is 404.
+Whoever sees a factory may save it and rename it, and may make one for a team
+they see or move one there.
+
+| Route | Does |
+| --- | --- |
+| `GET /api/factories` | the factories the caller sees |
+| `POST /api/factories` `{"name","teamId"}` | make a blank factory, owned by the team: its first version holds no files |
+| `GET /api/factories/{factoryId}` | the factory, and its latest version with its files |
+| `PATCH /api/factories/{factoryId}` `{"name"?,"teamId"?}` | rename it, move it to another team, or both at once |
+| `GET /api/factories/{factoryId}/versions/{version}` | one version, an earlier one or the latest |
+| `POST /api/factories/{factoryId}/versions` `{"baseVersion","files"}` | save the files as the next version |
+
+A save is refused with every problem the factory schema finds, each naming its
+file (400 `invalid_files`), and when `baseVersion` is no longer the latest
+(409 `version_moved`, with the latest). The tables are `factory`,
+`factory_version` and `factory_file`.
+
 By default the data is PGlite (Postgres in-process) in
 `apps/cloud-region/.data/cell-eu-db`. Deleting that folder resets it.
 
-## The shared contract
+## The shared packages
 
-The cell imports `@consola/cloud-contract` (`packages/cloud-contract`), what
-`cloud-global` and the cells agree on, from its build. `pnpm dev:cloud-region`
-and `pnpm test` build it first. A `pnpm --filter @consola/cloud-region …`
-command does not, so build it before the first such command, and again after
-changing it:
+The cell imports two of the workspace's packages from their builds:
+`@consola/cloud-contract` (`packages/cloud-contract`), what `cloud-global` and
+the cells agree on, and `@consola/factory-spec` (`packages/factory-spec`), the
+factory files' schema. `pnpm dev:cloud-region` and `pnpm test` build them
+first. A `pnpm --filter @consola/cloud-region …` command does not, so build
+them before the first such command, and again after changing one:
 
 ```bash
 pnpm --filter @consola/cloud-contract build
+pnpm --filter @consola/factory-spec build
 ```
 
 ## Two cells on one machine

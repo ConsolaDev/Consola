@@ -12,15 +12,18 @@ drive sandboxes, so the provider behind it can change without touching the
 code that uses it. E2B is the first real provider; Modal, or Consola's own
 sandboxes, can follow. A sandbox can be:
 
-- created from a template (or image, in the provider's naming);
+- created from a template (or image, in the provider's naming), with a
+  lifetime;
 - asked to run a command, with its output streamed;
 - read from and written to;
 - asked to expose a port;
-- stopped.
+- stopped;
+- reached again by its id, from any process, to use it or stop it.
 
-Anything more is a capability a provider declares (`pausing`, `snapshots`).
-Beside the interface sit the contract every provider passes and an in-memory
-fake provider for other packages' tests.
+Anything more is a capability a provider declares (`pausing`, `snapshots`,
+`keepAlive`). Beside the interface sit the contract every provider passes,
+an in-memory fake provider for other packages' tests, and the E2B provider
+(`@consola/sandbox/e2b`).
 
 ## Using it
 
@@ -40,6 +43,17 @@ fake provider for other packages' tests.
 - A command is an argv, and no shell reads it. To run a script, name the shell
   (`['sh', '-c', script]`). Values that come from outside (an item, a branch
   name) go in as variables (`env`), never spliced into a script.
+- A sandbox lives at most `lifetimeSeconds` (on `create`), then the provider
+  stops it, whoever holds it. Nothing else lengthens it, attaching included.
+  That lifetime is what stops a sandbox whose runner died, so work that runs
+  for long sets a short one and renews it (`keepAlive.renew`) well before it
+  runs out, for as long as the runner is alive. Without one the provider's
+  default applies: five minutes on E2B, no limit in the fake.
+- A runner that restarted reaches what it left by id: `attach(id)` for a
+  handle (`not-found` once it stopped), `stop(id)` to end it (stopping one
+  that is gone does nothing). Keep the ids somewhere that survives the
+  runner. A handle is not told of a stop by id; where there is one, stop
+  through it.
 - Check a capability by its member (`if (sandboxes.pausing)`), or take it with
   `requireCapability(sandboxes, 'pausing')` where the work cannot go on
   without it. Never branch on which provider it is: a provider has no name or
@@ -50,12 +64,14 @@ fake provider for other packages' tests.
   capabilities, failCreate })`, then `sandboxesFrom(fake)`. A command runs the
   program registered under `argv[0]` (any other exits 127), so a test decides
   what each command prints and when it ends. A program that runs until stopped
-  awaits `child.killed`, since the fake keeps no clock. The fake checks no
+  awaits `child.killed`. The fake keeps no real clock: its time moves only by
+  `fake.elapse(seconds)`, which stops each running sandbox whose lifetime ran
+  out (a paused one does not age). The fake checks no
   command's folder (folders are only the paths of files), where a real
   provider fails a command whose folder is not there. `fake.sandboxes` says
-  what was asked of it: each sandbox's template, variables, state, commands
-  and exposed ports, and its files. `POSIX_PROGRAMS` holds stand-ins for the
-  few POSIX tools the contract runs.
+  what was asked of it: each sandbox's template, variables, state, lifetime
+  and `remainingSeconds`, commands and exposed ports, and its files.
+  `POSIX_PROGRAMS` holds stand-ins for the few POSIX tools the contract runs.
 
 ## The layers
 
@@ -75,7 +91,10 @@ The package is built in rings, and imports point inward only.
 - `src/providers/fake/` holds the in-memory provider and `POSIX_PROGRAMS`.
 - `src/index.ts` is the entry point. It holds only `export … from`.
 - A real provider lives in `src/providers/<name>/`, with an entry point of its
-  own, `src/<name>.ts` (see below).
+  own, `src/<name>.ts` (see below). E2B's is `src/providers/e2b/` and
+  `src/e2b.ts`, which `package.json` exports as `@consola/sandbox/e2b`.
+- `templates/<name>/` holds a template, as a `Dockerfile` (see "The E2B
+  provider"). `scripts/` holds what builds them. Neither is in `src/`.
 
 ## The dependency rule
 
@@ -118,11 +137,11 @@ its top (`LAYERS`), so a new folder is added there first.
    `application` and itself, refusing nothing, no globals refused) and its
    entry point.
 2. **Its entry point.** Export it from `src/<name>.ts`, which only
-   re-exports the folder. `package.json` has only `main` and `types` so
-   far: give it an `exports` map with `.` (`./dist/index.js`) and
-   `./<name>` (`./dist/<name>.js`). Never export it from `src/index.ts`:
-   code that only needs the interface, or the fake, must not load the SDK.
-   Check that both an ESM (NodeNext) and a CommonJS consumer resolve it.
+   re-exports the folder, and add `./<name>` (`./dist/<name>.js`, its types
+   beside it) to the `exports` map in `package.json`. Never export it from
+   `src/index.ts`: code that only needs the interface, or the fake, must not
+   load the SDK. Check that both an ESM (NodeNext) and a CommonJS consumer
+   resolve it.
 3. **Implement the port** (`SandboxProvider` in `src/application/ports.ts`).
    A provider translates and decides nothing: `sandboxesFrom` has already
    checked the request. What the contract holds it to, and what providers
@@ -147,21 +166,72 @@ its top (`LAYERS`), so a new folder is added there first.
      token in a message;
    - `exposePort` returns an http or https address: the same one each time
      for a port, a different one for each port and each sandbox.
+   - a lifetime is a hard maximum: the provider stops the sandbox once it
+     runs out, and `attach` never lengthens it (an SDK whose "connect"
+     extends a timeout, as E2B's does, needs telling not to);
+   - `attach` refuses a sandbox that stopped or never was as `not-found`,
+     and `stop(id)` does nothing for one;
    - Credentials come from configuration, handed to the provider's
      constructor where the program wires itself together. They are never
      committed, and never reach the core.
 4. **Declare capabilities by implementing them.** A capability is its member
-   (`pausing`, `snapshots`) and nothing else: no flag, no name. `pausing`
-   keeps a sandbox's files and resumes it by its id from any process;
-   `snapshots` returns a template name that `create` accepts, and removes
-   it again, so the contract leaves no template behind.
+   (`pausing`, `snapshots`, `keepAlive`) and nothing else: no flag, no name.
+   `pausing` keeps a sandbox's files and resumes it by its id from any
+   process; `snapshots` returns a template name that `create` accepts, and
+   removes it again, so the contract leaves no template behind; `keepAlive`
+   gives a running sandbox a lifetime from now, shorter or longer.
 5. **Pass the contract.** Add the provider to `PROVIDERS` in
    `src/contract.test.ts`, with `skipped` saying why when the variable that
    holds its credentials is unset (`E2B_API_KEY`, say), so a run without
-   them, such as CI's, skips it rather than failing. Its template needs the
-   programs in `CONTRACT_PROGRAMS` and a writable `/tmp`. Every check stops
-   the sandboxes it starts, but real sandboxes are slow to start: give the
-   suite a timeout to match.
+   them, such as CI's, skips it, and says so, rather than failing. Its
+   subject's `elapse` waits real seconds. Its template needs the programs in
+   `CONTRACT_PROGRAMS` and a writable `/tmp`. Every check stops the
+   sandboxes it starts, but real sandboxes are slow to start, and the
+   lifetime checks wait a lifetime out: give the suite a timeout to match.
+
+## The E2B provider
+
+`new E2BProvider({ apiKey })`, from `@consola/sandbox/e2b`, on Consola's own
+E2B account. Users never see E2B. The SDK (`e2b`) is pinned exactly; a bump
+reruns the live contract.
+
+- **Commands.** E2B runs a command line through a shell it is given, adding
+  the line as the shell's last argument. The provider gives it
+  `/bin/sh -c 'exec "$@"' sh <argv but the last>` and the last argument as
+  the line (`commandLine.ts`), so no argument is parsed or quoted, a missing
+  program exits 127, and a kill reaches the program itself. It is not E2B's
+  default login shell: a login profile rewrites `PATH` over the command's
+  own variables. So a template puts its programs where the default `PATH`
+  finds them, or sets `PATH` with `ENV`, never in a profile. Commands have
+  no time limit (E2B's default is a minute) and E2B keeps none of their
+  output.
+- **Lifetimes.** A lifetime is E2B's timeout, created with `onTimeout:
+  'kill'`, so a sandbox whose runner died is killed, never paused and kept.
+  `keepAlive.renew` is E2B's `setTimeout`, from now. `attach` asks E2B's
+  `getInfo` first (a paused sandbox is refused, never resumed), then
+  connects with a one-second timeout: E2B's connect only ever lengthens a
+  timeout, and without one it applies its five-minute default.
+- **Errors.** A missing file or template is `not-found`; a sandbox E2B says
+  is gone is `not-running` to a handle and `not-found` to `attach`; an id
+  E2B calls invalid (400) is `not-found` to `attach` and nothing to stop.
+  Everything else keeps E2B's words, with the key cut out of every message
+  and no cause that carries it.
+- **Not yet.** E2B can pause and snapshot; the provider declares neither
+  until code needs them. Regions are not handled (the POC's decision).
+- **Testing it.** `E2BProvider.test.ts` runs its translation against a
+  stand-in for the SDK (`E2BApi`), with no network. The contract runs it on
+  real sandboxes, from E2B's public `base` template, when `E2B_API_KEY` is
+  set in `packages/sandbox/.env` (see `.env.example`); every such run starts
+  sandboxes on Consola's account and takes about a minute and a half.
+- **Templates.** A template is a folder in `templates/` holding a
+  `Dockerfile`, which is also the context its COPY reads: the one format
+  every provider builds images from. E2B builds one stage, with RUN, COPY,
+  ADD, WORKDIR, USER, ENV, ARG, CMD and ENTRYPOINT; `templates.test.ts`
+  reads each as E2B does and fails on anything it would refuse or skip.
+  `pnpm --filter @consola/sandbox template:build <name>` builds one on the
+  account under its folder's name, which `create` then takes as `template`.
+  `consola-base` holds git, gh and Node 26; the agent CLIs join it once the
+  runner's spec (21.3) lists them.
 
 ## Adding a capability
 
@@ -186,7 +256,8 @@ has its own tests, including a long-running command driven step by step, the
 way a runner's tests drive it. `src/contract.test.ts` runs every check against
 every provider, and shows that the contract fails providers broken in the
 ways listed above. When a new check guards a new promise, add a broken
-provider it catches.
+provider it catches. A check that waits on a command asks first whatever a
+broken provider would get wrong, so it fails rather than waiting forever.
 
 ## Licence
 

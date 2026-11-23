@@ -27,10 +27,11 @@ region (`REGION`, `eu` or `us`) and given a database of its own, never
   makes, such as its factory files and runs, so that content lives here, in
   the workspace's region.
 - **The cell trusts only `cloud-global`'s token.** Every request but
-  `GET /api/health` and the outbox's deliveries (`POST /api/outbox`, signed
-  with the same key) carries a cell token `cloud-global` minted, and the cell
-  learns who is asking, in which workspace, from that token and nothing else
-  (below, "Who is asking").
+  `GET /api/health`, the outbox's deliveries (`POST /api/outbox`) and the
+  GitHub events `cloud-global` passes on (`POST /api/github/events`), both
+  signed with the same key, carries a cell token `cloud-global` minted, and
+  the cell learns who is asking, in which workspace, from that token and
+  nothing else (below, "Who is asking").
 
 The cell listens on `127.0.0.1:3101` by default, beside `cloud-global`'s 3100.
 `PORT` moves it, so two cells (`eu` and `us`) can run on one machine.
@@ -49,12 +50,13 @@ header.
   `CELL_TOKEN_AUDIENCE`, `CLOCK_SKEW_SECONDS`), the contract's
   `readCellTokenClaims` reads its claims, both at one moment from the
   `Clock`, and then only if its `region` is the cell's own. A token must name
-  its key's `kid`, and its `typ` must not be `OUTBOX_MESSAGE_TYPE`: the same
-  key signs the outbox's deliveries, and a delivery is never a token, whatever
-  its payload holds. `application/authenticate.ts` holds the steps,
-  `domain/caller.ts` (`admitClaims`) the rule on the claims and the region, and
-  `adapters/token` the signature check, behind the `TokenVerifier` port. Every
-  constant comes from the contract; never retype one.
+  its key's `kid`, and its `typ` must not be `OUTBOX_MESSAGE_TYPE` or
+  `GITHUB_EVENT_TYPE`: the same key signs the outbox's deliveries and GitHub's
+  events, and a delivery is never a token, whatever its payload holds.
+  `application/authenticate.ts` holds the steps, `domain/caller.ts`
+  (`admitClaims`) the rule on the claims and the region, and `adapters/token`
+  the signature check, behind the `TokenVerifier` port. Every constant comes
+  from the contract; never retype one.
 - **The answers.** No bearer credentials (no header, or another scheme) is
   401 with `WWW-Authenticate: Bearer` and `{"error":"token_required"}`. A
   token that is not accepted, malformed, forged, signed by another key, expired
@@ -81,21 +83,23 @@ header.
   (`c.var.caller`, typed by `CellEnv`): the person's global id, the
   workspace's id, the role and the region, no more. Only `admitClaims` makes a
   `Caller` (a type-only brand keeps a hand-written one from type-checking).
-- **Open routes.** Two routes answer without a token: `GET /api/health`, for
-  whatever probes cells, and `POST /api/outbox`, where `cloud-global`
-  delivers its outbox, each delivery signed instead (below, "The outbox").
-  `createApp` registers both before `requireCaller`, and every route after, so
-  an unknown path is 401 before it is 404, and any other method on
-  `/api/outbox` needs a token. A new open route needs a reason as good, and
-  the HTTP suite's "every route" test has to name it (`OPEN_ROUTES`).
+- **Open routes.** Three routes answer without a token: `GET /api/health`,
+  for whatever probes cells, `POST /api/outbox`, where `cloud-global`
+  delivers its outbox, and `POST /api/github/events`, where it passes on
+  GitHub's webhook events, each delivery signed instead (below, "The outbox"
+  and "GitHub's events"). `createApp` registers them before `requireCaller`,
+  and every route after, so an unknown path is 401 before it is 404, and any
+  other method on either delivery path needs a token. A new open route needs a
+  reason as good, and the HTTP suite's "every route" test has to name it
+  (`OPEN_ROUTES`).
 - **A workspace's rows.** A route never takes a workspace id from the request
   (path, query, body or header). A use case that reads or writes a
   workspace's rows takes the `Caller` and scopes every query by its
   `workspaceId`; the workspace is the token's, so a token for one workspace
   cannot reach another's rows. A role check is the use case's too, from
-  `caller.role`. The outbox route is the one exception: no person calls it,
-  and the workspace it writes is the one its signed message names, which only
-  `cloud-global` can sign.
+  `caller.role`. The two delivery routes are the exception: no person calls
+  them, and the workspace each writes is the one its signed message names,
+  which only `cloud-global` can sign.
 
 ## The outbox
 
@@ -152,30 +156,248 @@ from those messages and nothing else.
   with the message's role (an added member already there takes it, a role
   change for someone not there adds them); `member.removed` deletes the member,
   and for someone not there changes nothing. Each still moves the sequence.
+- **Each change keeps the workspace's teams true to it**, in the same
+  transaction (below, "Teams"): opening a workspace makes its first team, a
+  person who becomes a member joins it, and one who stops being a member leaves
+  every team.
+
+## GitHub's events
+
+`cloud-global` receives the GitHub App's webhooks, and keeps none of what they
+say: it passes each event on to the cell of the workspace that holds its
+installation (`packages/cloud-contract`, "Passing on a GitHub event": read it
+first). What happens in a company's repositories is the company's, so it is
+kept here, in the workspace's region, for its runners and triggers (epics 21
+and 39), which read it later.
+
+- **What it keeps.** One table, `github_event`, keyed by `workspace_id` and
+  GitHub's `delivery_id`: the event's name, the installation, the payload as
+  GitHub sent it and when the cell received it. The payload is GitHub's JSON
+  as text, not `json` or `jsonb`: both refuse a `\u0000` escape, which a pull
+  request's body or a comment can hold. Every event is kept for now; how long
+  is for the runners and triggers to decide.
+- **How a delivery is authenticated** is the outbox's way, with its own `typ`:
+  a compact JWS signed with the cell token's key, checked by
+  `createJoseDeliveryVerifier` built for `GITHUB_EVENT_TYPE`
+  (`adapters/token/outboxDeliveries.ts`), on the same key set. The outbox's
+  verifier refuses an event, this one refuses an outbox message, and the
+  token check refuses both.
+- **The order of the checks** is the contract's, and each answer is
+  `GITHUB_EVENT_ANSWER`'s, by status. Before anything, the route
+  (`adapters/http/gitHubEvents.ts`) refuses a body not sent as
+  `GITHUB_EVENT_DELIVERY_MEDIA_TYPE` and one over
+  `GITHUB_EVENT_DELIVERY_MAX_BYTES` (36 MiB: any payload GitHub sends, signed),
+  each 400, without reading it. Then `receiveGitHubEvent`
+  (`application/receiveGitHubEvent.ts`): the signature (401 `unsigned`, or 503
+  when the keys cannot be had), the event (`readGitHubEventMessage`, 400
+  `unreadable`), the region (421 `otherRegion`), then the record: 409
+  `workspacePending` while the cell holds nothing of the workspace (its
+  `workspace.created` is not applied yet), 201 when recorded now, 200 when it
+  was recorded before, and 503 when the database does not answer. Every
+  refusal is logged in one line, with ids and the event's name, never the
+  payload.
+- **Recorded once.** `GitHubEventStore.record` holds the workspace's copy row
+  (`for key share`) and inserts on conflict do nothing, so a delivery sent
+  again, at once or later, or a capture replayed under its delivery id, is
+  recorded once and changes nothing.
+
+## Teams
+
+A workspace's teams live in its cell, because their names are the company's
+information (decided 2026-11-21: teams own factories; a new workspace starts
+with one team; no team-level roles). Better Auth's teams are not used: they
+would put teams in `cloud-global`'s database. The rules are in
+`domain/team.ts`, the use cases in `application/teams.ts`, the store in
+`adapters/persistence/teams.ts` and the routes in `adapters/http/teams.ts`.
+
+- **Two tables**, each with its `workspace_id`: `team` (`team_id`, which the
+  cell gives it, `name`, `is_first`) and `team_member` (`team_id`,
+  `person_id`, `added_at`). A team member's row points at the workspace's copy
+  of the member (`workspace_member`), so only a member of the workspace can
+  be in one of its teams, and a member who leaves the workspace leaves every
+  team as their copy's row goes. It also points at its team through both ids,
+  so a place is always in a team of its own workspace.
+- **The first team.** Every workspace has exactly one (`team_first_unique`),
+  called `FIRST_TEAM_NAME` until someone renames it. The cell makes it as it
+  applies `workspace.created`, and every person who becomes a member of the
+  workspace joins it: an added member, or a role change for someone the copy
+  did not have. A member whose role changes keeps the teams they are in, so a
+  person taken out of the first team is not put back by a role change. It can
+  be renamed, and its members taken out, but it is never deleted (409
+  `first_team`), so every factory always has a team to belong to. The
+  migration that added teams (`0001_teams`) made a first team, holding every
+  member, for each workspace the cell held already.
+- **Names** are trimmed, 1 to `TEAM_NAME_MAX` characters with no control
+  character (`checkTeamName`, every problem at once as 400 `invalid_team`),
+  and unique in the workspace whatever their case (`team_name_unique`, on
+  `lower(name)`; 409 `name_taken`).
+- **Who may do what** (`mayManageTeams`): owners and admins make, rename and
+  delete teams and choose their members, and see every team; a member sees
+  only the teams they are in, and is refused any change (403 `not_allowed`).
+  The list says which (`canManage`), so the web app shows controls by the
+  answer, never by the role.
+- **The role a caller acts with** is the lesser of their token's and their
+  role in the cell's copy (`actingRole`), and none when the copy holds no such
+  member. A token lives five minutes, so without the copy someone demoted or
+  removed would keep managing teams until theirs ran out; the copy follows
+  `cloud-global` within the outbox's delivery, so they are refused from then
+  on. A promotion counts once both say so. Someone the copy does not hold sees
+  no team (they are in none) and may change nothing.
+- **The order of the checks** is the same in every change: the token's role
+  (a member is refused without anything being read), then the name, then
+  whether the cell holds the workspace yet (409 `workspace_pending` until
+  `cloud-global` has delivered its `workspace.created`; asking again later
+  helps), then the role in the copy, then what the store finds. The role is
+  read just before the write, not in its transaction: a demotion applied in
+  between is one write late, never more. A team id is looked up in the
+  caller's workspace alone, so another workspace's team is 404
+  `team_not_found`, never changed.
+- **Members** are added by their global id, `PUT
+  /api/teams/{teamId}/members/{personId}`, and only if the cell's copy has
+  them (409 `not_a_workspace_member`); adding someone already in the team, or
+  taking out someone not in it (`DELETE`), changes nothing. The store holds
+  the member's copy row while it writes (`for key share`), so they cannot
+  leave the workspace in between.
+- **A team that owns a factory** is not deleted (409 `owns_factories`), below
+  ("Factories").
+
+## Factories
+
+A workspace's factories live in its cell, with their files (decided
+2026-11-22: a factory's definition is saved in Consola's backend, or pulled
+from a git repo). The rules are in `domain/factory.ts`, the use cases in
+`application/factories.ts`, the store in `adapters/persistence/factories.ts`
+and the routes in `adapters/http/factories.ts`.
+
+- **Three tables**, each with its `workspace_id`: `factory` (`factory_id`,
+  which the cell gives it, `name`, `team_id`, `source`, `latest_version`),
+  `factory_version` (`version`, `saved_by_person_id`, `saved_at`) and
+  `factory_file` (`path`, `content`), a row per file of a version. A factory
+  points at its team through both ids, so its team is always one of its own
+  workspace, and a version points at its factory, and a file at its version,
+  the same way.
+- **The files** are a factory folder's, in the format `packages/factory-spec`
+  defines: `factory.yml`, `automations/<name>.yaml`, `agents/<name>.md` and
+  `skills/<name>/…`, each a path inside the folder and its text. Runners and
+  scorers have no format there yet, so the cell takes none. A file under a
+  later slice's folder (factory-spec's `LATER_FOLDERS`: `environments/`,
+  `connections/`, `evals/`) is stored with factory-spec's notice that it has
+  no effect yet, as the desktop's folder applies it; any other path is refused
+  as the folder's reader refuses a stray. Files are text: a binary file in a
+  skill cannot be saved yet.
+- **A set is stored only if it keeps the schema** (`checkFactoryFiles`). The
+  set is checked first: at most `FACTORY_FILES_MAX` files and
+  `FACTORY_BYTES_MAX` bytes, each path inside the folder and given once, each
+  file at most factory-spec's `MAX_FACTORY_TEXT_BYTES`, with no NUL (no
+  Postgres text holds one) and no lone surrogate. Then factory-spec's
+  `parseFactory` checks every file and the references across them. Any issue
+  refuses the whole set: 400 `invalid_files`, with every issue in
+  factory-spec's shape (`file`, `line`, `message`…). Never write a second
+  schema here. `folderOf` sorts the files as the folder's reader would, into
+  records built by `Object.fromEntries`, so a name such as `__proto__` is
+  checked, never lost. A body over `SAVE_BODY_MAX` is 413 `too_large` before
+  it is read.
+- **Versions.** A factory is made blank: version 1, holding no files. Each
+  save is the next version, never a change to one. A save names
+  `baseVersion`, the version its files were edited from, and lands only while
+  that is still the latest, by a compare-and-set on `latest_version` (409
+  `version_moved`, with the latest, otherwise), so a save never undoes one it
+  did not see. Every version stays readable (`GET
+  /api/factories/{factoryId}/versions/{version}`), and `GET
+  /api/factories/{factoryId}` answers the factory with its latest version's
+  files.
+- **Where the files come from** is `source`: `stored`, for now. A GitHub
+  repository (9.4) is the second kind; saving a repo factory's files is to be
+  refused then.
+- **Who may do what** follows the team (decided 2026-11-21): a person sees the
+  factories of the teams they see (`factoriesSeenBy`, on `teamsSeenBy` and
+  `actingRole`), so owners and admins see every factory, and a member the
+  factories of the teams they are in. Whoever sees a factory may save its
+  files and rename it, and may make one for any team they see, or move one
+  there (`judgeFactoryChange`; only who sees was decided). A factory the
+  caller does not see is 404 `factory_not_found`, and a team they do not see
+  404 `team_not_found`, so a member learns nothing of another team's.
+- **Names** are checked as teams' are (`checkFactoryName`, 400
+  `invalid_factory`) and are unique in the workspace whatever their case
+  (`factory_name_unique`, on `lower(name)`; 409 `name_taken`).
+- **The order of the checks**: what was sent (the name, or the files), then
+  whether the cell holds the workspace (409 `workspace_pending`), then whether
+  the caller sees the factory, then the team, then the base version, then what
+  the store finds. What the caller sees is read just before the write, as the
+  teams' role is.
+- **Renaming and moving** is one route, `PATCH /api/factories/{factoryId}`,
+  with a new `name`, a new `teamId`, or both. Both at once is one statement,
+  made whole or not at all. Its versions, its latest version and when that
+  was saved stay as they are. `source` is not changed there.
+- **A team that owns a factory** is not deleted (409 `owns_factories`): the
+  factory's foreign key to its team refuses it, and the team store answers
+  `owns-factories`. The same key checks a move, and holds the team's row
+  until the move is written, so a move and a delete of its team at once never
+  leave a factory on no team: the move finds the team gone (404
+  `team_not_found`), or the delete finds it owns the factory. Deleting a
+  factory comes later.
+
+## The API's contract
+
+Every route is declared in `adapters/http/contract.ts` with
+`@hono/zod-openapi`'s `createRoute`, and `ROUTES` lists them. `createApp`
+returns an `OpenAPIHono`, registers each with `app.openapi`, and TypeScript
+checks every answer a handler gives against its route's responses. It is
+built the way `cloud-global`'s contract is
+(`apps/cloud-global/src/adapters/http/contract.ts`), so the two read alike.
+
+- **Answers are strict objects** (`z.strictObject`); request bodies are
+  checked for their shape only (`z.object`), never for the domain's rules.
+  The HTTP suite reads every teams and factories answer with the schema its
+  route declares for its status (`answerOf`), so an undeclared status or a
+  field the contract does not name fails a test.
+- **The token check's answers** (401 `token_required`/`invalid_token`, 421
+  `wrong_region`, 503 `token_check_unavailable`) are declared once
+  (`tokenFailures`) and spread into every route behind the check.
+- **A body** of the wrong shape is 400 `invalid_request` (`defaultHook`); one
+  that is not JSON is 400 too, and one without a JSON content type 415
+  `unsupported_media_type` (`onError`, since the validator throws before any
+  hook). A body is checked after the token.
+- **The outbox's body** is declared as `OUTBOX_DELIVERY_MEDIA_TYPE`, which the
+  library neither validates nor gates, so the route keeps its own checks of
+  the media type and size.
+- **`openapi.json`**, at the app's root, is generated from the routes by
+  `adapters/http/openapi.test.ts` (`pnpm --filter @consola/cloud-region
+  openapi:generate`), which fails while it is stale. The same test checks
+  that the contract describes every route the app serves, and only those, and
+  that no named schema may be null (a use that may be null is
+  `z.union([Named, z.null()])`, never `.nullable()`). The web app generates
+  its client for the cell from this file, and Biome leaves it alone.
 
 ## The layers
 
 The service is built in rings, and imports point inward only.
 
 - `src/domain/` holds the rules and the types they speak of, such as the
-  regions (`region.ts`, which takes them from the contract) and the order a
-  workspace's copy applies its messages in (`workspaceCopy.ts`). It is plain
-  TypeScript, with no I/O, and no package but the contract (below).
+  regions (`region.ts`, which takes them from the contract), the order a
+  workspace's copy applies its messages in (`workspaceCopy.ts`), teams
+  (`team.ts`) and factories (`factory.ts`). It is plain TypeScript, with no
+  I/O, and no package but the shared ones (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
-  `describeMe`, `receiveDelivery`) and, in `ports.ts`, the stores, probes,
-  the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies` and the
-  `Clock` they need. A use case is a plain function that takes its ports
-  first.
+  `describeMe`, `receiveDelivery`, `receiveGitHubEvent`, the teams' in
+  `teams.ts` and the factories' in `factories.ts`) and, in `ports.ts`, the
+  stores, probes, the `TokenVerifier`, the `DeliveryVerifier`, the
+  `WorkspaceCopies`, the `GitHubEventStore`, the `TeamStore`, the
+  `FactoryStore` and the `Clock` they need. `signedPayload.ts` reads a signed
+  delivery's JSON for both delivery use cases. A use case is a plain
+  function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
   - `persistence/` is Drizzle on PGlite or Postgres: the database
     (`database.ts`), the tables (`tables.ts`, re-exported as `schema` by
     `schema.ts`), and one store per port, which `stores.ts` builds together;
-  - `http/` is the Hono routes (`app.ts`), the token check in front of them
-    (`caller.ts`) and the outbox's route (`outbox.ts`). Each route asks a use
+  - `http/` is the contract (`contract.ts`), the Hono routes (`app.ts`), the
+    token check in front of them (`caller.ts`), the outbox's route
+    (`outbox.ts`), GitHub's events' (`gitHubEvents.ts`), the teams'
+    (`teams.ts`) and the factories' (`factories.ts`). Each route asks a use
     case and maps its answer to a status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
-    (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys
-    (`outboxDeliveries.ts`);
+    (`cellTokens.ts`), and the `DeliveryVerifier`, on the same keys, for the
+    outbox and for GitHub's events (`outboxDeliveries.ts`);
   - `clock/` is the machine's clock, the `Clock`.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeCell`), and the
@@ -191,7 +413,7 @@ The service is built in rings, and imports point inward only.
 ## The dependency rule
 
 - `domain` imports only `domain`. `application` imports only `domain` and
-  `application`. Neither imports a package (but the contract) or a `node:`
+  `application`. Neither imports a package (but the shared ones) or a `node:`
   builtin, and neither refers to a global that reaches the machine: `process`,
   `fetch`, `require`,
   `XMLHttpRequest`, `WebSocket`, the timers (`setTimeout`, `setInterval`,
@@ -207,14 +429,18 @@ The service is built in rings, and imports point inward only.
   - `adapters/clock` imports no package.
 - No file, tests included, imports another app, Better Auth
   (`better-auth`, `@better-auth/*`) or a workspace package (`@consola/*`, or
-  `consola`, the desktop), with one exception: `@consola/cloud-contract`
-  (`packages/cloud-contract`), the contract the cell shares with
-  `cloud-global`. It holds the regions, the workspace roles, the claims of the
-  token `cloud-global` mints for a cell, and the outbox messages it sends one.
-  It does no I/O, which its own boundary test proves, so any layer may import
-  it, `domain` and `application` included. Only its entry point counts: a path
-  inside it is refused. Before changing it, read
-  `packages/cloud-contract/AGENTS.md`.
+  `consola`, the desktop), with two exceptions, the shared packages, which
+  any layer may import, `domain` and `application` included. Only an entry
+  point counts: a path inside either is refused.
+  - `@consola/cloud-contract` (`packages/cloud-contract`), the contract the
+    cell shares with `cloud-global`. It holds the regions, the workspace
+    roles, the claims of the token `cloud-global` mints for a cell, the
+    outbox messages it sends one and the GitHub events it passes on. It does
+    no I/O, which its own boundary test proves. Before changing it, read `packages/cloud-contract/AGENTS.md`.
+  - `@consola/factory-spec` (`packages/factory-spec`, MIT), the factory
+    files' schema and parser every runner shares, with which the cell checks
+    the files it stores (above, "Factories"). It parses texts it is handed and
+    does no I/O.
 - Test files (`*.test.ts`) are exempt from the layer rules, because they wire
   real pieces together the way `compose.ts` does.
 
@@ -224,9 +450,9 @@ the TypeScript syntax tree (`import`, `import type`, `export … from`, dynamic
 reference counts, directly or through `globalThis`, never a property or a
 member that shares the name (`request.process`, `{ fetch: 1 }`). A file that
 sits in no layer fails it too. The rules are data at its top (`LAYERS`,
-`NEVER`, `CLOUD_CONTRACT`), so a new layer or folder is added there first. It
+`NEVER`, `SHARED_PACKAGES`), so a new layer or folder is added there first. It
 also reads every package in the workspace and checks that each one but the
-contract is refused, so a new package is covered without being named.
+shared ones is refused, so a new package is covered without being named.
 
 `src/adapters/persistence/schema.test.ts` enforces the table rules: every table
 in `schema` has a not-null `workspace_id`, and none is an account table (the
@@ -240,9 +466,12 @@ copy of a workspace's members is `workspace_member`, ids and a role, never
 3. An adapter implements the port. For the database, that is a table in
    `tables.ts` (with its `workspace_id`) and a store in `adapters/persistence`,
    added to `createDrizzleStores`.
-4. A route in `adapters/http` calls the use case. It is registered after
-   `requireCaller` in `createApp` (or on a `Hono<CellEnv>` mounted there), and
-   hands the use case `c.var.caller`, never a workspace id from the request.
+4. A route is declared in `adapters/http/contract.ts` (and listed in
+   `ROUTES`), and a handler in `adapters/http` calls the use case. It is
+   registered with `app.openapi` after `requireCaller` in `createApp` (or by a
+   function handed the app there, as `teamRoutes` is), and hands the use case
+   `c.var.caller`, never a workspace id from the request. Then
+   `openapi:generate` rewrites `openapi.json`.
 5. `compose.ts` builds the adapter and hands it its ports, and nothing else
    does. A startup step goes there too.
 
@@ -273,4 +502,12 @@ transaction at a time, so the compare-and-set is also tested directly
 `drizzle/` holds the migrations, written by
 `pnpm --filter @consola/cloud-region db:generate --name <what>` after
 `tables.ts` changes. They apply when the cell starts. The first is
-`0000_workspace_copy`.
+`0000_workspace_copy`; `0001_teams` ends with two statements written by hand,
+which give the workspaces already held their first team
+(`migrations.test.ts` runs it over a database migrated to `0000` only);
+`0002_factories` adds the factories' tables, all generated, and
+`0003_github_event` GitHub's events.
+Postgres cuts a name at 63 characters, and drizzle's names for a composite
+foreign key run past that, so such a key is named in `tables.ts`.
+
+`openapi.json` is generated too (above, "The API's contract").

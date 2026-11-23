@@ -28,6 +28,154 @@
         ],
         "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
       },
+      "GitHubToken": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "description": "An installation token. Never log or store it."
+          },
+          "expiresAt": {
+            "type": "integer",
+            "description": "In whole seconds since the epoch."
+          },
+          "repositories": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "fullName": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "fullName"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Exactly the repositories asked for, as GitHub names them now."
+          },
+          "permissions": {
+            "type": "object",
+            "properties": {
+              "contents": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "pull_requests": {
+                "type": "string",
+                "enum": [
+                  "read",
+                  "write"
+                ]
+              },
+              "metadata": {
+                "type": "string",
+                "enum": [
+                  "read"
+                ]
+              }
+            },
+            "additionalProperties": false,
+            "description": "Exactly the purpose's permissions, and the metadata read GitHub gives every token."
+          }
+        },
+        "required": [
+          "token",
+          "expiresAt",
+          "repositories",
+          "permissions"
+        ],
+        "additionalProperties": false,
+        "description": "A GitHub token narrowed to a workspace’s repositories, for an hour at most."
+      },
+      "InvalidTokenRequest": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_token_request"
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "no-repositories",
+                "too-many-repositories",
+                "repeated-repository"
+              ]
+            }
+          }
+        },
+        "required": [
+          "error",
+          "problems"
+        ],
+        "additionalProperties": false,
+        "description": "Every problem with the repositories asked for, in rule order."
+      },
+      "RepositoryNotCovered": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "repository_not_covered"
+            ]
+          },
+          "repositoryIds": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          }
+        },
+        "required": [
+          "error",
+          "repositoryIds"
+        ],
+        "additionalProperties": false,
+        "description": "The repositories, by their GitHub ids, the installation does not cover."
+      },
+      "GitHubTokenRequestBody": {
+        "type": "object",
+        "properties": {
+          "request": {
+            "type": "string",
+            "description": "The request, signed by the cell: a JWS in compact serialization whose payload is the contract's `GitHubTokenRequest` as JSON, with `alg` `EdDSA`, the cell's key's `kid` and `typ` `consola-github-token-request` in its protected header."
+          }
+        },
+        "required": [
+          "request"
+        ]
+      },
+      "GitHubWebhookReceived": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "delivered",
+              "pong"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "`delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, passed on to no cell."
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -105,6 +253,79 @@
               "admin",
               "member"
             ]
+          },
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "layout",
+                  "briefcase",
+                  "home",
+                  "code",
+                  "terminal",
+                  "rocket",
+                  "flask",
+                  "lightbulb",
+                  "palette",
+                  "book",
+                  "graduation-cap",
+                  "globe",
+                  "heart",
+                  "star",
+                  "zap",
+                  "coffee",
+                  "music",
+                  "gamepad",
+                  "camera",
+                  "compass",
+                  "mountain",
+                  "leaf",
+                  "sun",
+                  "moon",
+                  "emoji-rocket",
+                  "emoji-sparkles",
+                  "emoji-lightning",
+                  "emoji-fire",
+                  "emoji-target",
+                  "emoji-brain",
+                  "emoji-bulb",
+                  "emoji-tools",
+                  "emoji-laptop",
+                  "emoji-robot",
+                  "emoji-flask",
+                  "emoji-palette",
+                  "emoji-books",
+                  "emoji-note",
+                  "emoji-briefcase",
+                  "emoji-house",
+                  "emoji-coffee",
+                  "emoji-seedling",
+                  "emoji-tree",
+                  "emoji-mountain",
+                  "emoji-ocean",
+                  "emoji-sun",
+                  "emoji-moon",
+                  "emoji-globe",
+                  "emoji-star",
+                  "emoji-heart",
+                  "emoji-music",
+                  "emoji-gamepad",
+                  "emoji-cat",
+                  "emoji-dog",
+                  "emoji-fox",
+                  "emoji-unicorn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The icon the workspace wears, by the desktop app’s ids; null for none, which shows its initial."
+          },
+          "canManage": {
+            "type": "boolean",
+            "description": "Whether the person may change how the workspace looks (an owner or admin)."
           }
         },
         "required": [
@@ -112,7 +333,9 @@
           "name",
           "slug",
           "region",
-          "role"
+          "role",
+          "icon",
+          "canManage"
         ],
         "additionalProperties": false,
         "description": "A workspace as one of its members sees it."
@@ -127,6 +350,66 @@
         "required": [
           "workspaceId"
         ]
+      },
+      "WorkspaceIconChange": {
+        "type": "object",
+        "properties": {
+          "icon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "icon"
+        ],
+        "description": "An icon from the desktop app’s set, or null to take the icon off."
+      },
+      "WorkspaceMember": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "image": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "member"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "email",
+          "image",
+          "role"
+        ],
+        "additionalProperties": false,
+        "description": "A member of a workspace, as its other members see them."
       },
       "InvalidWorkspace": {
         "type": "object",
@@ -190,11 +473,25 @@
           "expiresAt": {
             "type": "integer",
             "description": "In whole seconds since the epoch."
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "The workspace the token is for: the one active when it was minted, which another tab may have switched since the page loaded."
+          },
+          "region": {
+            "type": "string",
+            "enum": [
+              "eu",
+              "us"
+            ],
+            "description": "The workspace's region, whose cell takes the token."
           }
         },
         "required": [
           "token",
-          "expiresAt"
+          "expiresAt",
+          "workspaceId",
+          "region"
         ],
         "additionalProperties": false,
         "description": "The token the session's active workspace's cell trusts, for minutes."
@@ -446,6 +743,461 @@
     "parameters": {}
   },
   "paths": {
+    "/api/github/tokens": {
+      "post": {
+        "summary": "Mint a GitHub token for a cell, narrowed to repositories and a purpose",
+        "description": "Called by a regional cell, never a browser: the request is signed with the key configured for the cell’s region, so it sits outside the origin check and carries no session. The workspace must hold the installation and be in that cell’s region, and the installation must cover every repository. The purpose fixes the permissions. Every token minted is recorded; the token itself is not, and no cache keeps the answer (`Cache-Control: no-store`).",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitHubTokenRequestBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The token, narrowed as asked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubToken"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body is not `{ request }`, the signed request is none the contract reads (expired, say), or its repositories break the purpose’s rules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unreadable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidTokenRequest"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No cell’s key checks the request.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsigned"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The workspace is in another region than the cell, the installation does not cover a repository, or GitHub refused the scope (a permission the app was not granted).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "other_region"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "$ref": "#/components/schemas/RepositoryNotCovered"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "scope_refused"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace holds no installation with that id, whether or not another does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "installation_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "GitHub no longer has the installation.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "installation_gone"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no GitHub App, or GitHub did not answer as it should.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "github_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "github_unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/github/webhooks": {
+      "post": {
+        "summary": "Receive one of the GitHub App’s webhook deliveries",
+        "description": "The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is passed on, signed, to the cell of the workspace that holds its installation, which records each delivery once. Nothing of it is kept here.",
+        "responses": {
+          "200": {
+            "description": "Received.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubWebhookReceived"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed, but a header or the body is not what GitHub sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_delivery"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No `X-Hub-Signature-256`, or not GitHub’s signature over this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "bad_signature"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The workspace’s cell had this delivery already: sent again, or replayed. Nothing changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "duplicate_delivery"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the 25 MB GitHub puts in a delivery at most.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dropped: the event came through an installation no workspace holds, or through none.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unknown_installation"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_installation"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The workspace’s cell did not take the event. GitHub’s Redeliver sends it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "cell_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`), or no cell for the workspace’s region.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "webhooks_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "cell_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/me": {
       "get": {
         "summary": "Who is signed in",
@@ -608,6 +1360,293 @@
                       "type": "string",
                       "enum": [
                         "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/workspace/icon": {
+      "put": {
+        "summary": "Set or clear my active workspace's icon",
+        "description": "Only an owner or an admin of the workspace may. It changes the icon alone, never the workspace’s name, slug or region.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceIconChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The workspace, wearing the icon it was given.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyWorkspace"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The icon is not one of the set, or the body is not what the route takes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "icon_unknown"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace, is a member who may not change it, or the change did not come from the web app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me/workspace/members": {
+      "get": {
+        "summary": "My active workspace's members, in the order they joined",
+        "description": "Every member of the workspace may list them. A person is named by the global id a cell knows them by (`id`), so the web app can put a name to the ids a cell answers with.",
+        "responses": {
+          "200": {
+            "description": "The members, with their roles.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "members": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/WorkspaceMember"
+                      }
+                    }
+                  },
+                  "required": [
+                    "members"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Nobody is signed in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not in the workspace their session names, any more or ever.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "no_active_workspace"
                       ]
                     }
                   },

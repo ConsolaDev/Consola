@@ -1,9 +1,208 @@
+/* Consola Cloud looks like the desktop app: its surfaces, text and hairlines (Warp's, in its
+   `styles/themes/dark.css` and `light.css`), its type scale (`tokens.css`), its shapes (3px rows,
+   6px controls, 12px groups), and its sidebar, whose icons are never coloured. Cyan marks focus and what is
+   chosen, as on the desktop. It follows the system's colour scheme, as `main.tsx` does, so the
+   tokens switch on the same media query. Settings' own pages (`SettingsDialog.css`) are the
+   desktop's too, on Radix's tokens, which point at these. */
+
+:root {
+  color-scheme: light dark;
+
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  /* The desktop's monospace, for what a person would type: a slug, a commit. */
+  --font-mono: "JetBrains Mono Variable", ui-monospace, Menlo, Consolas, monospace;
+
+  /* The desktop's light theme: #111111 over white. */
+  --bg: #ffffff;
+  --bg-sidebar: #f3f3f3;
+  --bg-pop: #ffffff;
+  --hover: rgba(17, 17, 17, 0.1);
+  --active: rgba(17, 17, 17, 0.15);
+  --line: rgba(17, 17, 17, 0.1);
+  --line-strong: rgba(17, 17, 17, 0.15);
+  --text: rgba(17, 17, 17, 0.9);
+  --text-2: rgba(17, 17, 17, 0.6);
+  --text-3: rgba(17, 17, 17, 0.45);
+  --dot: rgba(17, 17, 17, 0.18);
+  /* Cyan as a fill (a dot, a ring), and as text, which needs the darker one on white. */
+  --cyan: #00c2ff;
+  --cyan-text: #067b9f;
+  --cyan-muted: rgba(0, 194, 255, 0.25);
+  --cyan-glow: rgba(0, 194, 255, 0.45);
+  --danger: #d44c47;
+
+  /* The desktop's type (`styles/themes/tokens.css`), by the same names: 14px for what a page
+     says and for every field and button, 12px for what supports it, 11px only for uppercase
+     labels and the smallest metadata, and 16px or 18px for a page's title. Nothing is smaller. */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 18px;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.625;
+  /* The desktop sidebar's (`Sidebar/styles.css`): its rows a step under a page's text, their
+     metadata and group labels under that. Settings' list of pages runs at the same size. */
+  --sidebar-font-size: 13px;
+  --sidebar-font-size-small: var(--font-size-sm);
+  --sidebar-font-size-label: var(--font-size-xs);
+
+  /* The desktop's radii: a row, a control, a menu; groups are rounder. */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-group: 12px;
+  /* The desktop's curves: whatever moves is arriving, most of the way at once. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* The desktop's dark theme: white over #050505, its sidebar #111111, its menus #1e1e1e. */
+  :root {
+    --bg: #050505;
+    --bg-sidebar: #111111;
+    --bg-pop: #1e1e1e;
+    --hover: rgba(255, 255, 255, 0.1);
+    --active: rgba(255, 255, 255, 0.15);
+    --line: rgba(255, 255, 255, 0.1);
+    --line-strong: rgba(255, 255, 255, 0.15);
+    --text: rgba(255, 255, 255, 0.9);
+    --text-2: rgba(255, 255, 255, 0.6);
+    --text-3: rgba(255, 255, 255, 0.4);
+    --dot: rgba(255, 255, 255, 0.16);
+    --cyan: #19aad8;
+    --cyan-text: #19aad8;
+    --cyan-muted: rgba(25, 170, 216, 0.25);
+    --cyan-glow: rgba(25, 170, 216, 0.55);
+    --danger: #eb5757;
+  }
+}
+
+/* Radix's surfaces and type take the same tokens, so its menus and Settings match the page.
+   `.radix-themes:is(.dark, …)` outranks Radix's `.dark` rule. */
+.radix-themes,
+.radix-themes:is(.dark, .dark-theme) {
+  --default-font-family: var(--font-sans);
+  /* Radix's own root is 16px; the desktop's body, and this page's, is 14px. */
+  --default-font-size: var(--font-size-md);
+  --default-line-height: var(--line-height-normal);
+  --code-font-family: var(--font-mono);
+  --color-background: var(--bg);
+  --color-panel-solid: var(--bg-pop);
+}
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: var(--color-background);
-  color: var(--gray-12);
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ---- A workspace's icon: a symbol, an emoji, or its initial on a tile ---- */
+
+.workspace-icon {
+  --workspace-icon-tile: max(20px, var(--workspace-icon-size));
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--workspace-icon-size);
+  height: var(--workspace-icon-size);
+  font-size: var(--workspace-icon-size);
+  line-height: 1;
+}
+
+.workspace-icon[data-kind="emoji"] {
+  font-size: calc(var(--workspace-icon-size) * 0.95);
+}
+
+.workspace-icon[data-kind="initial"] {
+  width: var(--workspace-icon-tile);
+  height: var(--workspace-icon-tile);
+  border-radius: max(3px, calc(var(--workspace-icon-tile) / 5));
+  background: var(--hover);
+  color: var(--text);
+  font-size: calc(var(--workspace-icon-tile) * 0.62);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* ---- A factory's tile: its initial on a square its id colours (`FactoryTile`) ---- */
+
+.factory-tile {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: var(--factory-tile-size);
+  height: var(--factory-tile-size);
+  border-radius: max(4px, calc(var(--factory-tile-size) / 4.5));
+  background: var(--factory-hue, var(--gray-9));
+  color: #fff;
+  font-size: calc(var(--factory-tile-size) * 0.56);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+}
+
+.factory-tile[data-hue="tomato"] {
+  --factory-hue: var(--tomato-9);
+}
+.factory-tile[data-hue="orange"] {
+  --factory-hue: var(--orange-9);
+}
+.factory-tile[data-hue="grass"] {
+  --factory-hue: var(--grass-9);
+}
+.factory-tile[data-hue="teal"] {
+  --factory-hue: var(--teal-9);
+}
+.factory-tile[data-hue="cyan"] {
+  --factory-hue: var(--cyan-9);
+}
+.factory-tile[data-hue="blue"] {
+  --factory-hue: var(--blue-9);
+}
+.factory-tile[data-hue="iris"] {
+  --factory-hue: var(--iris-9);
+}
+.factory-tile[data-hue="plum"] {
+  --factory-hue: var(--plum-9);
+}
+.factory-tile[data-hue="pink"] {
+  --factory-hue: var(--pink-9);
+}
+.factory-tile[data-hue="jade"] {
+  --factory-hue: var(--jade-9);
+}
+
+/* ---- The narrow page: sign-in, the create form and the notices ---- */
 
 .page {
   min-height: 100vh;
@@ -18,121 +217,20 @@ body {
 .main {
   flex: 1;
   width: 100%;
-  max-width: 360px;
+  max-width: 420px;
   display: flex;
   flex-direction: column;
   justify-content: center;
   gap: 16px;
 }
 
-/* The dashboard: the topbar across the page, then its nav beside the open section. */
-.main.wide {
-  max-width: 960px;
-  justify-content: flex-start;
-}
-
-.dashboard {
-  display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  align-items: start;
-  gap: 24px;
-}
-
-.dashboard-nav ul {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.nav-link {
-  display: block;
-  padding: 6px 10px;
-  border-radius: 6px;
-  color: var(--gray-11);
-  font-size: 14px;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.nav-link:hover {
-  background: var(--gray-a3);
-  color: var(--gray-12);
-}
-
-.nav-link[aria-current="page"] {
-  background: var(--accent-a3);
-  color: var(--accent-11);
-  font-weight: 500;
-}
-
-.nav-link:focus-visible {
-  outline: 2px solid var(--accent-8);
-  outline-offset: 0;
-}
-
-.dashboard-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-width: 0;
-}
-
-/* Narrow screens put the nav above the section, as a row that scrolls. */
-@media (max-width: 640px) {
-  .dashboard {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 16px;
-  }
-
-  .dashboard-nav ul {
-    flex-direction: row;
-    overflow-x: auto;
-  }
-}
-
-/* A section's title, with its page's actions at the end of the line. */
-.section-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px 12px;
-  min-height: 36px;
-}
-
-.section-title {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 600;
-}
-
-/* Label and value pairs, such as the overview's facts about the workspace. */
-.facts {
-  display: grid;
-  grid-template-columns: max-content minmax(0, 1fr);
-  gap: 8px 24px;
-  margin: 0;
-}
-
-.facts dt {
-  color: var(--gray-11);
-}
-
-.facts dd {
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
 .topbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 4px;
-  font-size: 14px;
-  color: var(--gray-11);
+  gap: 6px;
+  font-size: var(--font-size-md);
+  color: var(--text-2);
 }
 
 .topbar > .link-button {
@@ -145,39 +243,420 @@ body {
   order: 1;
 }
 
-.crumb {
-  color: var(--gray-8);
+.brand-name {
+  color: var(--text);
+  font-weight: var(--font-weight-semibold);
 }
 
-.switcher-trigger {
-  font: inherit;
+.crumb {
+  margin: 0 2px;
+  color: var(--text-3);
+}
+
+/* The brand on the sign-in card: Consola's C, with a cursor that blinks in its mouth. */
+.brand {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  flex-shrink: 0;
+  color: var(--text);
+}
+
+.brand-mark {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
+.brand-cursor {
+  fill: var(--cyan);
+  opacity: 0;
+}
+
+.brand:hover .brand-cursor {
+  animation: brand-blink 0.84s steps(1, end) 3;
+}
+
+@keyframes brand-blink {
+  0% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
+}
+
+/* ---- The dashboard: the desktop's sidebar beside the open section ---- */
+
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+/* The desktop's sidebar (`Sidebar/styles.css`), measure for measure: rows 28px tall and 13px,
+   the rows you start from (Overview) a step taller at 30px and 14px, group headings 11px over
+   them, 4px by 8px inside every row, 3px corners, 14px icons in the secondary text colour, a
+   hover fill at 10% and the open row's at 15%, and focus drawn inside the row. Nothing slides
+   between rows: the open row is told by its fill alone, as on the desktop. */
+.sidebar {
+  --sidebar-row-padding-y: 4px;
+  --sidebar-row-padding-x: 8px;
+  --sidebar-row-height: 28px;
+  --sidebar-nav-height: 30px;
+  /* A factory's tile, and the gap after it: where its pages' icons line up. */
+  --sidebar-tile-size: 18px;
+  --sidebar-tile-gap: 8px;
+
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  height: 100vh;
+  border-right: 1px solid var(--line);
+  background: var(--bg-sidebar);
+}
+
+.sidebar-head {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 8px 4px;
+}
+
+/* A failed switch says so on a line of its own, under the menu. */
+.sidebar-head > .error {
+  margin: 4px 8px 0;
+  font-size: var(--font-size-sm);
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: 4px 8px;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Settings sits at the foot of the nav, apart from everything above it. */
+.nav-foot {
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+/* A row of the nav, as the desktop's: primary text, a grey icon, its fill on hover and when
+   open. */
+.nav-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
   min-width: 0;
-  max-width: 200px;
-  padding: 2px 6px;
-  border: 0;
-  border-radius: 6px;
-  background: none;
-  color: var(--gray-12);
-  font-weight: 500;
+  min-height: var(--sidebar-row-height);
+  box-sizing: border-box;
+  padding: var(--sidebar-row-padding-y) var(--sidebar-row-padding-x);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-size: var(--sidebar-font-size);
+  text-decoration: none;
+  user-select: none;
+  transition:
+    background 140ms var(--ease-out-quart),
+    color 140ms var(--ease-out-quart);
+}
+
+.nav-row:hover {
+  background: var(--hover);
+}
+
+.nav-row[aria-current="page"] {
+  background: var(--active);
+}
+
+.nav-row:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.nav-row > svg {
+  flex-shrink: 0;
+  color: var(--text-2);
+}
+
+.nav-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The rows you start from, as the desktop's Automations row: a step taller and larger. */
+.nav-row-front {
+  min-height: var(--sidebar-nav-height);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Settings, as the desktop's settings button: a control's corners. */
+.nav-row-settings {
+  border-radius: var(--radius-md);
+}
+
+/* ---- A group of the nav: its heading over its rows (the desktop's `.sidebar-section`) ---- */
+
+.sidebar-group {
+  display: flex;
+  flex-direction: column;
+  margin-top: 12px;
+}
+
+.sidebar-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 4px var(--sidebar-row-padding-x);
+}
+
+.sidebar-group-title {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--sidebar-font-size-label);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.sidebar-group-button {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
   cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.sidebar-group-button:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.sidebar-group-button:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.sidebar-group-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* What a group says in place of rows: one quiet line (the desktop's `.sidebar-empty`). */
+.sidebar-note {
+  margin: 4px var(--sidebar-row-padding-x) 8px;
+  color: var(--text-3);
+  font-size: var(--sidebar-font-size-small);
+  line-height: 1.5;
+}
+
+.sidebar-note-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--cyan-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.sidebar-note-action:hover {
+  text-decoration: underline;
+}
+
+.sidebar-note-action:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: 1px;
+}
+
+/* ---- A factory: its row and chevron, its pages under it ---- */
+
+.factory-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* The chevron sits inside the row's right end, so the row's fill runs under it, and stays
+   while the pointer is on the chevron. */
+.factory-row-link {
+  padding-right: calc(var(--sidebar-row-padding-x) + 20px);
+}
+
+.factory-row:hover > .factory-row-link {
+  background: var(--hover);
+}
+
+.factory-row-name {
+  font-weight: var(--font-weight-medium);
+}
+
+/* The desktop's tree toggle: a 16px column, 20px tall, tertiary until pointed at. */
+.factory-row-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+button.factory-row-toggle:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.factory-row-toggle:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+/* The factory open, folded: its own row is marked, since its page's row is hidden. */
+.factory-row-link[data-open] {
+  background: var(--active);
+}
+
+/* The desktop's fold: one chevron that turns, rather than two that swap. */
+.fold-chevron {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform 200ms var(--ease-out-quart);
+}
+
+.fold-chevron[data-open] {
+  transform: none;
+}
+
+/* A factory's pages: indented so their icons sit under its name, with the desktop tree's line
+   down the tile's middle tying them to it. */
+.factory-pages {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.factory-pages::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: calc(var(--sidebar-row-padding-x) + var(--sidebar-tile-size) / 2);
+  width: 1px;
+  background: var(--line);
+  pointer-events: none;
+}
+
+.factory-page-link {
+  padding-left: calc(
+    var(--sidebar-row-padding-x) +
+    var(--sidebar-tile-size) +
+    var(--sidebar-tile-gap)
+  );
+}
+
+.sidebar-foot {
+  padding: 4px;
+  border-top: 1px solid var(--line);
+}
+
+.sidebar-foot > .error {
+  margin: 4px 8px;
+  font-size: var(--font-size-sm);
+}
+
+/* ---- The workspace's menu, after the desktop's (`Layout/WorkspaceMenu.tsx`) ---- */
+
+.switcher-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  cursor: pointer;
+}
+
+.sidebar-head .switcher-trigger {
+  width: 100%;
 }
 
 .switcher-trigger:hover:not(:disabled),
 .switcher-trigger[data-state="open"] {
-  background: var(--gray-a3);
+  background: var(--hover);
 }
 
 .switcher-trigger:focus-visible {
-  outline: 2px solid var(--accent-8);
-  outline-offset: 0;
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
 }
 
 .switcher-trigger:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.switcher-trigger > svg {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-2);
+}
+
+/* A row's icon sits in a slot as wide as an initial's tile, so names line up whatever the icon. */
+.icon-slot {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
 }
 
 .switcher-name {
@@ -186,8 +665,60 @@ body {
   white-space: nowrap;
 }
 
-.switcher-menu {
-  min-width: 220px;
+.workspace-menu {
+  min-width: 240px;
+}
+
+/* The desktop's menu rows: 30px, a row's radius, primary text. */
+.workspace-menu .rt-BaseMenuItem,
+.account-menu .rt-BaseMenuItem {
+  gap: 8px;
+  min-height: 32px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-md);
+}
+
+.workspace-menu .rt-BaseMenuLabel {
+  font-size: var(--font-size-sm);
+}
+
+.workspace-menu-identity {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px;
+}
+
+.workspace-menu-avatar {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-2);
+}
+
+.workspace-menu-details {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workspace-menu-title {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.workspace-menu-summary {
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
 }
 
 .switcher-item-name {
@@ -199,18 +730,193 @@ body {
 .switcher-item-region {
   margin-left: auto;
   padding-left: 16px;
-  font-size: 12px;
-  opacity: 0.7;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  opacity: 0.6;
 }
+
+/* ---- The account, at the sidebar's foot ---- */
+
+.account-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-trigger:hover:not(:disabled),
+.account-trigger[data-state="open"] {
+  background: var(--hover);
+}
+
+.account-trigger:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.account-trigger > svg {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--text-2);
+}
+
+.account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.account-name,
+.account-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-name {
+  font-size: var(--sidebar-font-size);
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
+}
+
+.account-email {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  line-height: 16px;
+}
+
+.account-menu {
+  min-width: 220px;
+}
+
+.account-menu-email {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- The open section ---- */
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.content-inner,
+.content > .footer {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 880px;
+  margin: 0 auto;
+  padding-inline: clamp(20px, 4vw, 64px);
+}
+
+.content-inner {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 28px;
+  padding-block: 32px 48px;
+}
+
+.content > .footer {
+  padding-block: 0 20px;
+}
+
+/* A group of a section, as Connections draws one: a quiet label over a bordered list. */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.group-label {
+  margin: 0;
+  padding-inline: 2px;
+  color: var(--gray-a10);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+}
+
+.group-box {
+  box-sizing: border-box;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-group);
+  background: var(--gray-2);
+}
+
+/* Narrow screens put the sidebar above the section: the menu and the account on one row, the
+   nav under them as a list that scrolls in a third of the screen, so the factories' tree keeps
+   its shape. */
+@media (max-width: 760px) {
+  .shell {
+    display: block;
+  }
+
+  .sidebar {
+    z-index: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    height: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .sidebar-head {
+    flex: 1;
+    min-width: 0;
+    padding: 6px 4px 2px 6px;
+  }
+
+  .sidebar-foot {
+    padding: 6px 6px 2px 0;
+    border-top: 0;
+  }
+
+  .account-text,
+  .account-trigger > svg {
+    display: none;
+  }
+
+  .sidebar-nav {
+    order: 1;
+    flex-basis: 100%;
+    max-height: 34vh;
+    padding: 2px 8px 8px;
+  }
+
+  .nav-foot {
+    margin-top: 8px;
+    padding-top: 0;
+  }
+
+  .content-inner {
+    padding-block: 24px 36px;
+  }
+}
+
+/* ---- Shared pieces ---- */
 
 .card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--gray-6);
-  border-radius: 8px;
-  font-size: 14px;
+  gap: 14px;
+  padding: 24px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-group);
+  background: var(--gray-2);
+  font-size: var(--font-size-md);
 }
 
 .card p {
@@ -219,30 +925,41 @@ body {
 
 .heading {
   margin: 0;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
 }
 
 .muted {
-  color: var(--gray-11);
+  color: var(--text-2);
 }
 
 .error {
-  color: var(--red-11);
+  margin: 0;
+  color: var(--danger);
 }
 
+/* The desktop's dialog buttons: outlined, or filled with the accent for the one that goes on. */
 .button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text);
   font: inherit;
-  padding: 8px 12px;
-  border: 1px solid var(--gray-7);
-  border-radius: 6px;
-  background: var(--gray-3);
-  color: inherit;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
   cursor: pointer;
+  transition:
+    background 100ms ease,
+    border-color 100ms ease;
 }
 
 .button:hover:not(:disabled) {
-  background: var(--gray-4);
+  background: var(--hover);
 }
 
 .button:disabled {
@@ -257,13 +974,8 @@ body {
 }
 
 .button.primary:hover:not(:disabled) {
+  border-color: var(--accent-10);
   background: var(--accent-10);
-}
-
-.button:focus-visible,
-.link-button:focus-visible {
-  outline: 2px solid var(--accent-8);
-  outline-offset: 2px;
 }
 
 .form {
@@ -284,40 +996,59 @@ body {
 
 .label {
   padding: 0;
-  font-size: 13px;
-  font-weight: 500;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
 }
 
 .hint {
-  font-size: 12px;
-  color: var(--gray-11);
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
 }
 
 .field .error {
-  font-size: 13px;
+  font-size: var(--font-size-sm);
 }
 
 .input {
-  font: inherit;
-  padding: 7px 10px;
-  border: 1px solid var(--gray-7);
-  border-radius: 6px;
-  background: var(--color-surface);
+  height: 36px;
+  box-sizing: border-box;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg);
   color: inherit;
+  font: inherit;
+  font-size: var(--font-size-md);
 }
 
 .input::placeholder {
-  color: var(--gray-9);
+  color: var(--text-3);
 }
 
 .input:focus {
-  outline: 2px solid var(--accent-8);
-  outline-offset: -1px;
-  border-color: transparent;
+  border-color: var(--cyan);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--cyan-muted);
 }
 
 .input[aria-invalid="true"] {
-  border-color: var(--red-8);
+  border-color: var(--danger);
+}
+
+/* A native select drawn as the app's field, with a chevron of its own. */
+.input.select {
+  padding-right: 28px;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-position: right 9px center;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.input.select:disabled {
+  cursor: default;
+  opacity: 0.7;
 }
 
 /* A legend is not a flex item, so the region fieldset spaces its parts with margins. */
@@ -344,29 +1075,30 @@ body {
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 10px;
-  border: 1px solid var(--gray-6);
-  border-radius: 6px;
+  padding: 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
   cursor: pointer;
 }
 
 .region-option:hover {
-  border-color: var(--gray-8);
+  background: var(--hover);
 }
 
 .region-option:has(input:checked) {
-  border-color: var(--accent-8);
-  background: var(--accent-a2);
+  border-color: var(--cyan);
+  background: var(--cyan-muted);
 }
 
 .region-option:has(input:focus-visible) {
-  outline: 2px solid var(--accent-8);
-  outline-offset: 1px;
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
 }
 
 .region-option input {
-  margin: 2px 0 0;
-  accent-color: var(--accent-9);
+  margin: 3px 0 0;
+  accent-color: var(--cyan);
 }
 
 .region-option input:focus-visible {
@@ -379,8 +1111,8 @@ body {
   gap: 2px;
 }
 
-.region-name {
-  font-weight: 600;
+.region-option .region-name {
+  font-weight: var(--font-weight-semibold);
 }
 
 .actions {
@@ -390,36 +1122,74 @@ body {
 }
 
 .link-button {
-  font: inherit;
   padding: 0;
   border: 0;
   background: none;
-  color: var(--accent-11);
+  color: var(--text-2);
+  font: inherit;
   cursor: pointer;
+}
+
+.link-button:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .profile {
   align-items: flex-start;
 }
 
+/* A person's picture, or their initials where they have none. */
 .avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
   display: inline-flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
+  box-sizing: border-box;
+  width: var(--avatar-size, 40px);
+  height: var(--avatar-size, 40px);
+  border-radius: 50%;
   object-fit: cover;
-  background: var(--gray-4);
-  color: var(--gray-11);
-  font-weight: 600;
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: calc(var(--avatar-size, 40px) * 0.38);
+  font-weight: var(--font-weight-semibold);
 }
 
 .footer {
-  font-size: 12px;
-  color: var(--gray-11);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  color: var(--text-3);
+  font-size: var(--font-size-xs);
 }
 
 .footer a {
-  color: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.footer a:hover {
+  color: var(--text);
+}
+
+.footer-commit {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-row,
+  .fold-chevron {
+    transition: none;
+  }
+
+  .brand:hover .brand-cursor {
+    animation: none;
+    opacity: 1;
+  }
 }

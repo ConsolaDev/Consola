@@ -8,6 +8,7 @@ import {
   createWorkspace,
   listMyWorkspaces,
   setActiveWorkspace,
+  setWorkspaceIcon,
   workspaceForNewSession,
 } from './workspaces.js';
 
@@ -65,6 +66,7 @@ describe('createWorkspace', () => {
         slug: 'acme',
         region: 'eu',
         role: 'owner',
+        icon: null,
       },
     });
     if (made.kind !== 'created') throw new Error('not created');
@@ -157,5 +159,66 @@ describe('workspaceForNewSession', () => {
     await db.delete(schema.member).where(eq(schema.member.organizationId, second.workspace.id));
 
     expect(await workspaceForNewSession(stores, dana.id)).toBe(first.workspace.id);
+  });
+});
+
+describe('setWorkspaceIcon', () => {
+  async function ownersSession() {
+    const session = await signedIn(dana, 's-dana');
+    const made = await createWorkspace(stores, session, acme);
+    if (made.kind !== 'created') throw new Error('not created');
+    return { session: { ...session, activeWorkspaceId: made.workspace.id }, made };
+  }
+
+  it("sets the owner's active workspace's icon, and clears it", async () => {
+    const { session, made } = await ownersSession();
+    expect(await setWorkspaceIcon(stores, session, { icon: 'compass' })).toEqual({
+      kind: 'changed',
+      workspace: { ...made.workspace, icon: 'compass' },
+    });
+    expect(await listMyWorkspaces(stores.memberships, dana)).toEqual([
+      { ...made.workspace, icon: 'compass' },
+    ]);
+    expect(await setWorkspaceIcon(stores, session, { icon: null })).toEqual({
+      kind: 'changed',
+      workspace: made.workspace,
+    });
+  });
+
+  it('refuses an icon outside the set, and writes nothing', async () => {
+    const { session, made } = await ownersSession();
+    expect(await setWorkspaceIcon(stores, session, { icon: 'nope' })).toEqual({
+      kind: 'invalid',
+      problem: 'icon_unknown',
+    });
+    expect(await listMyWorkspaces(stores.memberships, dana)).toEqual([made.workspace]);
+  });
+
+  it('is not-allowed for a member, and not-a-member for someone outside it', async () => {
+    const { made } = await ownersSession();
+    const leeSession = await signedIn(lee, 's-lee');
+    const outside = { ...leeSession, activeWorkspaceId: made.workspace.id };
+    expect(await setWorkspaceIcon(stores, outside, { icon: 'moon' })).toEqual({
+      kind: 'not-a-member',
+    });
+
+    await db.insert(schema.member).values({
+      id: 'acme-lee',
+      organizationId: made.workspace.id,
+      userId: lee.id,
+      role: 'member',
+      createdAt: new Date(),
+    });
+    expect(await setWorkspaceIcon(stores, outside, { icon: 'moon' })).toEqual({
+      kind: 'not-allowed',
+    });
+    expect(await listMyWorkspaces(stores.memberships, dana)).toEqual([made.workspace]);
+  });
+
+  it('is no-workspace for a session with none open', async () => {
+    const session = await signedIn(dana, 's-dana');
+    expect(await setWorkspaceIcon(stores, session, { icon: 'moon' })).toEqual({
+      kind: 'no-workspace',
+    });
   });
 });

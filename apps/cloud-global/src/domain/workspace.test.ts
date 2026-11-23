@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkNewWorkspace,
   defaultActiveWorkspace,
+  mayManageWorkspace,
   WORKSPACE_NAME_MAX,
   WORKSPACE_SLUG_MAX,
 } from './workspace.js';
@@ -104,5 +105,13 @@ describe('defaultActiveWorkspace', () => {
   it('is none for someone in no workspace', () => {
     expect(defaultActiveWorkspace({ lastActive: 'gone', memberOf: [] })).toBeNull();
     expect(defaultActiveWorkspace({ lastActive: null, memberOf: [] })).toBeNull();
+  });
+});
+
+describe('mayManageWorkspace', () => {
+  it('is its owners and admins, not its members', () => {
+    expect(mayManageWorkspace('owner')).toBe(true);
+    expect(mayManageWorkspace('admin')).toBe(true);
+    expect(mayManageWorkspace('member')).toBe(false);
   });
 });

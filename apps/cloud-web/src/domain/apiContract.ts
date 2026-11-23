@@ -4,6 +4,271 @@
  */
 
 export interface paths {
+    "/api/github/tokens": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mint a GitHub token for a cell, narrowed to repositories and a purpose
+         * @description Called by a regional cell, never a browser: the request is signed with the key configured for the cell’s region, so it sits outside the origin check and carries no session. The workspace must hold the installation and be in that cell’s region, and the installation must cover every repository. The purpose fixes the permissions. Every token minted is recorded; the token itself is not, and no cache keeps the answer (`Cache-Control: no-store`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["GitHubTokenRequestBody"];
+                };
+            };
+            responses: {
+                /** @description The token, narrowed as asked. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubToken"];
+                    };
+                };
+                /** @description The body is not `{ request }`, the signed request is none the contract reads (expired, say), or its repositories break the purpose’s rules. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        } | {
+                            /** @enum {string} */
+                            error: "unreadable";
+                        } | components["schemas"]["InvalidTokenRequest"];
+                    };
+                };
+                /** @description No cell’s key checks the request. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsigned";
+                        };
+                    };
+                };
+                /** @description The workspace is in another region than the cell, the installation does not cover a repository, or GitHub refused the scope (a permission the app was not granted). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "other_region";
+                        } | components["schemas"]["RepositoryNotCovered"] | {
+                            /** @enum {string} */
+                            error: "scope_refused";
+                        };
+                    };
+                };
+                /** @description The workspace holds no installation with that id, whether or not another does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "installation_not_found";
+                        };
+                    };
+                };
+                /** @description GitHub no longer has the installation. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "installation_gone";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description This server has no GitHub App, or GitHub did not answer as it should. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "github_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "github_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/github/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive one of the GitHub App’s webhook deliveries
+         * @description The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is passed on, signed, to the cell of the workspace that holds its installation, which records each delivery once. Nothing of it is kept here.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Received. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubWebhookReceived"];
+                    };
+                };
+                /** @description Signed, but a header or the body is not what GitHub sends. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_delivery";
+                        };
+                    };
+                };
+                /** @description No `X-Hub-Signature-256`, or not GitHub’s signature over this body. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "bad_signature";
+                        };
+                    };
+                };
+                /** @description The workspace’s cell had this delivery already: sent again, or replayed. Nothing changed. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "duplicate_delivery";
+                        };
+                    };
+                };
+                /** @description Over the 25 MB GitHub puts in a delivery at most. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "too_large";
+                        };
+                    };
+                };
+                /** @description Dropped: the event came through an installation no workspace holds, or through none. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unknown_installation";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_installation";
+                        };
+                    };
+                };
+                /** @description The workspace’s cell did not take the event. GitHub’s Redeliver sends it again. */
+                502: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "cell_unavailable";
+                        };
+                    };
+                };
+                /** @description This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`), or no cell for the workspace’s region. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "webhooks_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "cell_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -145,6 +410,195 @@ export interface paths {
                 };
             };
         };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/workspace/icon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set or clear my active workspace's icon
+         * @description Only an owner or an admin of the workspace may. It changes the icon alone, never the workspace’s name, slug or region.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["WorkspaceIconChange"];
+                };
+            };
+            responses: {
+                /** @description The workspace, wearing the icon it was given. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["MyWorkspace"];
+                    };
+                };
+                /** @description The icon is not one of the set, or the body is not what the route takes. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "icon_unknown";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace, is a member who may not change it, or the change did not come from the web app. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/workspace/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * My active workspace's members, in the order they joined
+         * @description Every member of the workspace may list them. A person is named by the global id a cell knows them by (`id`), so the web app can put a name to the ids a cell answers with.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The members, with their roles. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            members: components["schemas"]["WorkspaceMember"][];
+                        };
+                    };
+                };
+                /** @description Nobody is signed in. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not in the workspace their session names, any more or ever. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no active workspace. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -775,6 +1229,48 @@ export interface components {
          * @enum {string}
          */
         GitHubCallbackResult: "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
+        /** @description A GitHub token narrowed to a workspace’s repositories, for an hour at most. */
+        GitHubToken: {
+            /** @description An installation token. Never log or store it. */
+            token: string;
+            /** @description In whole seconds since the epoch. */
+            expiresAt: number;
+            /** @description Exactly the repositories asked for, as GitHub names them now. */
+            repositories: {
+                id: number;
+                fullName: string;
+            }[];
+            /** @description Exactly the purpose's permissions, and the metadata read GitHub gives every token. */
+            permissions: {
+                /** @enum {string} */
+                contents?: "read" | "write";
+                /** @enum {string} */
+                pull_requests?: "read" | "write";
+                /** @enum {string} */
+                metadata?: "read";
+            };
+        };
+        /** @description Every problem with the repositories asked for, in rule order. */
+        InvalidTokenRequest: {
+            /** @enum {string} */
+            error: "invalid_token_request";
+            problems: ("no-repositories" | "too-many-repositories" | "repeated-repository")[];
+        };
+        /** @description The repositories, by their GitHub ids, the installation does not cover. */
+        RepositoryNotCovered: {
+            /** @enum {string} */
+            error: "repository_not_covered";
+            repositoryIds: number[];
+        };
+        GitHubTokenRequestBody: {
+            /** @description The request, signed by the cell: a JWS in compact serialization whose payload is the contract's `GitHubTokenRequest` as JSON, with `alg` `EdDSA`, the cell's key's `kid` and `typ` `consola-github-token-request` in its protected header. */
+            request: string;
+        };
+        /** @description `delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, passed on to no cell. */
+        GitHubWebhookReceived: {
+            /** @enum {string} */
+            result: "delivered" | "pong";
+        };
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {
             user: components["schemas"]["Person"];
@@ -795,9 +1291,26 @@ export interface components {
             region: "eu" | "us";
             /** @enum {string} */
             role: "owner" | "admin" | "member";
+            /** @description The icon the workspace wears, by the desktop app’s ids; null for none, which shows its initial. */
+            icon: ("layout" | "briefcase" | "home" | "code" | "terminal" | "rocket" | "flask" | "lightbulb" | "palette" | "book" | "graduation-cap" | "globe" | "heart" | "star" | "zap" | "coffee" | "music" | "gamepad" | "camera" | "compass" | "mountain" | "leaf" | "sun" | "moon" | "emoji-rocket" | "emoji-sparkles" | "emoji-lightning" | "emoji-fire" | "emoji-target" | "emoji-brain" | "emoji-bulb" | "emoji-tools" | "emoji-laptop" | "emoji-robot" | "emoji-flask" | "emoji-palette" | "emoji-books" | "emoji-note" | "emoji-briefcase" | "emoji-house" | "emoji-coffee" | "emoji-seedling" | "emoji-tree" | "emoji-mountain" | "emoji-ocean" | "emoji-sun" | "emoji-moon" | "emoji-globe" | "emoji-star" | "emoji-heart" | "emoji-music" | "emoji-gamepad" | "emoji-cat" | "emoji-dog" | "emoji-fox" | "emoji-unicorn") | null;
+            /** @description Whether the person may change how the workspace looks (an owner or admin). */
+            canManage: boolean;
         };
         ActiveWorkspace: {
             workspaceId: string;
+        };
+        /** @description An icon from the desktop app’s set, or null to take the icon off. */
+        WorkspaceIconChange: {
+            icon: string | null;
+        };
+        /** @description A member of a workspace, as its other members see them. */
+        WorkspaceMember: {
+            id: string;
+            name: string;
+            email: string;
+            image: string | null;
+            /** @enum {string} */
+            role: "owner" | "admin" | "member";
         };
         /** @description Every problem, in the order the rules name them. */
         InvalidWorkspace: {
@@ -817,6 +1330,13 @@ export interface components {
             token: string;
             /** @description In whole seconds since the epoch. */
             expiresAt: number;
+            /** @description The workspace the token is for: the one active when it was minted, which another tab may have switched since the page loaded. */
+            workspaceId: string;
+            /**
+             * @description The workspace's region, whose cell takes the token.
+             * @enum {string}
+             */
+            region: "eu" | "us";
         };
         CellTokenKeySet: {
             keys: components["schemas"]["CellTokenPublicKey"][];

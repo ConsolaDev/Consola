@@ -4,8 +4,10 @@ import {
   checkNewWorkspace,
   defaultActiveWorkspace,
   type MyWorkspace,
+  mayManageWorkspace,
   type WorkspaceProblem,
 } from '../domain/workspace.js';
+import { checkWorkspaceIcon } from '../domain/workspaceIcon.js';
 import type { MembershipStore, SessionStore, WorkspaceStore } from './ports.js';
 
 /**
@@ -34,7 +36,7 @@ export async function createWorkspace(
     sessionId: session.sessionId,
     workspaceId: made.workspace.id,
   });
-  return { kind: 'created', workspace: { ...made.workspace, role: CREATOR_ROLE } };
+  return { kind: 'created', workspace: { ...made.workspace, role: CREATOR_ROLE, icon: null } };
 }
 
 /** The workspaces the person is in, with their role in each, in the order they joined. */
@@ -75,4 +77,38 @@ export async function workspaceForNewSession(
     stores.memberships.workspacesOf(userId),
   ]);
   return defaultActiveWorkspace({ lastActive, memberOf: mine.map((workspace) => workspace.id) });
+}
+
+/**
+ * Sets the icon of the session's active workspace, or clears it (null). Only an owner or an admin
+ * may (`mayManageWorkspace`), and the role is read from the database, never from the request. A
+ * session that names no workspace is `no-workspace`; one that names a workspace the person is not
+ * in is `not-a-member`; an icon `checkWorkspaceIcon` refuses is `invalid`. It writes the icon
+ * alone: the workspace's region, name and slug are never touched.
+ */
+export async function setWorkspaceIcon(
+  stores: { memberships: MembershipStore; workspaces: WorkspaceStore },
+  session: SignedIn,
+  request: { icon?: unknown },
+): Promise<
+  | { kind: 'changed'; workspace: MyWorkspace }
+  | { kind: 'invalid'; problem: 'icon_unknown' }
+  | { kind: 'no-workspace' }
+  | { kind: 'not-a-member' }
+  | { kind: 'not-allowed' }
+> {
+  const { person, activeWorkspaceId } = session;
+  if (activeWorkspaceId === null) return { kind: 'no-workspace' };
+  const workspace = await stores.memberships.workspaceFor({
+    workspaceId: activeWorkspaceId,
+    userId: person.id,
+  });
+  if (!workspace) return { kind: 'not-a-member' };
+  if (!mayManageWorkspace(workspace.role)) return { kind: 'not-allowed' };
+
+  const checked = checkWorkspaceIcon(request.icon);
+  if (!checked.ok) return { kind: 'invalid', problem: checked.problem };
+
+  await stores.workspaces.setIcon({ workspaceId: workspace.id, icon: checked.icon });
+  return { kind: 'changed', workspace: { ...workspace, icon: checked.icon } };
 }
