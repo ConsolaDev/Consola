@@ -4,7 +4,7 @@
 // every property alike with them and without them, at rest, hovered and focused, and its root
 // keep its containment. And on a page with no CSS, the guard and the floor that keep the page's
 // CSS out change nothing of t3's own.
-import { beforeAll, expect, it } from 'vite-plus/test';
+import { beforeAll, expect, it, type TestContext } from 'vite-plus/test';
 import { userEvent } from 'vite-plus/test/browser';
 import {
   barePage,
@@ -228,15 +228,23 @@ const UNCHANGED = { rest: NONE, hovered: NONE, composerFocused: NONE, buttonFocu
 /** How many times the three readings are taken at most, while t3 changes what it shows. */
 const ATTEMPTS = 5;
 
+/** What a test says about itself: Vitest's annotations, which reporters show with the test. */
+type Annotate = TestContext['annotate'];
+
 /**
  * Reads the chat without a change, with it, and without it again. A reading with it counts only
  * between two without it that agree, so that nothing but the change changed in between (t3 may
- * still change what it shows; then the three are read again, and the test says how often).
+ * still change what it shows; then the three are read again). The test says how often it had to
+ * (an annotation, which the reporters show with the test, passed or not: `--reporter=verbose`
+ * locally, a notice on GitHub).
  */
-const compareReadings = async (readings: {
-  readonly without: () => Promise<States>;
-  readonly with: () => Promise<States>;
-}) => {
+const compareReadings = async (
+  annotate: Annotate,
+  readings: {
+    readonly without: () => Promise<States>;
+    readonly with: () => Promise<States>;
+  },
+) => {
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     await quietChat();
     const before = await readings.without();
@@ -244,11 +252,12 @@ const compareReadings = async (readings: {
     const after = await readings.without();
     const drift = compareStates(before, after);
     if (JSON.stringify(drift) === JSON.stringify(UNCHANGED)) {
-      if (attempt > 1) console.warn(`the chat read alike on attempt ${attempt} of ${ATTEMPTS}`);
+      if (attempt > 1) await annotate(`read alike on attempt ${attempt} of ${ATTEMPTS}`, 'retry');
       return compareStates(before, changed);
     }
-    console.warn(
-      `attempt ${attempt} of ${ATTEMPTS}: t3's chat changed between two readings: ${JSON.stringify(drift).slice(0, 600)}`,
+    await annotate(
+      `attempt ${attempt} of ${ATTEMPTS}: t3's chat changed between the two readings without the change: ${JSON.stringify(drift).slice(0, 600)}`,
+      'retry',
     );
   }
   throw new Error("t3's chat changed between every two readings without the change");
@@ -277,7 +286,7 @@ const mountOn = async (page: EmbeddingPage) => {
  * `useTallEnoughToFold.ts`), so the chat follows the root size a page picks (the desktop's 14px),
  * as t3 follows it in its own window.
  */
-const compareOn = async (page: EmbeddingPage) => {
+const compareOn = async (annotate: Annotate, page: EmbeddingPage) => {
   const popup = await mountOn(page);
   const html = document.documentElement;
   const inline = html.style.fontSize;
@@ -288,7 +297,7 @@ const compareOn = async (page: EmbeddingPage) => {
   const rootFontSize = getComputedStyle(html).fontSize;
   for (const style of rules) style.remove();
 
-  return compareReadings({
+  return compareReadings(annotate, {
     without: async () => {
       html.style.fontSize = rootFontSize;
       try {
@@ -386,39 +395,39 @@ const TIMEOUT = 300_000;
 
 it("keeps the chat as on a bare page under Consola desktop's global CSS", {
   timeout: TIMEOUT,
-}, async () => {
-  expect(await compareOn(await desktopPage())).toEqual(UNCHANGED);
+}, async ({ annotate }) => {
+  expect(await compareOn(annotate, await desktopPage())).toEqual(UNCHANGED);
 });
 
 it("keeps the chat as on a bare page under cloud-web's Radix Themes and its own CSS", {
   timeout: TIMEOUT,
-}, async () => {
-  expect(await compareOn(await cloudWebPage())).toEqual(UNCHANGED);
+}, async ({ annotate }) => {
+  expect(await compareOn(annotate, await cloudWebPage())).toEqual(UNCHANGED);
 });
 
 it("keeps the chat as on a bare page under Tailwind's unlayered resets", {
   timeout: TIMEOUT,
-}, async () => {
-  expect(await compareOn(await tailwindPage())).toEqual(UNCHANGED);
+}, async ({ annotate }) => {
+  expect(await compareOn(annotate, await tailwindPage())).toEqual(UNCHANGED);
 });
 
 it("keeps the chat as on a bare page under a Tailwind 4 page's layers, and its container's inherited properties", {
   timeout: TIMEOUT,
-}, async () => {
-  expect(await compareOn(await tailwind4Page())).toEqual(UNCHANGED);
+}, async ({ annotate }) => {
+  expect(await compareOn(annotate, await tailwind4Page())).toEqual(UNCHANGED);
 });
 
 it("keeps the chat as on a bare page under rules with IDs, a page's direction, and rules on the root's containment", {
   timeout: TIMEOUT,
-}, async () => {
-  expect(await compareOn(await reachingPage())).toEqual(UNCHANGED);
+}, async ({ annotate }) => {
+  expect(await compareOn(annotate, await reachingPage())).toEqual(UNCHANGED);
 });
 
 it("changes nothing of t3's own with the guard and the floor, on a page without CSS", {
   timeout: TIMEOUT,
-}, async () => {
+}, async ({ annotate }) => {
   const popup = await mountOn(barePage);
-  const result = await compareReadings({
+  const result = await compareReadings(annotate, {
     without: async () => {
       const restore = t3sOwnCascade();
       try {
