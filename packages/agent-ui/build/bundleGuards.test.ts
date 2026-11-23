@@ -2,6 +2,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { build } from 'vite-plus';
 import { afterAll, describe, expect, it } from 'vite-plus/test';
 import {
@@ -10,90 +11,136 @@ import {
   noticesFor,
   packageDirOf,
   renderNotices,
-  serverSdkGuard,
-  thirdPartyNotices,
-  workerPlugins,
 } from './bundleGuards.ts';
 import { problemsIn } from './checkNotices.ts';
 
 const root = mkdtempSync(join(tmpdir(), 'agent-ui-guards-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-/** Builds `entry` as a library with the guard, as the package's build does. */
-const buildWithGuard = (entry: string) =>
+/** The package's own Vite config: the guard is tested where the package's build puts it. */
+const PACKAGE_CONFIG = fileURLToPath(new URL('../vite.config.ts', import.meta.url));
+
+/** A marker in every fake SDK module, so a build that let one through shows it. */
+const FAKE_SDK = 'FAKE_SERVER_SDK_MODULE';
+
+/** Writes a package into the fixture's `node_modules`, with an MIT licence and its files. */
+const fixturePackage = (name: string, files: Record<string, string>) => {
+  const dir = join(root, 'node_modules', name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, 'package.json'),
+    JSON.stringify({ name, version: '1.0.0', main: 'index.js', type: 'module', license: 'MIT' }),
+  );
+  writeFileSync(join(dir, 'LICENSE'), `MIT License\n\nCopyright (c) Sprocket\n`);
+  for (const [file, text] of Object.entries(files)) writeFileSync(join(dir, file), text);
+  return dir;
+};
+
+// Both SDKs are installed, so Vite's resolver finds them: a guard that runs after it is never
+// asked, and the build bundles the fake (the guard's first placement, in
+// `build.rolldownOptions.plugins`, did exactly that).
+fixturePackage('@cursor/sdk', {
+  'index.js': `export const sdk = '${FAKE_SDK}';\n`,
+  'something.js': `export const sdk = '${FAKE_SDK}';\n`,
+});
+fixturePackage('@anthropic-ai/claude-agent-sdk', {
+  'index.js': `export const sdk = '${FAKE_SDK}';\n`,
+  'sdk.mjs': `export const sdk = '${FAKE_SDK}';\n`,
+});
+const sdkUser = fixturePackage('sdk-user', {
+  'index.js': "export { sdk } from '@cursor/sdk';\n",
+});
+
+/** Builds `entry` as the package builds its library: its own config, with only the entry changed. */
+const buildAsThePackage = (entry: string) =>
   build({
+    configFile: PACKAGE_CONFIG,
     root,
-    configFile: false,
     logLevel: 'silent',
-    plugins: [serverSdkGuard()],
-    // As the package's config has it: the guard is on the main build's plugins, the workers' come from here.
-    worker: { format: 'es', plugins: () => workerPlugins(thirdPartyNotices()) },
-    build: {
-      write: false,
-      lib: { entry, formats: ['es'], fileName: 'out' },
-      rolldownOptions: { external: [] },
-    },
+    build: { write: false, lib: { entry } },
   });
 
-describe('serverSdkGuard', () => {
+/** Whatever a build that succeeded wrote, as text. */
+const writtenText = (output: Awaited<ReturnType<typeof build>>): string =>
+  (Array.isArray(output) ? output : [output])
+    .flatMap((result) => ('output' in result ? result.output : []))
+    .map((file) =>
+      'code' in file ? file.code : typeof file.source === 'string' ? file.source : '',
+    )
+    .join('\n');
+
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Fails unless the build is refused for `importer`'s import of `source`. */
+const refusedNaming = async (entry: string, importer: string, source: string) => {
+  let output: Awaited<ReturnType<typeof build>>;
+  try {
+    output = await buildAsThePackage(entry);
+  } catch (error) {
+    expect(String(error instanceof Error ? error.message : error)).toMatch(
+      new RegExp(`${escaped(importer)} imports ${escaped(source)}`),
+    );
+    return;
+  }
+  throw new Error(
+    `the build of ${entry} succeeded; the bundle ${
+      writtenText(output).includes(FAKE_SDK) ? 'holds' : 'does not hold'
+    } the fake ${source}`,
+  );
+};
+
+/** Builds through the whole package config, several times over on a loaded machine. */
+const BUILD_TIMEOUT = 120_000;
+
+describe('serverSdkGuard, in the package build', () => {
   for (const source of [
     '@cursor/sdk',
     '@cursor/sdk/something',
     '@anthropic-ai/claude-agent-sdk',
     '@anthropic-ai/claude-agent-sdk/sdk.mjs',
   ]) {
-    it(`fails a build whose file imports ${source}, naming the file`, async () => {
+    it(`fails a build whose file imports ${source}, naming the file`, {
+      timeout: BUILD_TIMEOUT,
+    }, async () => {
       const entry = join(root, `import-${source.replace(/\W/g, '-')}.ts`);
       writeFileSync(entry, `import * as sdk from '${source}';\nexport default sdk;\n`);
-      await expect(buildWithGuard(entry)).rejects.toThrow(
-        new RegExp(`${entry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} imports ${source}`),
-      );
+      await refusedNaming(entry, entry, source);
     });
   }
 
-  const failsNaming = async (entry: string, importer: string, source: string) => {
-    await expect(buildWithGuard(entry)).rejects.toThrow(
-      new RegExp(`${importer.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} imports ${source}`),
-    );
-  };
-
-  it('fails a build whose dependency imports the SDK, naming the dependency', async () => {
-    const dep = join(root, 'node_modules', 'sdk-user');
-    mkdirSync(dep, { recursive: true });
-    writeFileSync(
-      join(dep, 'package.json'),
-      '{"name":"sdk-user","version":"1.0.0","main":"index.js"}',
-    );
-    writeFileSync(
-      join(dep, 'index.js'),
-      "import * as sdk from '@cursor/sdk';\nexport default sdk;\n",
-    );
+  it('fails a build whose dependency imports the SDK, naming the dependency', {
+    timeout: BUILD_TIMEOUT,
+  }, async () => {
     const entry = join(root, 'via-dependency.ts');
-    writeFileSync(entry, "import dep from 'sdk-user';\nexport default dep;\n");
-    await failsNaming(entry, join(dep, 'index.js'), '@cursor/sdk');
+    writeFileSync(entry, "export { sdk } from 'sdk-user';\n");
+    await refusedNaming(entry, join(sdkUser, 'index.js'), '@cursor/sdk');
   });
 
-  it('fails a build whose file imports the SDK dynamically', async () => {
+  it('fails a build whose file imports the SDK dynamically', {
+    timeout: BUILD_TIMEOUT,
+  }, async () => {
     const entry = join(root, 'dynamic.ts');
     writeFileSync(entry, "export const load = () => import('@anthropic-ai/claude-agent-sdk');\n");
-    await failsNaming(entry, entry, '@anthropic-ai/claude-agent-sdk');
+    await refusedNaming(entry, entry, '@anthropic-ai/claude-agent-sdk');
   });
 
-  it('fails a build whose worker imports the SDK, naming the worker', async () => {
+  it('fails a build whose worker imports the SDK, naming the worker', {
+    timeout: BUILD_TIMEOUT,
+  }, async () => {
     const worker = join(root, 'sdk.worker.ts');
-    writeFileSync(worker, "import * as sdk from '@cursor/sdk';\nself.postMessage(sdk);\n");
+    writeFileSync(worker, "import { sdk } from '@cursor/sdk';\nself.postMessage(sdk);\n");
     const entry = join(root, 'with-worker.ts');
     writeFileSync(
       entry,
       "export const start = () => new Worker(new URL('./sdk.worker.ts', import.meta.url), { type: 'module' });\n",
     );
-    await failsNaming(entry, worker, '@cursor/sdk');
+    await refusedNaming(entry, worker, '@cursor/sdk');
   });
 
-  it('lets a build with no such import through', async () => {
+  it('lets a build with no such import through', { timeout: BUILD_TIMEOUT }, async () => {
     const entry = join(root, 'fine.ts');
     writeFileSync(entry, "export const fine = '@cursor/sdk-is-only-text';\n");
-    await expect(buildWithGuard(entry)).resolves.toBeDefined();
+    expect(writtenText(await buildAsThePackage(entry))).toContain('@cursor/sdk-is-only-text');
   });
 });
 

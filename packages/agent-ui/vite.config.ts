@@ -105,7 +105,10 @@ const browser = () => ({
 });
 
 export default defineConfig({
-  plugins: [withheldDeviceModels(), react({ compiler: true })],
+  // The SDK guard is a top-level plugin with `enforce: 'pre'`, so it is asked about every import
+  // before Vite's resolver: a plugin in `build.rolldownOptions.plugins` runs after it, and is never
+  // asked about an import Vite resolved (`build/bundleGuards.test.ts` builds through this config).
+  plugins: [serverSdkGuard(), withheldDeviceModels(), react({ compiler: true })],
   define: Object.fromEntries(
     Object.entries(T3_ENV).map(([name, value]) => [
       `import.meta.env.${name}`,
@@ -142,7 +145,6 @@ export default defineConfig({
       // (`use-sync-external-store`'s shim, …) into imports too: left as `require`, it throws
       // in a browser, which has none.
       plugins: [
-        serverSdkGuard(),
         esmExternalRequirePlugin({ external: [/^react($|\/)/, /^react-dom($|\/)/] }),
         notices.main,
       ],

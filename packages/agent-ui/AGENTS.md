@@ -535,7 +535,12 @@ the layer's lowest sublayer, whole, and only rolls back, and nothing page-global
 what "What is page-global" lists. The output must contain no `@cursor/sdk` and no
 `@anthropic-ai/claude-agent-sdk`: the build fails on any import of either, subpaths included,
 and names the importing file (`serverSdkGuard`, `build/bundleGuards.ts`), and CI greps `dist/`
-for both as a second check. Either would mean server code reached the browser bundle.
+for both as a second check. Either would mean server code reached the browser bundle. The guard
+is a top-level plugin (`enforce: 'pre'`) for the library and in `worker.plugins` for t3's
+workers: a plugin in `build.rolldownOptions.plugins` runs after Vite's resolver, which answers
+an installed package first, so it is never asked. `build/bundleGuards.test.ts` builds fixtures
+through the package's own `vite.config.ts`, with fake SDKs installed, so a guard moved out of
+the resolver's way fails it.
 `dist/THIRD-PARTY-NOTICES` is written by the same build (`thirdPartyNotices`) from the modules it
 bundled, t3's workers' included: one entry per package with its licence, and the full text for
 the GPL family and OFL (`heic-to` is LGPL-3.0, `@betteroffice/fonts` OFL-1.1). The build fails on
