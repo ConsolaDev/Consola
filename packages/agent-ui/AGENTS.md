@@ -105,12 +105,24 @@ pieces:
   catalog while the host is registered and deletes it when the registration is removed, which
   is what unmounting does (asynchronously).
   Two chats may show one session: t3 keeps one registration and one stored pass per session, so
-  the chats share it, counted by chat. The newest pass wins (a chat that mounts or renews its
-  pass goes last, and the last is what t3 is handed). A chat that unmounts leaves the others'
-  registration, and t3 drops the session and its pass only when its last chat in the page goes;
-  a chat left on an older pass renews it through its own `onPassExpired` if the host refuses it.
-  Across windows the session's Web Lock does the same (below), and a page holds it while any of
-  its chats shows the session (`AgentChat.sharedSession.browser.test.tsx`). A window that closes or reloads without unmounting
+  the chats share it, counted by chat. The newest pass wins by arrival order: a chat that mounts,
+  or whose pass changes (a rerender with a new `pass`, or its own `onPassExpired` renewal), goes
+  last, and the last is what t3 is handed. So a chat that is handed an older pass than another's
+  overrides it (embedders hand each chat of a session the same fresh pass, so we keep arrival
+  order rather than comparing passes: a pass has no order the chat can read without parsing it).
+  A chat that unmounts leaves the others' registration, and t3 drops the session and its pass
+  only when its last chat in the page goes; a chat left on an older pass that the host refuses
+  renews it through its own `onPassExpired`.
+  Across windows t3's stored pass is one per origin, so a window removing its last registration
+  of a session would delete the pass another window still needs. Before it does, the page asks
+  Web Locks (`heldByAnotherPage`: the session's lock held more times than this page holds it),
+  and when another window holds it, puts the pass back in t3's credential store once t3 has
+  removed the registration (`restoreStoredPass`). Only the pass is put back: the other window
+  keeps its own registration, and t3's cached thread for the session is gone and refilled. The
+  pass is absent for an instant between t3's delete and the put. If two windows end at the same
+  moment each sees the other holding, so neither removes it: it stays until the next page's first
+  registration sweeps it (its lock is free by then) (`AgentChat.sharedSession.browser.test.tsx`,
+  with the other window an iframe of the dev page). A window that closes or reloads without unmounting
   removes nothing; see "What t3 keeps in the browser" for how such passes are found.
 - **t3's client does the rest**, unchanged: it reads the host's descriptor, asks for a socket
   ticket with the pass as bearer token, opens `ws(s)://<host>/ws?wsTicket=…`, and reads the

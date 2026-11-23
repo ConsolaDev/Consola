@@ -28,11 +28,12 @@ import {
   connectionIdFor,
   connectionServices,
   forgetStoredSession,
+  restoreStoredPass,
   runInConnection,
 } from './connection.ts';
 import { hostHttpOrigin } from './hostAddress.ts';
 import { copyInjectedStyles } from './injectedStyles.ts';
-import { forgetUnheldSessions, holdSession } from './storedSessions.ts';
+import { forgetUnheldSessions, heldByAnotherPage, holdSession } from './storedSessions.ts';
 import { I18nProvider } from '~/i18n/I18nProvider';
 import { startI18n } from '~/i18n/runtime';
 import { AppAtomRegistryProvider, appAtomRegistry } from '~/rpc/atomRegistry';
@@ -266,7 +267,20 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
       unmounted = true;
       const removed = removeRegistration(sessionId, owner);
       const passes = [...registeredPasses(), ...(removed === undefined ? [] : passOf(removed))];
+      // The last chat of the session in this page: t3 is about to delete the pass, which is stored
+      // for the whole origin. Another window that shows the session still needs it, so it is
+      // asked before this page lets go (the page's own hold is still there).
+      const lastOfSession = removed !== undefined && !registered.has(sessionId);
+      const keptBy = lastOfSession
+        ? heldByAnotherPage(sessionId).catch(() => false)
+        : Promise.resolve(false);
       reconcileHosts()
+        .then(async () => {
+          const [token] = removed === undefined ? [] : passOf(removed);
+          if (token === undefined || !(await keptBy)) return;
+          const exit = await runInConnection(restoreStoredPass(sessionId, token));
+          if (exit._tag === 'Failure') throw new Error(Cause.pretty(exit.cause));
+        })
         .catch((error) =>
           logFailure("could not remove the host from t3's connection.", error, passes),
         )

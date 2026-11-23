@@ -114,5 +114,10 @@ export const mountChat = async (
     mounted = false;
   };
   cleanups.push(unmount);
-  return { unmount };
+  const rerender = async (next: AgentChatProps) => {
+    globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+    await act(async () => root.render(<AgentChat {...next} />));
+    globalThis.IS_REACT_ACT_ENVIRONMENT = false;
+  };
+  return { unmount, rerender };
 };
