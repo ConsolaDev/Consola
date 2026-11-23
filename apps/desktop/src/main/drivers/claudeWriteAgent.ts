@@ -43,8 +43,25 @@ export const PINNED_SOCKET_KEYS: { allowUnixSockets: []; allowAllUnixSockets?: f
 };
 
 /**
+ * Row 49 (INFO, 2026-11-23, on 2.1.330): denying `Library/Keychains` denies
+ * the keychain *files* only. A sandboxed shell still reaches the keychain
+ * service (securityd, `com.apple.SecurityServer`, over Mach IPC): the CLI's
+ * own sandbox profile allows that lookup outright, and its settings offer
+ * no way to deny it (`network.allowMachLookup` only adds lookups). Asked for
+ * an item under a name that cannot exist, `security find-generic-password`
+ * answered "could not be found", and `security list-keychains` listed the
+ * search list, as outside the sandbox. So a sandboxed step can ask macOS for
+ * your keychain items through `security` (macOS may or may not prompt), and
+ * nothing Consola says may describe the sandbox as protecting the keychain.
+ */
+export const KEYCHAIN_SERVICE_BLOCKED = false;
+
+/**
  * The credential files and folders, under the home folder, that a `sandbox`
  * shell may not read (Call 21's fixed list; the canary's `CREDENTIAL_PATHS`).
+ * `Library/Keychains` keeps the keychain files from being read or copied
+ * whole; it does not keep the shell from asking the keychain service for an
+ * item (`KEYCHAIN_SERVICE_BLOCKED`, row 49).
  */
 export const CREDENTIAL_PATHS = [
   'Library/Keychains',

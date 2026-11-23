@@ -10,14 +10,15 @@
  * puts a step's turn on (rows 16 to 19), what the server probe reports and
  * what an agent's compiled servers, skills and deny list let load (rows 20
  * to 26), and that a skill's supporting files run no command (rows 27 and
- * 28). Rows 29 to 48 ask what a write agent's `sandbox` contains under its
+ * 28). Rows 29 to 49 ask what a write agent's `sandbox` contains under its
  * own flags (slice 3-B's plan, *What `sandbox` contains*): its shell's
  * writes, reads, network, sockets and environment, the run clone's git
  * folder and the checkout's `.git` pointer, the file tools with the sandbox
  * on and off, the repository's hooks, `allowRead`, `--max-budget-usd`,
  * `--fork-session` across folders, and where a backgrounded process ends
- * up. A row that only sets a verdict a later task reads (30's outside half,
- * 35, 40, 44, 45) prints PASS or INFO with the verdict, and 41 and 48 only
+ * up, and whether its shell can reach the keychain service (49). A row that
+ * only sets a verdict a later task reads (30's outside half, 35, 40, 44, 45,
+ * 49) prints PASS or INFO with the verdict, and 41 and 48 only
  * record (INFO); every other row is a stop row, PASS or FAIL. This script
  * asks the real one, one row per assumption, and prints what it saw.
  *
@@ -39,7 +40,7 @@
  * without `--restricted`, and so loads that profile's own settings and hooks.
  * Row 27's control runs without `--restricted` too, but only in the scratch
  * profile, which is not signed in: no turn runs, only the CLI loading a skill.
- * Rows 29 to 48 never run a turn without it (`writeTurn` refuses one; rows
+ * Rows 29 to 49 never run a turn without it (`writeTurn` refuses one; rows
  * 40 and 41 run the step's read-only flags, which end with it), and
  * row 41 is the one that writes into the profile: two transcripts, whose
  * paths it prints for the person to remove.
@@ -3017,6 +3018,72 @@ async function row40() {
     : { status: 'INFO', why: `MAX_BUDGET_CHECKED = false; ${saw}` };
 }
 
+/**
+ * Row 49 (the commit review's MEDIUM finding on `Library/Keychains` in the
+ * deny list): whether a sandboxed shell can still ask macOS's keychain
+ * service (securityd, `com.apple.SecurityServer`, over Mach IPC) for an
+ * item, which denying the keychain files does not stop. It never reads a
+ * real secret and never creates, changes or deletes an item: it asks for a
+ * generic password under a service name that cannot exist
+ * (`consola-canary-<random>`) and lists the keychain search list, inside the
+ * sandbox (once outside it, for the comparison), and classifies the answer.
+ * "could not be found" or a keychain listed: the service answered
+ * (`KEYCHAIN_SERVICE_BLOCKED = false`, INFO); "Operation not permitted" or an
+ * IPC or sandbox refusal: blocked (PASS). Anything else is said as it came.
+ */
+async function row49() {
+  const base = rowBase(49);
+  const r = runClone(base);
+  const keychains = path.join(os.homedir(), 'Library', 'Keychains');
+  const service = `consola-canary-${randomUUID().replace(/-/g, '').slice(0, 12)}`;
+  const find = `/usr/bin/security find-generic-password -s ${service}`;
+  const list = '/usr/bin/security list-keychains';
+  const outside = spawnSync('sh', ['-c', `${find} 2>&1`], { encoding: 'utf8' });
+  const outsideSaid = `${outside.stdout ?? ''}`.trim();
+  const probe = probeScript(base, 'probe-49', [
+    ['find', find],
+    ['list', list],
+  ]);
+  const result = await writeTurn(
+    writeAgentFlags({
+      tools: 'write',
+      settings: { sandbox: S(r.checkout, [], [keychains]) },
+      deny: pointerRules(r.checkout),
+    }),
+    runProbePrompt(probe),
+    { cwd: r.checkout },
+  );
+  const facts = turnFacts(result);
+  const lines = probeLines(facts.events);
+  if (lines.size === 0) return noProbe(result, facts);
+  const answered = (line) =>
+    line !== undefined && /could not be found|\.keychain/i.test(line.out) ? 'answered' : null;
+  const blocked = (line) =>
+    line !== undefined &&
+    line.exit !== 0 &&
+    /not permitted|sandbox|deny|denied|mach|ipc|connection invalid|server died|CSSM/i.test(
+      line.out,
+    ) &&
+    !/could not be found/i.test(line.out)
+      ? 'blocked'
+      : null;
+  const classify = (line) => answered(line) ?? blocked(line) ?? 'unclear';
+  const findSaid = classify(lines.get('find'));
+  const listSaid = classify(lines.get('list'));
+  const saw = `find ${findSaid} (exit ${lines.get('find')?.exit}: ${short(lines.get('find')?.out, 120)}); list ${listSaid} (exit ${lines.get('list')?.exit}: ${short(lines.get('list')?.out, 160)}); outside the sandbox find said (exit ${outside.status}): ${short(outsideSaid, 120)}; ${money(facts.cost)}`;
+  if (findSaid === 'blocked' && listSaid !== 'answered')
+    return { status: 'PASS', why: `KEYCHAIN_SERVICE_BLOCKED = true; ${saw}` };
+  if (findSaid === 'answered' || listSaid === 'answered')
+    return {
+      status: 'INFO',
+      why: `KEYCHAIN_SERVICE_BLOCKED = false: the sandboxed shell reached the keychain service; ${saw}`,
+    };
+  return {
+    status: 'INFO',
+    why: `KEYCHAIN_SERVICE_BLOCKED unknown: neither answer was recognised; ${saw}`,
+  };
+}
+
 /** Where a session's transcript is in the profile: probed per project folder, never derived. */
 function transcriptOf(sessionId) {
   const projects = path.join(opts.profile, 'projects');
@@ -3711,6 +3778,12 @@ const ROWS = [
     name: 'where a process the agent backgrounds ends up (INFO)',
     needs: 'tokens',
     run: row48,
+  },
+  {
+    id: '49',
+    name: 'whether a sandboxed shell can ask the keychain service for an item (INFO when it can)',
+    needs: 'tokens',
+    run: row49,
   },
 ];
 
