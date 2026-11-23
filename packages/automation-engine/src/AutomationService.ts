@@ -7884,7 +7884,8 @@ export class AutomationService {
       appliesTo: automation.appliesTo,
       steps: automation.steps,
     };
-    for (const step of automation.steps) {
+    // Every leaf, a loop's calls included: each is resolved, checked and hashed as any call.
+    for (const step of leafSteps(automation.steps)) {
       if (step.kind !== 'uses') continue;
       const args = callArguments(step, entry);
       const alsoInDryRun = step.dryRun === 'run' ? { alsoInDryRun: true as const } : {};
@@ -7967,7 +7968,9 @@ export class AutomationService {
     }
     const { definition } = loaded;
     const fail = (error: string) => this.settleStep(runId, stepId, { status: 'failed', error });
-    const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
+    const step = leafSteps(definition.automation.steps).find(
+      (candidate) => candidate.id === stepId,
+    );
     const record = this.stepsOf(runId).find((candidate) => candidate.id === stepId);
     if (step?.kind !== 'uses' || !record) {
       fail(`Its definition has no call step ${stepId}. Nothing was sent.`);
@@ -8726,7 +8729,7 @@ export class AutomationService {
     if (this.checkingServers.has(key)) throw new Error(checkUnderWay(server));
     const controller = new AbortController();
     this.checkingServers.set(key, controller);
-    const calls = definition.automation.steps.flatMap((step) =>
+    const calls = leafSteps(definition.automation.steps).flatMap((step) =>
       step.kind === 'uses' && step.server === server
         ? [{ step: step.id, tool: step.tool, with: step.with, timeoutMs: step.timeoutMs }]
         : [],
@@ -9456,7 +9459,7 @@ function noSuchServer(step: Pick<UsesStep, 'id' | 'server'>): string {
  */
 function serverWithProblems(automation: Automation, read: FactoryParseResult): string | null {
   if (!isStepsEntry(automation)) return null;
-  for (const step of automation.steps) {
+  for (const step of leafSteps(automation.steps)) {
     // A server written `consola` is refused in factory.yml; a call of `consola#…` is still Consola's own.
     if (step.kind !== 'uses' || step.server === CONSOLA_NAMESPACE) continue;
     if (!read.brokenServers.includes(step.server)) continue;
@@ -9472,7 +9475,7 @@ function callServersOf(
 ): Record<string, McpServerDefinition> | undefined {
   if (!isStepsEntry(automation)) return undefined;
   const called: Record<string, McpServerDefinition> = {};
-  for (const step of automation.steps)
+  for (const step of leafSteps(automation.steps))
     if (step.kind === 'uses' && Object.prototype.hasOwnProperty.call(servers, step.server))
       called[step.server] = servers[step.server];
   return Object.keys(called).length > 0 ? called : undefined;

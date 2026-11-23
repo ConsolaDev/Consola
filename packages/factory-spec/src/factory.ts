@@ -380,10 +380,11 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     const { automation } = candidate;
     if (!isStepsEntry(automation)) return true;
     let kept = true;
-    automation.steps.forEach((step, index) => {
+    // A loop's calls too, each at its own line.
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
       if (step.kind !== 'uses' || step.server === 'consola' || own(servers, step.server)) return;
       kept = false;
-      const path = candidate.pathTo(['steps', index, 'uses']);
+      const path = candidate.pathTo(['steps', ...at, 'uses']);
       const line = candidate.lineAt(path);
       const broken = brokenServers.includes(step.server);
       issues.push({

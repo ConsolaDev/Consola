@@ -7,7 +7,7 @@
  * this file.
  */
 import { isStepsEntry, type Automation, type Trigger } from './schema';
-import { itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS, type StepEntry } from './steps';
+import { flatSteps, itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS, type StepEntry } from './steps';
 import { templatePaths } from './template';
 import { usesTexts, type UsesStep } from './uses';
 
@@ -118,14 +118,14 @@ export function interpretedNotice(name: string): string | null {
     : `\`${name}\` gets text someone else wrote; a tool may run it as ${as} or open what it names. Check that this is what you mean.`;
 }
 
-/** Every notice the entry's calls give, each at `['steps', <index>, 'with', <name>]`. */
+/** Every notice the entry's calls give, a loop's included, each at its step's path (`['steps', <index>, …]`) and `'with', <name>`. */
 export function usesNotices(
   automation: Automation,
 ): Array<{ message: string; path: Array<string | number> }> {
   if (!isStepsEntry(automation)) return [];
   const notices: Array<{ message: string; path: Array<string | number> }> = [];
-  automation.steps.forEach((step, index) => {
-    if (step.kind !== 'uses') return;
+  for (const { step, path } of flatSteps(automation.steps)) {
+    if (step.kind !== 'uses') continue;
     const entry = {
       trigger: automation.trigger,
       appliesTo: automation.appliesTo,
@@ -133,7 +133,7 @@ export function usesNotices(
     };
     for (const argument of callArguments(step, entry))
       if (argument.notice)
-        notices.push({ message: argument.notice, path: ['steps', index, 'with', argument.name] });
-  });
+        notices.push({ message: argument.notice, path: ['steps', ...path, 'with', argument.name] });
+  }
   return notices;
 }

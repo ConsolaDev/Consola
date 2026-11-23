@@ -599,4 +599,27 @@ describe('interpretedNotice', () => {
       { message: QUERY('query'), path: ['steps', 2, 'with', 'query'] },
     ]);
   });
+
+  it("is listed for a loop's call too, at its argument inside the loop (the merge with slice 3)", () => {
+    const result = parseAutomationEntry(
+      [
+        'name: a',
+        'on: { github: pull_request.review_requested }',
+        'steps:',
+        '  - id: brief',
+        '    prompt: Brief it.',
+        '  - id: polish',
+        '    repeat: { max: 2, until: "steps.post.ts != \x27\x27" }',
+        '    steps:',
+        '      - id: post',
+        '        uses: slack#chat_post_message',
+        '        with: { query: "{{steps.brief.handover}}" }',
+        '        outputs: { ts: string }',
+      ].join('\n'),
+    );
+    if (!result.ok) throw new Error(JSON.stringify(result.issues));
+    expect(usesNotices(result.automation)).toEqual([
+      { message: QUERY('query'), path: ['steps', 1, 'steps', 0, 'with', 'query'] },
+    ]);
+  });
 });

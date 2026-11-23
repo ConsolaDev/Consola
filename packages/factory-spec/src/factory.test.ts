@@ -555,6 +555,23 @@ automations:
       ]);
     });
 
+    it("refuses a loop's call naming a server factory.yml does not define, at its line (the merge with slice 3)", () => {
+      const LOOP =
+        '- id: polish\n  repeat: { max: 2, until: "steps.file.key != \x27\x27" }\n  steps:\n    - id: file\n      uses: jira#create_issue\n      with: { title: Shipped }\n      outputs: { key: string }';
+      const result = parseFactory(files({ factoryYml: yml(SLACK, LOOP) }));
+      expect(names(result)).toEqual([]);
+      expect(result.issues).toEqual([
+        {
+          message:
+            "`jira` is not a server here: factory.yml's `mcpServers:` has none of that name.",
+          file: 'factory.yml',
+          path: 'automations[0].steps[0].steps[0].uses',
+          line: 16,
+          automation: 'brief',
+        },
+      ]);
+    });
+
     it("needs no server for Consola's own tools", () => {
       const result = parseFactory(
         files({ factoryYml: yml('', '- uses: consola#cleanup_stale_sessions') }),

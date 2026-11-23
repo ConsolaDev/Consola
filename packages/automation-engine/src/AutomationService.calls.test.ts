@@ -2409,3 +2409,114 @@ describe("Check server's tool names (review M5)", () => {
     for (const form of maskFormsOf(BOT_VALUE)) expect(shown).not.toContain(form);
   });
 });
+
+describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review's items 2 and 3)", () => {
+  /** A daily entry whose only steps are a loop around one call of `ref`, until it answers `ts: done`. */
+  const rounds = (
+    ref = 'slack#chat_post_message',
+    withYaml = '{ channel: C0SUPPORT1, text: hello }',
+  ) =>
+    `  - name: rounds\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: polish\n        repeat: { max: 2, until: "steps.post.ts == 'done'" }\n        steps:\n          - id: post\n            uses: ${ref}\n            with: ${withYaml}\n            outputs: { ts: string }\n`;
+  const answering = (...ts: string[]): FakeServer => {
+    let at = 0;
+    return slack({
+      answer: () => ({ ...POSTED, structuredContent: { ok: true, ts: ts[at++] } }),
+    });
+  };
+  const acceptAll = (h: StepsHarness) => {
+    for (const view of h.service.list(WORKSPACE_ID)) {
+      const version =
+        view.servers?.[0]?.version ?? h.service.entryAgents(WORKSPACE_ID, view.name)?.version;
+      if (version) h.store.accept(`${WORKSPACE_ID} ${view.name}`, version);
+    }
+  };
+
+  it('resolves it against its server and runs it once a round, each round its own attempt and call.json', async () => {
+    const h = await harness({
+      yaml: factory(SLACK, rounds()),
+      mcp: { servers: { slack: answering('r1', 'done') } },
+    });
+    expect(row(h, 'rounds').problem).toBeUndefined();
+    acceptAll(h);
+    const run = (await h.service.trigger(WORKSPACE_ID, 'rounds'))!;
+    await h.flush();
+    await h.flush();
+    const definition = h.service.getRunDefinition(run.id)!;
+    expect(definition.servers).toEqual({ slack: SLACK_DEFINITION });
+    expect(Object.keys(definition.calls ?? {})).toEqual(['post']);
+    expect(h.world.mcp.calls).toHaveLength(2);
+    expect(h.world.mcp.calls.every((sent) => sent.intentAt !== undefined)).toBe(true);
+    expect(stepOf(h, run.id, 'post')).toMatchObject({
+      status: 'completed',
+      attempt: 2,
+      outputs: { ts: 'done' },
+    });
+    for (const attempt of [1, 2])
+      expect(
+        fs.existsSync(
+          path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'post', attempt), 'call.json'),
+        ),
+      ).toBe(true);
+    expect(h.store.get(run.id)!.status).toBe('completed');
+  });
+
+  it("checks a loop's consola# call: a selector fed an untrusted value is the entry's problem", async () => {
+    const tidy = (withYaml: string) =>
+      `  - name: tidy\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: triage\n        prompt: Triage what came in.\n        outputs: { verdict: { enum: [post, skip] }, note: string }\n      - id: polish\n        repeat: { max: 2, until: "steps.clean.removed == 0" }\n        steps:\n          - id: clean\n            uses: consola#cleanup_stale_sessions\n            with: ${withYaml}\n            outputs: { removed: integer }\n`;
+    expect(
+      await problemOf(
+        { yaml: factory(SLACK, tidy('{ session_ids: ["{{steps.triage.note}}"] }')) },
+        'tidy',
+      ),
+    ).toBe(
+      '`session_ids` chooses what `consola#cleanup_stale_sessions` acts on; it takes only trusted values',
+    );
+    expect(
+      await problemOf({ yaml: factory(SLACK, tidy('{ pr_states: [merged] }')) }, 'tidy'),
+    ).toBeUndefined();
+  });
+
+  it("needs a loop's server's secrets bound, and lists where they go", async () => {
+    const unbound = await harness({
+      yaml: factory(SLACK, rounds()),
+      secrets: { bindings: {}, values: {} },
+    });
+    expect(row(unbound, 'rounds').problem).toBe(`needs \`SLACK_BOT_TOKEN\` bound ${BIND_HINT}`);
+    const h = await harness({ yaml: factory(SLACK, rounds()) });
+    const bot = h.service
+      .snapshot(WORKSPACE_ID)
+      .secrets!.find((view) => view.name === 'SLACK_BOT_TOKEN')!;
+    expect(bot.uses).toContainEqual(
+      expect.objectContaining({
+        automation: 'rounds',
+        step: 'post',
+        server: { name: 'slack', transport: 'stdio' },
+      }),
+    );
+  });
+
+  it("Check server answers for a server only a loop calls, within its call's budget", async () => {
+    const h = await harness({
+      yaml: factory(SLACK, rounds()),
+      mcp: { servers: { slack: slack({ tools: [CHAT_POST] }) } },
+    });
+    const version = row(h, 'rounds').servers![0].version!;
+    const view = await h.service.checkServer(WORKSPACE_ID, 'rounds', 'slack', version);
+    expect(view).toEqual({
+      server: 'slack',
+      at: h.now().toISOString(),
+      tools: ['chat_post_message'],
+      steps: [{ step: 'post', tool: 'chat_post_message', verdict: 'fits' }],
+    });
+    expect(h.world.mcp.launches[0]).toMatchObject({ name: 'slack', timeoutMs: 60_000 });
+  });
+
+  it('refuses to save one whose loop calls a server with problems of its own', async () => {
+    const BROKEN = SLACK.replace('    secrets:', '    cwd: /tmp\n    secrets:');
+    const h = await harness({ yaml: factory(BROKEN, '') });
+    const lone = rounds().replace(/^ {2}/gm, '');
+    await expect(h.service.saveEntry(WORKSPACE_ID, lone, { replace: false })).rejects.toThrow(
+      "Not saved: its step `post` calls `slack`, which has problems of its own in factory.yml's `mcpServers:`; save it once they are fixed.",
+    );
+  });
+});
