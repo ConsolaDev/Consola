@@ -1933,6 +1933,23 @@ describe('Check server (5a-2 Task 9)', () => {
     expect(unbound.world.mcp.launches).toEqual([]);
   });
 
+  it("gives each server on the entry's view the version Check server is for, and moves it with an edit", async () => {
+    const h = await harness({ mcp: { servers: { slack: slack() } } });
+    const first = versionOf(h);
+    expect(row(h).servers).toEqual([expect.objectContaining({ name: 'slack', version: first })]);
+    // What the page sends back is accepted; after an edit, the view's new version is.
+    await h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', row(h).servers![0].version);
+    await h.setYaml(factory(SLACK.replace('[--stdio]', '[--stdio, -v]'), BRIEF));
+    const second = versionOf(h);
+    expect(second).not.toBe(first);
+    expect(row(h).servers).toEqual([expect.objectContaining({ name: 'slack', version: second })]);
+    await expect(h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', first)).rejects.toThrow(
+      CHECK_STALE,
+    );
+    await h.service.checkServer(WORKSPACE_ID, 'brief', 'slack', row(h).servers![0].version);
+    expect(h.world.mcp.launches).toHaveLength(2);
+  });
+
   it('says why when a secret does not read, and starts nothing', async () => {
     const h = await harness({ mcp: { servers: { slack: slack() } } });
     h.world.secrets.resolveThrows = new Error('the keychain is locked');

@@ -14,6 +14,12 @@ import type { CallView } from './steps/definition';
 
 /** A factory server an entry's calls use, as its page shows it: its facts, and how its last Check server went. */
 export interface ServerUseView extends ServerFacts {
+  /**
+   * The entry's version these facts are from: what Check server sends back,
+   * refused once the entry changed (`CHECK_STALE`). `AutomationView.version`
+   * is only a poll entry's waiting for Allow.
+   */
+  version: string;
   lastCheck?: ServerCheckView;
 }
 import type { SecretBindingView } from './secrets/secretsView';

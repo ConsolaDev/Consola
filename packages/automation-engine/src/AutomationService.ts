@@ -6667,7 +6667,11 @@ export class AutomationService {
         const lastCheck = this.serverChecks.get(
           `${entry.workspaceId} ${entry.automation.name} ${definition.name}`,
         );
-        return { ...serverFactsOf(definition), ...(lastCheck ? { lastCheck } : {}) };
+        return {
+          ...serverFactsOf(definition),
+          version: entry.version,
+          ...(lastCheck ? { lastCheck } : {}),
+        };
       }),
     };
   }

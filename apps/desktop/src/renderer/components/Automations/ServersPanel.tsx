@@ -28,11 +28,12 @@ export function ServersPanel({
   const check = async (server: ServerUseView) => {
     setChecking((current) => new Set([...current, server.name]));
     try {
+      // The version the person sees these lines at: a changed entry is refused, never checked unseen.
       await automationsBridge.checkServer(
         workspaceId,
         automation.name,
         server.name,
-        automation.version ?? '',
+        server.version,
       );
     } finally {
       setChecking((current) => {
