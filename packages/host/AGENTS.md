@@ -885,7 +885,14 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `CONSOLA_REPOSITORY`, `CONSOLA_PASS_PUBLIC_KEY`,
   `CONSOLA_SESSION_IDLE_MINUTES`, `GIT_TOKEN` and the API key of that harness
   alone (`sandboxEnvFor`), and runs `consola-session-start`, its output only
-  listened to (`keepOutput: false`). A second start for a session held is
+  listened to (`keepOutput: false`). It is created with `publicPorts`: the
+  browser reaches the host at the exposed address, and a browser's WebSocket
+  cannot carry the provider's credential, so the host guards its port itself
+  (a pass, then a ticket). That opens every port the sandbox listens on, a dev
+  server the person approves included, until a gateway stands in front
+  (Linear: "10.5 A session gateway: sandboxes stay private, the browser
+  reaches the host through Consola",
+  https://linear.app/consola/issue/CON-105). A second start for a session held is
   ignored; a start once the runner is stopping is `failed`, with no sandbox,
   since nothing would stop it.
 - **A sandbox's own lifetime** (`sandboxLifetimeSeconds`). Its provider stops

@@ -195,7 +195,7 @@ const finalsOf = (sent: ReadonlyArray<SessionUpdate>, sessionId: string) =>
   );
 
 describe('makeSandboxSessions', () => {
-  it("creates the sandbox from the session template with the session's variables and its harness's key alone", () =>
+  it("creates the sandbox from the session template with the session's variables, its harness's key alone, and its ports public", () =>
     run(
       Effect.gen(function* () {
         const h = yield* harness({
@@ -205,6 +205,7 @@ describe('makeSandboxSessions', () => {
         expect(yield* h.next).toMatchObject({ status: 'running' });
         const [sandbox] = h.fake.sandboxes;
         expect(sandbox?.template).toBe('consola-session');
+        expect(sandbox?.publicPorts).toBe(true);
         expect(sandbox?.env).toEqual({
           CONSOLA_SESSION_ID: 'session-acme-1',
           CONSOLA_HARNESS: 'claude',

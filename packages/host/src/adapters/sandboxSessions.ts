@@ -444,6 +444,12 @@ export const makeSandboxSessions = (
               template: SESSION_TEMPLATE,
               env: sandboxEnvFor(session.start, options.secrets, options.idleMinutes),
               lifetimeSeconds,
+              // The browser reaches the host at the exposed address, and a browser's WebSocket
+              // cannot carry a provider's credential: the host guards its port with a pass, then
+              // a ticket. This opens every port in the sandbox, until a gateway stands in front
+              // (Linear: "10.5 A session gateway: sandboxes stay private, the browser reaches the
+              // host through Consola", https://linear.app/consola/issue/CON-105).
+              publicPorts: true,
             }),
           `The sandbox was not made ${withinCallTimeoutText}.`,
           // Made after all: nothing will use it, and nothing else would stop it.

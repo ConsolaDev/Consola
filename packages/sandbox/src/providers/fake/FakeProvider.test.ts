@@ -53,6 +53,14 @@ describe('FakeProvider', () => {
     expect(fake.keepAlive).toBeUndefined();
   });
 
+  it('records whether each sandbox was created with its ports public', async () => {
+    const fake = new FakeProvider();
+    await fake.create({ template: 'base', publicPorts: true });
+    await fake.create({ template: 'base', publicPorts: false });
+    await fake.create({ template: 'base' });
+    expect(fake.sandboxes.map((s) => s.publicPorts)).toEqual([true, false, false]);
+  });
+
   it('stops a sandbox once its lifetime runs out on its clock, which only a test moves', async () => {
     const fake = new FakeProvider({ programs: POSIX_PROGRAMS });
     const brief = await fake.create({ template: 'base', lifetimeSeconds: 60 });

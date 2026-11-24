@@ -25,6 +25,9 @@ describe('the request rules', () => {
     [{ template: 'base', lifetimeSeconds: 3600 }, null],
     [{ template: 'base', lifetimeSeconds: 0 }, /lifetime/],
     [{ template: 'base', lifetimeSeconds: '60' }, /lifetime/],
+    [{ template: 'base', publicPorts: true }, null],
+    [{ template: 'base', publicPorts: false }, null],
+    [{ template: 'base', publicPorts: 'yes' }, /public ports/],
   ])('create options %j: %s', (options, problem) => {
     const found = createOptionsProblem(options as never);
     if (problem === null) expect(found).toBeNull();

@@ -145,12 +145,13 @@ describe('E2BProvider', () => {
     }
   });
 
-  it("creates a sandbox with its variables, its lifetime as E2B's timeout, killed when it runs out, and its ports open to whoever has their address", async () => {
+  it("creates a sandbox with its variables, its lifetime as E2B's timeout, killed when it runs out, and its ports locked unless asked", async () => {
     const { api, provider } = stubbed();
     const handle = await provider.create({
       template: 'consola-session',
       env: { CONSOLA_HARNESS: 'claude' },
       lifetimeSeconds: 900,
+      publicPorts: true,
     });
     await provider.create({ template: 'base' });
     expect(handle.id).toBe('sbx-acme-1');
@@ -164,7 +165,7 @@ describe('E2BProvider', () => {
           network: { allowPublicTraffic: true },
         },
       ],
-      ['base', { lifecycle: { onTimeout: 'kill' }, network: { allowPublicTraffic: true } }],
+      ['base', { lifecycle: { onTimeout: 'kill' }, network: { allowPublicTraffic: false } }],
     ]);
   });
 
