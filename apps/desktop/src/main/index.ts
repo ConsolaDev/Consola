@@ -23,6 +23,7 @@ import {
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
+  // oxlint-disable-next-line typescript/no-require-imports -- the module ships no types; Electron's documented check
   if (require('electron-squirrel-startup')) {
     app.quit();
   }

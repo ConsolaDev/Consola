@@ -32,6 +32,14 @@ export default defineConfig({
     'prefer-object-has-own': 'off',
     // Off in Biome too (style.noNonNullAssertion).
     'typescript/no-non-null-assertion': 'off',
+    // It reports every member written in method syntax that is read off its
+    // object: store actions, injected dependencies, option callbacks. None
+    // of them uses `this`, and making each a property type changes nothing.
+    'typescript/unbound-method': 'off',
+    // Every finding is an apostrophe in JSX text, which renders as written.
+    // Oxlint's rule takes no list of characters to keep, so it is off rather
+    // than every apostrophe in the copy written as &apos;.
+    'react/no-unescaped-entities': 'off',
     // `typeof import('x')` types vitest's mocked originals and lets
     // shared/types.ts name an API without importing its module.
     'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
@@ -135,6 +143,8 @@ export default defineConfig({
       files: ['**/*.{js,jsx,mjs,cjs}'],
       rules: {
         'typescript/no-misused-spread': 'off',
+        // A CommonJS script loads its modules with require.
+        'typescript/no-require-imports': 'off',
         'typescript/require-array-sort-compare': 'off',
         'typescript/use-unknown-in-catch-callback-variable': 'off',
       },
@@ -172,13 +182,10 @@ export default defineConfig({
         'quality/no-unsafe-dictionary-type': 'off', // 300
         'react/exhaustive-deps': 'warn', // 17
         'react/immutability': 'off', // 4
-        'react/no-unescaped-entities': 'off', // 11
         'react/purity': 'off', // 7
         'react/refs': 'off', // 80
         'react/set-state-in-effect': 'off', // 42
-        'typescript/no-require-imports': 'off', // 35
         'typescript/no-unsafe-type-assertion': 'off', // 1157
-        'typescript/unbound-method': 'off', // 69
         'unicorn/catch-error-name': 'off', // 73
         'unicorn/consistent-function-scoping': 'off', // 763
         'unicorn/no-hex-escape': 'off', // 313
