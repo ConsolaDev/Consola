@@ -239,9 +239,9 @@ describe('CdpRelay as Playwright’s transport', () => {
     );
     expect(downloads).toHaveProperty('result', {});
     // A session id the page never announced gets nowhere.
-    expect(
-      await call(id++, 'Runtime.evaluate', { expression: '1' }, 'HOST-SESSION'),
-    ).toHaveProperty('error');
+    expect(await call(id, 'Runtime.evaluate', { expression: '1' }, 'HOST-SESSION')).toHaveProperty(
+      'error',
+    );
     expect(fake.commands).toEqual([]);
   });
 });

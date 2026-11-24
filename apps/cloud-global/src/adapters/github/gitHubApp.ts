@@ -43,7 +43,7 @@ export async function loadGitHubAppKey(path: string): Promise<KeyObject> {
     const code = (error as NodeJS.ErrnoException).code ?? 'unreadable';
     throw new ConfigError([`GITHUB_APP_PRIVATE_KEY_PATH: cannot read ${path} (${code})`]);
   }
-  let key: KeyObject | null = null;
+  let key: KeyObject | null;
   try {
     key = createPrivateKey(pem);
   } catch {

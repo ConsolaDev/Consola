@@ -37,7 +37,7 @@ export function usePoll(
         return;
       }
       reading = true;
-      let delay: number | null = null;
+      let delay: number | null;
       try {
         delay = await latestTick.current(current);
       } catch {

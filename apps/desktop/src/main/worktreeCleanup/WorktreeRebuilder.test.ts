@@ -263,7 +263,10 @@ describe('WorktreeRebuilder', () => {
       rebuilder.ensureCheckout(rig.workspace, session),
       rebuilder.ensureCheckout(rig.workspace, copy),
     ]);
-    expect([first.rebuilt, second.rebuilt].sort()).toEqual([false, true]);
+    expect([first.rebuilt, second.rebuilt].sort((a, b) => Number(a) - Number(b))).toEqual([
+      false,
+      true,
+    ]);
     expect(git(record.path, 'rev-parse', 'HEAD')).toBe(record.commit);
   });
 });

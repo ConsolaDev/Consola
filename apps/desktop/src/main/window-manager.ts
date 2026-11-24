@@ -406,7 +406,7 @@ function layoutFile(): JsonStateFile<WindowLayoutFile> {
  */
 export function viewsFromStoredLayout(): Record<string, WorkspaceView> {
   const views: Record<string, WorkspaceView> = {};
-  let stored: { windows?: unknown } | null = null;
+  let stored: { windows?: unknown } | null;
   try {
     stored = layoutFile().read();
   } catch {

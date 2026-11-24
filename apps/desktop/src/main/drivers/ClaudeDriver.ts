@@ -178,7 +178,7 @@ function stepPlugin(
   grants: ClaudeAgentGrants | undefined,
 ): { dir: string } | { notice: string } | null {
   if (!grants || grants.skills.length === 0 || !grants.pluginDir) return null;
-  let isFolder = false;
+  let isFolder: boolean;
   try {
     isFolder = fs.statSync(grants.pluginDir).isDirectory();
   } catch {

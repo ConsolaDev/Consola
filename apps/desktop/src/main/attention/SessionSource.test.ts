@@ -174,10 +174,10 @@ describe('SessionSource with a run that finished its session', () => {
 
 describe('SessionSource with a session held by an open run', () => {
   it('passes the hold to the derivation: a settled session an open run uses is not settled', () => {
-    const settledLedger = {
-      ...ledger,
+    // The real ledger underneath (its methods live on its prototype), with get() answering a settled record.
+    const settledLedger = Object.assign(Object.create(ledger) as JsonAttentionLedger, {
       get: () => ({ sessionId: 'a', workspaceId: 'w1', lastActiveAt: 100, settledAt: 200 }),
-    } as unknown as JsonAttentionLedger;
+    });
     const workspace = makeWorkspace({
       id: 'w1',
       sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })],

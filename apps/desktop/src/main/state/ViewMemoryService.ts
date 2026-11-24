@@ -96,7 +96,7 @@ export class ViewMemoryService {
    * orphans real transcripts. Halting the app over it would be the larger bug.
    */
   public load(): void {
-    let stored: { views?: unknown } | null = null;
+    let stored: { views?: unknown } | null;
     try {
       stored = this.file.read();
     } catch {

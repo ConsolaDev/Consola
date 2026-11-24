@@ -1633,9 +1633,12 @@ describe('GitHub tokens for a cell', () => {
 
   /** The cell's call: no session, no origin, the signed request in the body. */
   async function askForToken(signed: string, headers: HeadersInit = {}) {
+    // A Headers object spread into a plain one copies nothing, so it is built.
+    const sent = new Headers(headers);
+    sent.set('content-type', 'application/json');
     const response = await app.request('/api/github/tokens', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
+      headers: sent,
       body: JSON.stringify({ request: signed }),
     });
     const answer = await answerOf('POST', '/api/github/tokens', response);

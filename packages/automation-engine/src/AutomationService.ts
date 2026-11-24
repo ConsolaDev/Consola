@@ -8530,7 +8530,7 @@ export class AutomationService {
     // From the intent on, one try (Call 28): whatever throws says what may have happened, never that nothing was sent.
     let answered = false;
     let end: { status: 'completed' } | { status: 'failed'; error: string };
-    let also: Partial<StepRun> = {};
+    let also: Partial<StepRun>;
     try {
       let outputs: ReturnType<typeof callOutputs> | undefined;
       let artifact: { bytes: number } | undefined;

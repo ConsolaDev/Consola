@@ -530,7 +530,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     expect(b.cwd).toBe(worktree);
     expect(
       sessionsIn(stateFile)
-        .map((session) => session.workItemAction)
+        .map((session) => String(session.workItemAction))
         .sort(),
     ).toEqual(['Fix CI', 'Review']);
 
@@ -628,7 +628,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     // sessions still carry a workItem on #51.
     expect(
       sessionsOn51(stateFile)
-        .map((session) => session.workItemAction)
+        .map((session) => String(session.workItemAction))
         .sort(),
     ).toEqual(['Fix CI', 'Review']);
 

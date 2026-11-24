@@ -560,7 +560,10 @@ describe('createLaunchCoalescer', () => {
     ]);
 
     expect(created).toHaveLength(2);
-    expect(created.map((fields) => fields.workItemAction).sort()).toEqual(['Fix CI', 'Review']);
+    expect(created.map((fields) => fields.workItemAction ?? '').sort()).toEqual([
+      'Fix CI',
+      'Review',
+    ]);
   });
 
   it('coalesces a custom prompt by its trimmed body', async () => {

@@ -61,8 +61,8 @@ describe('the GitHub event delivery', () => {
     const statuses = Object.values(GITHUB_EVENT_ANSWER);
     expect(new Set(statuses).size).toBe(statuses.length);
     const confirming = statuses.filter((status) => status >= 200 && status < 300);
-    expect(confirming.sort()).toEqual(
-      [GITHUB_EVENT_ANSWER.recorded, GITHUB_EVENT_ANSWER.recordedBefore].sort(),
+    expect(confirming.sort((a, b) => a - b)).toEqual(
+      [GITHUB_EVENT_ANSWER.recorded, GITHUB_EVENT_ANSWER.recordedBefore].sort((a, b) => a - b),
     );
   });
 });

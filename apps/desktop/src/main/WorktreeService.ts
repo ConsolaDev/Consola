@@ -211,7 +211,7 @@ export class WorktreeService {
   private originOf(dir: string): string | null {
     const cached = this.remoteCache.get(dir);
     if (cached !== undefined) return cached;
-    let origin: string | null = null;
+    let origin: string | null;
     try {
       origin =
         execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
@@ -549,7 +549,7 @@ export class WorktreeService {
       throw refuse('it is not a linked worktree of the clone');
     }
     // Git writes it absolute, or relative to the git dir (`worktree.useRelativePaths`).
-    let pointsAt: string | null = null;
+    let pointsAt: string | null;
     try {
       const written = path.resolve(
         gitDir,

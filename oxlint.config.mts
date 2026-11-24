@@ -42,6 +42,12 @@ export default defineConfig({
     // A timer or session declared before the closure that clears it, and
     // assigned once after, has to stay `let`.
     'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
+    // A name's length is counted in code points, by the cell and the page
+    // alike, so a string spread into an array is meant.
+    'typescript/no-misused-spread': ['error', { allow: ['string'] }],
+    // Sorting strings by code unit is the order meant: stable whatever the
+    // locale.
+    'typescript/require-array-sort-compare': ['error', { ignoreStringArrays: true }],
     // node:test's test() and describe() return a promise the runner awaits.
     'typescript/no-floating-promises': [
       'error',
@@ -69,9 +75,28 @@ export default defineConfig({
       },
     },
     {
-      // JavaScript has no type annotation to give a catch callback's value.
+      // Test helpers are tests' code: the preset's test relaxations apply.
+      files: ['**/*.test-helpers.{ts,tsx}'],
+      rules: {
+        'typescript/no-explicit-any': 'off',
+        'typescript/no-non-null-assertion': 'off',
+        'typescript/no-unsafe-argument': 'off',
+        'typescript/no-unsafe-assignment': 'off',
+        'typescript/no-unsafe-member-access': 'off',
+        'typescript/only-throw-error': 'off',
+        'typescript/unbound-method': 'off',
+      },
+    },
+    {
+      // JavaScript has no type annotation to give a catch callback's value,
+      // and its loosely inferred types read string arrays as \`any\` and
+      // arrays as strings.
       files: ['**/*.{js,jsx,mjs,cjs}'],
-      rules: { 'typescript/use-unknown-in-catch-callback-variable': 'off' },
+      rules: {
+        'typescript/no-misused-spread': 'off',
+        'typescript/require-array-sort-compare': 'off',
+        'typescript/use-unknown-in-catch-callback-variable': 'off',
+      },
     },
     {
       // No React here: a callback these files name `use` is not React's hook.
@@ -98,7 +123,6 @@ export default defineConfig({
         'no-console': 'off', // 211
         'no-promise-executor-return': 'off', // 186
         'no-unused-vars': 'warn', // 14
-        'no-useless-assignment': 'off', // 10
         'quality/no-array-filter-map': 'off', // 33
         'quality/no-chained-type-assertions': 'off', // 302
         'quality/no-conditional-empty-object-spread': 'off', // 716
@@ -114,7 +138,6 @@ export default defineConfig({
         'react/refs': 'off', // 80
         'react/set-state-in-effect': 'off', // 42
         'typescript/no-explicit-any': 'warn', // 12
-        'typescript/no-misused-spread': 'off', // 15
         'typescript/no-require-imports': 'off', // 35
         'typescript/no-unsafe-argument': 'off', // 12
         'typescript/no-unsafe-assignment': 'off', // 82
@@ -122,8 +145,6 @@ export default defineConfig({
         'typescript/no-unsafe-member-access': 'off', // 118
         'typescript/no-unsafe-return': 'off', // 79
         'typescript/no-unsafe-type-assertion': 'off', // 1157
-        'typescript/only-throw-error': 'off', // 12
-        'typescript/require-array-sort-compare': 'off', // 11
         'typescript/unbound-method': 'off', // 69
         'unicorn/catch-error-name': 'off', // 73
         'unicorn/consistent-function-scoping': 'off', // 763

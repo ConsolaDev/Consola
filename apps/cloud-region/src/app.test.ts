@@ -1658,7 +1658,7 @@ describe('POST /api/github/events', () => {
     const statuses = await Promise.all(
       Array.from({ length: 4 }, async () => (await postEvent(delivery)).status),
     );
-    expect(statuses.sort()).toEqual([200, 200, 200, 201]);
+    expect(statuses.sort((a, b) => a - b)).toEqual([200, 200, 200, 201]);
     // A replay with another payload under the same delivery id changes nothing either.
     const replay = pullRequestOpened({ payload: { action: 'closed', installation: { id: 41 } } });
     expect(await passOn(replay)).toEqual({ status: 200, body: { recorded: true } });

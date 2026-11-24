@@ -202,7 +202,7 @@ export class JsonAttentionLedger implements AttentionLedger {
    * the app.
    */
   public load(): void {
-    let stored: { records?: unknown } | null = null;
+    let stored: { records?: unknown } | null;
     try {
       stored = this.file.read();
     } catch (error) {
