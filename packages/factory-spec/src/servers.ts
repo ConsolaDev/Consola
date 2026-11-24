@@ -9,7 +9,7 @@
  * Imports `envNames.ts`, `secrets.ts` and `run.ts` (its `stableStringify`),
  * never `steps.ts`.
  */
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256';
 import { ENV_NAME_PATTERN, isRefusedEnvName, REFUSED_ENV_LIST } from './envNames';
 import { stableStringify } from './run';
 import { parseSecretNames } from './secrets';
@@ -378,7 +378,7 @@ function isCredentialHeader(name: string): boolean {
 
 /** `sha256(stableStringify(definition))`, its first 16 hex: what the version of an entry using it holds (M9). */
 export function serverHash(definition: McpServerDefinition): string {
-  return createHash('sha256').update(stableStringify(definition)).digest('hex').slice(0, 16);
+  return sha256Hex(stableStringify(definition)).slice(0, 16);
 }
 
 /** A package pinned to an exact version: `@1.2.3` (a prerelease allowed), or `==<version>` for `uvx`. */

@@ -38,9 +38,13 @@ const ENTRY = ['main', 'env.d'];
 
 const LAYERS: Layer[] = [
   {
+    // `@consola/factory-spec` is allowed here: the factory files' schema and parser (MIT, no
+    // I/O), so the page checks a factory's files as they are edited with the very rules the
+    // cell checks them with when they are saved.
     at: 'domain',
     reaches: ['domain'],
     refuses: [ANY_PACKAGE],
+    allows: ['@consola/factory-spec'],
     noGlobals: [
       'window',
       'document',
@@ -383,8 +387,14 @@ describe('the dependency rule', () => {
     ['main.tsx', './ui/App', true],
     ['main.tsx', '@radix-ui/themes', true],
     ['main.tsx', '@consola/factory-spec', false],
-    // `ui` mounts the chat, `@consola/agent-ui`, and its stylesheet: the one workspace package
-    // the app imports. Nothing else may, a test included.
+    // `domain` checks a factory's files with `@consola/factory-spec`, the rules the cell checks
+    // them with; no other layer imports it, and no test.
+    ['domain/x.ts', '@consola/factory-spec', true],
+    ['services/x.ts', '@consola/factory-spec', false],
+    ['ui/x.tsx', '@consola/factory-spec', false],
+    ['domain/x.test.ts', '@consola/factory-spec', false],
+    // `ui` mounts the chat, `@consola/agent-ui`, and its stylesheet. No other layer may import
+    // it, a test included.
     ['ui/x.tsx', '@consola/agent-ui', true],
     ['ui/x.tsx', '@consola/agent-ui/styles.css', true],
     ['ui/x.tsx', '@consola/host', false],

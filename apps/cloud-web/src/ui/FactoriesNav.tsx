@@ -7,6 +7,7 @@ import {
   LOADING_FACTORIES,
   NO_FACTORIES,
   sidebarLineForFactoriesState,
+  UNSAVED_EDITS,
 } from '../domain/factoryMessages';
 import {
   FACTORY_PAGES,
@@ -18,6 +19,7 @@ import {
 import type { MyWorkspace } from '../domain/workspace';
 import { readUnfolded, writeUnfolded } from '../services/foldStore';
 import { FactoryTile } from './FactoryTile';
+import { useHasUnsavedEdits } from './factoryDrafts';
 
 /** Each page of a factory's icon in the sidebar, from the desktop's set. */
 const PAGE_ICONS: Record<FactoryPageId, LucideIcon> = {
@@ -115,6 +117,7 @@ export function FactoriesNav({
           {state.factories.map((factory) => (
             <FactoryItem
               key={factory.id}
+              workspaceId={workspace.id}
               factory={factory}
               open={open?.factoryId === factory.id ? open.page : null}
               current={current}
@@ -128,14 +131,20 @@ export function FactoriesNav({
   );
 }
 
-/** One factory: its row, its chevron, and its pages under it when unfolded. */
+/**
+ * One factory: its row, its chevron, and its pages under it when unfolded. Unsaved edits left on
+ * its definition (`factoryDrafts`) put a dot on the Factory definition row, or on the factory's
+ * own row while it is folded, so the person finds their way back to them.
+ */
 function FactoryItem({
+  workspaceId,
   factory,
   open,
   current,
   unfolded,
   onFold,
 }: {
+  workspaceId: string;
   factory: Factory;
   /** The page of this factory the dashboard shows, or null when it shows none. */
   open: FactoryPageId | null;
@@ -144,6 +153,7 @@ function FactoryItem({
   onFold: (show: boolean) => void;
 }) {
   const pagesId = useId();
+  const unsaved = useHasUnsavedEdits(workspaceId, factory.id);
   return (
     <li className="factory-item">
       <div className="factory-row">
@@ -156,6 +166,7 @@ function FactoryItem({
         >
           <FactoryTile factory={factory} size={18} />
           <span className="nav-row-label factory-row-name">{factory.name}</span>
+          {unsaved && !unfolded && <UnsavedMark />}
         </a>
         <button
           type="button"
@@ -188,6 +199,7 @@ function FactoryItem({
                 >
                   <Icon size={14} aria-hidden="true" />
                   <span className="nav-row-label">{FACTORY_PAGE_LABELS[page]}</span>
+                  {unsaved && page === 'definition' && <UnsavedMark />}
                 </a>
               </li>
             );
@@ -195,5 +207,15 @@ function FactoryItem({
         </ul>
       )}
     </li>
+  );
+}
+
+/** A row's dot for unsaved edits, said to a screen reader after the row's name. */
+function UnsavedMark() {
+  return (
+    <>
+      <span className="nav-unsaved" aria-hidden="true" title={UNSAVED_EDITS} />
+      <span className="sr-only">, {UNSAVED_EDITS.toLowerCase()}</span>
+    </>
   );
 }

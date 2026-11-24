@@ -60,8 +60,20 @@ function agentUiNotices(): Plugin {
   };
 }
 
+/**
+ * `@consola/factory-spec`, which the definition page checks a factory's files with, is linked
+ * from the workspace and built as CommonJS (the cell and the desktop `require` it). Vite reads a
+ * linked package as ES modules unless told: so the dev server pre-bundles it, and the build
+ * converts it as it does a package from `node_modules`.
+ */
+const COMMONJS_LINKED = ['@consola/factory-spec'];
+
 export default defineConfig({
   plugins: [react(), agentUiNotices()],
+  optimizeDeps: { include: COMMONJS_LINKED },
+  build: {
+    commonjsOptions: { include: [/packages\/factory-spec\//, /node_modules/] },
+  },
   server: {
     port: 5175,
     strictPort: true,

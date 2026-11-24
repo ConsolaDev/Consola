@@ -3,9 +3,11 @@ import {
   type Factory,
   type FactoryChange,
   type FactoryRead,
+  type FactorySave,
   type FactoryVersion,
   isFactoryNameProblem,
 } from '../domain/factories';
+import type { FactoryIssue } from '../domain/factoryProblems';
 import {
   type CellApi,
   type CellDeps,
@@ -41,6 +43,18 @@ function isFactory(value: unknown): value is Factory {
   );
 }
 
+/** Whether `value` has an issue's shape, as far as the page reads one. */
+function isIssue(value: unknown): value is FactoryIssue {
+  if (typeof value !== 'object' || value === null) return false;
+  const { message, file, line, cause } = value as Record<string, unknown>;
+  return (
+    typeof message === 'string' &&
+    (file === undefined || typeof file === 'string') &&
+    (line === undefined || typeof line === 'number') &&
+    (cause === undefined || typeof cause === 'string')
+  );
+}
+
 /** Whether `value` has a version's shape, its files included, as far as the page reads one. */
 function isVersion(value: unknown): value is FactoryVersion {
   if (typeof value !== 'object' || value === null) return false;
@@ -72,6 +86,15 @@ export type FactoriesService = {
   renameFactory(workspace: { id: string }, factoryId: string, name: string): Promise<FactoryChange>;
   /** Gives the factory to another team, which owns it from then on. */
   moveFactory(workspace: { id: string }, factoryId: string, teamId: string): Promise<FactoryChange>;
+  /**
+   * Saves `files`, every file of the factory, as its next version, made from `baseVersion`: the
+   * cell stores it only while that is still the latest, and only if the files keep the schema.
+   */
+  saveFactory(
+    workspace: { id: string },
+    factoryId: string,
+    save: { baseVersion: number; files: ReadonlyArray<{ path: string; content: string }> },
+  ): Promise<FactorySave>;
 };
 
 /**
@@ -190,6 +213,37 @@ export function createFactoriesService(
           body: { teamId },
         }),
       );
+    },
+
+    async saveFactory(workspace, factoryId, { baseVersion, files }) {
+      try {
+        const answer = await onCell(workspace.id, (cell) =>
+          cell.POST('/api/factories/{factoryId}/versions', {
+            params: { path: { factoryId } },
+            body: { baseVersion, files: files.map(({ path, content }) => ({ path, content })) },
+          }),
+        );
+        if ('kind' in answer) return answer;
+        const { data, error, response } = answer;
+        const { status } = response;
+        const code = codeOf(error);
+        if (status === 201 && isVersion(data?.version))
+          return { kind: 'saved', version: data.version };
+        if (status === 400 && code === 'invalid_files') {
+          const issues = (error as { issues?: unknown }).issues;
+          if (Array.isArray(issues) && issues.every(isIssue)) return { kind: 'invalid', issues };
+        }
+        if (status === 409 && code === 'version_moved') {
+          const latestVersion = (error as { latestVersion?: unknown }).latestVersion;
+          if (typeof latestVersion === 'number') return { kind: 'version-moved', latestVersion };
+        }
+        if (status === 409 && code === 'workspace_pending') return PENDING;
+        if (status === 404 && code === 'factory_not_found') return { kind: 'not-found' };
+        if (status === 413) return { kind: 'too-large' };
+        return UNAVAILABLE;
+      } catch {
+        return UNAVAILABLE;
+      }
     },
   };
 }

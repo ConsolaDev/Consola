@@ -1,13 +1,11 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import {
   type Automation,
-  type FactoryFiles,
   type FactoryNotice,
   type FactorySpecIssue,
-  LATER_FOLDERS,
   MAX_FACTORY_TEXT_BYTES,
   parseFactory,
-  type SkillFileEntry,
+  storedFactoryFiles,
 } from '@consola/factory-spec';
 import { type Team, teamsSeenBy } from './team.js';
 
@@ -168,50 +166,6 @@ function setIssues(files: readonly FactoryFile[]): FactoryIssue[] {
   return issues;
 }
 
-const AUTOMATION_FILE = /^automations\/([^/]+)\.yaml$/;
-const AGENT_FILE = /^agents\/([^/]+)\.md$/;
-const SKILL_FILE = /^skills\/([^/]+)\/(.+)$/;
-
-/**
- * The set as factory-spec's parser takes a folder: each file where the folder's reader would put
- * it, a file under a later slice's folder (`LATER_FOLDERS`) as that folder being there, and any
- * other path a stray, which the parser refuses as the folder's reader does. The records are made
- * with `Object.fromEntries`, so a name such as `__proto__` is a key like any other, never lost.
- */
-function folderOf(files: readonly FactoryFile[]): FactoryFiles {
-  let factoryYml: string | null = null;
-  const automations: [string, string][] = [];
-  const agents: [string, string][] = [];
-  const skills = new Map<string, SkillFileEntry[]>();
-  const laterFolders = new Set<string>();
-  const stray: string[] = [];
-  for (const { path, content } of files) {
-    const automation = AUTOMATION_FILE.exec(path);
-    const agent = AGENT_FILE.exec(path);
-    const skill = SKILL_FILE.exec(path);
-    const folder = path.split('/')[0] ?? '';
-    if (path === 'factory.yml') factoryYml = content;
-    else if (automation?.[1]) automations.push([automation[1], content]);
-    else if (agent?.[1]) agents.push([agent[1], content]);
-    else if (skill?.[1] && skill[2]) {
-      const entries = skills.get(skill[1]) ?? [];
-      entries.push({ path: skill[2], bytes: utf8.encode(content) });
-      skills.set(skill[1], entries);
-    } else if (path.includes('/') && Object.hasOwn(LATER_FOLDERS, folder)) laterFolders.add(folder);
-    else stray.push(path);
-  }
-  return {
-    factoryYml,
-    automations: Object.fromEntries(automations),
-    agents: Object.fromEntries(agents),
-    skills: Object.fromEntries(skills),
-    stray,
-    laterFolders: [...laterFolders],
-    unread: [],
-    outside: [],
-  };
-}
-
 /** What checking a set of files found. */
 export type FilesCheck =
   /** The set may be stored. `notices` are what factory-spec tells about it that refuses nothing. */
@@ -229,7 +183,7 @@ export type FilesCheck =
 export function checkFactoryFiles(files: readonly FactoryFile[]): FilesCheck {
   const issues = setIssues(files);
   if (issues.length > 0) return { ok: false, issues };
-  const parsed = parseFactory(folderOf(files));
+  const parsed = parseFactory(storedFactoryFiles(files));
   if (parsed.issues.length > 0) return { ok: false, issues: parsed.issues };
   return { ok: true, notices: parsed.notices };
 }
@@ -274,5 +228,5 @@ export function judgeFactoryChange(
  * A version was stored only once it parsed clean, so this finds what was checked then.
  */
 export function automationsOf(files: readonly FactoryFile[]): Automation[] {
-  return parseFactory(folderOf(files)).automations;
+  return parseFactory(storedFactoryFiles(files)).automations;
 }
