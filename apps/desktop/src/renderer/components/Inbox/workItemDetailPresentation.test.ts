@@ -207,7 +207,7 @@ describe('files', () => {
       { kind: 'del', text: '-old', oldLine: 9 },
       { kind: 'add', text: '+new', newLine: 9 },
       { kind: 'add', text: '+more', newLine: 10 },
-      { kind: 'note', text: '\\ No newline at end of file' },
+      { kind: 'note', text: String.raw`\ No newline at end of file` },
     ]);
   });
 

@@ -298,7 +298,7 @@ describe('what a call says it reached, and keeps in call.json (5a-2 Task 7)', ()
   });
 
   it('masks every string, the values’ and the templates’, at any depth', () => {
-    const value = 'stub-slack-secret-9c1e"\\back%slash';
+    const value = String.raw`stub-slack-secret-9c1e"\back%slash`;
     const masks = [value, JSON.stringify(value).slice(1, -1)];
     const file = callFileOf(
       {
@@ -466,7 +466,7 @@ describe('maskDeep (5a-2 Task 8, review S9)', () => {
 });
 
 describe('resultFileOf (5a-2 Task 8, review S9)', () => {
-  const value = 'stub-slack-secret-9c1e"\\back%slash';
+  const value = String.raw`stub-slack-secret-9c1e"\back%slash`;
   const masks = [value, JSON.stringify(value).slice(1, -1)];
   it('keeps a result that fits, masked at any depth, keys included', () => {
     expect(

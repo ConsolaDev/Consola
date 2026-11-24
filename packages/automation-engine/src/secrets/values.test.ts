@@ -67,10 +67,10 @@ describe('maskFormsOf', () => {
   it('masks the value, its long lines, and its escaped, encoded and base64 forms', () => {
     const forms = maskFormsOf(SEEDED);
     expect(forms).toContain(SEEDED);
-    expect(forms).toContain('stub-pager-secret-7f3a"\\back%slash');
+    expect(forms).toContain(String.raw`stub-pager-secret-7f3a"\back%slash`);
     // 9 characters: kept.
     expect(forms).toContain('line two!');
-    expect(forms).toContain('stub-pager-secret-7f3a\\"\\\\back%slash\\nline two!');
+    expect(forms).toContain(String.raw`stub-pager-secret-7f3a\"\\back%slash\nline two!`);
     expect(forms).toContain(JSON.stringify(SEEDED).slice(1, -1));
     expect(forms).toContain(encodeURIComponent(SEEDED));
     expect(forms).toContain(base64(SEEDED));

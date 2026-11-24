@@ -75,7 +75,7 @@ const TRACKER_BINDING = {
   kind: '1password' as const,
   label: '1Password (op://Ops/Tracker/credential)',
 };
-const BOT_VALUE = 'stub-slack-secret-9c1e"\\back%slash';
+const BOT_VALUE = String.raw`stub-slack-secret-9c1e"\back%slash`;
 const TRACKER_VALUE = 'stub-tracker-secret-4d7a%slash"q';
 const BOUND = {
   bindings: { SLACK_BOT_TOKEN: BOT_BINDING, TRACKER_TOKEN: TRACKER_BINDING },

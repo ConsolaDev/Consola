@@ -39,7 +39,7 @@ const GIT_ENV = {
 const TICK_MS = 2000;
 
 /** A fake token full of characters that change when printed (Review Focus 1). Never a real token's shape. */
-const VALUE = 'stub-slack-secret-9c1e"\\back%slash';
+const VALUE = String.raw`stub-slack-secret-9c1e"\back%slash`;
 /** The test's own hash of the value: what the stub must report, so no variable carries the expectation. */
 const VALUE_SHA256 = createHash('sha256').update(VALUE, 'utf8').digest('hex');
 

@@ -29,7 +29,7 @@ import { KEYCHAIN_ACCOUNT_WORDS, REFERENCE_WORDS } from './references';
  * value: nothing reads the person's keychain or 1Password (rule 5a-secrets).
  */
 
-const KEYCHAIN_VALUE = 'stub-pager-secret-7f3a"\\back%slash';
+const KEYCHAIN_VALUE = String.raw`stub-pager-secret-7f3a"\back%slash`;
 const OP_VALUE = 'stub-slack-secret-9c1e+/=';
 const ENV_VALUE = 'stub-tracker-secret-2b4d';
 const ALL_VALUES = [KEYCHAIN_VALUE, OP_VALUE, ENV_VALUE];

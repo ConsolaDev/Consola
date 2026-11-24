@@ -68,7 +68,7 @@ const CHAT = [
       ':where([data-theme]) .consola-agent-ui .consola-agent-ui-theme{--background:var(--consola-agent-ui-bg)}',
       ':where([data-theme]) .consola-agent-ui-portal[data-base-ui-portal]{--background:var(--consola-agent-ui-bg)}',
       '.consola-agent-ui{contain:layout;height:100%}',
-      '@layer base{@media (min-width:40rem){:where(.consola-agent-ui,.consola-agent-ui-portal) .sm\\:flex{display:flex}}}',
+      String.raw`@layer base{@media (min-width:40rem){:where(.consola-agent-ui,.consola-agent-ui-portal) .sm\:flex{display:flex}}}`,
     ].join(''),
   ),
   guard(['--tw-border-style']),

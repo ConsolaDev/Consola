@@ -145,7 +145,11 @@ function globToRegExp(glob: string): RegExp {
   const pattern = glob
     .split('')
     .map((char) =>
-      char === '*' ? '[^/]*' : char === '?' ? '[^/]' : char.replace(/[.+^${}()|[\]\\]/g, '\\$&'),
+      char === '*'
+        ? '[^/]*'
+        : char === '?'
+          ? '[^/]'
+          : char.replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`),
     )
     .join('');
   return new RegExp(`^${pattern}$`, 'i');

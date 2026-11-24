@@ -90,7 +90,7 @@ test.describe('info panel', () => {
       [
         '#!/bin/sh',
         'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
-        'printf "Agent ready\\n"',
+        String.raw`printf "Agent ready\n"`,
         'exec sleep 300',
       ].join('\n'),
       { mode: 0o755 },
@@ -430,7 +430,7 @@ test.describe('info panel', () => {
       shell
         .locator('.xterm-rows > div')
         .evaluateAll((rows) => rows.map((row) => (row.textContent ?? '').trim()));
-    await input.pressSequentially("printf 'rea''dy\\n'; cat -v");
+    await input.pressSequentially(String.raw`printf 'rea''dy\n'; cat -v`);
     await page.keyboard.press('Enter');
     await expect.poll(shellLines, { timeout: 15_000 }).toContain('ready');
 

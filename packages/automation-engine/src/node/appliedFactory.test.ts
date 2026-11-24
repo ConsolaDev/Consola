@@ -539,7 +539,7 @@ describe('AppliedFactoryFiles', () => {
       ['an absolute path', { notes: skill([{ path: '/etc/passwd', bytes: bytes('x') }]) }],
       ['an empty segment', { notes: skill([{ path: 'refs//a.md', bytes: bytes('x') }]) }],
       ['a dot segment', { notes: skill([{ path: './a.md', bytes: bytes('x') }]) }],
-      ['a backslash', { notes: skill([{ path: 'refs\\a.md', bytes: bytes('x') }]) }],
+      ['a backslash', { notes: skill([{ path: String.raw`refs\a.md`, bytes: bytes('x') }]) }],
     ])('refuses to write %s, and keeps the version it had', (_label, skills) => {
       const { root, store, dir } = written();
       expect(() =>

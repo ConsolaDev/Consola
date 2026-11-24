@@ -120,7 +120,7 @@ steps:
 `;
 
 /** The banner's time: `HH:MM` today. */
-const AT = '\\d\\d:\\d\\d';
+const AT = String.raw`\d\d:\d\d`;
 
 /** A broken agent file is one problem, counted in its own file, not in the entry that names it (review M1). */
 const BROKEN_REVIEWER_BANNER = new RegExp(

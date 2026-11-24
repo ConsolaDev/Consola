@@ -191,7 +191,7 @@ const ABSENT_ON_PURPOSE = ['@napi-rs/keyring'];
  * string (ajv's generated code) is not one.
  */
 const runTimeRequiresOf = (text: string): string[] => {
-  const escaped = (name: string) => name.replaceAll('$', '\\$');
+  const escaped = (name: string) => name.replaceAll('$', String.raw`\$`);
   const makers = new Set(['createRequire']);
   for (const [, alias] of text.matchAll(/\bcreateRequire\s+as\s+([\w$]+)/g)) {
     if (alias !== undefined) makers.add(alias);
@@ -470,7 +470,7 @@ describe('the consola-session template', () => {
         readFileSync(join(installed[name] ?? '', 'package.json'), 'utf8'),
       ) as { readonly version: string };
       expect(dockerfile(), name).toMatch(
-        new RegExp(`\\s${name}@${version.replaceAll('.', '\\.')}\\s`),
+        new RegExp(`\\s${name}@${version.replaceAll('.', String.raw`\.`)}\\s`),
       );
     }
     // The patch pnpm applies to that version, which the Dockerfile applies too.

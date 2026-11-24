@@ -191,7 +191,7 @@ function ownFile(name: string): string {
 }
 
 /** The banner's time: `HH:MM` today. */
-const AT = '\\d\\d:\\d\\d';
+const AT = String.raw`\d\d:\d\d`;
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: GIT_ENV }).trim();

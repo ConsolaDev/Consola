@@ -5,7 +5,7 @@ import { PERSONAL_FACTORY, SecretReadError } from './secretsPort';
 import type { SecretBinding, SecretsPort } from './secretsPort';
 import { maskFormsOf } from './values';
 
-const A_VALUE = 'stub-a-secret-7f3a"\\back%slash';
+const A_VALUE = String.raw`stub-a-secret-7f3a"\back%slash`;
 const B_VALUE = 'stub-b-secret-9c1e+/= x';
 const LABELS: Record<string, string> = {
   A_TOKEN: 'the keychain (consola/ws-1/personal · A_TOKEN)',

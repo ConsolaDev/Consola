@@ -730,7 +730,7 @@ describe('outputs', () => {
       `v: { enum: [${twentyOne}] }`,
       'v: { enum: [a, a] }',
       `v: { enum: [${'x'.repeat(65)}] }`,
-      'v: { enum: ["a\\nb"] }',
+      String.raw`v: { enum: ["a\nb"] }`,
       'v: { enum: [""] }',
     ];
     for (const body of bad) expect(only(outputs(body)).path, body).toMatch(/outputs\.v\.enum$/);
@@ -1659,7 +1659,7 @@ describe('what a step may say about writing (slice 3-B)', () => {
     'docs/{{run.id}}.md',
     'docs/{{item.key}.md',
     'docs/}x.md',
-    'docs\\x.md',
+    String.raw`docs\x.md`,
     '',
     'docs/',
     'a//b',

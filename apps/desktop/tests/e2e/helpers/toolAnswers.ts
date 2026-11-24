@@ -32,7 +32,7 @@ export function afterNote(text: string): unknown {
 
 /** The ref a snapshot's outline gives the element it describes as `described` (`button "Count"`). */
 export function refIn(outline: string, described: string): string {
-  const escaped = described.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const escaped = described.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
   const ref = new RegExp(`${escaped}[^\\n]*\\[ref=(e\\d+)\\]`).exec(outline)?.[1];
   if (!ref) throw new Error(`no ref for ${described} in:\n${outline}`);
   return ref;

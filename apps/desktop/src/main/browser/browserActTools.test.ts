@@ -791,7 +791,7 @@ describe('consola_browser_wait_for', () => {
     // M5: what it waited for is quoted, so its own text cannot pose as more of the sentence.
     expect(await waitFor({ text: 'Done"; it was.\nNext', timeoutMs: 2000 })).toEqual({
       isError: true,
-      text: 'Waited 2 seconds for the text "Done\\"; it was.\\nNext" to be on the page; it was not.',
+      text: String.raw`Waited 2 seconds for the text "Done\"; it was.\nNext" to be on the page; it was not.`,
     });
   });
 

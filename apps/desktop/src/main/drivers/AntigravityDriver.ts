@@ -34,8 +34,7 @@ const PROBE_TIMEOUT_MS = 10_000;
  * Extracts `conversation_id` (a 36-char UUID) from the JSON state payload
  * Antigravity pipes to its `title` script on stdin.
  */
-const POSIX_TITLE_COMMAND =
-  'sed -n \'s/.*"conversation_id"[[:space:]]*:[[:space:]]*"\\([0-9a-fA-F-]\\{36\\}\\)".*/\\1/p\'';
+const POSIX_TITLE_COMMAND = String.raw`sed -n 's/.*"conversation_id"[[:space:]]*:[[:space:]]*"\([0-9a-fA-F-]\{36\}\)".*/\1/p'`;
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

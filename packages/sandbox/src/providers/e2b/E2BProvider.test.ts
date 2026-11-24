@@ -410,7 +410,7 @@ describe("E2B's command line", () => {
       '`echo run`',
       'two  spaces',
       'semi;colon && more',
-      'back\\slash',
+      String.raw`back\slash`,
       'new\nline',
       '-n',
       '',

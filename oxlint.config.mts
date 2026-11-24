@@ -111,7 +111,6 @@ export default defineConfig({
         'unicorn/prefer-import-meta-properties': 'off', // 19
         'unicorn/prefer-set-has': 'off', // 40
         'unicorn/prefer-single-call': 'off', // 16
-        'unicorn/prefer-string-raw': 'off', // 89
         'unicorn/prefer-string-replace-all': 'off', // 184
         'unicorn/prefer-structured-clone': 'off', // 22
         'unicorn/prefer-top-level-await': 'off', // 11

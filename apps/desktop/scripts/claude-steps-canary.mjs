@@ -3602,11 +3602,11 @@ async function row46() {
 }
 
 const POINTER_LINES = [
-  ['w-pointer', "printf 'gitdir: /tmp/x\\n' > .git"],
+  ['w-pointer', String.raw`printf 'gitdir: /tmp/x\n' > .git`],
   ['rm-pointer', 'rm .git'],
   ['mv-pointer', 'mv .git x'],
   ['ln-pointer', 'ln -sf /tmp/x .git'],
-  ['sub-pointer', "mkdir -p sub && printf 'gitdir: /tmp/x\\n' > sub/.git"],
+  ['sub-pointer', String.raw`mkdir -p sub && printf 'gitdir: /tmp/x\n' > sub/.git`],
 ];
 
 async function row47() {

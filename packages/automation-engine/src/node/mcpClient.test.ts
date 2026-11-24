@@ -31,7 +31,7 @@ import type {
  * `process.execPath`; nothing here starts anything else or reaches a network.
  */
 
-const SECRET = 'stub-slack-secret-9c1e"\\back%slash';
+const SECRET = String.raw`stub-slack-secret-9c1e"\back%slash`;
 const SLOW = 20_000;
 // Every row starts processes: on a loaded machine the default 5 s is too short a budget for any of them.
 vi.setConfig({ testTimeout: SLOW });

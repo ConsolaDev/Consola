@@ -16,7 +16,7 @@ const throughGit = (script: string) => ['-c', `alias.probe=!${script}`, 'probe']
 
 describe('readGit', () => {
   it("answers git's output, trimmed", async () => {
-    expect(await readGit(root, throughGit('printf "  sprocket\\n\\n"'))).toBe('sprocket');
+    expect(await readGit(root, throughGit(String.raw`printf "  sprocket\n\n"`))).toBe('sprocket');
   });
 
   it('answers null when git fails', async () => {

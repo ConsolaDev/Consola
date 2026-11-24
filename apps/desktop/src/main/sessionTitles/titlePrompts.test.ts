@@ -14,7 +14,7 @@ describe('buildInitialTitlePrompt', () => {
         'Generate a title that will help the user recognize this Consola session weeks later.',
       ),
     ).toBe(true);
-    expect(p).toContain('Never include the scope name ("web \\"app\\"")');
+    expect(p).toContain(String.raw`Never include the scope name ("web \"app\"")`);
     expect(p.endsWith('User message:\nFix "login"')).toBe(true);
     expect(p).toContain('- 3-8 words, fewer than 40 characters.');
   });
@@ -42,7 +42,7 @@ describe('buildRegenerateTitlePrompt', () => {
       previousTitle: 'Old "one"',
       scopeName: 's',
     });
-    expect(p).toContain('The previous title was "Old \\"one\\"".');
+    expect(p).toContain(String.raw`The previous title was "Old \"one\"".`);
     expect(p.endsWith('Session contents:\nUSER: m')).toBe(true);
   });
 });

@@ -149,7 +149,7 @@ describe('checkFactoryFiles', () => {
     ['agents//investigator.md'],
     ['agents/./investigator.md'],
     ['skills/incident-triage/../../factory.yml'],
-    ['agents\\investigator.md'],
+    [String.raw`agents\investigator.md`],
     ['agents/investigator.md\n'],
     [''],
     [`agents/${'a'.repeat(300)}.md`],

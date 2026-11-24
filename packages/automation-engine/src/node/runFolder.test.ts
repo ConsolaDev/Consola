@@ -383,7 +383,7 @@ describe('RunFolder', () => {
         { 'incident-triage': [{ path: '../SKILL.md', bytes: bytes('x') }] },
         { 'incident-triage': [{ path: '/etc/SKILL.md', bytes: bytes('x') }] },
         { 'incident-triage': [{ path: 'refs/./a.md', bytes: bytes('x') }] },
-        { 'incident-triage': [{ path: 'refs\\a.md', bytes: bytes('x') }] },
+        { 'incident-triage': [{ path: String.raw`refs\a.md`, bytes: bytes('x') }] },
         { 'incident-triage': [{ path: '', bytes: bytes('x') }] },
         // A good skill beside a bad one: the good one is not written either.
         { 'release-notes': one, 'incident-triage': [{ path: 'a/../../b', bytes: bytes('x') }] },

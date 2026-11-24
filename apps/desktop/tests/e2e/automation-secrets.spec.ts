@@ -39,7 +39,7 @@ const GIT_ENV = {
 const TICK_MS = 2000;
 
 /** A fake value full of characters that change when printed (Review Focus 1). Never a real token's shape. */
-const VALUE = 'stub-pager-secret-7f3a"\\back%slash';
+const VALUE = String.raw`stub-pager-secret-7f3a"\back%slash`;
 /** What the stub keychain holds for the workspace's default item. */
 const KEYCHAIN_VALUE = 'stub-keychain-secret-2b';
 
@@ -55,7 +55,7 @@ function formsOf(value: string): string[] {
 
 /** `text` as a RegExp source that matches it literally: every metacharacter escaped, backslash included. */
 function literal(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 }
 
 const UNBOUND = 'needs `PAGER_TOKEN` bound on this Mac (Settings › Secrets)';

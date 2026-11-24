@@ -956,7 +956,7 @@ test("a person's session in the checkout holds the run, and what it leaves is it
     const people = page.locator('.automations-run-checkout-people');
     await expect(people).toContainText('Changed by you during the run');
     // The session's name as literal text: every RegExp metacharacter escaped, backslash included.
-    const literal = session.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const literal = session.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     await expect(people.getByRole('listitem').first()).toContainText(
       new RegExp(`^${literal} · 1 files · [0-9a-f]{7}`),
     );

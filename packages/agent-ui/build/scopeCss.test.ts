@@ -43,12 +43,12 @@ describe('scopeSelector', () => {
   });
 
   it('leaves class names that only contain "dark" alone', () => {
-    expect(scopeSelector('.dark\\:bg-x:is(.dark, .dark *)')).toBe(
+    expect(scopeSelector(String.raw`.dark\:bg-x:is(.dark, .dark *)`)).toBe(
       `${INSIDE} .dark\\:bg-x:is(${OWN_DARK}, ${OWN_DARK} *)`,
     );
-    expect(scopeSelector('.not-dark\\:hidden')).toBe(`${INSIDE} .not-dark\\:hidden`);
+    expect(scopeSelector(String.raw`.not-dark\:hidden`)).toBe(`${INSIDE} .not-dark\\:hidden`);
     expect(scopeSelector('.dark-panel')).toBe(`${INSIDE} .dark-panel`);
-    expect(scopeSelector('.w-0\\.dark')).toBe(`${INSIDE} .w-0\\.dark`);
+    expect(scopeSelector(String.raw`.w-0\.dark`)).toBe(`${INSIDE} .w-0\\.dark`);
   });
 });
 
@@ -80,7 +80,7 @@ describe('scopeCss', () => {
         '@layer base { * { margin: 0 } }',
         '.prose p { margin: 1em }',
         '@keyframes spin { to { rotate: 1turn } }',
-        '@media (width >= 40rem) { .sm\\:flex { display: flex } }',
+        String.raw`@media (width >= 40rem) { .sm\:flex { display: flex } }`,
         '@property --tw-shadow { syntax: "*"; inherits: false }',
         `@layer reset { ${FLOOR} { all: revert; direction: revert } ${AS_DOCUMENT} { all: initial } }`,
         `${GUARDED} { all: revert-layer; direction: revert-layer }`,

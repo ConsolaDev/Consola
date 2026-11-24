@@ -14,12 +14,12 @@ describe('the POSIX stand-ins', () => {
     [['printf', 'plain'], 'plain', 0],
     [['printf', '%s\n', 'a', 'b'], 'a\nb\n', 0],
     [['printf', '%s=%s;', 'a', '1', 'b'], 'a=1;b=;', 0],
-    [['printf', '100%% %s\\t\\\\', 'x'], '100% x\t\\', 0],
+    [['printf', String.raw`100%% %s\t\\`, 'x'], '100% x\t\\', 0],
     [['printf', '%s', '$HOME *'], '$HOME *', 0],
     [['printf', 'no args used', 'extra'], 'no args used', 0],
     [['printf', '%s|'], '|', 0],
     [['printf', '%d', '1'], '', 2],
-    [['printf', '\\x41'], '', 2],
+    [['printf', String.raw`\x41`], '', 2],
     [['printf'], '', 1],
   ])('printf %j prints %j and exits %i', async (argv, stdout, exitCode) => {
     const result = await (await sandbox()).run({ argv });

@@ -72,7 +72,7 @@ const writtenText = (output: Awaited<ReturnType<typeof build>>): string =>
     )
     .join('\n');
 
-const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
 /** Fails unless the build is refused for `importer`'s import of `source`. */
 const refusedNaming = async (entry: string, importer: string, source: string) => {

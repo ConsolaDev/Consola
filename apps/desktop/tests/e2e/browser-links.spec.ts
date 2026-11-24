@@ -108,7 +108,7 @@ async function printWrappedLink(page: Page, url: string): Promise<Locator> {
   // Its scheme, host and port, which fit on the first row and are where no
   // other row starts.
   const at = url.indexOf('//') + 2;
-  const start = url.slice(0, url.indexOf('/', at) + 1).replace(/[.?]/g, '\\$&');
+  const start = url.slice(0, url.indexOf('/', at) + 1).replace(/[.?]/g, String.raw`\$&`);
   const first = shell
     .locator('.xterm-rows > div')
     .filter({ hasText: new RegExp(`^${start}`) })

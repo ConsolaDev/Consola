@@ -34,7 +34,7 @@ export function formatDroppedPaths(paths: string[], cwd: string): string {
         return `@${relative}`;
       }
     }
-    return `"${path.replace(/(["\\])/g, '\\$1')}"`;
+    return `"${path.replace(/(["\\])/g, String.raw`\$1`)}"`;
   });
 
   // Trailing space so the user can start typing straight after the drop.
