@@ -42,8 +42,11 @@ the runner said before it closed its socket.
   `src/testing/machine.ts`). After each case, every fake CLI's recorded call
   must have seen that machine's home and no config folder.
 - **No real credential.** Every secret is made by the test or is a stand-in,
-  and none may show in what the cell or the runner printed. Fixtures use Acme,
-  Sprocket and the `sprocket` org.
+  and none may show in what the cell or the runner printed. The processes it
+  starts get none of the runner's secret variables (`RUNNER_SECRET_VARIABLES`,
+  which `localProvider.ts` hands on: an E2B key, a git token, an API key) and
+  no `CONSOLA_` setting from the developer's shell, only the test's stand-ins.
+  Fixtures use Acme, Sprocket and the `sprocket` org.
 - **Nothing is left running.** A case ends its sandboxes, the runner and the
   cell, and the teardown kills whatever a failed case left.
 - **It uses the host's testing ring by path**, as `@consola/agent-ui`'s browser

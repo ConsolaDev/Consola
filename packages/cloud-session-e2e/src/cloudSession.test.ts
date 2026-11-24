@@ -11,9 +11,10 @@
  * requests carry a cell token signed here as `cloud-global` signs one.
  *
  * Every process runs on a machine of the test's own (`@consola/host`'s `src/testing/machine.ts`):
- * a temporary home, no CLI or API-key variable, and a `PATH` of fake CLIs before `/usr/bin:/bin`.
- * A fake records its call and exits 1, so no CLI of the developer's can run; after each test every
- * recorded call must have seen that home and no config folder.
+ * a temporary home, no CLI or API-key variable, none of the runner's secrets (an E2B key, a git
+ * token) and no `CONSOLA_` setting from the developer's shell, and a `PATH` of fake CLIs before
+ * `/usr/bin:/bin`. A fake records its call and exits 1, so no CLI of the developer's can run; after
+ * each test every recorded call must have seen that home and no config folder.
  */
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
@@ -35,6 +36,7 @@ import {
   readCalls,
   writeFakeClis,
 } from '@consola/host/src/testing/machine.ts';
+import { RUNNER_SECRET_VARIABLES } from '@consola/host/src/testing/localProvider.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from '@consola/host/src/testing/replay.ts';
 import { connectHost } from '@consola/host/src/testing/t3Client.ts';
 import {
@@ -372,8 +374,13 @@ beforeEach(async () => {
   for (const dir of [home, bin]) mkdirSync(dir, { recursive: true });
   writeFileSync(record, '');
   writeFakeClis(bin, record);
+  // No CLI's variable, none of the runner's secrets and no Consola setting comes from the
+  // developer's shell: the runner gets only the stand-ins the test gives it below.
   const env: NodeJS.ProcessEnv = { ...process.env };
-  for (const name of cliVariablesIn(env)) delete env[name];
+  const consolaVariables = Object.keys(env).filter((name) => name.startsWith('CONSOLA_'));
+  for (const name of [...cliVariablesIn(env), ...RUNNER_SECRET_VARIABLES, ...consolaVariables]) {
+    delete env[name];
+  }
   Object.assign(env, homeVariables(home), { PATH: pathWith(bin) });
 
   // `cloud-global`'s signing key, published where the cell fetches it.

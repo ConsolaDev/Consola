@@ -29,6 +29,13 @@ import {
 } from '@consola/sandbox';
 import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts';
 
+/**
+ * The runner's secret variables (`core/runnerDecisions.ts`), for a test outside this package that
+ * starts a runner over this provider: `@consola/cloud-session-e2e` keeps the developer's own out
+ * of it.
+ */
+export { RUNNER_SECRET_VARIABLES } from '../core/runnerDecisions.ts';
+
 const REPLAY_SESSION = join(dirname(fileURLToPath(import.meta.url)), 'replaySession.ts');
 
 /** The replay's own arguments: the fixture, and the mode it was recorded in. */
