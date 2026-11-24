@@ -213,7 +213,7 @@ person. The cell signs each session's pass with a key of its own
 (`PASS_PRIVATE_KEY`), never `cloud-global`'s, and in the cell only
 `adapters/token` imports `jose`; the runner's socket (`adapters/runner`) may
 use `hono` and `@hono/node-ws`. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with three
+imports from the desktop, the website, another app or `packages/*`, with four
 exceptions. `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
@@ -229,8 +229,12 @@ so any layer of the cell may import it; before changing it, read
 `packages/runner-protocol/AGENTS.md`. And `cloud-region` imports
 `packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
 every runner shares, to check the factory files it stores; it does no I/O
-either, so any layer of the cell may import it. Setup is in
-`apps/cloud-global/README.md` and `apps/cloud-region/README.md`. Before
+either, so any layer of the cell may import it. Last, `cloud-web`'s `ui`
+imports `packages/agent-ui` (`@consola/agent-ui`, MIT), the chat a running
+cloud session's page mounts, with its stylesheet: the app's one workspace
+package, and only there (its `boundary.test.ts`), never in `domain`,
+`services` or a test. Setup is in `apps/cloud-global/README.md` and
+`apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
 rules and the dependency rule that keeps them apart.
@@ -291,8 +295,9 @@ sessions in sandboxes through `@consola/sandbox` (on E2B, from the `consola-sess
 `packages/host/sandbox-template/`, which runs the host from a bundle that is never published),
 speaking `@consola/runner-protocol` to its cell (the only two Consola packages it imports), and
 `packages/agent-ui` (`@consola/agent-ui`, MIT),
-t3's chat view behind `AgentChat`. Read each one's `AGENTS.md` before changing it. The
-copied packages' own checks are not part of `pnpm test` or `pnpm typecheck`: run
+t3's chat view behind `AgentChat`, which `cloud-web` mounts for a cloud session. Read each
+one's `AGENTS.md` before changing it. The copied packages' own checks are not part of
+`pnpm test` or `pnpm typecheck`: run
 `pnpm run test:vendor` and `pnpm run typecheck:vendor` (CI's `vendor` job, on Linux, where a
 few of t3's tests assume Linux and fail on macOS).
 

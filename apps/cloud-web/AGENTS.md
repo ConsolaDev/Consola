@@ -39,9 +39,15 @@ The app is built in layers, and imports point inward only.
   is said (`runWords.ts`), how a step is traced (`stepTrace.ts`), the file
   behind a run (`runFile.ts`, shaded by the desktop's YAML tokenizer,
   `yamlTokens.ts`), approving one (`runApproval.ts`) and the pages'
-  sentences (`runMessages.ts`; see "Runs"); where the running source is
-  (`source.ts`); and how the address names a dashboard section (`sections.ts`:
-  `sectionIdOfHash`, `hashOfSection`, `chooseSection`) and a settings page
+  sentences (`runMessages.ts`; see "Runs"); cloud sessions
+  (`cloudSession.ts`: the contract's session types, `sessionLabel`,
+  `pollIntervalMs`, `listPollIntervalMs`, `chatMounted`, `shouldRenewPass`,
+  `keepsShownOn`, `sessionScreen` and the answers), where the section is
+  (`sessionsRoute.ts`) and their sentences (`cloudSessionMessages.ts`; see
+  "Sessions"); where the
+  running source is (`source.ts`); and how the address names a dashboard
+  section (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`)
+  and a settings page
   (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
   TypeScript, with no package and no browser I/O. `apiContract.ts` and
   `cellApiContract.ts` hold the APIs' types, generated from
@@ -54,7 +60,8 @@ The app is built in layers, and imports point inward only.
   `openapi-fetch` client typed by the contract), the workspace's cell
   (`cell.ts`: `createCellSession`, the token and the address every service
   of the cell shares, on `createCellApi`; `teams.ts`: `teamsService`;
-  `factories.ts`: `factoriesService`; `runs.ts`: `runsService`), Better
+  `factories.ts`: `factoriesService`; `runs.ts`: `runsService`;
+  `cloudSessions.ts`: `cloudSessionsService`), Better
   Auth's client (`authClient.ts`: `signInWithGoogle`, `signOut`), the
   clipboard (`clipboard.ts`: `copyText`) and the address bar
   (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
@@ -72,8 +79,11 @@ The app is built in layers, and imports point inward only.
   topbar with `SignOutButton`), the dashboard (`Dashboard.tsx` with its
   sidebar's workspace menu, `WorkspaceSwitcher`, and `AccountMenu`, its list
   of sections `sections.tsx` with each section's page, such as
-  `OverviewPage.tsx` with `RegionMap` and `CopySlug`, and `RunsSection.tsx`
-  with the list and a run's page (see "Runs"), and its Factories group
+  `OverviewPage.tsx` with `RegionMap` and `CopySlug`, `RunsSection.tsx`
+  with the list and a run's page (see "Runs"), and `SessionsSection.tsx` with
+  `SessionsList`, `NewSessionPage` and `SessionPage`, whose chat,
+  `SessionChat`, loads only for a running session (see "Sessions"), and its
+  Factories group
   `FactoriesNav.tsx` with `FactoryTile`, `useFactories`, `NewFactoryDialog`
   and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage`,
   `FactorySettingsPage` and `SourceChoice`), Settings
@@ -102,7 +112,8 @@ The app is built in layers, and imports point inward only.
   `fetch` or `XMLHttpRequest`: the API is reached only through `createApi`'s
   client, typed by the contract, so a call with types written by hand fails
   the boundary test.
-- `ui` imports `domain`, `services`, `ui`, `react` and `@radix-ui/themes`,
+- `ui` imports `domain`, `services`, `ui`, `react`, `@radix-ui/themes` and
+  `@consola/agent-ui` with its stylesheet (the chat, in `SessionChat.tsx`),
   never `better-auth`. It refers to no `fetch`, `history`, `location`,
   `localStorage`, `sessionStorage`, `XMLHttpRequest` or `WebSocket`, directly
   or through `window`. The build constants are compile-time values, not I/O,
@@ -113,7 +124,10 @@ The app is built in layers, and imports point inward only.
   `AccountMenu.tsx`, `CopySlug.tsx`, `CreateWorkspaceCard.tsx`,
   `WorkspaceSwitcher.tsx`).
   `domain` and `main.tsx` call none.
-- No file imports another app or a workspace package (`@consola/*`).
+- No file imports another app or a workspace package (`@consola/*`), but
+  `ui`, which imports `@consola/agent-ui`: the chat, MIT, which imports
+  nothing of an app's. `domain`, `services`, the entry and the tests never
+  import it.
 - Test files (`*.test.ts`) are exempt from the layer rules (the never-import
   list still applies), because they wire real pieces together the way the
   entry does.
@@ -124,7 +138,8 @@ the TypeScript syntax tree (`import`, `import type`, `export … from`, dynamic
 counts, directly or through `window`, never a property or a prop that shares
 the name (`props.location`, `{ location: '/' }`). A file that sits in no layer
 fails it too. The rules are data at its top (`LAYERS`), so a new layer or
-folder is added there first.
+folder is added there first, and a workspace package a layer may import all
+the same is in that layer's `allows`.
 
 ## The API's contract
 
@@ -383,9 +398,10 @@ the factory's orchestrator; the automations it starts are its children.
   Automations with their count. Choosing one, or opening an automation,
   replaces the address's entry (`showRunPlace`).
 - **The conversation comes later.** The Conversation tab is where `AgentChat`
-  (`@consola/agent-ui`) will mount once requests run in cloud sessions; this
-  app imports no workspace package yet. Until then (`conversation === null`)
-  it shows the request as the person gave it and says what will join it. An
+  (`@consola/agent-ui`) will mount once requests run in cloud sessions, as a
+  cloud session's page mounts it already (see "Sessions"). Until then
+  (`conversation === null`) it shows the request as the person gave it and
+  says what will join it. An
   open question's words are not in the cell, so the page says when it was
   asked and its deadline.
 - **The automations a request started** (`ui/RequestAutomations.tsx`, the
@@ -419,15 +435,82 @@ The section needs the workspace's cell running (`pnpm dev:cloud-region`);
 `pnpm --filter @consola/cloud-region db:seed` writes demo runs into a local
 cell's database.
 
+## Sessions
+
+The Sessions section (`#/sessions`, `ui/SessionsSection.tsx`, a `wide` entry
+of `SECTIONS` after Runs) shows the person's cloud sessions: each a sandbox
+the workspace's runner runs for them, with an agent CLI working in one of the
+runner's repositories (`apps/cloud-region/AGENTS.md`, "Cloud sessions"). It
+reaches the cell through `cloudSessionsService` (`services/cloudSessions.ts`)
+on the page's cell session, as Runs does, and the cell decides everything: a
+person sees only their own sessions, and every status is the cell's.
+
+- **The address holds the place** (`sessionsRoute.ts`): the list is
+  `#/sessions`, the form `#/sessions/new`, a session `#/sessions/<id>` (the
+  cell's UUID, never `new`). A session started takes the form's entry in the
+  history (`replaceHash`), so back leads to the list.
+- **The list** (`SessionsList`), newest first as the cell answers: each row
+  its status (a dot, hollow while it starts, the accent while it runs, quiet
+  once stopped, red once failed, and its word), its name (`sessionLabel`: the
+  title, or "Session" and the id's first eight characters), its repository and
+  harness as tags, and when it started. It reads again as often as its
+  liveliest session asks (`listPollIntervalMs`), every 30 s once none can
+  change, never while the tab is hidden; a refresh that fails while the cell
+  or `cloud-global` is out keeps the rows.
+- **New session** (`NewSessionPage`): a repository and a harness, each from
+  what the runner offers (`GET /api/cloud-sessions/options`; a harness this
+  build cannot name is left out), and `START_NOTE` above Start, since a
+  session runs the repository's own settings and hooks. With no runner
+  connected (`no_runner`), its sentence stands in the form's place, as it does
+  when a start comes back with it. A repository or harness the runner does not
+  offer, or a body the cell could not read, is said under the form.
+- **A session** (`SessionPage`): the run page's header (Sessions / name, a
+  status chip, and Stop while it starts or runs, which asks first, in place),
+  a line of its facts, then what `sessionScreen` says. Starting: its words,
+  read again every 2 s. Running: the chat under the warning that changes not
+  pushed to a branch are lost, read again every 10 s. Stopped or failed: the
+  words, with no chat and so no composer, and no more reads. A failure says
+  the runner's message as it came, or the sentence for the cell's code
+  (`runner_restarted`, `runner_unreachable`, `runner_failed`), never a code.
+- **The chat** (`ui/SessionChat.tsx`) is `AgentChat` with its stylesheet,
+  which styles nothing outside it (`packages/agent-ui/AGENTS.md`). It is most
+  of the app's weight, so `SessionPage` loads it only for a running session
+  (`React.lazy`), and a chunk that cannot load says so in its place. The page
+  asks the cell for a pass (`POST /api/cloud-sessions/{sessionId}/pass`) once
+  it reads the session running, and the chat connects straight to the host
+  the pass names (an `http(s)` origin, or the pass is not used). Its
+  `onPassExpired` asks the cell again only while the session runs
+  (`shouldRenewPass`); a 404 rejects it, and the page reads the session at once.
+- **A session that ends while its page is open**: the read that finds it
+  stopped or failed unmounts the chat (`chatMounted`), which drops its
+  connection and its pass; no pass is asked for again, and nothing reconnects.
+- **A read that fails keeps the page only for a while** (`keepsShownOn`):
+  while the cell or `cloud-global` is out (`unavailable`, `pending`) the list
+  and a session stay as last read, saying when. Signed out, with another
+  workspace open, or with the session gone, the page says so instead, and a
+  running chat unmounts: nobody goes on using a session the page can no
+  longer vouch for. Runs keeps its read-only page through all of these; a
+  session's page holds a chat with an agent that has a shell.
+- **States** are the cell's (`messageForCellRefusal`), with a session not found
+  (none, or another person's: the cell says the same of both) and `no_runner`.
+- **The chat's notices ship with the build.** Vite bundles agent-ui's built
+  `dist/` (`turbo` builds it before any of this app's tasks, `dev` included),
+  and `vite.config.ts` writes its `THIRD-PARTY-NOTICES` and `LICENSE` to
+  `agent-ui/` in this app's `dist/`, as that package asks of an embedder.
+
+The section needs the workspace's cell running with a runner connected
+(`pnpm dev:cloud-region`, and `apps/cloud-region/AGENTS.md`, "The runner's
+socket").
+
 ## Workspaces
 
 The API is `cloud-global`'s (its `AGENTS.md`, "Workspaces"), and it is the
-authority on every rule. The web app imports no package, so `workspace.ts`
-keeps its own copy of the name, slug and region rules: to check a request
-before sending it and to suggest a slug. Whatever the server answers is what
-the page shows, so a copy that drifts costs a round trip, never a wrong
-workspace. Keep both in step: the contract's types catch a region or a
-problem out of step, but not a rule such as a length.
+authority on every rule. The web app imports none of its code, so
+`workspace.ts` keeps its own copy of the name, slug and region rules: to
+check a request before sending it and to suggest a slug. Whatever the server
+answers is what the page shows, so a copy that drifts costs a round trip,
+never a wrong workspace. Keep both in step: the contract's types catch a
+region or a problem out of step, but not a rule such as a length.
 
 - Only a 401 means signed out. A failed fetch, a status or error code a call
   does not expect, or a body that is not JSON is `unavailable`, so a service
@@ -459,11 +542,12 @@ under a topbar of their own.
 - **One list of sections.** `ui/sections.tsx` holds `SECTIONS`, in the nav's
   order. A section is `{ id, label, icon, View }` (the icon from the
   desktop's set, `lucide-react`), with `layout: 'wide'` for a page that
-  takes the whole space beside the sidebar and lays itself out (Runs), where
-  any other sits in the 880px reading column; its `View` gets `SectionProps`: the
-  person (`Me`), the workspace open (never null) and `onWorkspaceChanged`,
-  which a page calls once it has changed the workspace, so the page loads
-  again and the sidebar and the menu catch up. A new
+  takes the whole space beside the sidebar and lays itself out (Runs,
+  Sessions), where any other sits in the 880px reading column; its `View`
+  gets `SectionProps`: the person (`Me`), the workspace open (never null)
+  and `onWorkspaceChanged`, which a page calls once it has changed the
+  workspace, so the page loads again and the sidebar and the menu catch up.
+  A new
   page is one entry there and files of its own; nothing else in the shell
   changes. The first entry, Overview, is what an address naming no section
   opens.
@@ -538,7 +622,8 @@ under a topbar of their own.
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/NewFactoryDialog.css`,
   `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
-  `ui/ApprovalCard.css`, `ui/RequestAutomations.css`), imported by the page.
+  `ui/ApprovalCard.css`, `ui/RequestAutomations.css`, `ui/Sessions.css`),
+  imported by the page.
 - **Motion plays once, or answers the person.** The map's region ripples on as
   the page opens, a factory's chevron turns as it folds, a new icon pops
   into its tile, the slug's icon
