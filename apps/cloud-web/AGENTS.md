@@ -42,8 +42,9 @@ The app is built in layers, and imports point inward only.
   sentences (`runMessages.ts`; see "Runs"); cloud sessions
   (`cloudSession.ts`: the contract's session types, `sessionLabel`,
   `pollIntervalMs`, `listPollIntervalMs`, `chatMounted`, `shouldRenewPass`,
-  `sessionScreen` and the answers), where the section is (`sessionsRoute.ts`)
-  and their sentences (`cloudSessionMessages.ts`; see "Sessions"); where the
+  `keepsShownOn`, `sessionScreen` and the answers), where the section is
+  (`sessionsRoute.ts`) and their sentences (`cloudSessionMessages.ts`; see
+  "Sessions"); where the
   running source is (`source.ts`); and how the address names a dashboard
   section (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`)
   and a settings page
@@ -454,7 +455,8 @@ person sees only their own sessions, and every status is the cell's.
   title, or "Session" and the id's first eight characters), its repository and
   harness as tags, and when it started. It reads again as often as its
   liveliest session asks (`listPollIntervalMs`), every 30 s once none can
-  change, never while the tab is hidden; a refresh that fails keeps the rows.
+  change, never while the tab is hidden; a refresh that fails while the cell
+  or `cloud-global` is out keeps the rows.
 - **New session** (`NewSessionPage`): a repository and a harness, each from
   what the runner offers (`GET /api/cloud-sessions/options`; a harness this
   build cannot name is left out), and `START_NOTE` above Start, since a
@@ -482,6 +484,13 @@ person sees only their own sessions, and every status is the cell's.
 - **A session that ends while its page is open**: the read that finds it
   stopped or failed unmounts the chat (`chatMounted`), which drops its
   connection and its pass; no pass is asked for again, and nothing reconnects.
+- **A read that fails keeps the page only for a while** (`keepsShownOn`):
+  while the cell or `cloud-global` is out (`unavailable`, `pending`) the list
+  and a session stay as last read, saying when. Signed out, with another
+  workspace open, or with the session gone, the page says so instead, and a
+  running chat unmounts: nobody goes on using a session the page can no
+  longer vouch for. Runs keeps its read-only page through all of these; a
+  session's page holds a chat with an agent that has a shell.
 - **States** are the cell's (`messageForCellRefusal`), with a session not found
   (none, or another person's: the cell says the same of both) and `no_runner`.
 - **The chat's notices ship with the build.** Vite bundles agent-ui's built

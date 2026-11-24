@@ -3,6 +3,7 @@ import { useRef, useState } from 'react';
 import { messageForCellRefusal } from '../domain/cell';
 import {
   type CloudSession,
+  keepsShownOn,
   listPollIntervalMs,
   type SessionsAnswer,
   sessionLabel,
@@ -30,7 +31,7 @@ type ListView =
  * The person's cloud sessions, newest first as the cell lists them: each a row of its status, its
  * name, its repository and harness, and when it started, linking to its page. It reads them again
  * while the page shows, as often as the liveliest session asks, and now and then once none can
- * change; a refresh that fails keeps the rows, and says when they were read.
+ * change; a refresh that fails for a while keeps the rows, and says when they were read.
  */
 export function SessionsList({ workspace }: { workspace: MyWorkspace }) {
   const [view, setView] = useState<ListView>({ kind: 'loading' });
@@ -46,8 +47,9 @@ export function SessionsList({ workspace }: { workspace: MyWorkspace }) {
       return listPollIntervalMs(answer.sessions);
     }
     const previous = shown.current;
-    if (previous.kind === 'shown') {
-      // The rows stay as they were read, saying when; the next read may work.
+    if (keepsShownOn(answer) && previous.kind === 'shown') {
+      // The rows stay as they were read, saying when; the next read may work. Signed out or
+      // switched, the list says so instead.
       setView({ ...previous, failedAt: previous.failedAt ?? new Date().toISOString() });
       return listPollIntervalMs(previous.sessions);
     }

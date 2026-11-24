@@ -107,6 +107,17 @@ export function shouldRenewPass(status: CloudSessionStatus): boolean {
   return status === 'running';
 }
 
+/**
+ * Whether a read that came to nothing keeps what the page shows (a session, with its chat; the
+ * list), saying when it was read: only while the cell or `cloud-global` is out for a while
+ * (`unavailable`, `pending`), since the next read may work. Signed out, or with another workspace
+ * open, the page says so instead and a running chat unmounts, so no one goes on using a session
+ * the page can no longer vouch for; and a session the cell no longer has is gone.
+ */
+export function keepsShownOn(answer: { kind: CellRefusal['kind'] | 'not-found' }): boolean {
+  return answer.kind === 'unavailable' || answer.kind === 'pending';
+}
+
 /** What a session's page shows for it. */
 export type SessionScreen =
   /** The sandbox is starting: the words alone, read again shortly. */

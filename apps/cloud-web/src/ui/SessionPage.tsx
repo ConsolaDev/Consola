@@ -3,6 +3,7 @@ import {
   type CloudSession,
   chatMounted,
   isEnded,
+  keepsShownOn,
   pollIntervalMs,
   type SessionAnswer,
   sessionLabel,
@@ -91,11 +92,12 @@ export function SessionPage({
     if (!current()) return null;
     if (answer.kind !== 'found') {
       const previous = latest.current.view;
-      if (answer.kind !== 'not-found' && previous.kind === 'shown') {
+      if (keepsShownOn(answer) && previous.kind === 'shown') {
         // The session stays as it was read, saying when; the next read may work.
         setView({ ...previous, failedAt: previous.failedAt ?? new Date().toISOString() });
         return pollIntervalMs(previous.session.status);
       }
+      // Gone, signed out or switched: the page says so, and a running chat unmounts with its pass.
       setView({ kind: 'refused', answer });
       setAccess({ kind: 'none' });
       return null;

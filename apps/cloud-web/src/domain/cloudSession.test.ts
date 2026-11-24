@@ -5,6 +5,7 @@ import {
   type CloudSession,
   type CloudSessionStatus,
   chatMounted,
+  keepsShownOn,
   type Harness,
   listPollIntervalMs,
   pollIntervalMs,
@@ -96,6 +97,22 @@ describe('listPollIntervalMs', () => {
   it('reads it now and then once no session shown can change, for one started elsewhere', () => {
     expect(listPollIntervalMs([{ status: 'stopped' }, { status: 'failed' }])).toBe(30000);
     expect(listPollIntervalMs([])).toBe(30000);
+  });
+});
+
+describe('keepsShownOn', () => {
+  it('keeps what was shown through a read that failed for a while: the next may work', () => {
+    expect(keepsShownOn({ kind: 'unavailable' })).toBe(true);
+    expect(keepsShownOn({ kind: 'pending' })).toBe(true);
+  });
+
+  it('ends what was shown, a running chat included, once signed out or switched', () => {
+    expect(keepsShownOn({ kind: 'signed-out' })).toBe(false);
+    expect(keepsShownOn({ kind: 'switched' })).toBe(false);
+  });
+
+  it('ends a session the cell no longer has', () => {
+    expect(keepsShownOn({ kind: 'not-found' })).toBe(false);
   });
 });
 
