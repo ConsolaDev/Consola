@@ -1360,10 +1360,7 @@ test('refused at apply: a plugin server, an unknown server and a Codex harness, 
       expect(await viewOf(steps, name)).toBeUndefined();
       const refused = await steps.page.evaluate(
         async ([workspaceId, entry]) =>
-          window.automationsAPI.runNow(workspaceId, entry).then(
-            () => null,
-            (error: unknown) => String(error),
-          ),
+          window.automationsAPI.runNow(workspaceId, entry).then(() => null, String),
         [steps.workspaceId, name] as const,
       );
       expect(refused).not.toBeNull();

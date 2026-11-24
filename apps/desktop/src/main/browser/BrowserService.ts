@@ -490,6 +490,7 @@ export class BrowserService {
    */
   private applyLiveRule(changed: readonly string[] = []): void {
     const sessions = new Set(changed);
+    // oxlint-disable-next-line unicorn/prefer-array-some -- this.find is the service's tab lookup, not Array#find
     for (const tabId of this.pages.evaluate((id) => this.find(id) !== undefined)) {
       const found = this.find(tabId);
       this.destroyGuest(tabId);

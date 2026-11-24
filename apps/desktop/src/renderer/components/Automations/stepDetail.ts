@@ -204,7 +204,7 @@ export function durationOf(record: StepRun, now: Date): number | null {
     ? Date.parse(record.finishedAt)
     : record.status === 'running'
       ? now.getTime()
-      : NaN;
+      : Number.NaN;
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
   return Math.max(0, end - start);
 }

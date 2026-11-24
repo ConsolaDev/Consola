@@ -134,7 +134,7 @@ export async function readStatus(rootPath: string): Promise<GitStatusResult> {
     const diff = await git(rootPath, args);
     if (diff.error) continue;
     for (const line of diff.stdout.split('\n').filter(Boolean)) {
-      const [added, removed] = line.split('\t').map((n) => parseInt(n, 10));
+      const [added, removed] = line.split('\t').map((n) => Number.parseInt(n, 10));
       if (!Number.isNaN(added)) addedLines += added;
       if (!Number.isNaN(removed)) removedLines += removed;
     }
@@ -197,7 +197,7 @@ export async function readDiff(
     const indexed = await git(rootPath, ['show', `:${filePath}`], CONTENT_OUTPUT);
     newContent = indexed.error ? '' : indexed.stdout;
   } else if (fileExists) {
-    newContent = await fs.promises.readFile(absolutePath, 'utf-8').catch(() => '');
+    newContent = await fs.promises.readFile(absolutePath, 'utf8').catch(() => '');
   }
 
   return {
@@ -248,10 +248,10 @@ function parseDiffHunks(diffOutput: string): GitDiffHunk[] {
     if (hunkMatch) {
       if (currentHunk) hunks.push(currentHunk);
       currentHunk = {
-        oldStart: parseInt(hunkMatch[1], 10),
-        oldLines: parseInt(hunkMatch[2] || '1', 10),
-        newStart: parseInt(hunkMatch[3], 10),
-        newLines: parseInt(hunkMatch[4] || '1', 10),
+        oldStart: Number.parseInt(hunkMatch[1], 10),
+        oldLines: Number.parseInt(hunkMatch[2] || '1', 10),
+        newStart: Number.parseInt(hunkMatch[3], 10),
+        newLines: Number.parseInt(hunkMatch[4] || '1', 10),
         lines: [],
       };
       oldLine = currentHunk.oldStart;

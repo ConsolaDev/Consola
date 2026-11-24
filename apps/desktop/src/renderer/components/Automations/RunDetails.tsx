@@ -531,7 +531,9 @@ function RunStats({
   const usual = durationAgainstUsual(run, history, now);
   const forYou = stages.find((stage) => stage.key === 'approval')?.ms ?? null;
   const inLine = stages.find((stage) => stage.key === 'queue')?.ms ?? null;
-  const waitedBefore = run.startedAt ? Date.parse(run.startedAt) - Date.parse(run.createdAt) : NaN;
+  const waitedBefore = run.startedAt
+    ? Date.parse(run.startedAt) - Date.parse(run.createdAt)
+    : Number.NaN;
   const waitParts = [
     forYou !== null && forYou >= 1000 ? `${formatElapsed(forYou)} for you` : null,
     inLine !== null && inLine >= 1000 ? `${formatElapsed(inLine)} in line` : null,

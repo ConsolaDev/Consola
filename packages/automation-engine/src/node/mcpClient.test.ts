@@ -201,7 +201,12 @@ describe('the group is recorded as soon as it is spawned (m8)', () => {
   });
 
   it.each([
-    ['rejects', async () => Promise.reject(new Error('disk full'))],
+    [
+      'rejects',
+      async () => {
+        throw new Error('disk full');
+      },
+    ],
     [
       'throws',
       () => {

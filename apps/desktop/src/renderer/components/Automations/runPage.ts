@@ -90,7 +90,7 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
   const here = stopPoint(run, keys, agent);
   const at = keys.indexOf(here.key);
   const open = !ENDED.has(run.status);
-  const time = (iso: string | undefined) => (iso ? Date.parse(iso) : NaN);
+  const time = (iso: string | undefined) => (iso ? Date.parse(iso) : Number.NaN);
   const created = time(run.createdAt);
   const approved = time(run.approvedAt);
   const started = time(run.startedAt);
@@ -105,11 +105,12 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
     // Where the run is now, the stage runs to now; where it ended, to its end.
     const until = (otherwise: number) => (isHere ? (open ? nowMs : finished) : otherwise);
     let ms: number | null = null;
-    if (key === 'preview') ms = isHere ? span(created, until(NaN)) : null;
+    if (key === 'preview') ms = isHere ? span(created, until(Number.NaN)) : null;
     // A tool run starts the moment it is approved, so its start ends the wait for an older record too.
-    if (key === 'approval') ms = span(created, until(firstOf(approved, agent ? NaN : started)));
+    if (key === 'approval')
+      ms = span(created, until(firstOf(approved, agent ? Number.NaN : started)));
     if (key === 'queue')
-      ms = span(firstOf(approved, run.mode === 'confirm' ? NaN : created), until(started));
+      ms = span(firstOf(approved, run.mode === 'confirm' ? Number.NaN : created), until(started));
     if (key === 'run') ms = span(started, until(finished));
     return { key, state, ms };
   });
@@ -144,7 +145,7 @@ function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
     const state = stepStageState(step, open);
     const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
     const live = step.status === 'running' || step.status === 'queued';
-    const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
+    const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : Number.NaN;
     stages.push({
       key: 'step',
       state,
@@ -448,7 +449,7 @@ export function foundNothingToDo(run: RunRecord): boolean {
 }
 
 function firstOf(...values: number[]): number {
-  return values.find((value) => Number.isFinite(value)) ?? NaN;
+  return values.find((value) => Number.isFinite(value)) ?? Number.NaN;
 }
 
 function span(from: number, to: number): number | null {
@@ -462,7 +463,7 @@ export function workedMs(run: RunFacts, now: Date): number | null {
     ? Date.parse(run.finishedAt)
     : run.status === 'running'
       ? now.getTime()
-      : NaN;
+      : Number.NaN;
   return span(Date.parse(run.startedAt), end);
 }
 
@@ -639,12 +640,12 @@ export function stepTimeline(
   });
   const start = firstOf(
     Date.parse(run.startedAt ?? ''),
-    stamps.length > 0 ? Math.min(...stamps) : NaN,
+    stamps.length > 0 ? Math.min(...stamps) : Number.NaN,
   );
   const end = firstOf(
     Date.parse(run.finishedAt ?? ''),
-    run.status === 'running' ? now.getTime() : NaN,
-    stamps.length > 0 ? Math.max(...stamps) : NaN,
+    run.status === 'running' ? now.getTime() : Number.NaN,
+    stamps.length > 0 ? Math.max(...stamps) : Number.NaN,
   );
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return { start, end };
@@ -667,7 +668,7 @@ export function stepBar(
     ? Date.parse(entry.endedAt)
     : state === 'running'
       ? now.getTime()
-      : NaN;
+      : Number.NaN;
   const ms = span(at, ended);
   const length = timeline.end - timeline.start;
   const clamp = (value: number) => Math.min(1, Math.max(0, value));

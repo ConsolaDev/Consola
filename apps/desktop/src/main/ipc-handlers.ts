@@ -3117,7 +3117,7 @@ export function setupIpcHandlers(): boolean {
   // Handle file read
   ipcMain.handle(IPC_CHANNELS.FILE_READ, async (_event, filePath: string) => {
     try {
-      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const content = await fs.promises.readFile(filePath, 'utf8');
       return content;
     } catch (error) {
       throw new Error(

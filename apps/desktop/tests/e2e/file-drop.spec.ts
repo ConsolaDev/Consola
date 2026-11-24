@@ -22,7 +22,7 @@ test.describe('Dropped file paths', () => {
       const input = document.createElement('input');
       input.type = 'file';
       input.id = 'e2e-file-input';
-      document.body.appendChild(input);
+      document.body.append(input);
     });
     await page.setInputFiles('#e2e-file-input', onDisk);
 

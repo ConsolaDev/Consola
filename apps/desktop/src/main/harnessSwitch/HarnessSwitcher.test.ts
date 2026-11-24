@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import * as os from 'os';
+import * as os from 'node:os';
 import type { ConversationRecord } from '../../shared/conversation';
 import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';

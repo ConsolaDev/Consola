@@ -219,7 +219,11 @@ describe('SessionLauncher', () => {
   it('still launches an ordinary session when its MCP endpoint cannot be set up', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { launcher, terminals } = buildLauncher(sessionFixture());
-    launcher.mcpHost = { register: async () => Promise.reject(new Error('EACCES')) };
+    launcher.mcpHost = {
+      register: async () => {
+        throw new Error('EACCES');
+      },
+    };
     await launcher.launchSession('ws-1', launchFields);
     expect(terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
   });

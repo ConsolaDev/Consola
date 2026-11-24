@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as readline from 'readline';
+import * as fs from 'node:fs';
+import * as readline from 'node:readline';
 import type {
   ConversationEntry,
   ConversationRecord,
@@ -118,8 +118,8 @@ export async function codexConversationFromLines(
   lines: Iterable<string> | AsyncIterable<string>,
   window: ConversationWindow = {},
 ): Promise<ConversationRecord> {
-  const since = window.since ? Date.parse(window.since) : NaN;
-  const until = window.until ? Date.parse(window.until) : NaN;
+  const since = window.since ? Date.parse(window.since) : Number.NaN;
+  const until = window.until ? Date.parse(window.until) : Number.NaN;
   const conversation = new ConversationBuilder();
   const awaitingResult = new Map<string, Step>();
   let parsedLines = 0;
@@ -145,7 +145,7 @@ export async function codexConversationFromLines(
     if (record.type !== 'response_item') continue;
 
     const at = typeof record.timestamp === 'string' ? record.timestamp : undefined;
-    const time = at ? Date.parse(at) : NaN;
+    const time = at ? Date.parse(at) : Number.NaN;
     if (!Number.isNaN(time)) {
       if (!Number.isNaN(since) && time < since) continue;
       if (!Number.isNaN(until) && time > until) continue;

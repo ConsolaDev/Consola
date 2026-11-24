@@ -51,7 +51,7 @@ export function CodeBlock({
     if (lineEl) {
       const text = lineEl.textContent?.trim();
       if (text) {
-        const num = parseInt(text, 10);
+        const num = Number.parseInt(text, 10);
         if (!Number.isNaN(num)) return num;
       }
     }

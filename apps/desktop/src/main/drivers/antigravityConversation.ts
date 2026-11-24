@@ -129,8 +129,8 @@ export async function antigravityConversationFromLines(
   lines: Iterable<string> | AsyncIterable<string>,
   window: ConversationWindow = {},
 ): Promise<ConversationRecord> {
-  const since = window.since ? Date.parse(window.since) : NaN;
-  const until = window.until ? Date.parse(window.until) : NaN;
+  const since = window.since ? Date.parse(window.since) : Number.NaN;
+  const until = window.until ? Date.parse(window.until) : Number.NaN;
   const conversation = new ConversationBuilder();
   let parsedLines = 0;
   let validSteps = 0;
@@ -148,7 +148,7 @@ export async function antigravityConversationFromLines(
     validSteps++;
 
     const at = typeof parsed.created_at === 'string' ? parsed.created_at : undefined;
-    const time = at ? Date.parse(at) : NaN;
+    const time = at ? Date.parse(at) : Number.NaN;
     if (!Number.isNaN(time)) {
       if (!Number.isNaN(since) && time < since) continue;
       if (!Number.isNaN(until) && time > until) continue;

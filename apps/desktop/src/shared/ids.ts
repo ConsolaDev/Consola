@@ -7,5 +7,5 @@
  * files would import each other.
  */
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  return Math.random().toString(36).slice(2, 15) + Date.now().toString(36);
 }

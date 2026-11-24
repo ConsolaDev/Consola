@@ -228,9 +228,9 @@ describe('automationCheckoutPort', () => {
 
   it('says why the head could not be fetched, and that nothing was read', async () => {
     const d = fakes({
-      syncCheckout: vi.fn(async () =>
-        Promise.reject(new HeadCheckoutError('gh: canned failure (STUB_GH_FAIL=1)')),
-      ),
+      syncCheckout: vi.fn(async () => {
+        throw new HeadCheckoutError('gh: canned failure (STUB_GH_FAIL=1)');
+      }),
     });
     await expect(automationCheckoutPort(d).prepare(request)).rejects.toThrow(
       'Could not bring the automation checkout to the head of sprocket/catalog-portal#51: gh: canned failure (STUB_GH_FAIL=1). Nothing was read; retry once it can be fetched.',
@@ -239,7 +239,11 @@ describe('automationCheckoutPort', () => {
 
   it('passes any other failure through with its own reason', async () => {
     const stuck = `fatal: '${CHECKOUT}' already exists`;
-    const d = fakes({ syncCheckout: vi.fn(async () => Promise.reject(new Error(stuck))) });
+    const d = fakes({
+      syncCheckout: vi.fn(async () => {
+        throw new Error(stuck);
+      }),
+    });
     const refused = automationCheckoutPort(d).prepare(request);
     await expect(refused).rejects.toThrow(stuck);
     await expect(refused).rejects.not.toThrow(/retry once it can be fetched/);

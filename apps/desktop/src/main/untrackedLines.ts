@@ -58,7 +58,7 @@ export async function readUntrackedFile(
     if (stat.size > BIG_FILE_BYTES || (await markedBinary(root, [relativePath])).size > 0)
       return binary;
     const bytes = await fs.promises.readFile(file);
-    return sniffsBinary(bytes) ? binary : { content: bytes.toString('utf-8'), isBinary: false };
+    return sniffsBinary(bytes) ? binary : { content: bytes.toString('utf8'), isBinary: false };
   } catch {
     return null;
   }

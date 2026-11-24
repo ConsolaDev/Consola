@@ -36,6 +36,12 @@ export default defineConfig({
     // shared/types.ts name an API without importing its module.
     'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
     'typescript/array-type': ['error', { default: 'array-simple' }],
+    // `x != null` is the code's one test for null or undefined (as in nkzw's
+    // base config and Biome's noDoubleEquals).
+    eqeqeq: ['error', 'always', { null: 'ignore' }],
+    // A timer or session declared before the closure that clears it, and
+    // assigned once after, has to stay `let`.
+    'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
   },
   overrides: [
     {
@@ -55,14 +61,12 @@ export default defineConfig({
         '@nkzw/no-instanceof': 'off', // 72
         '@nkzw/require-use-effect-arguments': 'off', // 1
         curly: 'off', // 8161
-        eqeqeq: 'off', // 9
         'import/no-namespace': 'off', // 855
         'no-console': 'off', // 211
         'no-fallthrough': 'off', // 1
         'no-promise-executor-return': 'off', // 186
         'no-unused-vars': 'warn', // 14
         'no-useless-assignment': 'off', // 10
-        'prefer-const': 'off', // 5
         'preserve-caught-error': 'off', // 21
         'promise/no-multiple-resolved': 'off', // 1
         'quality/no-array-filter-map': 'off', // 33
@@ -102,23 +106,15 @@ export default defineConfig({
         'unicorn/catch-error-name': 'off', // 73
         'unicorn/consistent-function-scoping': 'off', // 763
         'unicorn/no-hex-escape': 'off', // 313
-        'unicorn/no-useless-promise-resolve-reject': 'off', // 12
         'unicorn/no-useless-spread': 'off', // 52
-        'unicorn/prefer-array-some': 'off', // 1
         'unicorn/prefer-at': 'off', // 48
-        'unicorn/prefer-dom-node-append': 'off', // 2
         'unicorn/prefer-import-meta-properties': 'off', // 19
-        'unicorn/prefer-native-coercion-functions': 'off', // 1
-        'unicorn/prefer-node-protocol': 'off', // 16
-        'unicorn/prefer-number-properties': 'off', // 44
         'unicorn/prefer-set-has': 'off', // 40
         'unicorn/prefer-single-call': 'off', // 16
         'unicorn/prefer-string-raw': 'off', // 89
         'unicorn/prefer-string-replace-all': 'off', // 184
-        'unicorn/prefer-string-slice': 'off', // 1
         'unicorn/prefer-structured-clone': 'off', // 22
         'unicorn/prefer-top-level-await': 'off', // 11
-        'unicorn/text-encoding-identifier-case': 'off', // 3
       },
     },
   ],

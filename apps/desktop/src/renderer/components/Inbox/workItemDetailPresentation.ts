@@ -1050,7 +1050,7 @@ export const LABEL_BORDER_ALPHA = 0.4;
 const MIN_CONTRAST = 4.5;
 
 const hexRgb = (hex: string): Rgb =>
-  [0, 2, 4].map((at) => parseInt(hex.slice(at, at + 2), 16)) as Rgb;
+  [0, 2, 4].map((at) => Number.parseInt(hex.slice(at, at + 2), 16)) as Rgb;
 const toHex = (rgb: Rgb) =>
   `#${rgb.map((channel) => Math.round(channel).toString(16).padStart(2, '0')).join('')}`;
 

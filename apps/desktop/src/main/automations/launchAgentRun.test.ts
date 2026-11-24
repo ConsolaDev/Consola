@@ -564,7 +564,11 @@ describe('launchAgentRun', () => {
     });
 
     it('a plugin dir that cannot be built starts nothing', async () => {
-      const { driver } = watchedClaude(vi.fn(async () => Promise.reject(new Error('EACCES'))));
+      const { driver } = watchedClaude(
+        vi.fn(async () => {
+          throw new Error('EACCES');
+        }),
+      );
       const d = deps({ driverFor: () => driver });
       await expect(
         launchAgentRun(
@@ -654,7 +658,9 @@ describe('launchAgentRun', () => {
 
     it('a CLI that cannot be asked which servers it has starts nothing, and says why', async () => {
       const d = deps({
-        serversForLaunch: vi.fn(async () => Promise.reject(new Error('spawn claude ENOENT'))),
+        serversForLaunch: vi.fn(async () => {
+          throw new Error('spawn claude ENOENT');
+        }),
       });
       await expect(launchAgentRun(d, step(investigator()))).rejects.toThrow(
         /^It did not start: Couldn't ask Claude work which MCP servers it has: spawn claude ENOENT\.$/,
