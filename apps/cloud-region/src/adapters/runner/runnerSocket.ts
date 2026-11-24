@@ -69,6 +69,11 @@ type Connection = {
   offer: Offer | null;
   /** True once its `hello` is judged: only then does the channel offer it to a person. */
   ready: boolean;
+  /**
+   * True once another socket's `hello` took its place: what it still has queued is dropped, since
+   * the new socket's `hello` was judged instead. A socket that only closed keeps its queue.
+   */
+  replaced: boolean;
   closed: boolean;
   /** Its messages are handled one after another, in the order they came. */
   queue: Promise<void>;
@@ -111,7 +116,8 @@ function readFrame(data: unknown): ReadResult<RunnerMessage> {
  *   itself. A second socket's `hello` replaces the first, which closes (`replaced`).
  * - **`hello` first**, judged by `runnerConnected` before the offer is out, so no person's start
  *   lands among the sessions it judges. Then each `session.stop` it asks for is sent.
- * - **Updates** reach `applyRunnerUpdate`, one at a time in order. What cannot be read is logged
+ * - **Updates** reach `applyRunnerUpdate`, one at a time in order, those still queued when the
+ *   socket closes included, unless another socket replaced it. What cannot be read is logged
  *   with its reason alone, never the frame, and dropped; the socket stays open.
  *
  * With `settings` null (no runner configured), every request is 401 and no runner connects.
@@ -176,6 +182,7 @@ export function createRunnerSocket(deps: {
     const previous = latest;
     latest = connection;
     if (previous && previous !== connection) {
+      previous.replaced = true;
       close(previous, RUNNER_SOCKET_CLOSE.replaced, 'another socket of the runner said hello');
     }
 
@@ -226,7 +233,11 @@ export function createRunnerSocket(deps: {
       report("The cell dropped a runner's update sent before its hello.");
       return;
     }
-    if (latest !== connection || !connection.ready) {
+    // An update the socket sent before it closed still applies when no socket replaced it: the
+    // runner says each session's end as it stops, then closes, and counts the end heard once the
+    // cell has read it. Updates are compare-and-set and scoped to the runner, so a late one never
+    // overwrites an end.
+    if (connection.replaced || !connection.ready) {
       report("The cell dropped an update from a runner's socket that no longer serves it.");
       return;
     }
@@ -242,6 +253,7 @@ export function createRunnerSocket(deps: {
       socket: null,
       offer: null,
       ready: false,
+      replaced: false,
       closed: false,
       queue: Promise.resolve(),
     };

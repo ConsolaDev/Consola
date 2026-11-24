@@ -724,12 +724,16 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   whatever its `hello` calls it. A socket's messages are handled one at a
   time, in order. A second socket's `hello` replaces the first, which is
   closed with `RUNNER_SOCKET_CLOSE.replaced` (4000); an update on a socket
-  that no longer serves, or before its `hello`, and a second `hello` on one
-  socket, are logged and dropped. `connected` names a socket's offer only once
-  its `hello` is judged, so no person's start lands among the sessions it
-  judges, and `null` again once it closes. A `hello` that cannot be judged
-  (the database down) closes the socket with 1011, and the runner's next
-  `hello` is judged instead.
+  another replaced, or before its `hello` is judged, and a second `hello` on
+  one socket, are logged and dropped. An update a socket sent before it closed
+  still applies when no socket replaced it, however late its turn in the queue
+  comes: the runner says each session's end as it stops, then closes, and
+  counts an end heard once the cell has read it (a ping's pong), not once it
+  is applied. `connected` names a socket's offer only once its `hello` is
+  judged, so no person's start lands among the sessions it judges, and `null`
+  again once it closes. A `hello` that cannot be judged (the database down)
+  closes the socket with 1011, and the runner's next `hello` is judged
+  instead.
 - **`hello`** (`runnerConnected`, `application/runners.ts`), in this
   order (ended wins, then restarted, then stops): each `endedSessions` entry
   keeps its real end; every other `starting` or `running` row of that runner,

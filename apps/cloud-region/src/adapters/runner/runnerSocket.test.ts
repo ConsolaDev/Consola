@@ -457,6 +457,80 @@ describe('the runner socket', () => {
       await waitFor(() => expect(lines.join('\n')).toMatch(/before its hello/));
       expect(await sessions.find('s-1')).toMatchObject({ status: 'starting' });
     });
+
+    /**
+     * Holds the next update's read of `s-1` until the returned `release`, so the updates sent
+     * after it wait in the socket's queue; `held` settles once that read is held.
+     */
+    function holdNextUpdate() {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let markHeld = () => {};
+      const held = new Promise<void>((resolve) => {
+        markHeld = resolve;
+      });
+      let armed = true;
+      afterFind = async (id) => {
+        if (id !== 's-1' || !armed) return;
+        armed = false;
+        markHeld();
+        await gate;
+      };
+      return { held, release };
+    }
+
+    /** A runner holding `s-1` running, its hello and a first update on its socket applied. */
+    async function runningOnSocket(): Promise<Runner> {
+      await holds('s-1', 'running');
+      const connected = await connect({ runningSessionIds: ['s-1'] });
+      // Once this applies, the hello is wholly handled and the socket's queue is empty.
+      connected.send({ type: 'session.update', sessionId: 's-1', title: 'Before' });
+      await waitFor(async () =>
+        expect(await sessions.find('s-1')).toMatchObject({ title: 'Before' }),
+      );
+      return connected;
+    }
+
+    it('received before its socket closed still applies, though no socket replaced it', async () => {
+      const connected = await runningOnSocket();
+      const { held, release } = holdNextUpdate();
+      connected.send({ type: 'session.update', sessionId: 's-1', title: 'Fix the cart total' });
+      // The runner's end, said as it stops: it waits in the queue behind the held update.
+      connected.send({ type: 'session.update', sessionId: 's-1', status: 'stopped' });
+      await held;
+      connected.socket.close(1001, 'the runner is stopping');
+      await waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
+      release();
+
+      await waitFor(async () =>
+        expect(await sessions.find('s-1')).toMatchObject({
+          status: 'stopped',
+          title: 'Fix the cart total',
+        }),
+      );
+      expect(lines.join('\n')).not.toMatch(/no longer serves/);
+    });
+
+    it('received on a socket another replaced is dropped, and logged', async () => {
+      const first = await runningOnSocket();
+      const { held, release } = holdNextUpdate();
+      first.send({ type: 'session.update', sessionId: 's-1', title: 'Fix the cart total' });
+      first.send({ type: 'session.update', sessionId: 's-1', status: 'stopped' });
+      await held;
+      // The second socket's hello takes the workspace, and lists s-1 as still running.
+      const second = await open();
+      second.send(hello({ runningSessionIds: ['s-1'], harnesses: ['claude', 'codex'] }));
+      await waitFor(() =>
+        expect(runner.channel.connected('acme')).toMatchObject({ harnesses: ['claude', 'codex'] }),
+      );
+      expect(await first.closed).toBe(RUNNER_SOCKET_CLOSE.replaced);
+      release();
+
+      await waitFor(() => expect(lines.join('\n')).toMatch(/no longer serves/));
+      expect(await sessions.find('s-1')).toMatchObject({ status: 'running' });
+    });
   });
 
   describe('a handler that fails', () => {
