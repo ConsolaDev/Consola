@@ -197,11 +197,17 @@ export const IPC_CHANNELS = {
   AUTOMATIONS_ALLOW: 'automations:allow', // A person lets a poll entry's check command run, at one version
   AUTOMATIONS_LIST_RUN_TARGETS: 'automations:list-run-targets', // The items Run on… offers an automation
   AUTOMATIONS_RETRY: 'automations:retry', // Retry a failed steps run from its failed step
+  AUTOMATIONS_CHECK_SERVER: 'automations:check-server', // Check server: start a factory server once, on a person's press, and list its tools
   AUTOMATIONS_GET_GATE: 'automations:get-gate', // A waiting or answered gate's question, material and choices
   AUTOMATIONS_ANSWER_GATE: 'automations:answer-gate', // A person's answer to a run's gate
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot
+
+  // Secrets (renderer -> main): names, references and words; no member carries a value
+  SECRETS_LIST: 'secrets:list', // A workspace's secret names, where each is used and bound; never a value
+  SECRETS_BIND: 'secrets:bind', // Bind a name to a keychain item, a 1Password field or a login-environment variable
+  SECRETS_UNBIND: 'secrets:unbind', // Remove a name's binding
 
   // In-app browser (renderer -> main). Every handler checks the tab belongs to the sender's workspace.
   BROWSER_GET: 'browser:get', // One session's BrowserSessionSnapshot, for the first paint

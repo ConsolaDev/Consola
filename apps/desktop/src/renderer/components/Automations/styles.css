@@ -3974,6 +3974,15 @@
   overflow-wrap: anywhere;
 }
 
+/* A secret's row: where it was bound when the step ran, never a value. */
+.automations-var-secret {
+  grid-column: 2;
+  min-width: 0;
+  font-style: italic;
+  color: var(--color-text-tertiary);
+  overflow-wrap: anywhere;
+}
+
 .automations-var-block {
   max-height: 160px;
   margin: 0;
@@ -4383,6 +4392,91 @@
 .automations-earlier-run {
   align-self: flex-start;
   font-size: var(--font-size-sm, 12px);
+}
+
+/* A card's Secrets lines: where each name goes and where this Mac binds it. */
+.automations-secret-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.automations-secret-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+/* A call's arguments: one line each, as written and as sent, with its trust; a long value folds. */
+.automations-call-args {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.automations-call-arg {
+  white-space: pre-wrap;
+}
+
+/* The servers a card's calls use, and the automation page's Servers with Check server. */
+.automations-server-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.automations-call-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.automations-allow-calls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-servers {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-server {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+
+.automations-server-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.automations-server-check {
+  margin-left: auto;
+}
+
+.automations-check-lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-wrap: anywhere;
 }
 
 /* A gate's card on the run page: its question, the documents it shows, one button per choice and Reject. */

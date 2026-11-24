@@ -30,17 +30,21 @@ export function maskSecrets(text: string, secrets: readonly string[]): string {
 
 /**
  * The environment a command runs with, in the spec's order: base (login env
- * + token), rendered env:, Consola's variables, then git hooks off; never a
- * variable that aims git at another repository than the folder it runs in
- * (the 3-B code review's F5: a login shell's `GIT_DIR` would make the command
- * after a write step push another repository; `env:` refuses `GIT_` names).
+ * + token), rendered env:, the step's own secrets, Consola's variables, then
+ * git hooks off; never a variable that aims git at another repository than
+ * the folder it runs in (the 3-B code review's F5: a login shell's `GIT_DIR`
+ * would make the command after a write step push another repository; `env:`
+ * refuses `GIT_` names).
  */
 export function layerCommandEnv(
   base: NodeJS.ProcessEnv,
   rendered: Record<string, string>,
   consola: Record<string, string>,
+  secrets: Record<string, string> = {},
 ): NodeJS.ProcessEnv {
-  return withoutGitHooks(withoutRepositoryOverrides({ ...base, ...rendered, ...consola }));
+  return withoutGitHooks(
+    withoutRepositoryOverrides({ ...base, ...rendered, ...secrets, ...consola }),
+  );
 }
 
 export function utf8Bytes(text: string): number {
@@ -117,7 +121,8 @@ export function parseOutputFile(
 }
 
 /** A duration as a `timeout:` writes it: `10m`, `30s`, `1h`, or `300ms` below a second. */
-function formatDuration(ms: number): string {
+/** A duration as a step's words say it: `30s`, `10m`, `2h`, else milliseconds. */
+export function formatDuration(ms: number): string {
   if (ms >= 3_600_000 && ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
   if (ms >= 60_000 && ms % 60_000 === 0) return `${ms / 60_000}m`;
   if (ms >= 1000 && ms % 1000 === 0) return `${ms / 1000}s`;

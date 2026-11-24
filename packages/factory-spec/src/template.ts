@@ -26,11 +26,21 @@ export function hasTemplateBraces(text: string): boolean {
 const NOT_A_PATH = (inner: string) =>
   `\`{{${inner}}}\` is not a path; item fields are \`{{item.title}}\``;
 
+/**
+ * Why `{{secrets.<name>}}` is no path, as a problem (no capital, no full stop):
+ * a secret's value reaches a command only as its own environment variable,
+ * never through a template, so it is never rendered into text Consola keeps.
+ */
+export function secretPathProblem(name: string): string {
+  return `a secret reaches a command only as its own variable: add \`secrets: [${name}]\` and use \`$${name}\``;
+}
+
 function parsePath(
   inner: string,
 ): { ok: true; path: TemplatePath } | { ok: false; problem: string } {
   const segments = inner.split('.');
   const root = segments[0];
+  if (root === 'secrets') return { ok: false, problem: secretPathProblem(segments[1] || 'NAME') };
   if (root === 'item') {
     if (segments.length === 2 && IDENT.test(segments[1])) {
       return { ok: true, path: { root: 'item', field: segments[1], text: inner } };

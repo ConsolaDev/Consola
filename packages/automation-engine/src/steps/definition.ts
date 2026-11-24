@@ -1,11 +1,15 @@
 import type {
   AgentDefinition,
+  ArgumentTrust,
+  CallArgument,
   EnvironmentDefinition,
+  McpServerDefinition,
   Step,
   StepRun,
   StepsAutomation,
 } from '@consola/factory-spec';
 import type { CheckoutKind } from '../ports';
+import type { ServerFacts } from '../servers/serverFacts';
 import type { WriteBlocks } from '../views';
 
 /**
@@ -149,6 +153,25 @@ export interface RunDefinition {
   readsItems?: true;
   /** `skillHash` by name of every skill a step's agent names, as the run's copy must hold it; absent when none does. */
   skills?: Record<string, string>;
+  /** By name, every factory server a `uses:` step names, as approved; absent when none does. */
+  servers?: Record<string, McpServerDefinition>;
+  /** By step id, every `uses:` step's call as its card and its detail show it; absent when there is none. */
+  calls?: Record<string, CallView>;
+}
+
+/** One `uses:` step's call, as the card and the step's detail show it: what it calls, and what each argument carries. */
+export interface CallView {
+  /** `<server>#<tool>` as written. */
+  ref: string;
+  server: string;
+  tool: string;
+  arguments: CallArgument[];
+  /** A destructive Consola tool: it acts on what is true when it runs. */
+  destructive?: true;
+  /** `dry_run: run`. */
+  alsoInDryRun?: true;
+  /** A factory server's facts for the card; absent for `consola`. */
+  facts?: ServerFacts;
 }
 
 /**
@@ -170,7 +193,7 @@ export type RunDefinitionView = RunDefinition & {
 export interface StepsRunPreview {
   kind: 'steps-run';
   /** Record order: a loop's row (`repeat`), then its steps, each with `loop`, its loop's id. */
-  steps: Array<{ id: string; kind: 'agent' | 'run' | 'gate' | 'repeat'; loop?: string }>;
+  steps: Array<{ id: string; kind: StepRun['kind']; loop?: string }>;
   /** The item an event run is about. Title and author are the author's own text. */
   item?: { url: string; title: string; author: string; label: string };
   /** A scheduled run's scope. */
@@ -201,6 +224,39 @@ export interface CommandFile {
   cwd: string;
   command: string;
   env: Array<{ name: string; template: string; value: string }>;
+  /** The secrets it was given, by name, and where each was bound when it ran: never a value. */
+  secrets?: Array<{ name: string; bound?: string }>;
+}
+
+/** One argument of a call, as `call.json` keeps it: its name, what the file says, what it rendered to, and its trust. */
+export interface RenderedArgument {
+  name: string;
+  template: unknown;
+  value: unknown;
+  trust: ArgumentTrust;
+}
+
+/** `call.json`: what was (or would have been) sent, every string masked. */
+export interface CallFile {
+  server: string;
+  /** How the tool was reached: "started `…` on this Mac", "called <url>", "Consola's own tool, in process". */
+  reached: string;
+  tool: string;
+  arguments: RenderedArgument[];
+  /** A dry run's: what it would have sent. */
+  wouldHave?: true;
+}
+
+/** `result.json`: what came back, masked; cut at 1 MB. */
+export interface CallResultFile {
+  isError: boolean;
+  bytes: number;
+  /** A Consola tool's summary. */
+  summary?: string;
+  /** What came back, whole when it fits. */
+  result?: unknown;
+  /** The first 1 MB of its serialised text when it does not. */
+  cut?: string;
 }
 
 /** One step's latest attempt, as the run folder holds it. Tails are the last 64 KB. */
@@ -223,6 +279,10 @@ export interface StepDetail {
   command?: CommandFile;
   stdout?: LogTail;
   stderr?: LogTail;
+  /** A call's `call.json`, `result.json` and its server's stderr (`server.log`). */
+  call?: CallFile;
+  result?: CallResultFile;
+  serverLog?: LogTail;
   /**
    * What a write step's failed attempt changed, kept as its `changes.patch`
    * (slice 3-B): the latest attempt's that holds one, its last

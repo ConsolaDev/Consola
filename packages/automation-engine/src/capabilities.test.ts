@@ -8,13 +8,20 @@ import {
   parseFactory,
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
+  TRUSTED_ITEM_FIELDS as SPEC_TRUSTED_ITEM_FIELDS,
 } from '@consola/factory-spec';
 import { connectionCatalog } from './connections';
 import {
   AGENT_EXAMPLES,
   describeCapabilities,
   GRAMMAR_EXAMPLES,
+  SECRETS_EXAMPLE,
+  SECRETS_GRAMMAR,
+  SERVERS_EXAMPLE,
+  SERVERS_GRAMMAR,
   TRUSTED_ITEM_FIELDS,
+  USES_EXAMPLE,
+  USES_GRAMMAR,
 } from './capabilities';
 import { defineTool } from './tools.test-helpers';
 import { sourcesHarness } from './sources/sources.test-helpers';
@@ -238,10 +245,17 @@ describe('what an agent writing an entry is told', () => {
       expect(line, prefix).toContain(`${prefix}*`);
       expect(withEnv(`${prefix}X`), prefix).toBe(false);
     }
+    // GH_TOKEN and GH_HOST are the bound account's (decision 37): named, and refused in env:.
     for (const name of ENV_PREFIX_EXCEPTIONS) {
       expect(line, name).toContain(name);
-      expect(withEnv(name), name).toBe(true);
+      expect(withEnv(name), name).toBe(false);
     }
+    expect(line).toContain("(GH_TOKEN and GH_HOST are the bound account's: Consola sets them)");
+    expect(line).not.toContain('are allowed');
+  });
+
+  it("re-exports factory-spec's trusted item fields, one list (review Minor 16)", () => {
+    expect(TRUSTED_ITEM_FIELDS).toBe(SPEC_TRUSTED_ITEM_FIELDS);
   });
 
   it('the trusted list in the prose is the one the validator enforces', async () => {
@@ -547,5 +561,239 @@ describe('what an agent writing agent files and automation files is told', () =>
     expect(text).toContain(
       'a link leading outside the folder: Consola reads only files inside it.',
     );
+    // An agent file's secrets are refused for good, not for later (5a-1).
+    expect(text).toContain(
+      'secrets (a secret given to an agent can reach its model, its transcript and its pane; a run: step names the secrets its command needs)',
+    );
+    expect(text).not.toContain('secrets (later slices)');
   });
 });
+
+describe('what an agent writing an entry is told of secrets', () => {
+  it('teaches secrets: once, with an example that parses', () => {
+    const parsed = parseAutomationEntry(SECRETS_EXAMPLE);
+    if (!parsed.ok) throw new Error(parsed.issues[0].message);
+    expect(
+      parsed.automation.steps?.some(
+        (step) => step.kind === 'run' && step.secrets?.join() === 'PAGERDUTY_TOKEN',
+      ),
+    ).toBe(true);
+    const text = grammar().grammar;
+    expect(text.split(SECRETS_GRAMMAR)).toHaveLength(2);
+    expect(text.split(SECRETS_EXAMPLE)).toHaveLength(2);
+    for (const words of [
+      'secrets: [NAME, …]',
+      '$NAME',
+      'Settings › Secrets',
+      'CLAUDE_CONFIG_DIR',
+      'GH_TOKEN',
+      'GITHUB_TOKEN',
+      'GITHUB_ENTERPRISE_TOKEN',
+      'at most 64 characters',
+      'an agent file and an entry take none',
+    ])
+      expect(SECRETS_GRAMMAR, words).toContain(words);
+    // What an agent is told never says where a value lives.
+    for (const where of ['keychain:', 'op://', 'env:<'])
+      expect(SECRETS_GRAMMAR, where).not.toContain(where);
+  });
+
+  it("echoes the workspace's names and whether each is bound", () => {
+    const told = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: 'github',
+      harness: { name: 'Claude', problem: null },
+      secrets: [{ name: 'PAGER_TOKEN', bound: false }],
+    });
+    expect(told.secrets).toEqual([{ name: 'PAGER_TOKEN', bound: false }]);
+    expect(grammar().secrets).toEqual([]);
+    // Names and flags only, whatever a caller hands it.
+    const labelled = {
+      name: 'PAGER_TOKEN',
+      bound: true,
+      label: 'the keychain (consola/ws-1/personal · PAGER_TOKEN)',
+    };
+    const handed: Array<{ name: string; bound: boolean }> = [labelled];
+    expect(
+      describeCapabilities({
+        filePath: '/f/factory.yml',
+        fileExists: true,
+        tools: [],
+        actions: [],
+        scopes: [],
+        taken: [],
+        boundConnection: 'github',
+        harness: { name: 'Claude', problem: null },
+        secrets: handed,
+      }).secrets,
+    ).toEqual([{ name: 'PAGER_TOKEN', bound: true }]);
+  });
+
+  it("names every kind of step in the steps' first sentence (the merge with slice 3)", () => {
+    expect(grammar().grammar).toContain(
+      'Each step has one of prompt:, action:, agent: <name>, run:, uses: (see Calls), gate: or repeat: (see Control flow in steps);',
+    );
+  });
+
+  it('no longer lists secrets, uses or with as arriving with connections as data', () => {
+    const line = grammar()
+      .grammar.split('\n')
+      .find((candidate) => candidate.startsWith('Not supported yet, refused with a reason:'))!;
+    expect(line).not.toContain('`uses`, `with` arrive with connections as data');
+    expect(line).not.toContain('connections as data');
+    expect(line).not.toContain('`secrets`');
+    // The other later keys are still listed; `gate` is a step since slice 3, so it is not.
+    expect(line).not.toContain('`gate`');
+    expect(line).toContain('`wait`, `concurrency` arrive with waiting runs');
+    expect(line).toContain('`callable`, `inputs` arrive with callable automations');
+  });
+});
+
+describe('what an agent writing automations is told of servers and calls (5a-2 Task 10)', () => {
+  it('teaches mcpServers: with a factory.yml that parses with no issue and no notice', () => {
+    const read = parseFactory(factoryFilesOf({ 'factory.yml': SERVERS_EXAMPLE }));
+    expect(read.issues).toEqual([]);
+    expect(read.notices).toEqual([]);
+    expect(Object.keys(read.servers)).toEqual(['slack', 'tracker']);
+    expect(read.servers.slack.transport).toBe('stdio');
+    expect(read.servers.tracker.transport).toBe('http');
+  });
+
+  it('teaches uses: with an entry that parses and resolves against those servers', async () => {
+    const parsed = parseAutomationEntry(USES_EXAMPLE);
+    if (!parsed.ok) throw new Error(parsed.issues[0].message);
+    expect(parsed.automation.steps?.map((step) => step.kind)).toEqual(['run', 'uses']);
+    const h = await stepsHarness({
+      yaml: SERVERS_EXAMPLE.replace(
+        'automations: []',
+        `automations:\n${indent(USES_EXAMPLE, '  ')}\n`,
+      ),
+      secrets: {
+        bindings: { SLACK_BOT_TOKEN: { ref: 'keychain:slack' } },
+        values: { SLACK_BOT_TOKEN: 'stub-slack-secret-9c1e' },
+      },
+    });
+    const [listed] = h.service.list(WORKSPACE_ID);
+    expect(listed.name).toBe('post-shipped');
+    expect(listed.problem).toBeUndefined();
+  });
+
+  it('holds both paragraphs and both examples, once each', () => {
+    const text = grammar().grammar;
+    for (const part of [SERVERS_GRAMMAR, USES_GRAMMAR, SERVERS_EXAMPLE, USES_EXAMPLE])
+      expect(text.split(part)).toHaveLength(2);
+    for (const words of [
+      'consola is reserved',
+      'at most 20',
+      'never a relative one',
+      'headersHelper',
+      'type: sse',
+      'cwd',
+      'oauth',
+      'in an empty folder, as the person',
+      'Pin a launched package',
+      'ask again',
+      'consola_save_automation writes entries, not mcpServers:',
+      "An agent file's mcpServers: names its harness's servers, not these.",
+    ])
+      expect(SERVERS_GRAMMAR, words).toContain(words);
+    for (const words of [
+      'uses: <server>#<tool>',
+      'Consola reads none of it',
+      'Never .file',
+      '{{secrets.X}}',
+      'keeps the path',
+      'default 60s, at most 10m',
+      'unless dry_run: run',
+      'is never repeated by Consola',
+      'prompt or selector takes only trusted values',
+      'run: { tool: consola#<tool>, with: … } keeps working',
+    ])
+      expect(USES_GRAMMAR, words).toContain(words);
+    expect(text).toContain('connections/ once connection manifests arrive');
+    expect(text).not.toContain('environments/, connections/ and evals/ are read from later slices');
+  });
+
+  it("echoes the factory's servers by name and transport, none when absent", () => {
+    const told = (servers?: CapabilitiesServers) =>
+      describeCapabilities({
+        filePath: '/f/factory.yml',
+        fileExists: true,
+        tools: [],
+        actions: [],
+        scopes: [],
+        taken: [],
+        boundConnection: 'github',
+        harness: { name: 'Claude', problem: null },
+        ...(servers ? { servers } : {}),
+      }).servers;
+    expect(told([{ name: 'slack', transport: 'stdio' }])).toEqual([
+      { name: 'slack', transport: 'stdio' },
+    ]);
+    expect(told()).toEqual([]);
+    // Names, transports and descriptions only, whatever a caller hands it.
+    const handed = [
+      { name: 'tracker', transport: 'http' as const, url: 'https://x', headers: { a: 'b' } },
+    ];
+    expect(told(handed)).toEqual([{ name: 'tracker', transport: 'http' }]);
+  });
+
+  it('gives each tool argument its role, a selector when its tool gives none', () => {
+    const tools = describeCapabilities({
+      filePath: '/f/factory.yml',
+      fileExists: true,
+      tools: [
+        { ...CLEAN_UP, roles: { pr_states: 'selector' } },
+        {
+          name: 'start_chat',
+          description: 'Start a chat.',
+          input: { prompt: z.string(), channel: z.string(), note: z.string() },
+          roles: { prompt: 'prompt', channel: 'data' },
+        },
+      ],
+      actions: [],
+      scopes: [],
+      taken: [],
+      boundConnection: 'github',
+      harness: { name: 'Claude', problem: null },
+    }).targets.tools;
+    expect(tools[0].arguments).toEqual([{ name: 'pr_states', description: '', role: 'selector' }]);
+    expect(tools[1].arguments.map(({ name, role }) => [name, role])).toEqual([
+      ['prompt', 'prompt'],
+      ['channel', 'data'],
+      ['note', 'selector'],
+    ]);
+  });
+
+  it("tells an agent the workspace's servers through the service, and none of their values", async () => {
+    const h = await stepsHarness({
+      yaml: SERVERS_EXAMPLE,
+      secrets: {
+        bindings: {
+          SLACK_BOT_TOKEN: {
+            ref: 'keychain:slack',
+            label: 'the keychain (consola/ws-1/personal · SLACK_BOT_TOKEN)',
+          },
+        },
+      },
+    });
+    const told = h.service.capabilities(WORKSPACE_ID);
+    expect(told.servers).toEqual([
+      { name: 'slack', transport: 'stdio', description: "Posts to the team's Slack as its bot." },
+      { name: 'tracker', transport: 'http' },
+    ]);
+    const text = JSON.stringify(told);
+    const grammarText = told.grammar;
+    // The grammar's own example names T0SPROCKET and the header's shape; nothing else in the answer does.
+    const rest = text.split(JSON.stringify(grammarText).slice(1, -1)).join('');
+    for (const value of ['T0SPROCKET', 'Bearer', 'keychain:slack', 'the keychain (consola'])
+      expect(rest, value).not.toContain(value);
+  });
+});
+
+type CapabilitiesServers = NonNullable<Parameters<typeof describeCapabilities>[0]['servers']>;

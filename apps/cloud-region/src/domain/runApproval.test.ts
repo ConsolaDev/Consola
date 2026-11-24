@@ -117,6 +117,43 @@ steps:
   });
 });
 
+describe('willRun, with a call (the merge of slice 3 and 5a)', () => {
+  it('lists no call, in a loop or not, and never as an agent: the cell has no call to describe yet', () => {
+    const SHIP = `on: { manual: {} }
+scope: storefront
+steps:
+  - id: fix
+    prompt: Fix the bug.
+  - id: post
+    uses: slack#chat_post_message
+    with: { channel: C0SUPPORT1, text: Fixed. }
+  - id: polish
+    repeat: { max: 2, until: "steps.tidy.done" }
+    steps:
+      - id: tidy
+        uses: consola#cleanup_stale_sessions
+        with: { pr_states: [merged] }
+        outputs: { done: boolean }
+`;
+    const [ship] = parseFactory({
+      factoryYml: 'version: 1\nmcpServers:\n  slack:\n    command: /opt/sprocket/bin/slack-mcp\n',
+      automations: { ship: SHIP },
+      agents: {},
+      skills: {},
+      stray: [],
+      laterFolders: [],
+      unread: [],
+      outside: [],
+    }).automations;
+    if (!ship) throw new Error('the automation did not parse');
+
+    expect(willRun(ship)).toEqual({
+      commands: [],
+      agents: [{ step: 'fix', agent: null, prompt: 'Fix the bug.' }],
+    });
+  });
+});
+
 describe('approvalOf', () => {
   it('asks while the run waits, saying who may answer and whether the caller may', () => {
     const approval = approvalOf({

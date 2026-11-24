@@ -35,6 +35,7 @@ export {
 export type {
   WriteBlocks,
   AutomationView,
+  ServerUseView,
   CheckView,
   GateView,
   ItemTarget,
@@ -77,7 +78,13 @@ export {
   type AutomationStateFile,
 } from './RunStore';
 export type { RunHistory } from './ports';
-export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
+export {
+  recoverAfterRestart,
+  isEngineRun,
+  INTERRUPTED_COMMAND,
+  INTERRUPTED_CALL,
+  CALL_SETTLE_INTERRUPTED,
+} from './steps/recover';
 export { retryTargetOf } from './steps/stepRecords';
 export { gateMaterialRefs, gateOffer, gateRefusal, renderGateAsk } from './steps/gate';
 export {
@@ -111,7 +118,20 @@ export type {
   CommandResult,
   RunningCommand,
   CommandPort,
+  ArgumentRole,
+  ServerGroup,
+  McpTransport,
+  McpAbortReason,
+  McpServerLaunch,
+  McpToolInfo,
+  McpCallOutcome,
+  McpSession,
+  McpConnectResult,
+  McpClientPort,
 } from './ports';
+export { SERVER_ENV_ALLOW_LIST, serverFactsOf, type ServerFacts } from './servers/serverFacts';
+export { ServerGroupLedger, type ServerGroupsFile } from './servers/serverGroups';
+export { checkServerVerdicts, type ServerCheckView } from './servers/checkServer';
 export {
   renderStepPrompt,
   reminderPrompt,
@@ -133,9 +153,13 @@ export {
   agentRequirements,
   runEnvironment,
   type AgentRequirements,
+  type CallFile,
+  type CallResultFile,
+  type CallView,
   type RunEnvironment,
   type CommandFile,
   type LogTail,
+  type RenderedArgument,
   type RunDefinition,
   type RunDefinitionView,
   type StepDetail,
@@ -245,6 +269,22 @@ export {
   type AutomationTemplate,
   type TemplateRequirement,
 } from './templates';
+export {
+  PERSONAL_FACTORY,
+  SecretReadError,
+  type SecretBinding,
+  type SecretsPort,
+} from './secrets/secretsPort';
+export {
+  MAX_SECRET_VALUE_BYTES,
+  MIN_SECRET_VALUE_CHARS,
+  maskFormsOf,
+  normalizeSecretValue,
+} from './secrets/values';
+export { readFailure, readSecrets, type SecretsRead } from './secrets/readSecrets';
+export { NO_SECRETS, unboundOf, unboundProblem } from './secrets/unbound';
+export { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
+export { RunSecrets, type HeldSecrets } from './secrets/runSecrets';
 export * from './node';
 export {
   readCheckResult,

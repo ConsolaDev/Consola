@@ -8,6 +8,7 @@ import {
   parseExpression,
   parseReadRef,
   templatePaths,
+  usesTexts,
   type ExprValue,
   type PathExpr,
   type RepeatStep,
@@ -148,11 +149,13 @@ function dependenciesOf(
       ? []
       : step.kind === 'gate'
         ? [step.ask]
-        : step.kind === 'agent'
-          ? step.prompt === undefined
-            ? []
-            : [step.prompt]
-          : Object.values(step.env);
+        : step.kind === 'uses'
+          ? usesTexts(step).map(({ text }) => text)
+          : step.kind === 'agent'
+            ? step.prompt === undefined
+              ? []
+              : [step.prompt]
+            : Object.values(step.env);
   const templates: Reference[] = [];
   for (const text of texts) {
     for (const path of templatePaths(text)) {
@@ -348,17 +351,24 @@ export function advanceSteps(input: {
       if (!verdict.value) return skip(`if: ${step.if} is false`);
     }
 
+    // A call whose `with:` lacks a value skips, naming the path; a command fails the run (Call 15).
+    const call = step.kind === 'uses';
     const lacking = deps.templates.find(
       (ref) => recorded(now.get(ref.step), ref.name ?? '', ref.file === true) === undefined,
     );
     if (lacking) {
       const producer = now.get(lacking.step);
       if (dryRun && leftUnrunByDryRun(producer)) return skip(dryRunReason(lacking.step));
-      return failStep(step.id, noValue(lacking.path, lacking.step, producer));
+      const why = noValue(lacking.path, lacking.step, producer);
+      if (call) return skip(`with: ${why}`);
+      return failStep(step.id, why);
     }
     const itemMissing = deps.item.find((field) => itemValue?.(field) === undefined);
-    if (itemMissing !== undefined)
-      return failStep(step.id, `item.${itemMissing} has no value: this run has no such item field`);
+    if (itemMissing !== undefined) {
+      const why = `item.${itemMissing} has no value: this run has no such item field`;
+      if (call) return skip(`with: ${why}`);
+      return failStep(step.id, why);
+    }
     return 'go';
   };
 

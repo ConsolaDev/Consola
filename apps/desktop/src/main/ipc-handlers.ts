@@ -167,6 +167,8 @@ import {
   AutomationService,
   FactoryFolder,
   OPEN_STATUSES,
+  readKeychainItem,
+  readOnePasswordField,
   RunFolder,
   RunHistoryFiles,
   RunStore,
@@ -199,6 +201,11 @@ import {
   type WorkItemRef,
 } from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
+import { BindingsStore, type SecretBindingsFile } from './secrets/BindingsStore';
+import { desktopSecretsPort } from './secrets/desktopSecrets';
+import { secretPrograms } from './secrets/programs';
+import { registerSecretsIpc, removeSecretsIpc } from './secrets/secretsIpc';
+import { automationMcpDeps } from './engineServers/mcpWiring';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
@@ -2185,6 +2192,26 @@ export function setupIpcHandlers(): boolean {
     ),
     new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs')),
   );
+  // Where this Mac binds each secret name: references only, never a value.
+  const bindings = new BindingsStore(
+    new JsonStateFile<SecretBindingsFile>(
+      path.join(app.getPath('userData'), 'secret-bindings.json'),
+    ),
+    () => new Date(),
+  );
+  // Values are read only when a run or a check needs them, by the programs
+  // `secretPrograms` names: in a test run a stub's, or none.
+  const secretDeps = {
+    store: bindings,
+    programs: secretPrograms({ test: isTest }),
+    loginEnv: async () => {
+      await loginEnvRetry();
+      return { ...getLoginEnv() };
+    },
+    readKeychain: readKeychainItem,
+    readOnePassword: readOnePasswordField,
+  };
+  const desktopSecrets = desktopSecretsPort(secretDeps);
   // Runs waiting for a person are rows beside the sessions, and an open run
   // holds the session it uses. Every run change is a broadcast, so that is
   // when the source's answer may differ.
@@ -2450,6 +2477,16 @@ export function setupIpcHandlers(): boolean {
     folderExists: (dir) => fs.existsSync(dir),
     // run: steps and poll checks: spawned by the engine's own executor.
     commands: { start: startCommand },
+    // The names a run or a check needs, read from where this Mac binds them.
+    secrets: desktopSecrets,
+    // uses: steps' servers, started or called from main, and Check server's groups (5a-2).
+    ...automationMcpDeps({
+      userDataDir: app.getPath('userData'),
+      loginEnv: async () => {
+        await loginEnvRetry();
+        return { ...getLoginEnv() };
+      },
+    }),
     // What both start from: the login env, and the bound account's token, which their logs mask.
     commandEnv: async (workspaceId) => {
       const provider = workspaces
@@ -2507,6 +2544,34 @@ export function setupIpcHandlers(): boolean {
       return automations.allow(workspaceId, name, version);
     },
   );
+  // Check server, the person's only (Call 12): no tool an agent can call reaches this.
+  ipcMain.handle(
+    IPC_CHANNELS.AUTOMATIONS_CHECK_SERVER,
+    (_event, workspaceId: unknown, name: unknown, server: unknown, version: unknown) => {
+      if (
+        typeof workspaceId !== 'string' ||
+        typeof name !== 'string' ||
+        typeof server !== 'string' ||
+        typeof version !== 'string'
+      ) {
+        throw new Error('Workspace, automation, server and version required.');
+      }
+      if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId))
+        throw new Error(`Unknown workspace: ${workspaceId}`);
+      return automations.checkServer(workspaceId, name, server, version);
+    },
+  );
+  // Settings › Secrets, the person's only, and a deleted workspace's bindings going with it.
+  registerSecretsIpc({
+    ipc: ipcMain,
+    workspaces,
+    bindings,
+    runner: {
+      reload: (workspaceId) => automations.reload(workspaceId),
+      secretsView: (workspaceId) => automations.secretsView(workspaceId),
+    },
+    secretDeps,
+  });
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS,
     (_event, workspaceId: unknown, name: unknown) => {
@@ -3497,6 +3562,8 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ALLOW);
+  ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_CHECK_SERVER);
+  removeSecretsIpc(ipcMain);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
   ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);

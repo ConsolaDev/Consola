@@ -266,6 +266,8 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         `you. ${DISK_NOTE} Pass session_ids from a consola_find_stale_sessions result to remove ` +
         'only those.',
       input: staleInput,
+      // Both choose which sessions it removes, so an automation feeds them only trusted values.
+      roles: { pr_states: 'selector', session_ids: 'selector' },
       mutating: true,
       destructive: true,
       automatable: true,

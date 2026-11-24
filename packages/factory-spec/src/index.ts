@@ -96,9 +96,33 @@ export {
 } from './factory';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
+  AGENT_SECRETS_REASON,
+  ENTRY_SECRETS_REASON,
+  MAX_SECRET_NAME_LENGTH,
+  MAX_SECRETS_PER_PLACE,
+  parseSecretNames,
+  secretNameProblem,
+  secretNamesOf,
+  secretTemplateReason,
+  secretUsesOf,
+  type SecretPlace,
+  type SecretUse,
+} from './secrets';
+export {
+  MAX_SERVER_ARGS,
+  MAX_SERVERS,
+  MCP_SERVER_NAME_PATTERN,
+  parseMcpServers,
+  serverHash,
+  unpinnedLauncher,
+  type McpServerDefinition,
+  type ServersParse,
+} from './servers';
+export {
   hasTemplateBraces,
   parseTemplate,
   renderTemplate,
+  secretPathProblem,
   templatePaths,
   type TemplatePart,
   type TemplatePath,
@@ -150,6 +174,7 @@ export {
   REFUSED_ENV_PREFIXES,
   CHECKOUT_CHANGES_REF,
   ENV_PREFIX_EXCEPTIONS,
+  GH_IDENTITY_ENV_REASON,
   flatSteps,
   GATE_CHOICE_PATTERN,
   gateChoices,
@@ -172,6 +197,7 @@ export {
   stepItemFieldProblems,
   stepItemFields,
   stepsSchema,
+  TRUSTED_ITEM_FIELDS,
   type AgentStep,
   type CommandStep,
   type FlatStep,
@@ -181,5 +207,21 @@ export {
   type OnExhausted,
   type RepeatStep,
   type Step,
+  type UsesStep,
   type StepEntry,
 } from './steps';
+export {
+  callArguments,
+  interpretedNotice,
+  usesNotices,
+  type ArgumentTrust,
+  type CallArgument,
+  type ValueSource,
+} from './callArguments';
+export {
+  DEFAULT_CALL_TIMEOUT_MS,
+  ENTRY_USES_REASON,
+  MAX_CALL_TIMEOUT_MS,
+  USES_REF_PATTERN,
+  usesTexts,
+} from './uses';

@@ -274,6 +274,18 @@ describe('automationVersion', () => {
       expect(versionOf(edit('echo "$VERDICT"', 'echo "$VERDICt"'))).not.toBe(versionOf(ENTRY));
     });
 
+    it("a command's secrets change it", () => {
+      const named = versionOf(
+        edit('      dry_run: run\n', '      dry_run: run\n      secrets: [PAGER_TOKEN]\n'),
+      );
+      expect(named).not.toBe(versionOf(ENTRY));
+      expect(
+        versionOf(
+          edit('      dry_run: run\n', '      dry_run: run\n      secrets: [TRACKER_TOKEN]\n'),
+        ),
+      ).not.toBe(named);
+    });
+
     it('a cron-only change to a steps entry does not', () => {
       const cron = ENTRY.replace(
         'on: { github: [pull_request.review_requested] }',
@@ -358,6 +370,17 @@ describe('automationVersion', () => {
       expect(new Set(changed.map(([yaml]) => versionOf(yaml))).size).toBe(changed.length);
     });
 
+    it("a check's secrets change the version, by name and in their order", () => {
+      const without = versionOf(KEYED());
+      const one = versionOf(KEYED(', secrets: [TRACKER_TOKEN]'));
+      const two = versionOf(KEYED(', secrets: [TRACKER_TOKEN, PAGER_TOKEN]'));
+      const reordered = versionOf(KEYED(', secrets: [PAGER_TOKEN, TRACKER_TOKEN]'));
+      expect(one).not.toBe(without);
+      expect(two).not.toBe(one);
+      expect(reordered).not.toBe(two);
+      expect(versionOf(KEYED(', secrets: []'))).toBe(without);
+    });
+
     it('its interval does not', () => {
       expect(versionOf(KEYED('', '30m'))).toBe(versionOf(KEYED('', '1h')));
       expect(versionOf(ITEM('', '30m'))).toBe(versionOf(ITEM('', '1h')));
@@ -397,6 +420,92 @@ describe('stepsResolvedBody', () => {
     expect(stepsResolvedBody({ review: 'R' }, { reviewer: 'h2' })).toBe(
       stableStringify({ actions: { review: 'R' }, agents: { reviewer: 'h2' } }),
     );
+  });
+});
+
+describe('stepsResolvedBody with servers (5a-2)', () => {
+  it('is exactly today’s result when no server is used', () => {
+    expect(stepsResolvedBody({}, {}, undefined, { servers: {} })).toBe(stepsResolvedBody({}, {}));
+    expect(stepsResolvedBody({}, {}, undefined)).toBe(stepsResolvedBody({}, {}));
+    expect(stepsResolvedBody({}, {}, undefined, { servers: {} })).toBeUndefined();
+    expect(stepsResolvedBody({ a: 'body' }, {}, undefined, { servers: {} })).toBe(
+      stepsResolvedBody({ a: 'body' }, {}),
+    );
+    expect(stepsResolvedBody({ a: 'body' }, { x: 'h' }, undefined, { servers: {} })).toBe(
+      stepsResolvedBody({ a: 'body' }, { x: 'h' }),
+    );
+  });
+
+  it('holds a server’s hash under servers, each key only when used', () => {
+    expect(stepsResolvedBody({}, {}, undefined, { servers: { slack: 'aaaa' } })).toBe(
+      '{"servers":{"slack":"aaaa"}}',
+    );
+    expect(stepsResolvedBody({ review: 'R' }, {}, undefined, { servers: { slack: 'aaaa' } })).toBe(
+      '{"actions":{"review":"R"},"servers":{"slack":"aaaa"}}',
+    );
+  });
+
+  it('pins the shape with actions, agents and servers, and with environments the four keys', () => {
+    expect(
+      stepsResolvedBody({ review: 'R' }, { briefer: 'h1' }, undefined, {
+        servers: { tracker: 'bbbb', slack: 'aaaa' },
+      }),
+    ).toBe(
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"servers":{"slack":"aaaa","tracker":"bbbb"}}',
+    );
+    expect(
+      stepsResolvedBody(
+        { review: 'R' },
+        { briefer: 'h1' },
+        { sandboxed: 'eeee' },
+        { servers: { tracker: 'bbbb', slack: 'aaaa' } },
+      ),
+    ).toBe(
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"environments":{"sandboxed":"eeee"},"servers":{"slack":"aaaa","tracker":"bbbb"}}',
+    );
+    // An environment alone keeps slice 3-B's three-key shape.
+    expect(stepsResolvedBody({ review: 'R' }, { briefer: 'h1' }, { sandboxed: 'eeee' })).toBe(
+      '{"actions":{"review":"R"},"agents":{"briefer":"h1"},"environments":{"sandboxed":"eeee"}}',
+    );
+  });
+
+  it("takes the servers in an options object, never in the environments' slot", () => {
+    // Compiled, never called: the typecheck fails on an unused `@ts-expect-error` if any compiles.
+    const typeOnly = (serverHashes: Readonly<Record<string, string>>) => [
+      // @ts-expect-error the servers' options object in the third slot, the environments' record, must not compile.
+      stepsResolvedBody({}, {}, { servers: serverHashes }),
+      // @ts-expect-error a bare record in the options slot is no options object.
+      stepsResolvedBody({}, {}, undefined, serverHashes),
+      // @ts-expect-error an options object without `servers` is no options object.
+      stepsResolvedBody({}, {}, undefined, {}),
+    ];
+    expect(typeof typeOnly).toBe('function');
+  });
+});
+
+describe('the version of an entry with a uses: step', () => {
+  const versionOf = (step: string) => {
+    const parsed = parseAutomationEntry(
+      `- name: brief\n  on: { cron: "0 9 * * 1-5" }\n  scope: ops\n  steps:\n    - id: post\n${step
+        .split('\n')
+        .map((line) => `      ${line}`)
+        .join('\n')}`,
+    );
+    if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+    return automationVersion(parsed.automation);
+  };
+  const BASE = 'uses: slack#chat_post_message\nwith: { channel: C0SUPPORT1 }';
+
+  it('moves with the tool, an argument, the timeout, the outputs and dry_run', () => {
+    const version = versionOf(BASE);
+    expect(versionOf(BASE)).toBe(version);
+    expect(versionOf('uses: slack#chat_post\nwith: { channel: C0SUPPORT1 }')).not.toBe(version);
+    expect(versionOf('uses: slack#chat_post_message\nwith: { channel: C0SUPPORT2 }')).not.toBe(
+      version,
+    );
+    expect(versionOf(`${BASE}\ntimeout: 30s`)).not.toBe(version);
+    expect(versionOf(`${BASE}\noutputs: { ts: string }`)).not.toBe(version);
+    expect(versionOf(`${BASE}\ndry_run: run`)).not.toBe(version);
   });
 });
 

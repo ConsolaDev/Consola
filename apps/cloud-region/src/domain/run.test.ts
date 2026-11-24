@@ -486,6 +486,43 @@ steps:
     expect(stepDefinitionOf(automation, 'deploy', 4)).toBeNull();
   });
 
+  it('describes no call, in a loop or not, as it describes no gate (the merge of slice 3 and 5a)', () => {
+    const SHIP = `on: { manual: {} }
+scope: storefront
+steps:
+  - id: fix
+    prompt: Fix the bug.
+  - id: post
+    uses: slack#chat_post_message
+    with: { channel: C0SUPPORT1, text: Fixed. }
+  - id: polish
+    repeat: { max: 2, until: "steps.tidy.done" }
+    steps:
+      - id: tidy
+        uses: consola#cleanup_stale_sessions
+        with: { pr_states: [merged] }
+        outputs: { done: boolean }
+`;
+    const [ship] = parseFactory({
+      factoryYml: 'version: 1\nmcpServers:\n  slack:\n    command: /opt/sprocket/bin/slack-mcp\n',
+      automations: { ship: SHIP },
+      agents: {},
+      skills: {},
+      stray: [],
+      laterFolders: [],
+      unread: [],
+      outside: [],
+    }).automations;
+    if (!ship) throw new Error('the automation did not parse');
+
+    expect(stepDefinitionOf(ship, 'fix', 4)).toMatchObject({
+      kind: 'agent',
+      prompt: 'Fix the bug.',
+    });
+    expect(stepDefinitionOf(ship, 'post', 4)).toBeNull();
+    expect(stepDefinitionOf(ship, 'tidy', 4)).toBeNull();
+  });
+
   it('describes the steps inside a loop, and none for a gate or the loop itself', () => {
     const SHIP = `on: { manual: {} }
 scope: storefront

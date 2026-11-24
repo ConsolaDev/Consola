@@ -6,16 +6,21 @@ import {
   automationFileText,
   automationItemText,
   automationVersion,
+  callArguments,
   factoryFilesOf,
   flatSteps,
   isRunOwnedCheckout,
   isStepsEntry,
+  MCP_SERVER_NAME_PATTERN,
   renderBranch,
   leafSteps,
   nextCronOccurrence,
   parseAutomationEntry,
   parseFactory,
   parseFactorySpec,
+  secretNamesOf,
+  secretUsesOf,
+  serverHash,
   skillHash,
   stableStringify,
   STEP_ID_PATTERN,
@@ -32,6 +37,7 @@ import {
   type FactoryNotice,
   type FactoryParseResult,
   type FactorySpecIssue,
+  type McpServerDefinition,
   type PollTrigger,
   type RepeatStep,
   type RunItem,
@@ -45,6 +51,7 @@ import {
   type StepRun,
   type StepsAutomation,
   type Trigger,
+  type UsesStep,
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import {
@@ -110,7 +117,10 @@ import type {
   EngineToolResult,
   FactoryFolderHandle,
   LaunchedSession,
+  McpClientPort,
   RunFolderPort,
+  ServerGroup,
+  StateFile,
   WorkItemPort,
   RunningCommand,
   ToolsPort,
@@ -193,14 +203,44 @@ import {
   type CheckoutRequest,
   type PreparedCheckout,
 } from './steps/checkout';
-import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
+import {
+  clipText,
+  describeFailure,
+  formatDuration,
+  LOG_CAP_BYTES,
+  maskSecrets,
+  utf8Bytes,
+} from './steps/commandIO';
+import {
+  CALL_ERROR_CHARS,
+  CALL_RESULT_CAP_BYTES,
+  callEnd,
+  callFileOf,
+  callOutputs,
+  CONNECT_BUDGET_CAP_MS,
+  invokeInProcess,
+  maskDeep,
+  mayHaveHappened,
+  outputArtifactOf,
+  outputSchemaProblem,
+  reachedOf,
+  renderCallArguments,
+  resultFileOf,
+  resultObjectOf,
+  serverLaunchOf,
+  withCallIntent,
+  withCallResult,
+  withCallStarted,
+} from './steps/usesStep';
 import {
   commandOutcome,
+  commandOutputFile,
   commandSpec,
   createOutputFile,
   describeReason,
   neverStarted,
   prepareCommand,
+  readOutputFileMasked,
   withCommandIntent,
   writeCommandFile,
   type PreparedCommand,
@@ -211,7 +251,11 @@ import {
   skillMarkdown,
   withKnownTools,
   type AgentRequirements,
+  type CallFile,
+  type CallResultFile,
+  type CallView,
   type CommandFile,
+  type RenderedArgument,
   type LogTail,
   type RunDefinition,
   type StepDetail,
@@ -272,6 +316,20 @@ import {
 } from './steps/gate';
 import { NO_TURN_TO_STOP, stopAction, stoppedAfterRound, stoppedBefore } from './steps/stop';
 import { StepIO } from './steps/stepTools';
+import { readSecrets } from './secrets/readSecrets';
+import { RunSecrets } from './secrets/runSecrets';
+import { PERSONAL_FACTORY, type SecretsPort } from './secrets/secretsPort';
+import { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
+import { unboundOf } from './secrets/unbound';
+import {
+  CHECK_STALE,
+  checkNotUsed,
+  checkServerVerdicts,
+  checkUnderWay,
+  type ServerCheckView,
+} from './servers/checkServer';
+import { serverFactsOf } from './servers/serverFacts';
+import { ServerGroupLedger, type ServerGroupsFile } from './servers/serverGroups';
 
 /**
  * The runner for personal automations: one `factory.yml` per workspace, whose
@@ -456,8 +514,46 @@ export interface AutomationServiceDeps {
    * token cannot be borrowed; a workspace with no bound account gets none.
    */
   commandEnv(workspaceId: string): Promise<{ env: NodeJS.ProcessEnv; secrets: string[] }>;
+  /** This runner's bindings; absent, an entry naming a secret cannot run. */
+  secrets?: SecretsPort;
+  /** This runner's MCP client; absent, an entry calling a factory server cannot run (`uses: consola#…` still can). */
+  mcp?: McpClientPort;
+  /** Where Check server keeps the process groups it started until each is ended (`mcp-server-groups.json`). */
+  serverGroups?: StateFile<ServerGroupsFile>;
   /** Commands automations may have running at once, across every workspace. */
   maxConcurrentCommands?: number;
+}
+
+/** What a stop, a quit or a deleted workspace reaches of a running step: a command's process group, or a call (Call 10). */
+type RunningStep = { stop(): void };
+
+/** A `uses:` step about to call, once its `with:` rendered: everything the next part needs. */
+interface PreparedCall {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  workspaceId: string;
+  automation: string;
+  step: UsesStep;
+  /** Its server as the run's definition holds it, or Consola's own tools. */
+  target: McpServerDefinition | 'consola';
+  args: Record<string, unknown>;
+  rendered: RenderedArgument[];
+}
+
+/** A call's start (`startCall`): its signal, the handle a stop, a quit or a deleted workspace reaches, and letting go of it. */
+interface StartedCall {
+  controller: AbortController;
+  handle: RunningStep;
+  letGo(): void;
+}
+
+/** Resolves once `signal` aborts (at once when it has). */
+function abortedOf(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal.aborted) resolve();
+    else signal.addEventListener('abort', () => resolve(), { once: true });
+  });
 }
 
 /** A `steps:` entry's problem on a host whose platform is `win32`. */
@@ -590,6 +686,8 @@ interface Resolved {
   event?: EventSource;
   /** Set when the entry parsed but cannot run: the reason it will not. */
   problem?: string;
+  /** Its problem is that these secrets are not bound (`withSecrets`): its row offers Bind…. */
+  unbound?: string[];
   /** Its problem came from asking a harness's CLI about servers: its row offers Check again. */
   recheck?: true;
   /** Its problem is that the CLI could not be asked at all: machine state, which refuses no save. */
@@ -598,6 +696,11 @@ interface Resolved {
   agents?: Readonly<Record<string, AgentDefinition>>;
   /** A `steps:` entry's: the skills of the version it was resolved against, by name (the Allow card's `SKILL.md`s). */
   skills?: Readonly<Record<string, SkillDefinition>>;
+  /**
+   * A `steps:` entry's: the factory servers its calls name, by name, from the version it was resolved against,
+   * problem or not (what Settings › Secrets lists their secrets from); absent when it calls none.
+   */
+  servers?: Readonly<Record<string, McpServerDefinition>>;
   /** What the host said of its agents that stops nothing: a model the harness does not list. */
   warnings?: FactoryNotice[];
 }
@@ -671,6 +774,8 @@ function notRead(): FactoryRead {
       notices: [],
       present: [],
       unreadable: [],
+      servers: {},
+      brokenServers: [],
       repos: [],
       environments: {},
     },
@@ -709,14 +814,16 @@ function scheduleKey(entry: Resolved): string {
 export function listDefinition(
   entry: { automation: Automation },
   provider: WorkspaceView['provider'],
+  fingerprints?: Readonly<Record<string, string>>,
 ): string {
   const { filter } = entry.automation;
   const trigger = withoutInterval(entry.automation.trigger);
   const account = provider
     ? { id: provider.id, login: provider.accountLogin, org: provider.org }
     : null;
+  // A check command's secrets' bindings decide what it sees too (Call 16); absent, dropped, so no record moves.
   return createHash('sha256')
-    .update(stableStringify({ trigger, filter, account }))
+    .update(stableStringify({ trigger, filter, account, fingerprints }))
     .digest('hex')
     .slice(0, 16);
 }
@@ -736,10 +843,17 @@ type RunItemOf =
 /** The check a `CheckState` says is running: what its result is matched against when it lands. */
 type CheckRunning = NonNullable<CheckState['running']>;
 
+/**
+ * Who a view is for. Only the person's panel is told where a secret is
+ * bound; an agent, and anyone else, is told a name and whether it is bound.
+ */
+type Reader = 'person' | 'agent';
+
 /** How a check ended: with items, failed and why (masked), or dropped before it spawned, its entry no longer the one it was started for. */
 type CheckEnd =
   | { ok: true; items: PolledItem[] }
-  | { ok: false; error: string }
+  /** `told`: what an agent is told instead of `error` (review S1). */
+  | { ok: false; error: string; told?: string }
   | { dropped: true };
 
 /**
@@ -803,10 +917,16 @@ export class AutomationService {
    * first step takes that slot: no other run can take it meanwhile.
    */
   private readonly admitted = new Map<string, Lane>();
-  /** Each run's command now running, from its spawn until its step settles: what a stop or a quit reaches. */
-  private readonly runningCommands = new Map<string, RunningCommand>();
-  /** Commands a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
-  private readonly abandoned = new WeakSet<RunningCommand>();
+  /** Each run's command or call now running, until its step settles: what a stop, a quit or a deleted workspace reaches. */
+  private readonly runningCommands = new Map<string, RunningStep>();
+  /** Each working run's secret values, read before the step that needs them: memory only, dropped as it stops working. */
+  private readonly runSecrets = new RunSecrets();
+  /** Each entry's server's last Check server, by `<workspace> <automation> <server>`: memory only, gone at a restart. */
+  private readonly serverChecks = new Map<string, ServerCheckView>();
+  /** The checks under way, by the same key, and how each is aborted at a quit. */
+  private readonly checkingServers = new Map<string, AbortController>();
+  /** Commands and calls a quit let go of: whatever they report afterwards is dropped, so their steps keep their intent. */
+  private readonly abandoned = new WeakSet<RunningStep>();
   /**
    * Failed item runs whose retry is preparing their checkout, and runs whose
    * retry is resetting their own (slice 3-B): each claims its folder and
@@ -844,6 +964,12 @@ export class AutomationService {
   /** Whether a version that needs Allow is announced when first seen: once start-up's first sync is done. */
   private announcingAllows = false;
   /**
+   * Every entry told it needs secrets bound (`<key> <names>`), so none is told
+   * twice for the same names. In memory; recorded quietly at start-up, as
+   * `allowsAnnounced` is, so a launch does not repeat what the row says.
+   */
+  private readonly unboundAnnounced = new Set<string>();
+  /**
    * Each poll entry's checks since start-up, by automation key: when the
    * next is due, the one running, what the last found. Memory only: a
    * launch checks every allowed entry at its first tick.
@@ -856,7 +982,12 @@ export class AutomationService {
   /** Each running check's command, by automation key: what a quit, or deleting its workspace, stops. */
   private readonly checkCommands = new Map<string, RunningCommand>();
   private io: StepIO | undefined;
-  constructor(private readonly deps: AutomationServiceDeps) {}
+  /** The groups Check server started, until each is ended. */
+  private readonly serverGroups: ServerGroupLedger;
+
+  constructor(private readonly deps: AutomationServiceDeps) {
+    this.serverGroups = new ServerGroupLedger(deps.serverGroups);
+  }
 
   /** The step tools' logic, over these runs and their folders; the host mounts it on each step session's MCP server. */
   public stepIO(): StepIO {
@@ -879,6 +1010,8 @@ export class AutomationService {
 
   public async start(): Promise<void> {
     const recovered = this.deps.store.load(this.iso());
+    this.emptyCutOffOutputs(recovered);
+    this.endServersLeftRunning();
     this.sweepRunFolders();
     this.started = true;
     await this.syncWorkspaces();
@@ -893,6 +1026,37 @@ export class AutomationService {
     // Catch up on anything missed while Consola was closed, and resume
     // whatever was queued when it quit.
     await this.tick();
+  }
+
+  /**
+   * A command a quit or a crash cut off may have written a value into its
+   * `$CONSOLA_OUTPUT`, and the values went with the quit, so Consola cannot
+   * mask it: it is emptied as Consola starts, before anything reads it
+   * (review S2), whatever the run names (the bound account's token is masked
+   * there too). Nothing reads it again: a retry is a new attempt, with a
+   * file of its own. One already gone is not made again.
+   */
+  private emptyCutOffOutputs(recovered: readonly RunRecord[]): void {
+    for (const run of recovered) {
+      const { workspaceId } = run.attribution;
+      if (!workspaceId || run.status !== 'failed' || !isStepsRun(run)) continue;
+      for (const step of run.steps ?? []) {
+        // The step the restart failed: its error is the run's.
+        if (step.kind !== 'run' || step.status !== 'failed' || step.error !== run.error) continue;
+        try {
+          const file = commandOutputFile(
+            this.deps.runFolder,
+            workspaceId,
+            run.id,
+            step.id,
+            step.attempt,
+          );
+          if (this.deps.runFolder.exists(file)) this.deps.runFolder.ensureEmptyFile(file);
+        } catch (error) {
+          console.error(`Could not empty run ${run.id}'s $CONSOLA_OUTPUT of ${step.id}.`, error);
+        }
+      }
+    }
   }
 
   /**
@@ -936,6 +1100,9 @@ export class AutomationService {
       running.stop();
     }
     this.runningCommands.clear();
+    // A check under way ends its server at once, as a call's does.
+    for (const check of this.checkingServers.values()) check.abort('quit');
+    this.runSecrets.dropAll();
     for (const check of this.checkCommands.values()) check.stop();
     this.checkCommands.clear();
     this.checks.clear();
@@ -974,6 +1141,8 @@ export class AutomationService {
         }
         // Its record goes with the workspace: a command it was running has nowhere to report, so it ends.
         if (run.attribution.workspaceId === workspaceId) this.runningCommands.get(run.id)?.stop();
+        // And with no status change to drop them, its secrets go here (review S6).
+        if (run.attribution.workspaceId === workspaceId) this.runSecrets.drop(run.id);
       }
       // A workspace whose file checks has check logs, whether or not a run ever came of them.
       const hasFolders =
@@ -1274,15 +1443,22 @@ export class AutomationService {
     const text = await folder.readText().catch((error: unknown) => {
       throw notSaved([describeError(error)]);
     });
+    // A server's own problem is not the file failing to load: only an entry calling it is refused (Call 2).
     const broken =
-      text === null ? [] : parseFactorySpec(text).issues.filter((issue) => !isEntryIssue(issue));
+      text === null
+        ? []
+        : parseFactorySpec(text).issues.filter(
+            (issue) => !isEntryIssue(issue) && !isServerIssue(issue),
+          );
     if (broken.length > 0) {
       throw notSaved([
         `factory.yml does not load (${broken.map(describeIssue).join('; ')}); fix it by hand first`,
       ]);
     }
     // Against the folder's agents as last read: an agent its steps name must be there, and valid.
-    const troubled = agentWithProblems(automation, factory.read.parse);
+    const troubled =
+      agentWithProblems(automation, factory.read.parse) ??
+      serverWithProblems(automation, factory.read.parse);
     if (troubled) throw notSaved([troubled]);
     const resolved = this.resolve(
       workspaceId,
@@ -1290,6 +1466,7 @@ export class AutomationService {
       factory.read.parse.agents,
       factory.read.parse.skills,
       factory.read.parse.environments,
+      factory.read.parse.servers,
     );
     // A CLI that could not be asked is no fault of the entry: it is saved, and shows that problem.
     if (resolved.problem && !resolved.unasked) throw notSaved([resolved.problem]);
@@ -1425,7 +1602,20 @@ export class AutomationService {
         });
       }
     }
-    return { version: entry.version, readsItems: entryReadsItems(entry.automation), agents };
+    // The servers and calls the version holds, from its definition: what Allow accepts.
+    const definition = entry.steps?.definition;
+    const servers = Object.values(definition?.servers ?? {});
+    const calls = Object.entries(definition?.calls ?? {}).map(([step, call]) => ({
+      step,
+      ...call,
+    }));
+    return {
+      version: entry.version,
+      readsItems: entryReadsItems(entry.automation),
+      agents,
+      ...(servers.length > 0 ? { servers } : {}),
+      ...(calls.length > 0 ? { calls } : {}),
+    };
   }
 
   /**
@@ -1505,6 +1695,17 @@ export class AutomationService {
         stepProblem:
           this.harnessProblem(workspaceId) === null ? this.stepHarnessProblem(workspaceId) : null,
       },
+      // Names and flags only: where each is bound is the person's, never an agent's.
+      secrets: this.secretsView(workspaceId).map(({ name, binding }) => ({
+        name,
+        bound: binding !== undefined,
+      })),
+      // The folder's valid servers as last read, by name and transport: what a `uses:` step may name.
+      servers: Object.values(parse.servers).map((server) => ({
+        name: server.name,
+        transport: server.transport,
+        ...(server.description !== undefined ? { description: server.description } : {}),
+      })),
     });
   }
 
@@ -1610,7 +1811,7 @@ export class AutomationService {
     const provider = this.deps
       .getWorkspaces()
       .find((workspace) => workspace.id === entry.workspaceId)?.provider;
-    const definition = listDefinition(entry, provider);
+    const definition = listDefinition(entry, provider, this.fingerprintsOf(entry));
     const previous = this.deps.store.seen(key);
     const open = this.openStates(entry);
     const { record, fire } = advanceSeen(
@@ -2162,12 +2363,12 @@ export class AutomationService {
       run.id,
       async () => {
         const args = run.approval?.args ?? entry.args;
-        const result = await this.deps.registry.invoke(
-          entry.tool!.name,
+        const result = await invokeInProcess(this.deps.registry, {
+          tool: entry.tool!.name,
           args,
-          this.contextFor(entry),
-          'run',
-        );
+          context: this.contextFor(entry),
+          mode: 'run',
+        });
         this.finish(run.id, 'completed', { result });
         // Checked now, not at approval: a save may have landed while it ran.
         this.acceptApproved(key, entry, run);
@@ -2302,10 +2503,12 @@ export class AutomationService {
       if (state.running) continue;
       const due = nextCheckAt(state, trigger.everyMs);
       if (due !== 'now' && due > now) continue;
+      const fingerprints = this.fingerprintsOf(entry);
       const started: CheckRunning = {
         version: entry.version,
         acceptedVersion: this.deps.store.acceptedVersion(key),
         startedAt: this.iso(),
+        ...(fingerprints ? { fingerprints } : {}),
       };
       // Running before anything is awaited, so neither a second pass nor Check now starts it twice.
       this.checks.set(key, { ...state, running: started });
@@ -2376,6 +2579,15 @@ export class AutomationService {
         error: `Its environment could not be prepared (${describeReason(error)}); nothing ran.`,
       };
     }
+    // Read for this check alone, before the entry is asked again: a rebinding meanwhile drops it unspawned.
+    const secrets = await readSecrets(this.deps.secrets, workspaceId, trigger.secrets ?? []);
+    if (!secrets.ok)
+      return {
+        ok: false,
+        error: `${secrets.error}; nothing ran.`,
+        told: `${secrets.told}; nothing ran.`,
+      };
+    base = { env: base.env, secrets: [...base.secrets, ...secrets.masks] };
     if (!this.entryCheckedBy(entry, running)) return { dropped: true };
     const fail = (error: string): CheckEnd => ({
       ok: false,
@@ -2394,6 +2606,7 @@ export class AutomationService {
           cwd: this.deps.runFolder.workspaceDir(workspaceId),
           logs,
           base,
+          secretValues: secrets.values,
         });
       } catch (error) {
         return fail(`Could not create its logs (${describeReason(error)}); nothing ran.`);
@@ -2447,7 +2660,9 @@ export class AutomationService {
     if (!entry || !pollOf(entry) || entry.problem) return null;
     if (
       entry.version !== running.version ||
-      this.deps.store.acceptedVersion(key) !== running.acceptedVersion
+      this.deps.store.acceptedVersion(key) !== running.acceptedVersion ||
+      // Its secrets bound elsewhere since it started: its items would be filed under the wrong binding.
+      stableStringify(this.fingerprintsOf(entry)) !== stableStringify(running.fingerprints)
     )
       return null;
     return entry;
@@ -2466,7 +2681,7 @@ export class AutomationService {
       this.checks.set(key, afterSuccess(state, at));
       this.observeSource(entry, ended.items, at);
     } else {
-      this.checks.set(key, afterFailure(state, at, ended.error));
+      this.checks.set(key, afterFailure(state, at, ended.error, ended.told));
       if (state.failures === 0) {
         const name = entry.automation.name;
         this.deps.notify({
@@ -2553,8 +2768,17 @@ export class AutomationService {
     return writes ? { writes } : {};
   }
 
-  /** A workspace's automations as its panel and `list_automations` show them. */
+  /**
+   * A workspace's automations as `list_automations` shows them, or anyone
+   * else who is not the person: a failed check never says where its secret
+   * is bound (review S1). The person's panel has `snapshot`'s.
+   */
   public list(workspaceId: string): AutomationView[] {
+    return this.views(workspaceId, 'agent');
+  }
+
+  /** The automations as `reader` is told of them: only the person's panel (`snapshot`) asks as `person`. */
+  private views(workspaceId: string, reader: Reader): AutomationView[] {
     const now = this.deps.now();
     return (this.factories.get(workspaceId)?.resolved ?? []).map((entry) => {
       const { automation } = entry;
@@ -2579,7 +2803,7 @@ export class AutomationService {
         source: trigger.kind,
         onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
         ...(takesItem ? { takesItem } : {}),
-        ...(trigger.kind === 'poll' ? { check: this.checkView(entry, trigger, now) } : {}),
+        ...(trigger.kind === 'poll' ? { check: this.checkView(entry, trigger, now, reader) } : {}),
         ...(this.needsAllow(entry) ? { needsAllow: true as const, version: entry.version } : {}),
         ...(notCloned !== null ? { notCloned } : {}),
         kind: describeKind(automation),
@@ -2606,7 +2830,9 @@ export class AutomationService {
           ? { asksFirst: true }
           : {}),
         ...(entry.problem ? { problem: entry.problem } : {}),
+        ...(entry.unbound ? { unbound: [...entry.unbound] } : {}),
         ...(entry.recheck ? { recheck: true as const } : {}),
+        ...this.serverUsesOf(entry),
         ...(added
           ? {
               addedBy: {
@@ -2625,9 +2851,9 @@ export class AutomationService {
    * that counted went, and, while it checks and none is running, when the
    * next is due (now, for one that is).
    */
-  private checkView(entry: Resolved, trigger: PollTrigger, now: Date): CheckView {
+  private checkView(entry: Resolved, trigger: PollTrigger, now: Date, reader: Reader): CheckView {
     const state = this.checks.get(automationKey(entry));
-    const view = checkViewOf(trigger, state?.outcome);
+    const view = checkViewOf(trigger, state?.outcome, reader);
     if (this.mayCheck(entry) && !state?.running) {
       const due = nextCheckAt(state ?? { failures: 0 }, trigger.everyMs);
       view.nextAt = new Date(
@@ -2653,6 +2879,7 @@ export class AutomationService {
     if (!found) return null;
     const { run, workspaceId, definition, step, record } = found;
     const detail: StepDetail = { runId, step, record };
+    if (step.kind === 'uses') return this.callDetail(detail, workspaceId);
     // A gate runs nothing: no agent, no command, no logs.
     if (step.kind === 'gate') return detail;
     if (step.kind !== 'run') {
@@ -2844,7 +3071,7 @@ export class AutomationService {
   private readCommandFile(file: string): CommandFile | undefined {
     const text = this.deps.runFolder.readText(file, LOG_CAP_BYTES);
     if (text === null) return undefined;
-    const { cwd, command, env } = JSON.parse(text) as Partial<CommandFile>;
+    const { cwd, command, env, secrets } = JSON.parse(text) as Partial<CommandFile>;
     if (typeof cwd !== 'string' || typeof command !== 'string' || !Array.isArray(env)) {
       throw new Error('command.json is not a command file.');
     }
@@ -2856,6 +3083,14 @@ export class AutomationService {
         template: String(row?.template),
         value: String(row?.value),
       })),
+      ...(Array.isArray(secrets)
+        ? {
+            secrets: secrets.map((row) => ({
+              name: String(row?.name),
+              ...(typeof row?.bound === 'string' ? { bound: row.bound } : {}),
+            })),
+          }
+        : {}),
     };
   }
 
@@ -3266,10 +3501,12 @@ export class AutomationService {
         if (run.attribution.workspaceId === workspaceId) queue[run.id] = index + 1;
       });
     }
+    const secrets = this.secretsView(workspaceId);
     return {
       filePath: factory.folder.filePath,
       fileExists: factory.read.exists,
-      automations: this.list(workspaceId),
+      // The person's panel: a failed check says where its secret is bound.
+      automations: this.views(workspaceId, 'person'),
       // While the folder does not apply, every reason it does not: a changed entry's harness too.
       issues: factory.standing ? factory.standing.decision.blocking : factory.read.parse.issues,
       notices: [...factory.read.parse.notices, ...factory.warnings],
@@ -3284,6 +3521,7 @@ export class AutomationService {
       suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
       templates: this.templatesOf(workspaceId, factory),
       ...(factory.standing ? { standing: this.standingView(factory.standing) } : {}),
+      ...(secrets.length > 0 ? { secrets } : {}),
     };
   }
 
@@ -3364,6 +3602,10 @@ export class AutomationService {
       // Only a restart leaves a queued step naming a session: it is picked up there, or runs again.
       if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId)
         await this.resumeStep(run.id, stepId);
+      else if (!this.secretsReady(run, stepId)) return;
+      // After the gate: a call's server's secrets are read before it starts.
+      else if (this.stepsOf(run.id).find((step) => step.id === stepId)?.kind === 'uses')
+        await this.startUsesStep(run.id, stepId);
       else if (lane === 'agent') await this.startAgentStep(run.id, stepId);
       else await this.startCommandStep(run.id, stepId);
       return;
@@ -4211,6 +4453,8 @@ export class AutomationService {
     const written = [
       ...(this.stepsOf(run.id).find((step) => step.id === record.id)?.artifacts ?? []),
     ];
+    // Text from the checkout can hold a value a command printed: masked, as every file Consola writes there is.
+    const masks = this.masksOf(run.id);
     for (const { name, text } of read) {
       const { bytes } = this.deps.runFolder.writeArtifact(
         workspaceId,
@@ -4218,7 +4462,7 @@ export class AutomationService {
         record.id,
         record.attempt,
         name,
-        text,
+        maskSecrets(text, masks),
       );
       const at = written.findIndex((artifact) => artifact.name === name);
       if (at === -1) written.push({ name, bytes });
@@ -5234,9 +5478,9 @@ export class AutomationService {
       return;
     }
 
-    let base: { env: NodeJS.ProcessEnv; secrets: string[] };
+    let base: Awaited<ReturnType<AutomationService['commandEnvFor']>>;
     try {
-      base = await this.deps.commandEnv(workspaceId);
+      base = await this.commandEnvFor(runId, workspaceId, command);
     } catch (error) {
       if (this.stepWaiting(runId, stepId, command.attempt)) {
         const why = `Its environment could not be prepared (${describeReason(error)}); nothing ran.`;
@@ -5284,7 +5528,7 @@ export class AutomationService {
       return;
     }
     const refused =
-      writeCommandFile(this.deps.runFolder, command, base.secrets) ??
+      writeCommandFile(this.deps.runFolder, command, base.secrets, base.labels) ??
       createOutputFile(this.deps.runFolder, command);
     if (refused) {
       this.settleStep(runId, stepId, {
@@ -5296,7 +5540,13 @@ export class AutomationService {
     const spec = commandSpec(command, base);
     const now = this.iso();
     const envNames = command.values.map((value) => value.name);
-    const intent = withCommandIntent(this.stepsOf(runId), stepId, now, envNames);
+    const intent = withCommandIntent(
+      this.stepsOf(runId),
+      stepId,
+      now,
+      envNames,
+      command.step.secrets,
+    );
     try {
       this.deps.store.updateDurably(runId, {
         // The commit its checks start from, in a run's own checkout.
@@ -5348,8 +5598,9 @@ export class AutomationService {
   /**
    * A command ended, or never started. Its result is written with its
    * status, in one line, then the run advances. A run that ended meanwhile
-   * keeps what it has. One a quit let go of reports nothing: no line, no
-   * notice, no output kept. Nothing awaits this, so nothing may escape it.
+   * keeps what it has, its `$CONSOLA_OUTPUT` left masked. One a quit let go
+   * of reports nothing: no line, no notice, no output kept (the next start
+   * empties its file). Nothing awaits this, so nothing may escape it.
    */
   private commandSettled(
     command: PreparedCommand,
@@ -5361,7 +5612,11 @@ export class AutomationService {
     const { runId, step, attempt } = command;
     if (this.runningCommands.get(runId) === running) this.runningCommands.delete(runId);
     try {
-      if (!this.stepRunning(runId, step.id, attempt)) return;
+      if (!this.stepRunning(runId, step.id, attempt)) {
+        // Its step ended first (its run failed, then stopped it): its file is left masked all the same (review S2).
+        readOutputFileMasked(this.deps.runFolder, command, secrets);
+        return;
+      }
       const record = this.stepsOf(runId).find((candidate) => candidate.id === step.id)!;
       if ('error' in ended) {
         const error = maskSecrets(
@@ -5780,7 +6035,10 @@ export class AutomationService {
   private settleStep(
     runId: string,
     stepId: string,
-    end: { status: 'completed' | 'reported' } | { status: 'failed'; error: string },
+    end:
+      | { status: 'completed' | 'reported' }
+      | { status: 'failed'; error: string }
+      | { status: 'skipped'; skipped: string },
     options: { quiet?: boolean; also?: Partial<StepRun> } = {},
   ): void {
     let steps = withStep(this.stepsOf(runId), stepId, {
@@ -6051,7 +6309,7 @@ export class AutomationService {
       running.map((step): StepUpdate => ({ id: step.id, status: 'failed', error })),
     );
     for (const step of running) {
-      if (step.kind === 'run') this.runningCommands.get(runId)?.stop();
+      if (step.kind === 'run' || step.kind === 'uses') this.runningCommands.get(runId)?.stop();
       else if (step.sessionId) this.endOrphanTurn(step.sessionId);
     }
     if (!options.quiet)
@@ -6314,6 +6572,7 @@ export class AutomationService {
         applied.parse.agents,
         applied.parse.skills,
         applied.parse.environments,
+        applied.parse.servers,
       );
       return;
     }
@@ -6334,6 +6593,7 @@ export class AutomationService {
       read.parse.agents,
       read.parse.skills,
       read.parse.environments,
+      read.parse.servers,
     );
   }
 
@@ -6393,7 +6653,7 @@ export class AutomationService {
     }
   }
 
-  /** Resolve what runs, each entry against the agents, skills and environments of the version it comes from; their warnings once each. */
+  /** Resolve what runs, each entry against the agents, skills, environments and servers of the version it comes from; their warnings once each. */
   private resolveAll(
     workspaceId: string,
     factory: WorkspaceFactory,
@@ -6401,14 +6661,16 @@ export class AutomationService {
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
     environments: Readonly<Record<string, EnvironmentDefinition>>,
+    servers: Readonly<Record<string, McpServerDefinition>>,
   ): void {
     factory.resolved = automations.map((automation) =>
-      this.resolve(workspaceId, automation, agents, skills, environments),
+      this.resolve(workspaceId, automation, agents, skills, environments, servers),
     );
     const warnings = new Map<string, FactoryNotice>();
     for (const entry of factory.resolved)
       for (const warning of entry.warnings ?? []) warnings.set(stableStringify(warning), warning);
     factory.warnings = [...warnings.values()];
+    factory.resolved = factory.resolved.map((entry) => this.withSecrets(entry));
   }
 
   /**
@@ -6473,9 +6735,10 @@ export class AutomationService {
   /**
    * What an entry resolves to in its workspace, or why it cannot run. Which
    * tools, actions, scopes, connections and events exist is the runner's to
-   * say; each problem names the one that was asked for. `agents` and
-   * `skills` are the folder's, by name: what a step's `agent:` names, and
-   * what that agent's `skills:` name.
+   * say; each problem names the one that was asked for. `agents`,
+   * `skills` and `servers` are the folder's, by name: what a step's
+   * `agent:` names, what that agent's `skills:` name, and what a `uses:`
+   * step calls.
    */
   private resolve(
     workspaceId: string,
@@ -6484,15 +6747,18 @@ export class AutomationService {
     skills: Readonly<Record<string, SkillDefinition>>,
     // Absent in a persisted parse from before environments (slice 3-B): none.
     environments: Readonly<Record<string, EnvironmentDefinition>> = {},
+    servers: Readonly<Record<string, McpServerDefinition>>,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
     const base = automationVersion(automation);
+    const called = callServersOf(automation, servers);
     const unable = (problem: string): Resolved => ({
       workspaceId,
       automation,
       version: base,
       problem,
       ...(isStepsEntry(automation) ? { agents } : {}),
+      ...(called ? { servers: called } : {}),
     });
     const { trigger } = automation;
 
@@ -6586,6 +6852,7 @@ export class AutomationService {
         agents,
         skills,
         environments,
+        servers,
         source,
         event,
       );
@@ -6593,6 +6860,11 @@ export class AutomationService {
 
     if (run.kind === 'tool') {
       if (run.namespace !== CONSOLA_NAMESPACE) {
+        // A namespace that could name a factory server: its tool is a `uses:` step's.
+        if (MCP_SERVER_NAME_PATTERN.test(run.namespace))
+          return unable(
+            `\`${run.ref}\` is not one of Consola's tools. An MCP server's tool is a step: \`steps: [{ uses: ${run.ref}, with: … }]\``,
+          );
         return unable(`unknown tool namespace "${run.namespace}"; only consola# tools exist today`);
       }
       const tool = this.deps.registry.get(run.tool);
@@ -6654,10 +6926,13 @@ export class AutomationService {
    * the folder lacks, an action the workspace lacks, then one that does not
    * apply to the items); item fields the connection lacks; `run:` steps on
    * Windows; the default harness, which only an agent step naming no agent
-   * runs on; then each agent's harness, as the host answers for it.
+   * runs on; then each agent's harness, as the host answers for it; then
+   * each call, in file order (`resolveCalls`).
    *
    * A step without `agent:` resolves exactly as in slice 1: its version and
-   * definition are unchanged by the agents a sibling step names.
+   * definition are unchanged by the agents a sibling step names, and so is
+   * an entry that calls no factory server by the servers `factory.yml`
+   * defines.
    */
   private resolveSteps(
     workspaceId: string,
@@ -6665,14 +6940,16 @@ export class AutomationService {
     agents: Readonly<Record<string, AgentDefinition>>,
     skills: Readonly<Record<string, SkillDefinition>>,
     environments: Readonly<Record<string, EnvironmentDefinition>>,
+    servers: Readonly<Record<string, McpServerDefinition>>,
     source: ItemSource | undefined,
     event: EventSource | undefined,
   ): Resolved {
     const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+    const called = callServersOf(automation, servers);
     const unable = (
       problem: string,
       warnings: FactoryNotice[] = [],
-      servers: { recheck?: true; unasked?: true } = {},
+      flags: { recheck?: true; unasked?: true } = {},
     ): Resolved => ({
       workspaceId,
       automation,
@@ -6680,8 +6957,9 @@ export class AutomationService {
       problem,
       agents,
       skills,
+      ...(called ? { servers: called } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
-      ...servers,
+      ...flags,
     });
     // Every leaf, a loop's steps included: what "does any step…" reads.
     const steps = leafSteps(automation.steps);
@@ -6779,8 +7057,14 @@ export class AutomationService {
     const writes = this.deps.writeAgents ? undefined : writeToolsOf(automation, agents);
     if (writes) return unable(noWriteAgents(writes), warnings);
 
+    const resolvedCalls = this.resolveCalls(automation, servers);
+    if ('problem' in resolvedCalls) return unable(resolvedCalls.problem, warnings);
+    const { calls } = resolvedCalls;
+    const usesServers = Object.keys(resolvedCalls.servers).length > 0;
+
     // The bodies live in settings, not the file: editing one asks again. So
-    // does editing an agent file a step names: its hash is in the version.
+    // does editing an agent file a step names: its hash is in the version,
+    // and so is the definition of each server a call names (only then).
     const bodies = Object.fromEntries(
       Object.entries(actions).map(([id, action]) => [id, action.body]),
     );
@@ -6791,6 +7075,7 @@ export class AutomationService {
         bodies,
         agentHashes,
         entryEnvironmentHashes(automation, agents, environments),
+        usesServers ? { servers: resolvedCalls.serverHashes } : undefined,
       ),
     );
     const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
@@ -6806,6 +7091,7 @@ export class AutomationService {
       event,
       agents,
       skills,
+      ...(called ? { servers: called } : {}),
       ...(warnings.length > 0 ? { warnings } : {}),
       steps: {
         definition: {
@@ -6834,6 +7120,8 @@ export class AutomationService {
                 ),
               }
             : {}),
+          ...(usesServers ? { servers: { ...resolvedCalls.servers } } : {}),
+          ...(Object.keys(calls).length > 0 ? { calls } : {}),
         },
         ...(scoped.scope ? { scope: scoped.scope } : {}),
         hasAgentStep,
@@ -6920,12 +7208,22 @@ export class AutomationService {
         const context = this.contextFor(entry);
         if (mode === 'auto') {
           this.deps.store.update(run.id, { startedAt: this.iso() });
-          const result = await this.deps.registry.invoke(toolName, entry.args, context, 'run');
+          const result = await invokeInProcess(this.deps.registry, {
+            tool: toolName,
+            args: entry.args,
+            context,
+            mode: 'run',
+          });
           this.finish(run.id, 'completed', { result });
           if ((result.actionable ?? 1) > 0) this.notify(automation.name, result.summary, run.id);
           return;
         }
-        const preview = await this.deps.registry.invoke(toolName, entry.args, context, 'preview');
+        const preview = await invokeInProcess(this.deps.registry, {
+          tool: toolName,
+          args: entry.args,
+          context,
+          mode: 'preview',
+        });
         if (mode === 'notify' || preview.actionable === 0) {
           this.finish(run.id, 'completed', { result: preview });
           if (mode === 'notify' && (preview.actionable ?? 1) > 0) {
@@ -7396,8 +7694,1105 @@ export class AutomationService {
   }
 
   private broadcastRun(runId: string): void {
-    const workspaceId = this.deps.store.get(runId)?.attribution.workspaceId;
+    const run = this.deps.store.get(runId);
+    // A run holds its secrets only while it works: an end, a stop or a park lets them go (Call 2).
+    if (run?.status !== 'running') this.runSecrets.drop(runId);
+    const workspaceId = run?.attribution.workspaceId;
     if (workspaceId) this.broadcast(workspaceId);
+  }
+
+  // --- secrets (5a-1): every hook above calls into this block ---
+
+  /**
+   * A resolved entry as its secrets leave it: one with no other problem that
+   * names a name this runner has not bound takes that problem, keeping its
+   * version, agents and skills and nothing that fires. Told once per entry
+   * and set of names, quietly during start-up.
+   */
+  private withSecrets(entry: Resolved): Resolved {
+    if (entry.problem) return entry;
+    // Its calls' servers as it resolved them: the snapshot a run of it would hold (review Minor 10).
+    const found = unboundOf(
+      entry.automation,
+      this.deps.secrets,
+      entry.workspaceId,
+      entry.steps?.definition.servers,
+    );
+    if (!found) return entry;
+    const announced = `${automationKey(entry)} ${found.unbound.join(',')}`;
+    if (!this.unboundAnnounced.has(announced)) {
+      this.unboundAnnounced.add(announced);
+      if (this.announcingAllows) {
+        const name = entry.automation.name;
+        this.deps.notify({
+          title: `\`${name}\` ${found.problem}`,
+          body: "It won't run until then. Review it in Consola.",
+          workspaceId: entry.workspaceId,
+          automation: name,
+          needsApproval: false,
+        });
+      }
+    }
+    return {
+      workspaceId: entry.workspaceId,
+      automation: entry.automation,
+      version: entry.version,
+      problem: found.problem,
+      unbound: found.unbound,
+      ...(entry.agents ? { agents: entry.agents } : {}),
+      ...(entry.skills ? { skills: entry.skills } : {}),
+      ...(entry.servers ? { servers: entry.servers } : {}),
+    };
+  }
+
+  /**
+   * Whether a queued step that is about to start has its run's secrets
+   * (review B1: asked only of a step that starts, never before a resume).
+   * Held, or none to read: yes. Otherwise one read of every name the run
+   * will use starts, not awaited, and the step stays queued until it lands:
+   * success pumps again, failure fails the step before it starts.
+   */
+  private secretsReady(run: RunRecord, stepId: string): boolean {
+    // Before anything is loaded, so a pump pass while a read waits reads no file (review M9).
+    if (this.runSecrets.held(run.id)) return true;
+    if (this.runSecrets.reading(run.id)) return false;
+    const loaded = this.definitionOf(run);
+    // Its step's own start fails the run, as it does today.
+    if ('problem' in loaded) return true;
+    // The run's own snapshot of its servers, never the factory's current parse (review Minor 10).
+    const names = secretNamesOf(loaded.definition.automation, {
+      runOnly: true,
+      dryRun: run.dryRun === true,
+      servers: loaded.definition.servers,
+    });
+    if (names.length === 0) return true;
+    const workspaceId = run.attribution.workspaceId!;
+    const attempt = this.stepsOf(run.id).find((step) => step.id === stepId)?.attempt ?? 1;
+    this.runSecrets.read(
+      run.id,
+      () => readSecrets(this.deps.secrets, workspaceId, names),
+      (outcome) => {
+        if (outcome.ok) void this.pump();
+        else if (this.stepWaiting(run.id, stepId, attempt))
+          this.settleStep(run.id, stepId, {
+            status: 'failed',
+            error: `${outcome.error}. Nothing ran.`,
+          });
+      },
+    );
+    return false;
+  }
+
+  /**
+   * What a command starts from: the host's base, every mask of its run's
+   * values on its list (its login environment may hold an `env:` binding's
+   * variable), and its own names' values and labels. Throws when a name it
+   * needs was not read.
+   */
+  private async commandEnvFor(
+    runId: string,
+    workspaceId: string,
+    command: PreparedCommand,
+  ): Promise<{
+    env: NodeJS.ProcessEnv;
+    secrets: string[];
+    values: Record<string, string>;
+    labels: Record<string, string>;
+  }> {
+    const base = await this.deps.commandEnv(workspaceId);
+    // Asked after the borrow, so values let go of while it was borrowed are missed here, not handed out.
+    const names = command.step.secrets ?? [];
+    const held = this.runSecrets.held(runId);
+    if (names.some((name) => held?.values[name] === undefined))
+      throw new Error('its secrets were not read before it started');
+    return {
+      env: base.env,
+      secrets: [...base.secrets, ...(held?.masks ?? [])],
+      values: Object.fromEntries(names.map((name) => [name, held!.values[name]])),
+      labels: Object.fromEntries(names.map((name) => [name, held!.labels[name]])),
+    };
+  }
+
+  /**
+   * A poll's check secrets' fingerprints by name (`''` for one unbound), or
+   * undefined when its check names none: what its list definition hashes,
+   * so a rebinding baselines it.
+   */
+  private fingerprintsOf(entry: Resolved): Record<string, string> | undefined {
+    const names = pollOf(entry)?.secrets ?? [];
+    if (names.length === 0) return undefined;
+    const port = this.deps.secrets;
+    return Object.fromEntries(
+      names.map((name) => [
+        name,
+        port?.fingerprint(entry.workspaceId, PERSONAL_FACTORY, name) ?? '',
+      ]),
+    );
+  }
+
+  /**
+   * The factory's secrets: every name its entries use or this runner has
+   * bound, where each is bound, where it goes, and whether that entry's
+   * current version is accepted. Names, labels and times: never a value.
+   */
+  public secretsView(workspaceId: string): SecretBindingView[] {
+    const resolved = this.factories.get(workspaceId)?.resolved ?? [];
+    const port = this.deps.secrets;
+    const accepted = new Map(
+      resolved.map((entry) => [
+        entry.automation.name,
+        this.deps.store.acceptedVersion(automationKey(entry)) === entry.version,
+      ]),
+    );
+    return buildSecretsView({
+      uses: resolved.flatMap((entry) => secretUsesOf(entry.automation, entry.servers)),
+      accepted: (automation) => accepted.get(automation) === true,
+      bound: port?.boundNames(workspaceId, PERSONAL_FACTORY) ?? new Set(),
+      describe: (name) => port?.describe(workspaceId, PERSONAL_FACTORY, name) ?? null,
+      fingerprint: (name) => port?.fingerprint(workspaceId, PERSONAL_FACTORY, name) ?? null,
+    });
+  }
+
+  /*
+   * 5a-2: `uses:` steps. Resolving a call starts nothing: a server starts only
+   * for a call, once a person allowed the version that names it.
+   */
+
+  /**
+   * Each `uses:` step of the entry, in file order, against this runner's
+   * client and registry: the servers its calls name (and their hashes, for
+   * the version) and each call as its card shows it, or the first problem.
+   * An argument a Consola tool sends to a session (`prompt`) or chooses what
+   * it acts on with (`selector`, and an argument with no role, Call 5) takes
+   * only trusted values (Call 4).
+   */
+  private resolveCalls(
+    automation: StepsAutomation,
+    servers: Readonly<Record<string, McpServerDefinition>>,
+  ):
+    | { problem: string }
+    | {
+        servers: Record<string, McpServerDefinition>;
+        serverHashes: Record<string, string>;
+        calls: Record<string, CallView>;
+      } {
+    const used: Record<string, McpServerDefinition> = {};
+    const serverHashes: Record<string, string> = {};
+    const calls: Record<string, CallView> = {};
+    const entry = {
+      trigger: automation.trigger,
+      appliesTo: automation.appliesTo,
+      steps: automation.steps,
+    };
+    // Every leaf, a loop's calls included: each is resolved, checked and hashed as any call.
+    for (const step of leafSteps(automation.steps)) {
+      if (step.kind !== 'uses') continue;
+      const args = callArguments(step, entry);
+      const alsoInDryRun = step.dryRun === 'run' ? { alsoInDryRun: true as const } : {};
+      if (step.server !== CONSOLA_NAMESPACE) {
+        const mcp = this.deps.mcp;
+        if (!mcp)
+          return {
+            problem: `this runner can't call MCP servers, so \`uses: ${step.server}#…\` can't run here`,
+          };
+        // `parseFactory` keeps no entry whose server is not valid; this guards an entry saved on its own.
+        if (!Object.prototype.hasOwnProperty.call(servers, step.server))
+          return { problem: noSuchServer(step) };
+        const server = servers[step.server];
+        if (!mcp.transports.includes(server.transport))
+          return {
+            problem: `this runner can't ${server.transport === 'stdio' ? 'start stdio' : 'call Streamable HTTP'} servers, so \`uses: ${step.server}#…\` can't run here`,
+          };
+        used[step.server] = server;
+        serverHashes[step.server] = serverHash(server);
+        calls[step.id] = {
+          ref: step.uses,
+          server: step.server,
+          tool: step.tool,
+          arguments: args,
+          ...alsoInDryRun,
+          facts: serverFactsOf(server),
+        };
+        continue;
+      }
+      const tool = this.deps.registry.get(step.tool);
+      if (!tool) return { problem: `there is no Consola tool named "${step.tool}"` };
+      if (!tool.automatable) return { problem: `${step.uses} cannot be run by an automation` };
+      const known = Object.keys(tool.input);
+      const stranger = Object.keys(step.with).find((name) => !known.includes(name));
+      if (stranger !== undefined)
+        return {
+          problem: `with: \`${stranger}\` is not an argument of \`${step.uses}\` (${known.length > 0 ? `it has: ${known.join(', ')}` : 'it has none'})`,
+        };
+      if (tool.mutating && step.dryRun === 'run')
+        return {
+          problem: `its step \`${step.id}\` calls \`${step.uses}\`, which changes things, so it can't have \`dry_run: run\``,
+        };
+      for (const argument of args) {
+        if (argument.trust !== 'untrusted') continue;
+        const role = roleOf(tool, argument.name);
+        if (role === 'prompt')
+          return {
+            problem: `\`${argument.name}\` is sent to a session as if you typed it; it takes only trusted values`,
+          };
+        if (role === 'selector')
+          return {
+            problem: `\`${argument.name}\` chooses what \`${step.uses}\` acts on; it takes only trusted values`,
+          };
+      }
+      calls[step.id] = {
+        ref: step.uses,
+        server: step.server,
+        tool: step.tool,
+        arguments: args,
+        ...(tool.destructive ? { destructive: true as const } : {}),
+        ...alsoInDryRun,
+      };
+    }
+    return { servers: used, serverHashes, calls };
+  }
+
+  /**
+   * A `uses:` step at its turn, in the spec's order: its definition, its
+   * item, `with:` rendered (a path with no value skips it, a render that
+   * fails says nothing was sent); then a dry run's report, Consola's own
+   * tool in process, or the factory server's call. Its server's secrets were
+   * read by `startWaiting`'s gate before it got here.
+   */
+  private async startUsesStep(runId: string, stepId: string): Promise<void> {
+    const run = this.deps.store.get(runId)!;
+    const loaded = this.definitionOf(run);
+    if ('problem' in loaded) {
+      this.failRun(runId, loaded.problem);
+      return;
+    }
+    const { definition } = loaded;
+    const fail = (error: string) => this.settleStep(runId, stepId, { status: 'failed', error });
+    const step = leafSteps(definition.automation.steps).find(
+      (candidate) => candidate.id === stepId,
+    );
+    const record = this.stepsOf(runId).find((candidate) => candidate.id === stepId);
+    if (step?.kind !== 'uses' || !record) {
+      fail(`Its definition has no call step ${stepId}. Nothing was sent.`);
+      return;
+    }
+    const workspaceId = run.attribution.workspaceId!;
+    const itemOf = this.runItemOf(run, definition);
+    if ('error' in itemOf) {
+      fail(`${itemOf.error}. Nothing was sent.`);
+      return;
+    }
+    let rendered: ReturnType<typeof renderCallArguments>;
+    try {
+      rendered = renderCallArguments({
+        run,
+        definition,
+        step,
+        ...itemOf,
+        previous: run.previous,
+        workspaceId,
+        folder: this.deps.runFolder,
+      });
+    } catch (error) {
+      fail(
+        `Its with: could not be read from the run folder (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    if ('skip' in rendered) {
+      // It settles without calling: the slot its run was let in with is free.
+      this.admitted.delete(runId);
+      this.settleStep(runId, stepId, { status: 'skipped', skipped: rendered.skip });
+      return;
+    }
+    if (!rendered.ok) {
+      fail(`${rendered.error}. Nothing was sent.`);
+      return;
+    }
+    const target =
+      step.server === CONSOLA_NAMESPACE
+        ? ('consola' as const)
+        : definition.servers &&
+            Object.prototype.hasOwnProperty.call(definition.servers, step.server)
+          ? definition.servers[step.server]
+          : undefined;
+    if (!target) {
+      fail(`Its definition holds no server \`${step.server}\`. Nothing was sent.`);
+      return;
+    }
+    const call: PreparedCall = {
+      runId,
+      stepId,
+      attempt: record.attempt,
+      workspaceId,
+      automation: run.automationId,
+      step,
+      target,
+      args: rendered.args,
+      rendered: rendered.rendered,
+    };
+    if (run.dryRun && step.dryRun === 'report') {
+      // Awaited, as it starts nothing: its preview runs while the step is still queued, so a
+      // pass of the line that went on past it would start it a second time.
+      await this.reportCall(call);
+      return;
+    }
+    // Only the start is waited for (review B1): from it the step runs and holds its command
+    // slot, the line goes on, and the call's own end settles it, as a command's does.
+    const started = this.startCall(runId, stepId);
+    const calling =
+      target === 'consola'
+        ? this.callInProcess(call, started)
+        : this.callServer(call, target, started);
+    void calling.catch((error: unknown) => {
+      this.callThrew(runId, error);
+      started.letGo();
+    });
+  }
+
+  /**
+   * A call's start, all of it before anything is awaited: its step running
+   * (it holds a command slot from now) and its handle where a stop, a quit
+   * or a deleted workspace reaches it. What `startUsesStep` waits for.
+   */
+  private startCall(runId: string, stepId: string): StartedCall {
+    const controller = new AbortController();
+    const handle: RunningStep = {
+      stop: () => controller.abort(this.abandoned.has(handle) ? 'quit' : 'stop'),
+    };
+    this.writeSteps(runId, withCallStarted(this.stepsOf(runId), stepId, this.iso()));
+    // The running step now holds the slot its run was let in with.
+    this.admitted.delete(runId);
+    this.runningCommands.set(runId, handle);
+    this.broadcastRun(runId);
+    return {
+      controller,
+      handle,
+      letGo: () => {
+        if (this.runningCommands.get(runId) === handle) this.runningCommands.delete(runId);
+      },
+    };
+  }
+
+  /**
+   * A call that threw past its own handling (a port that broke its word, a
+   * write outside its tries): logged, masked with the run's values, and its
+   * run failed while it still runs, as `settleCall`'s fallback does; the
+   * failure stops its handle, which ends its server. Nothing awaits a call,
+   * so nothing may escape it. A quit records nothing more.
+   */
+  private callThrew(runId: string, error: unknown): void {
+    const reason = maskSecrets(describeError(error), this.masksOf(runId));
+    console.error(`Run ${runId}'s call failed outside its own handling: ${reason}`);
+    try {
+      if (this.started && this.stillRunning(runId)) this.failRun(runId, reason);
+    } catch (failing) {
+      console.error(`Run ${runId} could not be recorded as failed.`, failing);
+    }
+  }
+
+  /** The masks of every value the run holds: what each string a call writes is masked with. */
+  private masksOf(runId: string): string[] {
+    return this.runSecrets.held(runId)?.masks ?? [];
+  }
+
+  /** A Consola tool's context in a run: as the automation, on its workspace, never on the run's own sessions (review Minor 14). */
+  private callContextOf(call: PreparedCall, signal?: AbortSignal): EngineToolContext {
+    const excludeSessionIds = this.stepsOf(call.runId).flatMap((record) =>
+      record.sessionId ? [record.sessionId] : [],
+    );
+    return {
+      caller: { kind: 'automation', automation: call.automation },
+      scope: { workspaceIds: [call.workspaceId], excludeSessionIds },
+      ...(signal ? { signal } : {}),
+    };
+  }
+
+  /**
+   * A dry run's call: reported, never sent. `call.json` says what it would
+   * have sent; for a Consola tool that changes things, its preview (which
+   * changes nothing, by its contract) is kept as `result.json`.
+   */
+  private async reportCall(call: PreparedCall): Promise<void> {
+    const { runId, stepId, attempt, workspaceId, step, target } = call;
+    const fail = (error: string) => this.settleStep(runId, stepId, { status: 'failed', error });
+    let preview: EngineToolResult | undefined;
+    if (target === 'consola') {
+      const tool = this.deps.registry.get(step.tool);
+      if (!tool) {
+        fail(`there is no Consola tool named "${step.tool}". Nothing was sent.`);
+        return;
+      }
+      const validated = this.deps.registry.validate(tool, call.args);
+      if (!validated.ok) {
+        fail(`with: ${validated.error}. Nothing was sent.`);
+        return;
+      }
+      if (tool.mutating) {
+        try {
+          preview = await invokeInProcess(this.deps.registry, {
+            tool: step.tool,
+            args: validated.args,
+            context: this.callContextOf(call),
+            mode: 'preview',
+          });
+        } catch (error) {
+          if (this.started && this.stepWaiting(runId, stepId, attempt))
+            fail(
+              `\`${step.uses}\`'s preview failed: ${clipText(maskSecrets(describeReason(error), this.masksOf(runId)), CALL_ERROR_CHARS)}. Nothing was sent.`,
+            );
+          return;
+        }
+        if (!this.started || !this.stepWaiting(runId, stepId, attempt)) return;
+      }
+    }
+    const masks = this.masksOf(runId);
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, attempt);
+    try {
+      this.deps.runFolder.writeJson(
+        dir,
+        'call.json',
+        callFileOf(
+          {
+            server: step.server,
+            reached: reachedOf(target),
+            tool: step.tool,
+            rendered: call.rendered,
+            wouldHave: true,
+          },
+          masks,
+        ),
+      );
+      if (preview)
+        this.deps.runFolder.writeJson(dir, 'result.json', inProcessResultFile(preview, masks));
+    } catch (error) {
+      fail(`Could not record what it would send (${describeReason(error)}). Nothing was sent.`);
+      return;
+    }
+    // It settles without calling: the slot its run was let in with is free.
+    this.admitted.delete(runId);
+    this.settleStep(runId, stepId, { status: 'reported' });
+  }
+
+  /**
+   * A Consola tool, called in process, once `startCall` started its step:
+   * its arguments validated, `call.json`, the intent on disk, then the call,
+   * bounded by its `timeout:` (Call 27). A stop or the timeout after the
+   * intent settles it at once as may-or-may-not, and what the tool returns
+   * later is dropped. After every await nothing is written unless the step
+   * still runs (review S3); a quit records nothing more.
+   */
+  private async callInProcess(call: PreparedCall, started: StartedCall): Promise<void> {
+    const { runId, stepId, attempt, workspaceId, step } = call;
+    const { controller, handle, letGo } = started;
+    const fail = (error: string) => {
+      letGo();
+      this.settleStep(runId, stepId, { status: 'failed', error });
+    };
+    const tool = this.deps.registry.get(step.tool);
+    if (!tool) {
+      fail(`there is no Consola tool named "${step.tool}". Nothing was sent.`);
+      return;
+    }
+    const validated = this.deps.registry.validate(tool, call.args);
+    if (!validated.ok) {
+      fail(`with: ${validated.error}. Nothing was sent.`);
+      return;
+    }
+    const masks = this.masksOf(runId);
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, attempt);
+    try {
+      this.deps.runFolder.writeJson(
+        dir,
+        'call.json',
+        callFileOf(
+          {
+            server: step.server,
+            reached: reachedOf('consola'),
+            tool: step.tool,
+            rendered: call.rendered,
+          },
+          masks,
+        ),
+      );
+    } catch (error) {
+      fail(`Could not record what it would send (${describeReason(error)}). Nothing was sent.`);
+      return;
+    }
+    try {
+      this.deps.store.updateDurably(runId, {
+        steps: withCallIntent(this.stepsOf(runId), stepId, this.iso()),
+        updatedAt: this.iso(),
+      });
+    } catch (error) {
+      fail(
+        `Could not record that it was about to call (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort('timeout');
+    }, step.timeoutMs);
+    let outcome: { result: EngineToolResult } | { error: unknown } | 'aborted';
+    try {
+      outcome = await Promise.race([
+        invokeInProcess(this.deps.registry, {
+          tool: step.tool,
+          args: validated.args,
+          context: this.callContextOf(call, controller.signal),
+          mode: 'run',
+        }).then(
+          (result) => ({ result }),
+          (error: unknown) => ({ error }),
+        ),
+        abortedOf(controller.signal).then(() => 'aborted' as const),
+      ]);
+    } finally {
+      clearTimeout(timer);
+    }
+    letGo();
+    // A quit let go of it: its step keeps its intent, for the next start to fail as interrupted.
+    if (this.abandoned.has(handle)) return;
+    if (!this.started || !this.stepRunning(runId, stepId, attempt)) return;
+    const recorded = () => this.stepsOf(runId).find((record) => record.id === stepId)?.call;
+    // From the intent on, one try (Call 28): whatever throws says what may have happened, never that nothing was sent.
+    let answered = false;
+    let end: { status: 'completed' } | { status: 'failed'; error: string };
+    let also: Partial<StepRun> = {};
+    try {
+      if (outcome === 'aborted') {
+        end = {
+          status: 'failed',
+          error: mayHaveHappened(
+            timedOut
+              ? `the call timed out after ${formatDuration(step.timeoutMs)}`
+              : 'it was stopped while the call ran',
+          ),
+        };
+      } else if ('error' in outcome) {
+        const text = clipText(maskSecrets(describeReason(outcome.error), masks), CALL_ERROR_CHARS);
+        this.deps.store.updateDurably(runId, {
+          steps: withCallResult(this.stepsOf(runId), stepId, this.iso(), {
+            isError: true,
+            bytes: utf8Bytes(text),
+          }),
+          updatedAt: this.iso(),
+        });
+        answered = true;
+        this.deps.runFolder.writeJson(dir, 'result.json', {
+          isError: true,
+          bytes: utf8Bytes(text),
+          summary: text,
+        } satisfies CallResultFile);
+        end = { status: 'failed', error: `\`${step.uses}\` failed: ${text}` };
+        also = { call: recorded() };
+      } else {
+        const { result } = outcome;
+        const file = inProcessResultFile(result, masks);
+        this.deps.store.updateDurably(runId, {
+          steps: withCallResult(this.stepsOf(runId), stepId, this.iso(), {
+            isError: false,
+            bytes: file.bytes,
+          }),
+          updatedAt: this.iso(),
+        });
+        answered = true;
+        this.deps.runFolder.writeJson(dir, 'result.json', file);
+        const data = maskDeep(result.data, masks);
+        const read = callOutputs(
+          step.outputs,
+          typeof data === 'object' && data !== null && !Array.isArray(data)
+            ? (data as Record<string, unknown>)
+            : null,
+        );
+        const output = data === undefined ? undefined : JSON.stringify(data);
+        const artifact =
+          output !== undefined && utf8Bytes(output) <= MAX_ARTIFACT_BYTES
+            ? this.deps.runFolder.writeArtifact(
+                workspaceId,
+                runId,
+                stepId,
+                attempt,
+                'output',
+                output,
+                'json',
+              )
+            : undefined;
+        const landed = { call: { ...recorded(), landed: true as const } };
+        if (read.ok) {
+          end = { status: 'completed' };
+          also = {
+            ...landed,
+            ...(Object.keys(read.outputs).length > 0 ? { outputs: read.outputs } : {}),
+            ...(artifact ? { artifacts: [{ name: 'output', bytes: artifact.bytes }] } : {}),
+          };
+        } else {
+          end = { status: 'failed', error: read.error };
+          also = landed;
+        }
+      }
+    } catch (error) {
+      const reason = maskSecrets(describeReason(error), masks);
+      end = {
+        status: 'failed',
+        error: answered
+          ? `It happened, but Consola could not record its result (${reason}).`
+          : mayHaveHappened(reason),
+      };
+      also = answered ? { call: { ...recorded(), landed: true as const } } : {};
+    }
+    this.settleCall(runId, stepId, end, also);
+  }
+
+  /** A call's last write: how it ended. One that throws fails the run, as `commandSettled`'s fallback does. */
+  private settleCall(
+    runId: string,
+    stepId: string,
+    end: { status: 'completed' } | { status: 'failed'; error: string },
+    also: Partial<StepRun>,
+  ): void {
+    try {
+      this.settleStep(runId, stepId, end, { also });
+    } catch (error) {
+      console.error(`Run ${runId} could not record how its call ended.`, error);
+      try {
+        if (this.stillRunning(runId)) this.failRun(runId, describeError(error));
+      } catch (failing) {
+        console.error(`Run ${runId} could not be recorded as failed.`, failing);
+      }
+    }
+  }
+
+  /**
+   * A factory server's tool, called once, in the spec's order, once
+   * `startCall` started its step (a command slot): the server reached with
+   * the run's own values (its group recorded durably as soon as it exists);
+   * the tool, its arguments and its declared outputs checked; `call.json`;
+   * the intent on disk; the send; the answer on disk; the outputs and
+   * `output`; the session closed; one settle. Anything that fails before the
+   * intent says nothing was sent, and nothing after the send is sent again
+   * (decision 26). After every await nothing is written unless the step
+   * still runs (review S3), the session closed first; a quit records nothing
+   * more.
+   */
+  private async callServer(
+    call: PreparedCall,
+    server: McpServerDefinition,
+    started: StartedCall,
+  ): Promise<void> {
+    const { runId, stepId, attempt, workspaceId, step } = call;
+    const mcp = this.deps.mcp;
+    const { controller, handle, letGo } = started;
+    const running = () => this.started && this.stepRunning(runId, stepId, attempt);
+    const recorded = () => this.stepsOf(runId).find((record) => record.id === stepId)?.call;
+    // A group recorded for this attempt is ended by the adapter whenever the step ends: the settle says so.
+    const ended = (): Partial<StepRun> => {
+      const call = recorded();
+      return call?.server ? { call: { ...call, server: { ...call.server, ended: true } } } : {};
+    };
+    const fail = (error: string, also: Partial<StepRun> = ended()) => {
+      letGo();
+      this.settleStep(runId, stepId, { status: 'failed', error }, { also });
+    };
+    if (!mcp) {
+      fail(
+        `this runner can't call MCP servers, so \`${step.uses}\` can't run here. Nothing was sent.`,
+      );
+      return;
+    }
+    const held = this.runSecrets.held(runId);
+    const masks = held?.masks ?? [];
+    const launched = serverLaunchOf(server, held?.values ?? {});
+    if (!launched.ok) {
+      fail(launched.error);
+      return;
+    }
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, stepId, attempt);
+    const connected = await mcp.connect({
+      ...launched.launch,
+      name: step.server,
+      masks,
+      ...(server.transport === 'stdio' ? { logPath: `${dir}/server.log` } : {}),
+      timeoutMs: Math.min(step.timeoutMs, CONNECT_BUDGET_CAP_MS),
+      signal: controller.signal,
+      // Durably, before `initialize`: a quit or a crash from here on leaves a group the next start ends.
+      onSpawned: (group) => {
+        if (!running()) throw new Error('its run ended');
+        this.deps.store.updateDurably(runId, {
+          steps: withStep(this.stepsOf(runId), stepId, {
+            call: { ...recorded(), server: { pgid: group.pgid, startedAt: group.startedAt } },
+          }),
+          updatedAt: this.iso(),
+        });
+      },
+    });
+    const session = connected.ok ? connected.session : undefined;
+    const closing = () => (session ? session.close() : Promise.resolve({ survivors: 0 }));
+    // A quit, a stop, a run that ended: nothing more is written, the session closed. (A quit
+    // let go of its handle and set `started` false in one turn, so `running()` covers it.)
+    if (!running()) {
+      letGo();
+      void closing();
+      return;
+    }
+    if (!connected.ok) {
+      fail(
+        controller.signal.aborted
+          ? 'It was stopped before the call was sent. Nothing was sent.'
+          : connected.whole
+            ? `${maskSecrets(connected.reason, masks)} Nothing was sent.`
+            : `Couldn't reach \`${step.server}\`: ${maskSecrets(connected.reason, masks).trim().replace(/\.$/, '')}. Nothing was sent.`,
+      );
+      return;
+    }
+    // Every refusal from here on closes the session before it settles.
+    const refuse = async (error: string) => {
+      const { survivors } = await closing();
+      if (this.abandoned.has(handle) || !running()) {
+        letGo();
+        return;
+      }
+      const also = ended();
+      fail(error, survivors > 0 ? { call: { ...also.call, survivors } } : also);
+    };
+    const tool = connected.session.tools.find((candidate) => candidate.name === step.tool);
+    if (!tool) {
+      const names = connected.session.tools.map((candidate) => candidate.name);
+      const listed =
+        names.length === 0
+          ? 'none'
+          : `${names.slice(0, 20).join(', ')}${names.length > 20 ? ', …' : ''}`;
+      await refuse(
+        `\`${step.server}\` has no tool \`${step.tool}\` (it has: ${maskSecrets(listed, masks)}). Nothing was sent.`,
+      );
+      return;
+    }
+    const argumentsProblem = connected.session.checkArguments(tool, call.args);
+    if (argumentsProblem !== null) {
+      await refuse(`with: ${maskSecrets(argumentsProblem, masks)}. Nothing was sent.`);
+      return;
+    }
+    const schemaProblem = outputSchemaProblem(step.outputs, tool.outputSchema, step.uses);
+    if (schemaProblem !== null) {
+      await refuse(schemaProblem);
+      return;
+    }
+    try {
+      this.deps.runFolder.writeJson(
+        dir,
+        'call.json',
+        callFileOf(
+          {
+            server: step.server,
+            reached: reachedOf(server),
+            tool: step.tool,
+            rendered: call.rendered,
+          },
+          masks,
+        ),
+      );
+    } catch (error) {
+      await refuse(
+        `Could not record what it would send (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    try {
+      this.deps.store.updateDurably(runId, {
+        steps: withCallIntent(this.stepsOf(runId), stepId, this.iso()),
+        updatedAt: this.iso(),
+      });
+    } catch (error) {
+      await refuse(
+        `Could not record that it was about to call (${describeReason(error)}). Nothing was sent.`,
+      );
+      return;
+    }
+    const outcome = await connected.session.call(step.tool, call.args, {
+      timeoutMs: step.timeoutMs,
+      signal: controller.signal,
+    });
+    // A quit (its step keeps its intent, for the next start to fail as interrupted), a stop
+    // or a run that ended: nothing more is written, the session closed.
+    if (!running()) {
+      letGo();
+      void closing();
+      return;
+    }
+    // From the intent on, one try (Call 28): whatever throws says what may have happened, never that nothing was sent.
+    let answered = false;
+    let end: { status: 'completed' } | { status: 'failed'; error: string };
+    let also: Partial<StepRun> = {};
+    try {
+      let outputs: ReturnType<typeof callOutputs> | undefined;
+      let artifact: { bytes: number } | undefined;
+      if (outcome.kind === 'answered') {
+        this.deps.store.updateDurably(runId, {
+          steps: withCallResult(this.stepsOf(runId), stepId, this.iso(), {
+            isError: outcome.isError,
+            bytes: outcome.bytes,
+          }),
+          updatedAt: this.iso(),
+        });
+        answered = true;
+        this.deps.runFolder.writeJson(dir, 'result.json', resultFileOf(outcome, masks));
+        if (!outcome.isError) {
+          const object = resultObjectOf(outcome);
+          outputs = callOutputs(
+            step.outputs,
+            object === null ? null : (maskDeep(object, masks) as Record<string, unknown>),
+          );
+          const output = outputArtifactOf(outcome, masks);
+          if (output)
+            artifact = this.deps.runFolder.writeArtifact(
+              workspaceId,
+              runId,
+              stepId,
+              attempt,
+              'output',
+              output.content,
+              output.format,
+            );
+        }
+      }
+      const verdict = callEnd(
+        { ref: step.uses, timeoutMs: step.timeoutMs, outcome, outputs },
+        masks,
+      );
+      end =
+        verdict.status === 'completed'
+          ? { status: 'completed' }
+          : { status: 'failed', error: verdict.error ?? 'failed' };
+      also = {
+        call: { ...recorded(), ...verdict.call },
+        ...(verdict.status === 'completed' && outputs?.ok && Object.keys(outputs.outputs).length > 0
+          ? { outputs: outputs.outputs }
+          : {}),
+        ...(verdict.status === 'completed' && artifact
+          ? { artifacts: [{ name: 'output', bytes: artifact.bytes }] }
+          : {}),
+      };
+    } catch (error) {
+      const reason = maskSecrets(describeReason(error), masks);
+      end = {
+        status: 'failed',
+        error: answered
+          ? `It happened, but Consola could not record its result (${reason}).`
+          : mayHaveHappened(reason),
+      };
+      also = { call: { ...recorded(), ...(answered ? { landed: true as const } : {}) } };
+    }
+    const { survivors } = await closing();
+    letGo();
+    if (this.abandoned.has(handle) || !running()) return;
+    const kept = also.call ?? recorded();
+    also = {
+      ...also,
+      call: {
+        ...kept,
+        ...(kept?.server ? { server: { ...kept.server, ended: true as const } } : {}),
+        ...(survivors > 0 ? { survivors } : {}),
+      },
+    };
+    this.settleCall(runId, stepId, end, also);
+  }
+
+  /** A call's latest attempt: what it sent (`call.json`), what came back (`result.json`) and its server's stderr; each absent when its file is. */
+  private callDetail(detail: StepDetail, workspaceId: string): StepDetail {
+    const { runId, record } = detail;
+    const dir = this.deps.runFolder.attemptDir(workspaceId, runId, record.id, record.attempt);
+    const readJson = <T>(file: string, cap: number): T | undefined => {
+      try {
+        const text = this.deps.runFolder.readText(`${dir}/${file}`, cap);
+        return text === null ? undefined : (JSON.parse(text) as T);
+      } catch (error) {
+        console.error(`Run ${runId} could not read ${record.id}'s ${file}.`, error);
+        return undefined;
+      }
+    };
+    const call = readJson<CallFile>('call.json', LOG_CAP_BYTES);
+    // Its cut text is escaped once more in the file: at most twice its size, and a little.
+    const result = readJson<CallResultFile>('result.json', 2 * CALL_RESULT_CAP_BYTES + 64 * 1024);
+    const serverLog = this.readTail(`${dir}/server.log`, STEP_TAIL_BYTES);
+    return {
+      ...detail,
+      ...(call ? { call } : {}),
+      ...(result ? { result } : {}),
+      ...(serverLog ? { serverLog } : {}),
+    };
+  }
+
+  /** The factory servers an entry's calls use, each with its last check: what its page offers Check server on. */
+  private serverUsesOf(entry: Resolved): { servers?: AutomationView['servers'] } {
+    const servers = Object.values(entry.steps?.definition.servers ?? {});
+    if (servers.length === 0) return {};
+    return {
+      servers: servers.map((definition) => {
+        const lastCheck = this.serverChecks.get(
+          `${entry.workspaceId} ${entry.automation.name} ${definition.name}`,
+        );
+        return {
+          ...serverFactsOf(definition),
+          version: entry.version,
+          ...(lastCheck ? { lastCheck } : {}),
+        };
+      }),
+    };
+  }
+
+  /**
+   * Every server group an earlier start left: a call's (on its step's
+   * record, not marked ended) and a check's (the ledger). Each is handed to
+   * the client to end, checking it is still that process, not awaited; one
+   * it ended or found gone is marked ended (the call) or forgotten (the
+   * ledger). One it could not tell about is left as it is. With no client,
+   * it is only logged.
+   */
+  private endServersLeftRunning(): void {
+    const recorded: Array<{ runId: string; stepId: string; group: ServerGroup }> = [];
+    for (const run of this.deps.store.runs())
+      for (const step of run.steps ?? []) {
+        const server = step.kind === 'uses' ? step.call?.server : undefined;
+        if (server && !server.ended)
+          recorded.push({
+            runId: run.id,
+            stepId: step.id,
+            group: { pgid: server.pgid, startedAt: server.startedAt },
+          });
+      }
+    const ledgered = this.serverGroups.all();
+    const mcp = this.deps.mcp;
+    if (!mcp) {
+      if (recorded.length + ledgered.length > 0)
+        console.error(
+          `${recorded.length + ledgered.length} MCP server group(s) an earlier start left could not be ended: this runner has no MCP client.`,
+        );
+      return;
+    }
+    const same = (a: ServerGroup, b: ServerGroup | undefined) =>
+      b !== undefined && a.pgid === b.pgid && a.startedAt === b.startedAt;
+    for (const { runId, stepId, group } of recorded) {
+      void mcp.endOrphan(group).then(
+        (answer) => {
+          if (answer === 'unknown') return;
+          const call = this.stepsOf(runId).find((step) => step.id === stepId)?.call;
+          if (!call?.server || !same(group, call.server)) return;
+          this.writeSteps(
+            runId,
+            withStep(this.stepsOf(runId), stepId, {
+              call: { ...call, server: { ...call.server, ended: true } },
+            }),
+          );
+        },
+        (error: unknown) => console.error(`Could not end run ${runId}'s server.`, error),
+      );
+    }
+    for (const group of ledgered) {
+      void mcp.endOrphan(group).then(
+        (answer) => {
+          if (answer !== 'unknown') this.serverGroups.remove(group);
+        },
+        (error: unknown) => console.error('Could not end a server Check server started.', error),
+      );
+    }
+  }
+
+  /**
+   * Check server: a person's press starts the entry's server once, at the
+   * version they looked at, in any mode, lists its tools, says whether each
+   * of the entry's calls to it names one and whether its literal `with:`
+   * values fit, and stops it. It calls no tool, accepts nothing and records
+   * no run; its group is in the ledger while it lives. One at a time per
+   * entry and server.
+   */
+  public async checkServer(
+    workspaceId: string,
+    name: string,
+    server: string,
+    version: string,
+  ): Promise<ServerCheckView> {
+    const factory = this.factoryOf(workspaceId);
+    const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
+    if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
+    if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
+    if (version !== entry.version) throw new Error(CHECK_STALE);
+    const definition = entry.steps?.definition;
+    const used =
+      definition?.servers && Object.prototype.hasOwnProperty.call(definition.servers, server)
+        ? definition.servers[server]
+        : undefined;
+    const mcp = this.deps.mcp;
+    if (!definition || !used || !mcp) throw new Error(checkNotUsed(name, server));
+    const key = `${workspaceId} ${name} ${server}`;
+    if (this.checkingServers.has(key)) throw new Error(checkUnderWay(server));
+    const controller = new AbortController();
+    this.checkingServers.set(key, controller);
+    const calls = leafSteps(definition.automation.steps).flatMap((step) =>
+      step.kind === 'uses' && step.server === server
+        ? [{ step: step.id, tool: step.tool, with: step.with, timeoutMs: step.timeoutMs }]
+        : [],
+    );
+    const at = this.iso();
+    let view: ServerCheckView;
+    try {
+      const read = await readSecrets(this.deps.secrets, workspaceId, used.secrets ?? []);
+      const launched = read.ok ? serverLaunchOf(used, read.values) : undefined;
+      if (!read.ok) view = { server, at, steps: [], problem: read.error };
+      else if (!launched?.ok) view = { server, at, steps: [], problem: launched!.error };
+      else {
+        let spawned: ServerGroup | undefined;
+        const connected = await mcp.connect({
+          ...launched.launch,
+          name: server,
+          masks: read.masks,
+          timeoutMs: Math.min(
+            Math.max(...calls.map((call) => call.timeoutMs)),
+            CONNECT_BUDGET_CAP_MS,
+          ),
+          signal: controller.signal,
+          onSpawned: (group) => {
+            spawned = { pgid: group.pgid, startedAt: group.startedAt };
+            this.serverGroups.add(spawned, `${workspaceId}/${name}/${server}`, this.iso());
+          },
+        });
+        if (!connected.ok) {
+          // A refused connect has ended what it spawned.
+          if (spawned) this.serverGroups.remove(spawned);
+          view = {
+            server,
+            at,
+            steps: [],
+            problem: connected.whole
+              ? maskSecrets(connected.reason, read.masks)
+              : `Couldn't reach \`${server}\`: ${maskSecrets(connected.reason, read.masks).trim().replace(/\.$/, '')}.`,
+          };
+        } else {
+          // Masked, as every string a check or a call takes from the server (review M5).
+          const tools = connected.session.tools.map((tool) => maskSecrets(tool.name, read.masks));
+          const steps = checkServerVerdicts(calls, connected.session);
+          const { survivors } = await connected.session.close();
+          if (spawned) this.serverGroups.remove(spawned);
+          view = {
+            server,
+            at,
+            tools,
+            steps: steps.map((step) =>
+              typeof step.verdict === 'object'
+                ? { ...step, verdict: { problem: maskSecrets(step.verdict.problem, read.masks) } }
+                : step,
+            ),
+            ...(survivors > 0 ? { survivors } : {}),
+          };
+        }
+      }
+    } finally {
+      this.checkingServers.delete(key);
+    }
+    this.serverChecks.set(key, view);
+    this.broadcast(workspaceId);
+    return view;
   }
 
   private broadcast(workspaceId: string): void {
@@ -7490,11 +8885,18 @@ function takesItemOf(entry: Resolved): AutomationView['takesItem'] {
  * field whose change fires an item again), and what its last check came to:
  * when it ended, and what it found or why it failed.
  */
-function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): CheckView {
+function checkViewOf(
+  trigger: PollTrigger,
+  outcome: CheckState['outcome'],
+  reader: Reader,
+): CheckView {
   const last: Partial<CheckView> = !outcome
     ? {}
     : 'error' in outcome
-      ? { lastAt: outcome.at, error: outcome.error }
+      ? {
+          lastAt: outcome.at,
+          error: reader === 'person' ? outcome.error : (outcome.told ?? outcome.error),
+        }
       : {
           lastAt: outcome.at,
           items: outcome.items,
@@ -8020,6 +9422,70 @@ function agentWithProblems(automation: Automation, read: FactoryParseResult): st
       return `its step \`${step.id}\` names the agent \`${step.agent}\`, which has problems of its own in ${file}; save it once they are fixed`;
   }
   return null;
+}
+
+/** A Consola tool's answer as `result.json` keeps it: masked, then serialised, then cut at 1 MB. */
+function inProcessResultFile(result: EngineToolResult, masks: readonly string[]): CallResultFile {
+  const summary = maskSecrets(result.summary, masks);
+  const data = maskDeep(result.data, masks);
+  const text = JSON.stringify(data ?? null);
+  const bytes = utf8Bytes(text);
+  if (bytes <= CALL_RESULT_CAP_BYTES) return { isError: false, bytes, summary, result: data };
+  const cut = new TextDecoder().decode(
+    new TextEncoder().encode(text).subarray(0, CALL_RESULT_CAP_BYTES),
+  );
+  return { isError: false, bytes, summary, cut };
+}
+
+/** A problem with one of `factory.yml`'s servers: an entry calling it is refused, nothing else (Call 2). */
+function isServerIssue(issue: FactorySpecIssue): boolean {
+  return (
+    issue.path === 'mcpServers' ||
+    issue.path.startsWith('mcpServers.') ||
+    issue.path.startsWith('mcpServers[')
+  );
+}
+
+/** An entry's problem when a call names a server `factory.yml` does not define. */
+function noSuchServer(step: Pick<UsesStep, 'id' | 'server'>): string {
+  return `its step \`${step.id}\` calls \`${step.server}\`, and factory.yml defines no such server`;
+}
+
+/**
+ * Why an entry cannot be saved because a call names a factory server with
+ * problems of its own, said as the folder's issues say it, never as a server
+ * that is not there; null when every server it calls is valid, or not there
+ * at all (which `resolveCalls` says, `noSuchServer`).
+ */
+function serverWithProblems(automation: Automation, read: FactoryParseResult): string | null {
+  if (!isStepsEntry(automation)) return null;
+  for (const step of leafSteps(automation.steps)) {
+    // A server written `consola` is refused in factory.yml; a call of `consola#…` is still Consola's own.
+    if (step.kind !== 'uses' || step.server === CONSOLA_NAMESPACE) continue;
+    if (!read.brokenServers.includes(step.server)) continue;
+    return `its step \`${step.id}\` calls \`${step.server}\`, which has problems of its own in factory.yml's \`mcpServers:\`; save it once they are fixed`;
+  }
+  return null;
+}
+
+/** The factory servers an entry's calls name, by name, among `servers`; undefined when it names none. */
+function callServersOf(
+  automation: Automation,
+  servers: Readonly<Record<string, McpServerDefinition>>,
+): Record<string, McpServerDefinition> | undefined {
+  if (!isStepsEntry(automation)) return undefined;
+  const called: Record<string, McpServerDefinition> = {};
+  for (const step of leafSteps(automation.steps))
+    if (step.kind === 'uses' && Object.prototype.hasOwnProperty.call(servers, step.server))
+      called[step.server] = servers[step.server];
+  return Object.keys(called).length > 0 ? called : undefined;
+}
+
+/** What a Consola tool's argument does; one its tool gives no role is a `selector`, so it takes only trusted values (Call 5). */
+function roleOf(tool: EngineTool, name: string): 'prompt' | 'selector' | 'data' {
+  const roles = tool.roles;
+  const role = roles && Object.prototype.hasOwnProperty.call(roles, name) ? roles[name] : undefined;
+  return role ?? 'selector';
 }
 
 function notSaved(reasons: string[]): Error {

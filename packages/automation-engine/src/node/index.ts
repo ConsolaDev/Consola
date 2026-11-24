@@ -14,6 +14,19 @@ export { AppliedFactoryFiles } from './appliedFactory';
 export { RunFolder } from './runFolder';
 export { startCommand, COMMAND_SHELL, KILL_GRACE_MS } from './runCommand';
 export {
+  nodeMcpClient,
+  MAX_MESSAGE_BYTES,
+  SERVER_KILL_GRACE_MS,
+  SERVER_LOG_CAP_BYTES,
+  type NodeMcpClientOptions,
+} from './mcpClient';
+export {
+  readKeychainItem,
+  readOnePasswordField,
+  SECRET_READ_TIMEOUT_MS,
+  SecretReaderFailure,
+} from './secretReaders';
+export {
   deleteRunClone,
   fetchKeepRef,
   gitFolderProblem,

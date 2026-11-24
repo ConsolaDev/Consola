@@ -2,11 +2,13 @@ import type { RunRecord } from '@consola/factory-spec';
 
 export type {
   AutomationMode,
+  CallArgument,
   FactoryNotice,
   FactorySpecIssue,
   RunRecord,
   StepRun,
   StepRunStatus,
+  ValueSource,
 } from '@consola/factory-spec';
 import type { RunConversation } from './conversation';
 import type { Session } from './workspace';
@@ -21,6 +23,7 @@ import type {
   LogTail,
   RunDefinitionView,
   RunListPage,
+  ServerCheckView,
   StepDetail,
   StepsRunPreview,
 } from '@consola/automation-engine';
@@ -53,6 +56,14 @@ export type {
   StepDetail,
   LogTail,
   CommandFile,
+  SecretBindingView,
+  ServerCheckView,
+  ServerUseView,
+  ServerFacts,
+  CallView,
+  CallFile,
+  CallResultFile,
+  RenderedArgument,
   GateView,
   WriteBlocks,
 } from '@consola/automation-engine';
@@ -145,6 +156,16 @@ export interface AutomationsAPI {
   openRunCheckout: (runId: string) => Promise<void>;
   /** Retry a failed steps run, from its failed step (the only one a retry accepts); the click is the approval. */
   retry: (runId: string, stepId?: string) => Promise<RunRecord>;
+  /**
+   * Check server: start a factory server once, on the person's press, list its tools and stop it.
+   * Calls no tool and records no acceptance; refused for an entry not at `version`, or one checking already.
+   */
+  checkServer: (
+    workspaceId: string,
+    name: string,
+    server: string,
+    version: string,
+  ) => Promise<ServerCheckView>;
   /** A gate the run asked at (waiting, or answered): its question filled in, its material and its choices; null when there is none. */
   getGate: (runId: string, stepId: string) => Promise<GateView | null>;
   /**

@@ -6,7 +6,9 @@ import type {
   RepeatStep,
   StepEntry,
   StepRun,
+  UsesStep,
 } from '@consola/factory-spec';
+import { CALL_SETTLE_INTERRUPTED, INTERRUPTED_CALL } from './recover';
 import {
   entryMayRetry,
   RETRY_BACKOFF_MS,
@@ -375,5 +377,86 @@ describe('write steps (slice 3-B)', () => {
     // One that never started acted on nothing; a read-only one that started still may.
     expect(entry([agentRow({ step: 'fix', tools: 'write', status: 'not-run' })])).toBe(true);
     expect(entry([agentRow({ step: 'fix', startedAt: T0 })])).toBe(true);
+  });
+});
+
+describe("a call (the merge with slice 5a: the 5a-2 review's item 4)", () => {
+  const callStep = (
+    options: { retry?: number; dryRun?: 'run' | 'report' } = {},
+    id = 'post',
+  ): UsesStep => ({
+    kind: 'uses',
+    id,
+    named: true,
+    uses: 'slack#chat_post_message',
+    server: 'slack',
+    tool: 'chat_post_message',
+    with: {},
+    outputs: {},
+    timeoutMs: 60_000,
+    dryRun: options.dryRun ?? 'report',
+    ...(options.retry !== undefined ? { onFailure: { retry: options.retry } } : {}),
+  });
+  const callRow = (call: StepRun['call'], extra: Partial<StepRun> = {}): StepRun =>
+    row('post', 'uses', { startedAt: T0, ...(call ? { call } : {}), ...extra });
+  const may = (step: UsesStep, record: StepRun) =>
+    stepMayRetry({
+      step,
+      record,
+      agentNamesServer: false,
+      stoppedByPerson: false,
+      overBudget: false,
+    });
+  const SENT = { intentAt: T0 };
+
+  it('a dry_run: run call retries by itself after a failure, sent or not', () => {
+    const step = callStep({ retry: 2, dryRun: 'run' });
+    expect(
+      may(step, callRow(SENT, { error: 'Couldn’t reach `slack`: it did not answer within 1m.' })),
+    ).toBe(true);
+    expect(
+      may(step, callRow(undefined, { error: 'Its arguments do not fit. Nothing was sent.' })),
+    ).toBe(true);
+  });
+
+  it('never after the tool reported an error, nor after a quit cut it off', () => {
+    const step = callStep({ retry: 2, dryRun: 'run' });
+    expect(may(step, callRow({ ...SENT, resultAt: T0, isError: true }))).toBe(false);
+    expect(may(step, callRow(SENT, { error: INTERRUPTED_CALL }))).toBe(false);
+    expect(may(step, callRow({ ...SENT, resultAt: T0 }, { error: CALL_SETTLE_INTERRUPTED }))).toBe(
+      false,
+    );
+  });
+
+  it('any other call only when nothing was sent: one that may have happened never retries by itself', () => {
+    const step = callStep({ retry: 2 });
+    expect(
+      may(step, callRow(undefined, { error: 'Its arguments do not fit. Nothing was sent.' })),
+    ).toBe(true);
+    expect(
+      may(step, callRow(SENT, { error: 'Couldn’t reach `slack`: it did not answer within 1m.' })),
+    ).toBe(false);
+    // Within its declared retries only.
+    expect(may(callStep({ retry: 1 }), callRow(undefined, { retries: 1 }))).toBe(false);
+  });
+
+  it('the entry starts again only while no call without dry_run: run recorded its intent', () => {
+    const entries: StepEntry[] = [callStep(), callStep({ dryRun: 'run' }, 'lookup')];
+    const entry = (records: StepRun[]) =>
+      entryMayRetry({
+        declared: 1,
+        retried: 0,
+        entries,
+        records,
+        agentNamesServer: () => false,
+        stoppedByPerson: false,
+        overBudget: false,
+      });
+    // Started, but nothing was sent: it cannot have acted (review S13).
+    expect(
+      entry([callRow(undefined, { error: 'Its arguments do not fit. Nothing was sent.' })]),
+    ).toBe(true);
+    expect(entry([callRow(SENT)])).toBe(false);
+    expect(entry([{ ...callRow(SENT), id: 'lookup' }])).toBe(true);
   });
 });

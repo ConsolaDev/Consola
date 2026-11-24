@@ -12,7 +12,8 @@ import { readFrontmatter, splitFrontmatter } from './frontmatter';
 import type { FactorySpecIssue } from './issues';
 import { stableStringify } from './run';
 import { AUTOMATION_NAME_PATTERN } from './schema';
-import { laterKeyMessage, MAX_TURNS_LIMIT } from './steps';
+import { AGENT_SECRETS_REASON } from './secrets';
+import { MAX_TURNS_LIMIT } from './steps';
 import { hasTemplateBraces } from './template';
 
 /** A harness's id: `apps/desktop/src/shared/harness.ts`' pattern, copied (this package imports nothing from apps/). */
@@ -81,7 +82,7 @@ const AGENT_KEYS = [
 const COMPILED =
   "Consola compiles an agent's permissions from `tools`, `mcpServers` and `skills`; it takes no others.";
 const REFUSED_AGENT_KEYS: Readonly<Record<string, string>> = {
-  secrets: laterKeyMessage('secrets'),
+  secrets: AGENT_SECRETS_REASON,
   hooks: COMPILED,
   permissionMode: COMPILED,
   'allowed-tools': COMPILED,

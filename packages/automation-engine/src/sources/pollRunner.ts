@@ -17,13 +17,26 @@ export const MAX_BACKOFF_MS = 3_600_000;
 
 /** One automation's checks since start-up. Nothing of it is persisted. */
 export interface CheckState {
-  /** The check now running, and what its result must still match to count (Call 16): the entry's version, and the version allowed. */
-  running?: { version: string; acceptedVersion: string | undefined; startedAt: string };
+  /**
+   * The check now running, and what its result must still match to count
+   * (Call 16): the entry's version, the version allowed, and its secrets'
+   * fingerprints when it names any (a rebinding meanwhile drops it).
+   */
+  running?: {
+    version: string;
+    acceptedVersion: string | undefined;
+    startedAt: string;
+    fingerprints?: Record<string, string>;
+  };
   /** When the last check ended, as the schedule counts it. Absent until one ends, and again after Allow or a Check now that waits for a slot. */
   lastEndedAt?: string;
   /** Failed checks in a row. */
   failures: number;
-  /** What the last check that counted came to: how many items, what fired, or why it failed. */
+  /**
+   * What the last check that counted came to: how many items, what fired, or
+   * why it failed; `told`, when present, is what an agent is told instead of
+   * `error`, which names where a secret is bound (review S1).
+   */
   outcome?:
     | {
         at: string;
@@ -34,7 +47,7 @@ export interface CheckState {
         /** Why every item was skipped, when one reason covers them all: an own checkout's repository not cloned (F8). */
         skippedWhy?: string;
       }
-    | { at: string; error: string };
+    | { at: string; error: string; told?: string };
   /**
    * The last successful result, kept in memory only, and the entry's version
    * it was taken at: one taken at another version says nothing about this
@@ -69,9 +82,19 @@ export function latestResult(
   return state?.result?.version === version ? state.result.items : undefined;
 }
 
-/** After a check that ended at `at` without one: one more failure in a row, and why. */
-export function afterFailure(state: CheckState, at: string, error: string): CheckState {
-  return { ...state, lastEndedAt: at, failures: state.failures + 1, outcome: { at, error } };
+/** After a check that ended at `at` without one: one more failure in a row, and why (and what an agent is told of it). */
+export function afterFailure(
+  state: CheckState,
+  at: string,
+  error: string,
+  told?: string,
+): CheckState {
+  return {
+    ...state,
+    lastEndedAt: at,
+    failures: state.failures + 1,
+    outcome: { at, error, ...(told !== undefined ? { told } : {}) },
+  };
 }
 
 /** Due at once, whenever the last check ended. What it found, and its run of failures, are kept. */
@@ -92,12 +115,19 @@ export function checkSpec(input: {
   cwd: string;
   logs: { stdout: string; stderr: string };
   base: { env: NodeJS.ProcessEnv; secrets: readonly string[] };
+  /** Its `secrets:`' values, each its own variable, read for this check alone. */
+  secretValues?: Record<string, string>;
 }): CommandSpec {
   const { trigger, logs, base } = input;
   return {
     command: trigger.run,
     cwd: input.cwd,
-    env: layerCommandEnv(base.env, {}, { CONSOLA_AUTOMATION: input.automation }),
+    env: layerCommandEnv(
+      base.env,
+      {},
+      { CONSOLA_AUTOMATION: input.automation },
+      input.secretValues,
+    ),
     timeoutMs: trigger.timeoutMs,
     stdoutPath: logs.stdout,
     stderrPath: logs.stderr,

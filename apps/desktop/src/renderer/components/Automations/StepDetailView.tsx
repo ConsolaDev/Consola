@@ -11,6 +11,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { activateSession } from '../../utils/sessionActions';
 import { MarkdownRenderer } from '../Markdown';
+import { CallDetail, WouldCall } from './CallDetail';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
 import {
@@ -76,8 +77,8 @@ export function StepDetail({
 }) {
   const [detail, setDetail] = useState<Read<StepDetailData | null>>({ state: 'loading' });
   const requests = useRef(0);
-  // A command's logs grow while it runs: read them again until it ends.
-  const following = step.kind === 'run' && step.status === 'running';
+  // A command's logs, and a call's server log and answer, grow while it runs: read them again until it ends.
+  const following = (step.kind === 'run' || step.kind === 'uses') && step.status === 'running';
   const tick = useNow(following ? LOG_FOLLOW_MS : null);
   const beat = following ? tick.getTime() : 0;
 
@@ -114,7 +115,7 @@ export function StepDetail({
           Could not read this step: {detail.reason}
         </p>
       )}
-      {tone === 'reported' && (
+      {tone === 'reported' && record.kind !== 'uses' && (
         <div className="automations-trace-note">
           <h4 className="automations-trace-note-title">Would have run</h4>
           <p className="automations-hint">
@@ -138,6 +139,8 @@ export function StepDetail({
           record.kind !== 'gate' &&
           (record.kind === 'agent' ? (
             <AgentFacts workspace={workspace} run={run} step={record} detail={ready} />
+          ) : record.kind === 'uses' ? (
+            <CallDetail step={record} detail={ready} loaded={detail.state === 'ready'} />
           ) : (
             <CommandFacts
               run={run}
@@ -240,8 +243,9 @@ function NotRunFacts({
   );
 }
 
-/** What a step that did not run would have run: its command and variables as written, or its prompt; a gate's question. */
+/** What a step that did not run would have run: its command and variables as written, its call, or its prompt; a gate's question. */
 function WouldRun({ definition }: { definition: Definition }) {
+  if (definition.kind === 'uses') return <WouldCall definition={definition} />;
   if (definition.kind === 'gate') {
     return (
       <Fact label="Would ask">
@@ -662,7 +666,7 @@ function CommandFacts({
               in <code>{command.cwd}</code>
             </p>
           </Fact>
-          {command.env.length > 0 && (
+          {(command.env.length > 0 || (command.secrets?.length ?? 0) > 0) && (
             <Fact label="Env">
               <ul className="automations-vars">
                 {variableRows(command).map((row) => (
@@ -671,7 +675,10 @@ function CommandFacts({
                       <code>{row.name}</code>
                       <span className="automations-var-eq"> = </span>
                     </span>
-                    {row.long ? (
+                    {/* A secret's row says where it was bound when the step ran: it has no value to show. */}
+                    {row.secret ? (
+                      <span className="automations-var-secret">{row.value}</span>
+                    ) : row.long ? (
                       <pre className="automations-prompt automations-var-block">{row.value}</pre>
                     ) : (
                       <code className="automations-var-value">{row.value}</code>

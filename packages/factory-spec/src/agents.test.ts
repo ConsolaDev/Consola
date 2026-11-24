@@ -6,6 +6,7 @@ import {
   parseAgentFile,
   type ParsedAgent,
 } from './agents';
+import { AGENT_SECRETS_REASON } from './secrets';
 
 const BODY = 'You investigate production alerts.\n';
 const agent = (front: string, body = BODY) =>
@@ -135,11 +136,7 @@ describe('parseAgentFile', () => {
     ['tools: write\nenvironment: Sandboxed\n', 'environment', ENVIRONMENT_NAME],
     ['tools: write\nenvironment: [sandboxed]\n', 'environment', ENVIRONMENT_NAME],
     ['tools: write\nenvironment: ""\n', 'environment', ENVIRONMENT_NAME],
-    [
-      'secrets: [x]\n',
-      'secrets',
-      '`secrets` arrives with connections as data; it is not supported yet.',
-    ],
+    ['secrets: [x]\n', 'secrets', AGENT_SECRETS_REASON],
     ['hooks: {}\n', 'hooks', COMPILED],
     ['permissionMode: plan\n', 'permissionMode', COMPILED],
     ['allowed-tools: [Bash]\n', 'allowed-tools', COMPILED],

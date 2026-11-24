@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec, parseFactoryYml } from './parse';
 import { isStepsEntry } from './schema';
+import { AGENT_SECRETS_REASON, ENTRY_SECRETS_REASON, secretTemplateReason } from './secrets';
+import { ENTRY_USES_REASON } from './uses';
 import {
   ENV_PREFIX_EXCEPTIONS,
+  GH_IDENTITY_ENV_REASON,
   isRefusedEnvName,
   parseReadRef,
   REFUSED_ENV_NAMES,
@@ -95,7 +98,9 @@ describe('a step has exactly one of prompt, action or run', () => {
   it('refuses none', () => {
     const issue = only(steps('- id: review'));
     expect(issue.path).toBe('automations[0].steps[0]');
-    expect(issue.message).toBe('A step has one of `prompt`, `action`, `agent` or `run`.');
+    expect(issue.message).toBe(
+      'A step has one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
+    );
   });
 
   it('refuses two', () => {
@@ -149,16 +154,12 @@ describe('ids', () => {
 const STEP_KEYS: Record<string, string> = {
   wait: 'waiting runs',
   concurrency: 'waiting runs',
-  uses: 'connections as data',
-  with: 'connections as data',
-  secrets: 'connections as data',
 };
 const ENTRY_KEYS: Record<string, string> = {
   ...STEP_KEYS,
   callable: 'callable automations',
   inputs: 'callable automations',
 };
-delete ENTRY_KEYS.with; // an entry's `with:` keeps today's message
 
 describe("refuses later slices' keys with a reason", () => {
   it.each(Object.entries(STEP_KEYS))('step key %s arrives with %s', (key, arrives) => {
@@ -196,6 +197,21 @@ describe("refuses later slices' keys with a reason", () => {
     expect(issue.message).toContain('Move `with:` under `run:`');
   });
 
+  it('takes uses: as a step, and with: only beside it', () => {
+    const result = steps('- uses: slack#chat_post_message\n  with: { channel: C0SUPPORT1 }');
+    expect(result.issues).toEqual([]);
+    expect(firstStep<{ kind: string }>(result).kind).toBe('uses');
+    const issue = only(command('  with: { channel: C0SUPPORT1 }'));
+    expect(issue.path).toBe('automations[0].steps[0].with');
+    expect(issue.message).toBe('Unrecognized key in a step: with.');
+  });
+
+  it('refuses uses: on an entry: it is a step', () => {
+    const issue = only(one(`${REVIEW}    steps:\n      - prompt: hi\n    uses: slack#x\n`));
+    expect(issue.path).toBe('automations[0].uses');
+    expect(issue.message).toBe(ENTRY_USES_REASON);
+  });
+
   it('refuses a stranger by name', () => {
     expect(only(agent('  colour: red')).message).toMatch(/Unrecognized key in a step: colour/);
     // Not a later key just because Object.prototype has it.
@@ -213,7 +229,8 @@ describe('a step that is not a mapping', () => {
   it('says what a step is', () => {
     expect(only(steps('- hi'))).toMatchObject({
       path: 'automations[0].steps[0]',
-      message: 'Expected a step: a mapping with one of `prompt`, `action`, `agent` or `run`.',
+      message:
+        'Expected a step: a mapping with one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
     });
   });
 });
@@ -260,10 +277,10 @@ describe('agent', () => {
     });
   });
 
-  it('says a step has one of the four', () => {
+  it('says a step has one of the five', () => {
     expect(only(inFolder('- id: x\n  outputs: { ok: boolean }'))).toMatchObject({
       path: 'automations[0].steps[0]',
-      message: 'A step has one of `prompt`, `action`, `agent` or `run`.',
+      message: 'A step has one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
     });
   });
 
@@ -309,7 +326,6 @@ describe('agent', () => {
   it("keeps the later slices' words and inputs' own on an agent step", () => {
     for (const [key, arrives] of [
       ['wait', 'waiting runs'],
-      ['uses', 'connections as data'],
       ['callable', 'callable automations'],
     ]) {
       expect(only(inFolder(`- agent: investigator\n  ${key}: x`)).message).toBe(
@@ -478,15 +494,13 @@ describe('a command', () => {
       expect(refusedFor(name, 'plain')).toBe(message);
     });
 
-    it("takes GH_TOKEN and GH_HOST, the shipped template's names, and names that only look alike", () => {
+    it('takes names that only look alike', () => {
       const step = firstStep<CommandStep>(
         command(
-          '  env: { GH_TOKEN: a, GH_HOST: b, PR: c, REPO: d, NUMBER: e, VERDICT: f, BODY_FILE: g, BASH_ENVIRONMENT: h, MY_PATH: i, MY_GIT_DIR: j, HOMEPAGE: k, PATHS: l, EDITORS: m, NODEJS: n }',
+          '  env: { PR: c, REPO: d, NUMBER: e, VERDICT: f, BODY_FILE: g, BASH_ENVIRONMENT: h, MY_PATH: i, MY_GIT_DIR: j, HOMEPAGE: k, PATHS: l, EDITORS: m, NODEJS: n }',
         ),
       );
       expect(Object.keys(step.env)).toEqual([
-        'GH_TOKEN',
-        'GH_HOST',
         'PR',
         'REPO',
         'NUMBER',
@@ -517,7 +531,30 @@ describe('a command', () => {
       const message = refusedFor('BASH_ENV');
       for (const name of REFUSED_ENV_NAMES) expect(message, name).toContain(name);
       for (const prefix of REFUSED_ENV_PREFIXES) expect(message, prefix).toContain(`${prefix}*`);
-      for (const name of ENV_PREFIX_EXCEPTIONS) expect(message, name).toContain(name);
+      expect(message).not.toContain('are allowed');
+    });
+
+    it("refuses GH_TOKEN and GH_HOST, templated or not: they are the bound account's (decision 37)", () => {
+      const token = only(command('  env: { GH_TOKEN: "{{item.key}}" }'));
+      expect(token.path).toBe('automations[0].steps[0].env.GH_TOKEN');
+      expect(token.message).toBe(GH_IDENTITY_ENV_REASON('GH_TOKEN'));
+      expect(token.message).toBe(
+        "`GH_TOKEN` is the workspace's bound GitHub account's to set (decision 37): commands act as that account. To act as another, bind it to the workspace.",
+      );
+      const host = only(command('  env: { GH_HOST: github.example }'));
+      expect(host.path).toBe('automations[0].steps[0].env.GH_HOST');
+      expect(host.message).toBe(GH_IDENTITY_ENV_REASON('GH_HOST'));
+      // The name list still lets both through: the refusal is the env: loop's own.
+      for (const name of ENV_PREFIX_EXCEPTIONS) expect(isRefusedEnvName(name), name).toBe(false);
+    });
+
+    it('refuses GH_REPO by the list, which no longer says GH_TOKEN and GH_HOST are allowed', () => {
+      const message = only(command('  env: { GH_REPO: x }')).message;
+      expect(message).toMatch(REFUSED_BECAUSE);
+      expect(message).not.toContain('(GH_TOKEN and GH_HOST are allowed)');
+      expect(firstStep<CommandStep>(command('  env: { PR: "{{item.number}}" }')).env).toEqual({
+        PR: '{{item.number}}',
+      });
     });
   });
 
@@ -560,6 +597,59 @@ describe('a command', () => {
     expect(issue.path).toBe('automations[0].steps[0].artifacts');
     expect(issue.message).toMatch(/a command writes no artifacts/);
     expect(only(command('  reads: [a.handover]')).path).toBe('automations[0].steps[0].reads');
+  });
+});
+
+describe('secrets: on a command step', () => {
+  const IN_BOTH = '`TOKEN` is in both `env:` and `secrets:`; a value comes from one place.';
+
+  it('names the secrets it needs, in order', () => {
+    const step = firstStep<CommandStep>(command('  secrets: [PAGER_TOKEN, TRACKER_TOKEN]'));
+    expect(step.secrets).toEqual(['PAGER_TOKEN', 'TRACKER_TOKEN']);
+  });
+
+  it('has no secrets key when it names none', () => {
+    expect('secrets' in firstStep<CommandStep>(command())).toBe(false);
+    expect('secrets' in firstStep<CommandStep>(command('  secrets: []'))).toBe(false);
+  });
+
+  it("refuses a name that is also in the step's env:", () => {
+    const issue = only(command('  env: { TOKEN: x }\n  secrets: [TOKEN]'));
+    expect(issue.path).toBe('automations[0].steps[0].secrets[0]');
+    expect(issue.message).toBe(IN_BOTH);
+  });
+
+  it("keeps GH_TOKEN the bound account's", () => {
+    const issue = only(command('  secrets: [GH_TOKEN]'));
+    expect(issue.path).toBe('automations[0].steps[0].secrets[0]');
+    expect(issue.message).toBe(
+      "Commands act as the workspace's bound GitHub account, whose token Consola puts in `GH_TOKEN` (decision 37). To act as another account, bind it to the workspace.",
+    );
+  });
+
+  it('refuses secrets on an agent step', () => {
+    const issue = only(agent('  secrets: [PAGER_TOKEN]'));
+    expect(issue.path).toBe('automations[0].steps[0].secrets');
+    expect(issue.message).toBe(AGENT_SECRETS_REASON);
+  });
+
+  it('refuses secrets on an entry', () => {
+    const issue = only(one(`${REVIEW}    steps:\n      - run: echo hi\n    secrets: [X]\n`));
+    expect(issue.path).toMatch(/secrets$/);
+    expect(issue.message).toBe(ENTRY_SECRETS_REASON);
+  });
+
+  it('says how a secret reaches a command wherever a template names one', () => {
+    const inEnv = only(command('  env: { PAGER_KEY: "{{secrets.PAGER_TOKEN}}" }'));
+    expect(inEnv.path).toBe('automations[0].steps[0].env.PAGER_KEY');
+    expect(inEnv.message).toBe(secretTemplateReason('PAGER_TOKEN'));
+    const inPrompt = only(steps('- prompt: "Page with {{ secrets.PAGER_TOKEN }}"'));
+    expect(inPrompt.path).toBe('automations[0].steps[0].prompt');
+    expect(inPrompt.message).toBe(secretTemplateReason('PAGER_TOKEN'));
+    const inRun = only(steps('- run: curl -H "{{secrets.PAGER_TOKEN}}" x'));
+    expect(inRun.path).toBe('automations[0].steps[0].run');
+    expect(inRun.message).toBe(secretTemplateReason('PAGER_TOKEN'));
+    expect(only(steps('- run: echo "{{ secrets }}"')).message).toBe(secretTemplateReason());
   });
 });
 
@@ -1483,6 +1573,27 @@ describe('stepItemFieldProblems', () => {
       { step: 'a', field: 'number', where: 'if' },
       { step: 'a', field: 'url', where: 'env' },
       { step: 'b', field: 'key', where: 'prompt' },
+    ]);
+  });
+
+  it("reads a call's with: as env: is read, at any depth", () => {
+    const POLL_KEY =
+      '    on:\n      poll:\n        every: 30m\n        run: ./list-messages\n        key: .ts\n    scope: app\n';
+    const automation = entry(
+      [
+        '- id: post\n  uses: slack#chat_post_message\n  with: { thread_ts: "{{item.ts}}", blocks: [{ text: "{{item.title}}" }] }',
+      ],
+      POLL_KEY,
+    ).result.automations[0];
+    if (!automation || !isStepsEntry(automation)) throw new Error('steps');
+    expect(stepItemFields(automation.steps)).toEqual([
+      { step: 'post', field: 'ts', where: 'env' },
+      { step: 'post', field: 'title', where: 'env' },
+    ]);
+    expect(
+      problems('- id: post\n  uses: slack#chat_post_message\n  with: { thread_ts: "{{item.ts}}" }'),
+    ).toEqual([
+      '`item.ts`: github items have no field `ts` (they have: key, url, repo, title, author, number, type)',
     ]);
   });
 

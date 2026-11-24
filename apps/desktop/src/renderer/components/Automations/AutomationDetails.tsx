@@ -24,6 +24,7 @@ import {
   skippedWords,
 } from './checkWords';
 import { RunOnPicker } from './RunOnPicker';
+import { ServersPanel } from './ServersPanel';
 import { RunItem, RunNowButton, StatusIcon, useArrivals, useIntent, useNow } from './parts';
 import {
   filterRuns,
@@ -225,6 +226,8 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
           />
         )}
       </section>
+
+      {automation.servers && <ServersPanel workspaceId={workspace.id} automation={automation} />}
 
       {runs.length > 0 && (
         <section className="automations-detail-section" aria-labelledby={insightsHeading}>

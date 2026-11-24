@@ -2,28 +2,31 @@
  * The factory folder, parsed whole: `factory.yml`, `automations/<name>.yaml`,
  * `agents/<name>.md`, `skills/<name>/` and `environments/<name>.yaml`. Every check of each file runs,
  * then the references across files: each step's `agent:` names a valid agent
- * file, each agent's `skills:` a valid skill folder, and no automation name is
+ * file, each call's `uses:` a valid server of `factory.yml`'s (or `consola`),
+ * each agent's `skills:` a valid skill folder, and no automation name is
  * defined twice. The texts come in already read (a runner's adapter reads the
  * folder), so this does no I/O and every runner parses a folder alike.
  */
 import { agentHash, parseAgentFile, type AgentDefinition } from './agents';
 import { parseEnvironmentFile, type EnvironmentDefinition } from './environments';
 import { parseAutomationFile } from './automationFile';
+import { usesNotices } from './callArguments';
 import { formatPath, type FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
 import { isRunOwnedCheckout } from './flow';
 import { isStepsEntry, type Automation } from './schema';
+import type { McpServerDefinition } from './servers';
 import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
 import { flatSteps, leafSteps } from './steps';
 
 /** The largest text file the folder's reader reads; a larger one is reported as not read. */
 export const MAX_FACTORY_TEXT_BYTES = 1024 * 1024;
 
-/** Folders a later slice reads, and the slice: the notice's words. */
+/** Folders a later slice reads, and when: the notice's words, `` `<folder>/` is read <phrase>; … ``. */
 export const LATER_FOLDERS: Readonly<Record<string, string>> = {
-  connections: 'slice 5 (connections as data)',
-  evals: 'slice 8 (evals)',
+  connections: 'once connection manifests arrive',
+  evals: 'from slice 8 (evals)',
 };
 
 /** What editors and the OS leave beside a file, by suffix: a backup (`x.md~`, `x.bak`), a merge's or a patch's (`x.orig`, `x.rej`). */
@@ -105,6 +108,10 @@ export interface FactoryParseResult {
   present: string[];
   /** Of those, the ones not read whole: a `factory.yml` or automation file that does not parse, and every unread or outside path. */
   unreadable: string[];
+  /** `factory.yml`'s valid MCP servers, by name: the ones a `uses:` step may call. */
+  servers: Record<string, McpServerDefinition>;
+  /** Names under `factory.yml`'s `mcpServers:` with problems of their own. */
+  brokenServers: string[];
   /** `factory.yml`'s `repos:` (slice 3-B): the repositories a run-owned checkout may name. None without a readable factory.yml. */
   repos: string[];
 }
@@ -264,6 +271,10 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     present.push('factory.yml');
     if (yml.unreadable) unreadable.push('factory.yml');
     issues.push(...yml.issues);
+    for (const { message, path } of yml.serverNotices) {
+      const line = yml.lineAt(path);
+      notices.push({ message, file: 'factory.yml', ...(line !== undefined ? { line } : {}) });
+    }
     for (const automation of yml.automations) {
       const base = yml.entryPath(automation.name) ?? [];
       candidates.push({
@@ -361,6 +372,50 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     });
     return kept;
   });
+
+  // Each call's server must be one factory.yml defines, valid, or its entry is not kept.
+  const servers = yml?.servers ?? {};
+  const brokenServers = yml?.brokenServers ?? [];
+  candidates = candidates.filter((candidate) => {
+    const { automation } = candidate;
+    if (!isStepsEntry(automation)) return true;
+    let kept = true;
+    // A loop's calls too, each at its own line.
+    flatSteps(automation.steps).forEach(({ step, path: at }) => {
+      if (step.kind !== 'uses' || step.server === 'consola' || own(servers, step.server)) return;
+      kept = false;
+      const path = candidate.pathTo(['steps', ...at, 'uses']);
+      const line = candidate.lineAt(path);
+      const broken = brokenServers.includes(step.server);
+      issues.push({
+        message: broken
+          ? `\`${step.server}\` has problems of its own in factory.yml's \`mcpServers:\`; this step runs once they are fixed.`
+          : `\`${step.server}\` is not a server here: factory.yml's \`mcpServers:\` has none of that name.`,
+        file: candidate.file,
+        path: formatPath(path),
+        ...(line !== undefined ? { line } : {}),
+        automation: automation.name,
+        ...(broken ? { cause: 'factory.yml' } : {}),
+      });
+    });
+    return kept;
+  });
+
+  // Two namespaces: an agent's servers are its harness's, whatever factory.yml defines.
+  const factoryServerNames = [...Object.keys(servers), ...brokenServers];
+  for (const name of sortedKeys(agents)) {
+    const agent = agents[name];
+    // An agent that names servers always names its harness (`parseAgentFile`).
+    if (agent.harness === undefined) continue;
+    for (const server of agent.mcpServers) {
+      if (!factoryServerNames.includes(server.name)) continue;
+      notices.push({
+        message: `\`${server.name}\` is also a server in factory.yml; this agent gets \`${agent.harness}\`'s \`${server.name}\`, because agents use their harness's servers.`,
+        file: `agents/${name}.md`,
+        ...(agent.lines.mcpServers !== undefined ? { line: agent.lines.mcpServers } : {}),
+      });
+    }
+  }
 
   // A write agent changes code only on a branch its run cuts (invariant 9): its entry owns its checkout (slice 3-B).
   candidates = candidates.filter((candidate) => {
@@ -465,6 +520,14 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     return false;
   });
 
+  // A call's argument a tool may run or open, fed text someone else wrote: said, never refused.
+  for (const candidate of candidates) {
+    for (const { message, path } of usesNotices(candidate.automation)) {
+      const line = candidate.lineAt(candidate.pathTo(path));
+      notices.push({ message, file: candidate.file, ...(line !== undefined ? { line } : {}) });
+    }
+  }
+
   for (const path of files.stray)
     issues.push({ message: strayMessage(path), file: path, path: '' });
   for (const { path, reason } of files.unread) {
@@ -484,7 +547,7 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   for (const folder of files.laterFolders) {
     if (own(LATER_FOLDERS, folder)) {
       notices.push({
-        message: `\`${folder}/\` is read from ${LATER_FOLDERS[folder]}; its files have no effect yet.`,
+        message: `\`${folder}/\` is read ${LATER_FOLDERS[folder]}; its files have no effect yet.`,
       });
     }
   }
@@ -498,6 +561,8 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     notices,
     present,
     unreadable,
+    servers,
+    brokenServers,
     repos,
   };
 }

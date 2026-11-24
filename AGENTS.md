@@ -1146,6 +1146,119 @@ which keeps the answer the run was made with (`knownTools`, never a grant).
 Both show each skill's `SKILL.md` as what they accept holds it: Allow the
 version's, a run's approval its own copy's. Canary rows 20–28.
 
+### Secrets Are Names; Bindings Are the Runner's
+
+A file names a secret, never its value or where it lives: `secrets:` on a
+`run:` step or on a poll's check command. Each runner binds the name per
+workspace and factory (`personal` until factories arrive); the desktop keeps
+the binding in `secret-bindings.json` in Consola's state folder, as a
+reference only (`keychain:<service>/<account>`, `op://…`, `env:<NAME>`), never
+in the factory folder, a harness record or workspace settings. Where a name is
+bound is not part of the version, so a rebinding never asks for approval again;
+it shows where the name is used (Settings › Secrets, the cards), and a poll
+whose check uses it baselines rather than firing every item.
+
+- **Unbound is the entry's problem**, never the folder's: `needs … bound on
+  this Mac (Settings › Secrets)`, decided last, after everything else about
+  the entry (`resolveAll`'s last line). A save never refuses for it, and
+  binding brings back the entry, version and acceptance it had.
+- **A run reads every value it will use when its next step is let in to start
+  and it holds none** (`startWaiting`, `RunSecrets`), all at once, never
+  before a turn that resumes in its session after a restart. It holds them
+  only while its status is `running`: `broadcastRun` drops them, and
+  `syncWorkspaces` for a deleted workspace's runs. A failed read fails that
+  step before it starts. A check reads its own before each check.
+- **Each command gets only its own names**, as environment variables, after
+  `env:` and before `CONSOLA_*`; never a template path (`{{secrets.X}}` is
+  refused), never a command line. No agent is given a value, and an `env:`
+  binding hides nothing from a host agent or from a command that does not
+  name it: both start with the whole login environment.
+- **Every value's printed forms** (`maskFormsOf`: raw, its lines with and
+  without a closing CR, JSON-escaped, percent-encoded, base64 at each
+  alignment) join the mask list every command and check already uses, so
+  logs, `command.json`, outputs, errors and a
+  check's status line are masked by the code that masks the bound account's
+  token. Consola rewrites a command's `$CONSOLA_OUTPUT` masked as it ends,
+  its step ended or not. One a quit or a crash cut off cannot be masked, as
+  its values went with the quit: the next start empties it before anything
+  reads it (`emptyCutOffOutputs`). A file the command writes under a name of
+  its own stays its own.
+- **The engine core sees names, labels and fingerprints** through
+  `SecretsPort`, never a reference, and spawns no reader. The desktop reads
+  `/usr/bin/security` by absolute path and `op` by the path kept when the
+  person bound it, both named only in `secretPrograms`, which in a test run
+  answers the stubs `CONSOLA_E2E_SECURITY` / `CONSOLA_E2E_OP` name, or
+  nothing. No test reads the person's keychain or 1Password.
+- **No IPC member carries a value**: `secrets:list` carries names, labels,
+  times and uses, `secrets:bind` a reference. No agent binds, and no Consola
+  tool reads, writes or lists a value, a reference or a label. A failed read
+  is worded twice (`readSecrets`): the person's words say where the name is
+  bound and why; an agent's (`told`) say only which name and that it is
+  bound, since a label is a reference and a reason can name one. `list()`,
+  which `list_automations` returns whole, carries an agent's; only the
+  person's panel (`snapshot`) has the person's.
+
+### A Factory's Servers Are the Engine's
+
+`factory.yml`'s `mcpServers:` defines servers that only a `uses:` step calls
+(and, from 5a-3, a tool poll). They are a namespace apart from an agent file's
+`mcpServers:`, which name the harness's own servers: the same name in both
+places is two servers. A factory server starts only for a call or for a
+person's **Check server**, never when the folder applies, and never before a
+person allowed the entry's version (or approved the one run an agent asked
+for, which accepts nothing).
+
+- **Per call, as the person.** A stdio server starts for each call, in an
+  empty folder under `<userData>/mcp-calls`, with the allow-list
+  (`SERVER_ENV_ALLOW_LIST`), its `env:` and its secrets as its environment,
+  and nothing else of the login environment. Its process group is recorded
+  durably as it is spawned (`call.server` on the step's record, or
+  `mcp-server-groups.json` for Check server), ended after the call with its
+  descendants found by parent id, and ended at the next start when it is
+  still that process (`endServersLeftRunning`, which compares the `ps` start
+  time first).
+- **A card shows a server's definition in full, never a value.** The
+  approval card, the Allow card, the page and Check server's dialog show its
+  literal `env:` pairs and headers as written (`ServerFacts.env`, `headers`),
+  a header made from a secret as its template (`Bearer ${TRACKER_TOKEN}`):
+  the credential heuristic misses some literals, and the person sees them
+  there. `ServerFacts` is made from the definition alone, so a secret's value
+  never enters it, a view or IPC.
+- **A call's order, and its two durable writes.** Render `with:`, reach the
+  tool (start or connect, initialize, list, check the arguments and the
+  declared outputs), write `call.json`, record the intent, send, record the
+  answer, then the outputs, the settle and the close. The intent is written
+  before the send and the answer after it; anything that fails before the
+  intent says `Nothing was sent.`
+- **A call is in the command lane, and the line waits only for its start.**
+  `startCall` marks its step running and keeps its handle before anything is
+  awaited; the call then runs on its own and its end settles it, as a
+  command's does, so a slow server holds up no other run. Only a dry run's
+  report is awaited, since its preview runs while the step is still queued.
+  A throw past the call's own handling fails its run (`callThrew`).
+- **After the send, only a result without `isError` says what happened.** A
+  timeout, a stop, a closed connection, an unreadable or oversized answer and
+  an `isError` result all read "may or may not have happened", and nothing
+  calls again by itself: a quit fails an interrupted call, and Retry warns
+  first.
+- **The adapter** (`node/mcpClient.ts`) sends and lists with
+  `client.request`, never `client.callTool` or `client.listTools`; reads a
+  JSON-RPC error answer as an `isError` result; refuses every redirect with
+  its own `fetch`; declares no capabilities; ends a server's group at once on
+  a quit; offers only the transports its platform can
+  (`McpClientPort.transports`); and is the only file that imports the SDK
+  (`boundary.test.ts`).
+- **After a call's intent, nothing is written once its run has ended**, and a
+  write that fails says what may have happened, never `Nothing was sent.`
+- **Every automatable Consola tool says what each argument does** (`prompt`,
+  `selector` or `data`: `ToolDefinition.roles`, which the registry requires),
+  and a `prompt` or `selector` argument takes only trusted values.
+  `run: { tool }` runs on the executor's in-process branch, with its parse,
+  hash, modes and previewed plan unchanged.
+- **No test starts a server but the repository's stubs**, and a stub's
+  controls are its arguments, never environment variables, which a server's
+  allow-listed environment drops.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -1378,6 +1491,8 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `open-in:*` - "Open in" a session's folder: the apps main found (`open-in:list`), and opening one (`open-in:open`), which main checks first
 - `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 - `browser:*` - In-app browser tabs, page actions and snapshots; every id is checked against the sender's workspace
+- `secrets:*` - A workspace's secret names and bindings (never a value); bind and unbind
+- `automations:check-server` - Check server: start a factory server once, on a person's press, and list its tools
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 

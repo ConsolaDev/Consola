@@ -54,14 +54,14 @@ function writes(step: StepEntry, agents: DryRunAgents | undefined): boolean {
 /**
  * Whether a dry run of these steps starts anything: an agent step whose
  * agent is read-only (read-only agents run in a dry run; one that writes is
- * reported, slice 3-B) or a `dry_run: run` command, a loop's included.
+ * reported, slice 3-B) or a `dry_run: run` command or call, a loop's included.
  * `agents`, by name, says which write; without it none does.
  */
 export function dryRunStarts(entries: readonly StepEntry[], agents?: DryRunAgents): boolean {
   return leafSteps(entries).some(
     (step) =>
       (step.kind === 'agent' && !writes(step, agents)) ||
-      (step.kind === 'run' && step.dryRun === 'run'),
+      ((step.kind === 'run' || step.kind === 'uses') && step.dryRun === 'run'),
   );
 }
 
@@ -271,15 +271,19 @@ function describeLeaf(
     id: step.id,
     kind: step.kind,
     ...(step.if !== undefined ? { if: step.if } : {}),
-    ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
+    ...((step.kind === 'run' || step.kind === 'uses') && step.dryRun === 'run'
+      ? { dryRun: true as const }
+      : {}),
     summary:
-      step.kind === 'run'
-        ? commandSummary(step.run)
-        : step.action !== undefined
-          ? actionRuns(step.action)
-          : step.prompt === undefined && agent
-            ? agent.words
-            : 'Prompt',
+      step.kind === 'uses'
+        ? step.uses
+        : step.kind === 'run'
+          ? commandSummary(step.run)
+          : step.action !== undefined
+            ? actionRuns(step.action)
+            : step.prompt === undefined && agent
+              ? agent.words
+              : 'Prompt',
     ...(agent ? { agent: agent.words, agentFile: agent.file } : {}),
     ...(agent?.servers && agent.servers.length > 0 ? { servers: agent.servers } : {}),
     ...(agent?.skills && agent.skills.length > 0 ? { skills: agent.skills } : {}),

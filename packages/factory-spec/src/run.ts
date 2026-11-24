@@ -50,8 +50,8 @@ export type StepRunStatus =
  */
 export interface StepRun {
   id: string;
-  /** `gate` asks a person; `repeat` is a loop's own row, its steps' rows right after it. */
-  kind: 'agent' | 'run' | 'gate' | 'repeat';
+  /** `gate` asks a person; `repeat` is a loop's own row, its steps' rows right after it; `uses` calls one MCP tool. */
+  kind: 'agent' | 'run' | 'gate' | 'repeat' | 'uses';
   status: StepRunStatus;
   /** 1-based: the nth time this step ran in this run; names its folder. */
   attempt: number;
@@ -126,12 +126,29 @@ export interface StepRun {
   turn?: { costUsd?: number; turns?: number; maxTurns?: number; deniedTools?: string[] };
   command?: {
     envNames: string[];
+    /** The secrets the command was given, by name (never a value); present only when it named any. */
+    secretNames?: string[];
     intentAt?: string;
     exitCode?: number;
     signal?: string;
     stdoutBytes?: number;
     stderrBytes?: number;
     truncated?: boolean;
+  };
+  /** A `uses:` step's call; each field only once it is true. */
+  call?: {
+    /** A stdio server's process group, written durably as soon as it is spawned; `ended` once Consola ended it. */
+    server?: { pgid: number; startedAt: string; ended?: true };
+    /** Written durably right before `tools/call` is sent. */
+    intentAt?: string;
+    /** Written durably as soon as an answer came back. */
+    resultAt?: string;
+    isError?: true;
+    /** A result without `isError`: the call did what it does. */
+    landed?: true;
+    resultBytes?: number;
+    /** Processes it started still alive after it was ended. */
+    survivors?: number;
   };
   /**
    * Earlier executions of this step, oldest first; `costUsd` and `turns` are
@@ -350,6 +367,8 @@ export function automationVersion(
             item: trigger.item,
             changed: trigger.changed,
             timeoutMs: trigger.timeoutMs,
+            // By name: where each is bound is the runner's, not the file's (absent, dropped).
+            secrets: trigger.secrets,
           }
         : undefined,
     // Which items a run on demand takes.
@@ -365,32 +384,33 @@ export function automationVersion(
 
 /**
  * A steps entry's `resolvedBody`: today's `stableStringify({ <stepId>: <action body> })`, or undefined, when no step
- * names an agent; `stableStringify({ actions, agents: { <agent>: <agentHash> } })` when one does (`actions` absent
- * when none is used); and, when an agent names an environment (slice 3-B),
- * `stableStringify({ actions, agents, environments: { <name>: <environmentHash> } })`. Every runner hashes an entry
- * through this.
+ * names an agent, names an environment or calls a factory server; `stableStringify({ actions, agents: { <agent>:
+ * <agentHash> }, environments: { <name>: <environmentHash> }, servers: { <server>: <serverHash> } })` when one does,
+ * each key present only when non-empty: a shape no entry without an agent, an environment or a server can have (an
+ * action map's values are strings). Every runner hashes an entry through this.
  *
- * So an entry no step of which names an agent (every slice-1 entry) hashes byte for byte as before, and an agent
- * file, a skill it names or a server it names changes the version of exactly the entries that use that agent.
+ * So an entry no step of which names an agent or calls a server (every slice-1 entry) hashes byte for byte as
+ * before, and an agent file, a skill it names, a server it names, or a server definition a call uses changes the
+ * version of exactly the entries that use it. The servers ride in an options object, never a third positional
+ * record: the third parameter, `environmentHashes`, is a record of the same type (5a-2's Call 13).
  */
 export function stepsResolvedBody(
   actionBodies: Readonly<Record<string, string>>,
   agentHashes: Readonly<Record<string, string>>,
   environmentHashes?: Readonly<Record<string, string>>,
+  options?: { servers: Readonly<Record<string, string>> },
 ): string | undefined {
   const actions = Object.keys(actionBodies).length > 0 ? actionBodies : undefined;
+  const agents = Object.keys(agentHashes).length > 0 ? agentHashes : undefined;
   // An environment a write agent names is in the version too (slice 3-B); none moves no hash.
   const environments =
     environmentHashes !== undefined && Object.keys(environmentHashes).length > 0
       ? environmentHashes
       : undefined;
-  if (environments !== undefined) {
-    const agents = Object.keys(agentHashes).length > 0 ? agentHashes : undefined;
-    return stableStringify({ actions, agents, environments });
-  }
-  if (Object.keys(agentHashes).length === 0)
+  const servers = options && Object.keys(options.servers).length > 0 ? options.servers : undefined;
+  if (agents === undefined && environments === undefined && servers === undefined)
     return actions === undefined ? undefined : stableStringify(actions);
-  return stableStringify({ actions, agents: agentHashes });
+  return stableStringify({ actions, agents, environments, servers });
 }
 
 /** JSON with sorted keys and undefined dropped, so equal definitions hash equal. */

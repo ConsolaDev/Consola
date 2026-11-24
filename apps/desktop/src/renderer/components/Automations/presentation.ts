@@ -889,8 +889,9 @@ export function approvalStep(
         .filter((step) => !runs.includes(step) && step.kind !== 'repeat')
         .map((step) => step.id);
       const agents = runs.filter((step) => step.kind === 'agent').map((step) => step.id);
-      const commands = runs.filter((step) => step.kind === 'run').map((step) => step.id);
-      // Two groups, said apart: an agent step is read-only, a command runs as the person.
+      // A call's server starts as the person too, so a call marked `dry_run: run` is said with the commands.
+      const commands = runs.filter((step) => step.kind !== 'agent').map((step) => step.id);
+      // Two groups, said apart: an agent step is read-only, a command or a call runs as the person.
       const groups = [
         ...(agents.length > 0 ? [`${agents.join(' and ')} read-only`] : []),
         ...(commands.length > 0 ? [`${commands.join(' and ')} as you`] : []),

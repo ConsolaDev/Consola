@@ -4,6 +4,8 @@ import { cronError } from './cron';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
+import { ENTRY_SECRETS_REASON } from './secrets';
+import { ENTRY_USES_REASON } from './uses';
 import {
   ACTION_ON_KEYED_POLL,
   checkSteps,
@@ -158,7 +160,7 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
 
   if (kind === 'poll' || kind === 'manual') {
     let reported = false;
-    const report = (message: string, path: string[] = []) => {
+    const report = (message: string, path: Array<string | number> = []) => {
       reported = true;
       ctx.addIssue({ code: 'custom', message, path });
     };
@@ -410,6 +412,8 @@ function automationEntrySchema() {
       agent: explained('`agent:` goes on a step, not on the automation.'),
       skills: explained(ENTRY_SKILLS_AND_SERVERS),
       mcpServers: explained(ENTRY_SKILLS_AND_SERVERS),
+      secrets: explained(ENTRY_SECRETS_REASON),
+      uses: explained(ENTRY_USES_REASON),
       // Control flow belongs to the steps, so an entry says where it goes.
       gate: explained('A gate is a step; put it in `steps:`.'),
       repeat: explained('A loop is a step; put it in `steps:`.'),
@@ -607,10 +611,9 @@ export const fileSchema = z
       .array(z.unknown())
       .nullish()
       .transform((automations) => automations ?? []),
+    // Read server by server after the envelope (`parseMcpServers`), so one broken server is an issue at its own key.
+    mcpServers: z.unknown().optional(),
     // Top-level keys a later slice owns, refused with what each arrives with.
-    mcpServers: explained(
-      'Inline server definitions arrive with connections as data. Name a server the harness already has in an agent file.',
-    ),
     // The repositories this factory may write, each `owner/name` (slice 3-B).
     repos: reposSchema(),
     policy: explained('`policy` arrives with shared factories; it is not supported yet.'),
@@ -618,7 +621,7 @@ export const fileSchema = z
     defaults: explained('`defaults` arrives with shared factories; it is not supported yet.'),
     name: explained('`name` arrives with shared factories; it is not supported yet.'),
     connections: explained(
-      '`connections` arrives with connections as data; it is not supported yet.',
+      '`connections` arrives with connection manifests, the second part of connections as data.',
     ),
   })
   .strict();

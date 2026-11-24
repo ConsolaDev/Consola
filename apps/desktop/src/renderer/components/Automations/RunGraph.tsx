@@ -12,12 +12,14 @@ import {
   Inbox,
   LoaderCircle,
   Play,
+  Plug,
   ScanSearch,
   SquareTerminal,
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
 import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
+import { stepKindLabel } from './callWords';
 import { formatElapsed } from './presentation';
 import {
   foundNothingToDo,
@@ -242,8 +244,15 @@ function stageView(
                     ? 'Skipped'
                     : 'Next';
       return {
-        icon: step.kind === 'agent' ? Bot : step.kind === 'gate' ? Hand : SquareTerminal,
-        kicker: step.kind === 'agent' ? 'Agent step' : step.kind === 'gate' ? 'Gate' : 'Command',
+        icon:
+          step.kind === 'agent'
+            ? Bot
+            : step.kind === 'gate'
+              ? Hand
+              : step.kind === 'uses'
+                ? Plug
+                : SquareTerminal,
+        kicker: step.kind === 'agent' ? 'Agent step' : stepKindLabel(step.kind),
         title: step.id,
         outcome,
       };

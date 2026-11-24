@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from './parse';
+import { secretTemplateReason } from './secrets';
 
 /** One entry, its fields indented under `- name: a`. */
 const one = (fields: string) =>
@@ -126,12 +127,66 @@ describe('on: poll', () => {
     expect(issues(poll('every: 30m, run: x, key: .id, filter: y'))).toEqual([
       [
         'automations[0].on.poll.filter',
-        'Unrecognized key in `poll`: filter. Expected run, every, key, item, changed or timeout.',
+        'Unrecognized key in `poll`: filter. Expected run, every, key, item, changed, timeout or secrets.',
       ],
     ]);
     expect(
       issues(one(`    on: { poll: { ${POLL_BASE} }, extra: 1 }\n${RUN}    scope: api\n`)),
     ).toEqual([['automations[0].on.extra', 'A poll trigger takes no parameters; remove `extra`.']]);
+  });
+
+  it('names the secrets its check command needs', () => {
+    const named = poll('run: x, every: 5m, key: .id, secrets: [TRACKER_TOKEN]');
+    expect(named.issues).toEqual([]);
+    expect(named.automations[0].trigger).toMatchObject({
+      kind: 'poll',
+      secrets: ['TRACKER_TOKEN'],
+    });
+    expect('secrets' in poll(POLL_BASE).automations[0].trigger).toBe(false);
+    expect('secrets' in poll(`${POLL_BASE}, secrets: []`).automations[0].trigger).toBe(false);
+  });
+
+  it("refuses a check's secret as a step's", () => {
+    expect(issues(poll(`${POLL_BASE}, secrets: [GH_TOKEN]`))).toEqual([
+      [
+        'automations[0].on.poll.secrets[0]',
+        "Commands act as the workspace's bound GitHub account, whose token Consola puts in `GH_TOKEN` (decision 37). To act as another account, bind it to the workspace.",
+      ],
+    ]);
+    expect(issues(poll(`${POLL_BASE}, secrets: x`))).toEqual([
+      [
+        'automations[0].on.poll.secrets',
+        'Expected `secrets` to be a list of names, e.g. `secrets: [PAGERDUTY_TOKEN]`.',
+      ],
+    ]);
+  });
+
+  it.each(['uses', 'with', 'items'])('refuses %s until polls by MCP tool', (key) => {
+    expect(issues(poll(`${POLL_BASE}, ${key}: x`))).toEqual([
+      [
+        `automations[0].on.poll.${key}`,
+        `\`${key}\` in a poll arrives with polls by MCP tool; it is not supported yet.`,
+      ],
+    ]);
+  });
+
+  it('refuses an unknown key beside one that arrives later, each with its reason', () => {
+    expect(issues(poll(`${POLL_BASE}, uses: x, foo: 1`))).toEqual([
+      [
+        'automations[0].on.poll.uses',
+        '`uses` in a poll arrives with polls by MCP tool; it is not supported yet.',
+      ],
+      [
+        'automations[0].on.poll.foo',
+        'Unrecognized key in `poll`: foo. Expected run, every, key, item, changed, timeout or secrets.',
+      ],
+    ]);
+  });
+
+  it('says how a secret reaches a check command', () => {
+    expect(issues(poll('every: 30m, run: "echo {{secrets.TRACKER_TOKEN}}", key: .id'))).toEqual([
+      ['automations[0].on.poll.run', secretTemplateReason('TRACKER_TOKEN')],
+    ]);
   });
 
   it('refuses filter: on a poll, saying where it goes', () => {

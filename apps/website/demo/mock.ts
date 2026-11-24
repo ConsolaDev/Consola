@@ -903,6 +903,12 @@ export function installMock() {
     readArtifact: async () => null,
     openRunCheckout: automationsUnavailable,
     retry: automationsUnavailable,
+    checkServer: async (_workspaceId: string, _name: string, server: string) => ({
+      server,
+      at: new Date().toISOString(),
+      steps: [],
+      problem: 'The demo starts no servers.',
+    }),
     getGate: async () => null,
     answerGate: automationsUnavailable,
     stop: async () => {},
@@ -920,6 +926,12 @@ export function installMock() {
       { id: 'finder', label: 'Finder', kind: 'file-manager' },
     ],
     open: async () => ({ ok: true }),
+  };
+  // The demo has no secrets: no automation names one, and nothing is bound.
+  const secretsAPI: Window['secretsAPI'] = {
+    list: async () => ({ secrets: [] }),
+    bind: async () => undefined,
+    unbind: async () => undefined,
   };
   const browserAPI = browserMock({
     snapshots: browserEvents,
@@ -942,6 +954,7 @@ export function installMock() {
     dialogAPI,
     conductorAPI,
     automationsAPI,
+    secretsAPI,
     browserAPI,
     openInAPI,
   };

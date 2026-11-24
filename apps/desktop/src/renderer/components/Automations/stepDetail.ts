@@ -25,16 +25,29 @@ export interface VariableRow {
   long: boolean;
   /** The file wrote a template (`{{…}}`), so the value came from somewhere worth naming. */
   templated: boolean;
+  /** A secret: its value is never shown, only where it was bound when the step ran. */
+  secret?: true;
 }
 
+/** A command's `env:` rows in file order, then one per secret it was given, by name (Call 9). */
 export function variableRows(command: CommandFile): VariableRow[] {
-  return command.env.map(({ name, template, value }) => ({
+  const env = command.env.map(({ name, template, value }) => ({
     name,
     template,
     value,
     long: value.length > LONG_VALUE || value.includes('\n'),
     templated: template !== value,
   }));
+  const secrets = (command.secrets ?? []).map(({ name, bound }) => ({
+    name,
+    template: '',
+    // A dry run's command names its secrets but reads none, so it has no binding to name.
+    value: bound !== undefined ? `secret, from ${bound}` : 'secret',
+    long: false,
+    templated: false,
+    secret: true as const,
+  }));
+  return [...env, ...secrets];
 }
 
 /** An earlier attempt's status in the words a person uses: one that did not run did not fail. */
@@ -417,6 +430,7 @@ export function diffMarkdown(patch: string): string {
 export function artifactNote(name: string, kind: StepRun['kind']): string | null {
   if (name === 'handover') return 'what it handed to the steps after it';
   if (name === 'output' && kind === 'run') return 'its stdout, kept for the steps after it';
+  if (name === 'output' && kind === 'uses') return 'its result, kept for the steps after it';
   return null;
 }
 
@@ -426,13 +440,18 @@ export function artifactNote(name: string, kind: StepRun['kind']): string | null
  * why it did not run; where a parked row waits (`waiting for you at
  * decide`, `retries at 10:42`); how a person answered a gate (`answered
  * comment by you 5m ago`, from `now`); how a loop ended (its note). Null
- * where the row's outcome already says it all.
+ * where the row's outcome already says it all. A call names its tool
+ * (`ref`, `<server>#<tool>` from the run's definition) while it calls, once
+ * it called and under a dry run; without it, a call reads as a command's
+ * outputs do.
  */
 export function stepSummary(
   step: StepRun,
   run: Pick<RunRecord, 'status' | 'steps' | 'startedAt'>,
+  ref?: string,
   now: Date = new Date(),
 ): string | null {
+  const call = step.kind === 'uses' && ref !== undefined ? `\`${ref}\`` : null;
   const tone = stepTone(step, runIsOver(run.status));
   switch (tone) {
     case 'asks':
@@ -452,8 +471,10 @@ export function stepSummary(
       return `rejected by you${at ? ` ${formatAgo(at, now)}` : ''}`;
     }
     case 'reported':
+      if (call) return `Would have called ${call}`;
       return step.note ?? 'A dry run: it was not run';
     case 'running':
+      if (call) return `Calling ${call}`;
       if (step.kind !== 'agent') return null;
       // A write step (slice 3-B) works in its run's own checkout, never read-only.
       return step.tools !== undefined
@@ -467,7 +488,7 @@ export function stepSummary(
       if (answer?.decision !== undefined)
         return `answered ${answer.decision} by you${answer.at ? ` ${formatAgo(answer.at, now)}` : ''}`;
       if (step.note) return step.note;
-      const parts: string[] = [];
+      const parts: string[] = call ? [`Called ${call}`] : [];
       const outputs = Object.entries(step.outputs ?? {});
       if (outputs.length > 0)
         parts.push(
@@ -478,6 +499,8 @@ export function stepSummary(
         if (artifact.name === 'handover') parts.push(`wrote its handover (${size})`);
         else if (artifact.name === 'output' && step.kind === 'run')
           parts.push(`kept its stdout as output (${size})`);
+        else if (artifact.name === 'output' && step.kind === 'uses')
+          parts.push(`kept its result as output (${size})`);
         else parts.push(`wrote ${artifact.name} (${size})`);
       }
       if (parts.length === 0 && step.kind === 'run') {

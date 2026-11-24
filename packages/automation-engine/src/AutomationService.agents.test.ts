@@ -225,7 +225,7 @@ describe('a step that names an agent', () => {
     expect(h.service.snapshot(WORKSPACE_ID).notices).toEqual([
       {
         message:
-          '`connections/` is read from slice 5 (connections as data); its files have no effect yet.',
+          '`connections/` is read once connection manifests arrive; its files have no effect yet.',
       },
       { file: REVIEWER_FILE, line: 3, message: warning },
     ]);

@@ -28,6 +28,8 @@ import {
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
+import { useCallRefs } from './CallDetail';
+import { stepKindLabel } from './callWords';
 import { RunAgainButton, useIntent } from './parts';
 import { checkoutLines } from './runCheckout';
 import { GateCard } from './GateCard';
@@ -124,6 +126,11 @@ export function StepsRunView({
   if (openedNow !== opened) setOpened(openedNow);
   const isOpen = (stepId: string) => chosen[stepId] ?? openedNow.has(stepId);
   const allOpen = steps.length > 0 && steps.every((step) => isOpen(step.id));
+  // What each call's row names: its tool, from the run's own definition.
+  const callRefs = useCallRefs(
+    run.id,
+    steps.some((step) => step.kind === 'uses'),
+  );
   const rows = traceRows(run, isStepsRunPreview(run.result) ? loopsOf(run.result) : {});
   const rejected = rejectedWords(run);
   // Held in line by another run that waits for the person at a gate on the same item.
@@ -260,7 +267,11 @@ export function StepsRunView({
       {run.status === 'needs-approval' ? (
         <section className="automations-detail-section" aria-label="Waiting for your approval">
           <h3 className="automations-section-title">Waiting for your approval</h3>
-          <StepsApprovalCard runId={run.id} itemType={run.trigger.item?.type ?? null} />
+          <StepsApprovalCard
+            workspaceId={workspace.id}
+            runId={run.id}
+            itemType={run.trigger.item?.type ?? null}
+          />
         </section>
       ) : (
         steps.length > 0 && (
@@ -291,6 +302,7 @@ export function StepsRunView({
                     rowId={rowId}
                     workspace={workspace}
                     run={run}
+                    callRefs={callRefs}
                     now={now}
                     isOpen={isOpen}
                     onToggle={(stepId) =>
@@ -304,6 +316,7 @@ export function StepsRunView({
                     workspace={workspace}
                     run={run}
                     step={row.row}
+                    callRef={callRefs[row.row.id]}
                     now={now}
                     open={isOpen(row.row.id)}
                     onToggle={() =>
@@ -407,13 +420,6 @@ function opensItself(step: StepRun): boolean {
 }
 
 /** A row's kind, as the trace names it. */
-function kindWord(step: StepRun): string {
-  if (step.kind === 'agent') return 'Agent';
-  if (step.kind === 'gate') return 'Gate';
-  if (step.kind === 'repeat') return 'Loop';
-  return 'Command';
-}
-
 /**
  * A loop in the trace: its own row (`polish · round 2 of 3`, then how it
  * ended once it did), opening onto its exhaustion gate's card when it asked
@@ -424,6 +430,7 @@ function LoopRow({
   rowId,
   workspace,
   run,
+  callRefs,
   now,
   isOpen,
   onToggle,
@@ -432,6 +439,8 @@ function LoopRow({
   rowId: (stepId: string) => string;
   workspace: Workspace;
   run: RunRecord;
+  /** What each call's row names: its tool, from the run's own definition. */
+  callRefs: Readonly<Record<string, string>>;
   now: Date;
   isOpen: (stepId: string) => boolean;
   onToggle: (stepId: string) => void;
@@ -498,6 +507,7 @@ function LoopRow({
               workspace={workspace}
               run={run}
               step={step}
+              callRef={callRefs[step.id]}
               now={now}
               open={isOpen(step.id)}
               onToggle={() => onToggle(step.id)}
@@ -527,6 +537,7 @@ function StepRow({
   workspace,
   run,
   step,
+  callRef,
   now,
   open,
   onToggle,
@@ -535,6 +546,8 @@ function StepRow({
   workspace: Workspace;
   run: RunRecord;
   step: StepRun;
+  /** A call's `<server>#<tool>`, once the run's definition is read. */
+  callRef: string | undefined;
   now: Date;
   open: boolean;
   onToggle: () => void;
@@ -542,7 +555,7 @@ function StepRow({
   const tone = stepTone(step, runIsOver(run.status));
   const ms = durationOf(step, now);
   const outcome = stepOutcome(tone, ms);
-  const summary = stepSummary(step, run, now);
+  const summary = stepSummary(step, run, callRef, now);
   const rounds = roundsLine(step);
   const Icon = TONE_ICONS[tone];
   const bodyId = `${id}-body`;
@@ -575,7 +588,7 @@ function StepRow({
           <span className="automations-trace-main">
             <span className="automations-trace-name">
               <span className="automations-trace-id">{step.id}</span>
-              <span className="automations-trace-kind">{kindWord(step)}</span>
+              <span className="automations-trace-kind">{stepKindLabel(step.kind)}</span>
             </span>
             {summary && !open && <span className="automations-trace-summary">{summary}</span>}
           </span>

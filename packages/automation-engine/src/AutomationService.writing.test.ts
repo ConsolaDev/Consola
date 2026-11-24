@@ -1969,3 +1969,26 @@ describe('the run page, its pipeline and a restart’s notice (Task 22)', () => 
     expect(only.steps![0]).not.toHaveProperty('writes');
   });
 });
+
+describe("a path artifact holds no value of the run's secrets (the merge with slice 5a)", () => {
+  it('is copied into the run folder masked, as every file Consola writes there is', async () => {
+    const VALUE = 'stub-pager-secret-7f3a';
+    const yaml = file(
+      `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: page\n  run: page --service api\n  secrets: [PAGER_TOKEN]', '- id: fix\n  agent: fixer\n  prompt: Fix it.\n  artifacts: [{ name: notes, path: "docs/notes.md" }]')}`,
+    );
+    const h = await writing(yaml, {
+      secrets: {
+        bindings: { PAGER_TOKEN: { ref: 'keychain:consola/ws-1/personal/PAGER_TOKEN' } },
+        values: { PAGER_TOKEN: VALUE },
+      },
+    });
+    h.world.runCheckouts.showAnswers = [{ ok: true, text: `token: ${VALUE}\n` }];
+    const run = await runNow(h, 'write');
+    await h.world.commands[0].end();
+    await h.world.endTurn(lastSession(h), { exitCode: 0 });
+    expect(stepOf(h, run.id, 'fix').status).toBe('completed');
+    expect(h.service.readArtifact(run.id, { step: 'fix', name: 'notes' })?.content).toBe(
+      'token: ***\n',
+    );
+  });
+});

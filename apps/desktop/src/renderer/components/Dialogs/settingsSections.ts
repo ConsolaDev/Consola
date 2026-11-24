@@ -22,6 +22,7 @@ export type WorkspaceSectionId =
   | 'actions'
   | 'labels'
   | 'worktrees'
+  | 'secrets'
   | 'browser'
   | 'danger';
 
@@ -45,6 +46,7 @@ export const WORKSPACE_GROUP: readonly WorkspaceSectionId[] = [
   'actions',
   'labels',
   'worktrees',
+  'secrets',
   'browser',
   'danger',
 ];

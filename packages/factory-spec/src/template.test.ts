@@ -3,6 +3,7 @@ import {
   hasTemplateBraces,
   parseTemplate,
   renderTemplate,
+  secretPathProblem,
   templatePaths,
   type TemplatePart,
   type TemplatePath,
@@ -15,6 +16,21 @@ function parts(text: string): TemplatePart[] {
 }
 
 describe('parseTemplate', () => {
+  it('says a secret is no template path, naming it', () => {
+    expect(parseTemplate('{{secrets.PAGER_TOKEN}}')).toEqual({
+      ok: false,
+      problem: secretPathProblem('PAGER_TOKEN'),
+    });
+    expect(secretPathProblem('PAGER_TOKEN')).toBe(
+      'a secret reaches a command only as its own variable: add `secrets: [PAGER_TOKEN]` and use `$PAGER_TOKEN`',
+    );
+    expect(parseTemplate('x {{ secrets }} y')).toEqual({
+      ok: false,
+      problem: secretPathProblem('NAME'),
+    });
+    expect(parseTemplate('{{item.title}} {{steps.a.b}}').ok).toBe(true);
+  });
+
   it('parses paths and text', () => {
     expect(parts('PR {{ item.url }} by {{steps.review.verdict}}')).toEqual([
       { kind: 'text', text: 'PR ' },

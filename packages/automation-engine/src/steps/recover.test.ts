@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { RunRecord, StepRun } from '@consola/factory-spec';
 import {
+  CALL_SETTLE_INTERRUPTED,
+  INTERRUPTED_CALL,
   INTERRUPTED_COMMAND,
   INTERRUPTED_WRITE,
   isEngineRun,
@@ -257,6 +259,79 @@ describe('recoverAfterRestart', () => {
     expect(isEngineRun(base({ result: { kind: 'steps-run' } }))).toBe(true);
     expect(isEngineRun(base({ result: { kind: 'other' } }))).toBe(false);
     expect(isEngineRun(base())).toBe(false);
+  });
+});
+
+describe('recoverAfterRestart: a call (5a-2 Task 9)', () => {
+  const callStep = (call: StepRun['call'], fields: Partial<StepRun> = {}): StepRun => ({
+    id: 'post',
+    kind: 'uses',
+    status: 'running',
+    attempt: 1,
+    ...(call ? { call } : {}),
+    ...fields,
+  });
+  const after: StepRun = { id: 'tail', kind: 'run', status: 'pending', attempt: 1 };
+
+  it('fails a call cut off after its intent, and never calls it again', () => {
+    const recovered = recoverAfterRestart(
+      stepsRun([callStep({ intentAt: EARLIER, server: { pgid: 4242, startedAt: 'x' } }), after]),
+      NOW,
+    )!;
+    expect(recovered.status).toBe('failed');
+    expect(recovered.error).toBe(INTERRUPTED_CALL);
+    expect(recovered.steps).toEqual([
+      expect.objectContaining({
+        id: 'post',
+        status: 'failed',
+        error: INTERRUPTED_CALL,
+        finishedAt: NOW,
+      }),
+      { ...after, status: 'not-run' },
+    ]);
+  });
+
+  it('says it happened when its answer was recorded', () => {
+    const recovered = recoverAfterRestart(
+      stepsRun([callStep({ intentAt: EARLIER, resultAt: EARLIER, resultBytes: 9 }), after]),
+      NOW,
+    )!;
+    expect(recovered.error).toBe(CALL_SETTLE_INTERRUPTED);
+    expect(recovered.steps![0]).toMatchObject({ status: 'failed', error: CALL_SETTLE_INTERRUPTED });
+  });
+
+  it('puts one with no intent back in line, the run still running', () => {
+    const recovered = recoverAfterRestart(
+      stepsRun([callStep({ server: { pgid: 4242, startedAt: 'x' } }), after]),
+      NOW,
+    )!;
+    expect(recovered.status).toBe('running');
+    expect(recovered.steps![0].status).toBe('queued');
+  });
+
+  it('fails at a cut-off command before a running call, the call not run', () => {
+    const command: StepRun = {
+      id: 'page',
+      kind: 'run',
+      status: 'running',
+      attempt: 1,
+      command: { envNames: [], intentAt: EARLIER },
+    };
+    const recovered = recoverAfterRestart(
+      stepsRun([command, { ...callStep(undefined), status: 'pending' }]),
+      NOW,
+    )!;
+    expect(recovered.error).toBe(INTERRUPTED_COMMAND);
+    expect(recovered.steps![1].status).toBe('not-run');
+  });
+
+  it('pins the interrupted-call copy', () => {
+    expect(INTERRUPTED_CALL).toBe(
+      'Interrupted: Consola quit while this call was in flight. It may or may not have happened; check, then retry.',
+    );
+    expect(CALL_SETTLE_INTERRUPTED).toBe(
+      "Consola quit while recording this call's result. It happened; check what it did, then retry.",
+    );
   });
 });
 

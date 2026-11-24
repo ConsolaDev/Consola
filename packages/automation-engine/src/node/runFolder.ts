@@ -13,6 +13,13 @@ import { workspaceDataDir } from './factoryFolder';
 const TOKEN = /^[A-Za-z0-9_-]+$/;
 const LEGACY_STEP = /^step-\d+$/;
 const DEFAULT_TAIL_BYTES = 64 * 1024;
+/** The JSON files an attempt's folder holds: a command's, its outputs, and a call's (`call.json`, `result.json`). */
+const RUN_JSON_FILES: readonly string[] = [
+  'command.json',
+  'outputs.json',
+  'call.json',
+  'result.json',
+];
 /** The most a definition snapshot may hold; larger is refused on write so it can always be read back. */
 export const MAX_DEFINITION_BYTES = 16 * 1024 * 1024;
 
@@ -339,9 +346,12 @@ export class RunFolder implements RunFolderPort {
     );
   }
 
-  public writeJson(dir: string, file: 'command.json' | 'outputs.json', value: unknown): void {
-    if (file !== 'command.json' && file !== 'outputs.json')
-      throw new Error(`Not a run file: ${JSON.stringify(file)}.`);
+  public writeJson(
+    dir: string,
+    file: 'command.json' | 'outputs.json' | 'call.json' | 'result.json',
+    value: unknown,
+  ): void {
+    if (!RUN_JSON_FILES.includes(file)) throw new Error(`Not a run file: ${JSON.stringify(file)}.`);
     writeAtomically(path.join(this.confine(dir), file), JSON.stringify(value));
   }
 
@@ -421,6 +431,10 @@ export class RunFolder implements RunFolderPort {
     file = this.confine(file);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, '');
+  }
+
+  public writeText(file: string, text: string): void {
+    writeAtomically(this.confine(file), text);
   }
 
   public exists(file: string): boolean {

@@ -68,6 +68,55 @@ describe('variableRows', () => {
     expect(variableRows(env('a'.repeat(301)))[0].long).toBe(true);
     expect(variableRows(env('one\ntwo'))[0].long).toBe(true);
   });
+
+  it('lists each secret after the env: rows, by name and where it was bound, never a value', () => {
+    const rows = variableRows({
+      cwd: '/work',
+      command: 'page "$PAGER_TOKEN"',
+      env: [
+        { name: 'REPO', template: 'sprocket/catalog-portal', value: 'sprocket/catalog-portal' },
+      ],
+      secrets: [{ name: 'PAGER_TOKEN', bound: 'your login environment (STUB_PAGER_TOKEN)' }],
+    });
+    expect(rows.map((row) => row.name)).toEqual(['REPO', 'PAGER_TOKEN']);
+    expect(rows[1]).toEqual({
+      name: 'PAGER_TOKEN',
+      template: '',
+      value: 'secret, from your login environment (STUB_PAGER_TOKEN)',
+      long: false,
+      templated: false,
+      secret: true,
+    });
+  });
+
+  it('reads a dry run’s secret, which names no binding, as a secret', () => {
+    const [row] = variableRows({
+      cwd: '/work',
+      command: 'page',
+      env: [],
+      secrets: [{ name: 'PAGER_TOKEN' }],
+    });
+    expect(row).toEqual({
+      name: 'PAGER_TOKEN',
+      template: '',
+      value: 'secret',
+      long: false,
+      templated: false,
+      secret: true,
+    });
+  });
+
+  it('gives a command with no secrets exactly the rows it had', () => {
+    const rows = variableRows({
+      cwd: '/work',
+      command: 'gh pr review "$PR"',
+      env: [{ name: 'PR', template: '{{ item.number }}', value: '51' }],
+    });
+    expect(rows).toEqual([
+      { name: 'PR', template: '{{ item.number }}', value: '51', long: false, templated: true },
+    ]);
+    expect('secret' in rows[0]).toBe(false);
+  });
 });
 
 describe('attemptsLine', () => {
@@ -346,6 +395,57 @@ describe('stepSummary', () => {
   });
 });
 
+describe('stepSummary of a call (5a-2)', () => {
+  const REF = 'slack#chat_post_message';
+  const call = (overrides: Partial<StepRun>) => step({ id: 'post', kind: 'uses', ...overrides });
+
+  it('says it is calling, called, or would have called its tool', () => {
+    expect(stepSummary(call({ status: 'running' }), run({ status: 'running' }), REF)).toBe(
+      'Calling `slack#chat_post_message`',
+    );
+    expect(stepSummary(call({ status: 'reported' }), run(), REF)).toBe(
+      'Would have called `slack#chat_post_message`',
+    );
+    expect(
+      stepSummary(
+        call({ outputs: { ts: '1700000000.0001' }, artifacts: [{ name: 'output', bytes: 2365 }] }),
+        run(),
+        REF,
+      ),
+    ).toBe(
+      'Called `slack#chat_post_message` · set ts = 1700000000.0001 · kept its result as output (2.3 KB)',
+    );
+    expect(stepSummary(call({}), run(), REF)).toBe('Called `slack#chat_post_message`');
+  });
+
+  it('says what a call left without its ref, as a command would', () => {
+    expect(stepSummary(call({ status: 'running' }), run({ status: 'running' }))).toBeNull();
+    expect(stepSummary(call({ status: 'reported' }), run())).toBe('A dry run: it was not run');
+    expect(stepSummary(call({ outputs: { ts: 'x' } }), run())).toBe('Set ts = x');
+  });
+
+  it('gives a failed call its error word for word, and leaves a command as it was', () => {
+    expect(
+      stepSummary(
+        call({
+          status: 'failed',
+          error: "Couldn't reach `slack`: spawn npx ENOENT. Nothing was sent.",
+        }),
+        run({ status: 'failed' }),
+        REF,
+      ),
+    ).toBe("Couldn't reach `slack`: spawn npx ENOENT. Nothing was sent.");
+    expect(stepSummary(step({ id: 'size', outputs: { files: 6 } }), run(), REF)).toBe(
+      'Set files = 6',
+    );
+    expect(stepSummary(step({ status: 'running' }), run({ status: 'running' }), REF)).toBeNull();
+  });
+
+  it('says what a call’s output artifact is for', () => {
+    expect(artifactNote('output', 'uses')).toBe('its result, kept for the steps after it');
+  });
+});
+
 describe('failureWords', () => {
   it('reads an exit code and the last stderr line out of a command failure', () => {
     expect(failureWords('exit 3: touch ~/.ok first')).toEqual({
@@ -600,6 +700,7 @@ describe('gates, retries and loops in the trace', () => {
       stepSummary(
         gateRow('completed', { askedAt: T1, decision: 'comment', by: 'person', at: T1 }),
         run(),
+        undefined,
         NOW,
       ),
     ).toBe('answered comment by you 5m ago');
@@ -620,11 +721,11 @@ describe('gates, retries and loops in the trace', () => {
     const ended = run({ status: 'rejected' });
     expect(stepTone(gate, true)).toBe('rejected');
     expect(stepOutcome('rejected', null)).toBe('Rejected');
-    expect(stepSummary(gate, ended, NOW)).toBe('rejected by you 5m ago');
+    expect(stepSummary(gate, ended, undefined, NOW)).toBe('rejected by you 5m ago');
     // A loop rejected at its exhaustion gate: its row is completed with the decision, and no note.
     const loop = step({ id: 'polish', kind: 'repeat', status: 'completed', gate: rejected });
     expect(stepTone(loop, true)).toBe('rejected');
-    expect(stepSummary(loop, ended, NOW)).toBe('rejected by you 5m ago');
+    expect(stepSummary(loop, ended, undefined, NOW)).toBe('rejected by you 5m ago');
     // An approved one still passes.
     expect(stepTone(gateRow('completed', { ...rejected, decision: 'approve' }), true)).toBe(
       'passed',
@@ -780,11 +881,11 @@ describe("what a write step's detail opens (slice 3-B Task 22)", () => {
 
   it('a running write step is not said to work read-only', () => {
     const run = { status: 'running' as const, steps: [], startedAt: NOW.toISOString() };
-    expect(stepSummary(step({ kind: 'agent', status: 'running' }), run, NOW)).toBe(
+    expect(stepSummary(step({ kind: 'agent', status: 'running' }), run, undefined, NOW)).toBe(
       'Working in a read-only session',
     );
-    expect(stepSummary(step({ kind: 'agent', status: 'running', tools: 'write' }), run, NOW)).toBe(
-      "Working in this run's checkout",
-    );
+    expect(
+      stepSummary(step({ kind: 'agent', status: 'running', tools: 'write' }), run, undefined, NOW),
+    ).toBe("Working in this run's checkout");
   });
 });

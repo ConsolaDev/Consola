@@ -498,6 +498,7 @@ declare global {
     harnessStateAPI: HarnessStateAPI;
     windowAPI: WindowAPI;
     automationsAPI: import('./automations').AutomationsAPI;
+    secretsAPI: import('./secrets').SecretsAPI;
   }
 }
 

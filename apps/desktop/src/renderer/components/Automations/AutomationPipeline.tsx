@@ -13,6 +13,7 @@ import {
   Inbox,
   LoaderCircle,
   MousePointerClick,
+  Plug,
   Repeat,
   ScanSearch,
   UserCheck,
@@ -26,6 +27,7 @@ import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { agentStepFoot, nodeGrantsLine } from './agentGrantWords';
 import { gateChoicesWords, loopFoot } from './approvalCard';
+import { stepKindLabel } from './callWords';
 import { openFileWords, RUNNING_VERSION_NOTE, triggerNodeWords } from './checkWords';
 import { checkoutNode, writeChip } from './runCheckout';
 import {
@@ -231,9 +233,23 @@ export function PipelineGraph({
         state={
           entry.id === parkedAt ? 'waiting' : pathLit && entry === first ? targetState : undefined
         }
-        icon={entry.kind === 'agent' ? Bot : entry.kind === 'gate' ? UserCheck : Wrench}
-        kicker={entry.kind === 'agent' ? 'Agent step' : entry.kind === 'gate' ? 'Gate' : 'Command'}
-        title={entry.kind === 'run' ? <code>{entry.summary}</code> : entry.summary}
+        icon={
+          entry.kind === 'agent'
+            ? Bot
+            : entry.kind === 'gate'
+              ? UserCheck
+              : entry.kind === 'uses'
+                ? Plug
+                : Wrench
+        }
+        kicker={entry.kind === 'agent' ? 'Agent step' : stepKindLabel(entry.kind)}
+        title={
+          entry.kind === 'run' || entry.kind === 'uses' ? (
+            <code>{entry.summary}</code>
+          ) : (
+            entry.summary
+          )
+        }
         subtitle={
           entry.agent !== undefined && entry.agent !== entry.summary ? entry.agent : undefined
         }

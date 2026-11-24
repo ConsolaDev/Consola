@@ -2,12 +2,28 @@ import type {
   AutomationMode,
   FactoryNotice,
   FactorySpecIssue,
+  McpServerDefinition,
   RunRecord,
   RunStatus,
   StepRun,
   StepRunStatus,
 } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
+import type { ServerCheckView } from './servers/checkServer';
+import type { ServerFacts } from './servers/serverFacts';
+import type { CallView } from './steps/definition';
+
+/** A factory server an entry's calls use, as its page shows it: its facts, and how its last Check server went. */
+export interface ServerUseView extends ServerFacts {
+  /**
+   * The entry's version these facts are from: what Check server sends back,
+   * refused once the entry changed (`CHECK_STALE`). `AutomationView.version`
+   * is only a poll entry's waiting for Allow.
+   */
+  version: string;
+  lastCheck?: ServerCheckView;
+}
+import type { SecretBindingView } from './secrets/secretsView';
 
 /** One automation from a workspace's factory folder, as the app shows it. */
 /**
@@ -65,14 +81,15 @@ export interface AutomationView {
   target: string;
   /**
    * A `steps:` entry's steps in file order, as its pipeline draws them, problem or not.
-   * `summary` is "Prompt", "Review action", an agent-only step's agent, or a command's first line.
+   * `summary` is "Prompt", "Review action", an agent-only step's agent, a command's first line, or a call's
+   * `<server>#<tool>`.
    */
   steps?: Array<{
     id: string;
     /** `repeat`: a loop's own row; its steps follow it, each with `loop`. */
-    kind: 'agent' | 'run' | 'gate' | 'repeat';
+    kind: 'agent' | 'run' | 'gate' | 'repeat' | 'uses';
     if?: string;
-    summary: string /** A command marked `dry_run: run`: it runs when the run only reports. */;
+    summary: string /** A command or a call marked `dry_run: run`: it runs when the run only reports. */;
     dryRun?: true;
     /** A gate's question, as written. */
     ask?: string;
@@ -135,6 +152,10 @@ export interface AutomationView {
    * action, scope or event, or arguments the tool rejects.
    */
   problem?: string;
+  /** The names its problem says are not bound: its row offers Bind…. */
+  unbound?: string[];
+  /** The factory servers its calls use, for the page's Check server; absent when none. */
+  servers?: ServerUseView[];
   /**
    * Its problem came from asking a harness's CLI about servers (a probe
    * that failed, or a server refused against its answer): Check again asks
@@ -319,6 +340,10 @@ export interface EntryAgentsView {
   /** Its runs carry an item, text other people wrote (`entryReadsItems`): the Allow card's item line (review B3). */
   readsItems: boolean;
   agents: EntryAgentView[];
+  /** The factory servers its calls use, each once in step order, as the version holds them; absent when none. */
+  servers?: McpServerDefinition[];
+  /** Each `uses:` step's call, in step order; absent when it has none. */
+  calls?: Array<CallView & { step: string }>;
 }
 
 /** A factory folder that does not apply: the last applied version keeps running. */
@@ -484,6 +509,8 @@ export interface AutomationsSnapshot {
   templates: TemplateView[];
   /** Present only while the folder does not apply: the last applied version keeps running. */
   standing?: FactoryStanding;
+  /** The factory's secrets, for the cards: names, where each is bound and goes; absent when it names none and binds none. */
+  secrets?: SecretBindingView[];
 }
 
 /** A PR or issue, named the way the engine needs it: the provider is an opaque id here. */

@@ -143,11 +143,6 @@ automations:
   });
 
   it.each([
-    [
-      'mcpServers',
-      '[notion]',
-      'Inline server definitions arrive with connections as data. Name a server the harness already has in an agent file.',
-    ],
     ['policy', '{}', '`policy` arrives with shared factories; it is not supported yet.'],
     ['library', 'x', '`library` arrives with shared factories; it is not supported yet.'],
     ['defaults', '{}', '`defaults` arrives with shared factories; it is not supported yet.'],
@@ -155,12 +150,97 @@ automations:
     [
       'connections',
       '[]',
-      '`connections` arrives with connections as data; it is not supported yet.',
+      '`connections` arrives with connection manifests, the second part of connections as data.',
     ],
   ])('refuses %s at the top level, at its line, loading nothing', (key, value, message) => {
     const result = parseFactorySpec(`${VALID}${key}: ${value}\n`);
     expect(result.automations).toEqual([]);
     expect(result.issues).toEqual([{ message, path: key, line: 8 }]);
+  });
+
+  it('reads mcpServers: into its servers, with no issue in the envelope', () => {
+    const text = `${VALID}mcpServers:
+  slack:
+    command: npx
+    args: [-y, "@sprocket/slack-mcp@1.4.2"]
+    secrets: [SLACK_BOT_TOKEN]
+`;
+    expect(parseFactorySpec(text)).toEqual(parseFactorySpec(VALID));
+    const read = parseFactoryYml(text);
+    expect(read.unreadable).toBe(false);
+    expect(read.issues).toEqual([]);
+    expect(read.servers).toEqual({
+      slack: {
+        name: 'slack',
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@sprocket/slack-mcp@1.4.2'],
+        env: {},
+        secrets: ['SLACK_BOT_TOKEN'],
+      },
+    });
+    expect(read.brokenServers).toEqual([]);
+    expect(read.serverNotices).toEqual([]);
+    expect(read.automations.map((automation) => automation.name)).toEqual([
+      'clean-up-stale-sessions',
+    ]);
+  });
+
+  it("reports a broken server at its key and line, and still loads the file's automations", () => {
+    const text = `${VALID}mcpServers:
+  slack:
+    command: npx
+    cwd: /Users/alice/catalog-portal
+  tracker:
+    url: https://mcp.tracker.sprocket.example/mcp
+`;
+    const read = parseFactoryYml(text);
+    expect(read.unreadable).toBe(false);
+    expect(read.issues).toEqual([
+      {
+        message: 'Consola decides where a server starts, and it is never a checkout.',
+        path: 'mcpServers.slack.cwd',
+        line: 11,
+        file: 'factory.yml',
+      },
+    ]);
+    expect(read.brokenServers).toEqual(['slack']);
+    expect(Object.keys(read.servers)).toEqual(['tracker']);
+    expect(read.automations.map((automation) => automation.name)).toEqual([
+      'clean-up-stale-sessions',
+    ]);
+    expect(parseFactorySpec(text).automations).toHaveLength(1);
+  });
+
+  it('refuses an mcpServers: that is not a mapping at mcpServers, loading the automations', () => {
+    const read = parseFactoryYml(`${VALID}mcpServers: [notion]\n`);
+    expect(read.unreadable).toBe(false);
+    expect(read.issues).toEqual([
+      {
+        message: 'Expected `mcpServers:` to be a mapping of server name to its definition.',
+        path: 'mcpServers',
+        line: 8,
+        file: 'factory.yml',
+      },
+    ]);
+    expect(read.servers).toEqual({});
+    expect(read.automations).toHaveLength(1);
+  });
+
+  it('keeps the unpinned warning apart from the issues, at the package', () => {
+    const read = parseFactoryYml(`${VALID}mcpServers:
+  slack:
+    command: npx
+    args: [-y, "@sprocket/slack-mcp"]
+`);
+    expect(read.issues).toEqual([]);
+    expect(read.serverNotices).toEqual([
+      {
+        message: 'This runs the newest version at every call, unattended; pin one.',
+        path: ['mcpServers', 'slack', 'args', 1],
+      },
+    ]);
+    expect(read.lineAt(read.serverNotices[0].path)).toBe(11);
   });
 
   it('leaves out an entry whose step names an agent, saying why, and loads the rest', () => {

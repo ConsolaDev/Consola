@@ -598,6 +598,40 @@ describe('retryWarningOf', () => {
   });
 });
 
+describe('retryWarningOf a call (5a-2)', () => {
+  const post = (changes: Partial<StepRun>) =>
+    stepOf({ id: 'post', kind: 'uses', status: 'failed', ...changes });
+  const PR = { type: 'pr' as const };
+
+  it("warns from the call's own record, before any command row", () => {
+    expect(retryWarningOf(post({ call: {} }), PR)).toBeNull();
+    expect(retryWarningOf(post({ call: { intentAt: ago(MINUTE) } }), PR)).toBe(
+      'This call may already have happened; check before calling it again.',
+    );
+    expect(
+      retryWarningOf(
+        post({ call: { intentAt: ago(MINUTE), resultAt: ago(MINUTE), landed: true } }),
+        PR,
+      ),
+    ).toBe('This call already happened.');
+    expect(
+      retryWarningOf(
+        post({ call: { intentAt: ago(MINUTE), resultAt: ago(MINUTE), isError: true } }),
+        undefined,
+      ),
+    ).toBe(
+      'The tool reported an error after it was called; it may have done part of its work. Check before calling it again.',
+    );
+    // A stopped call's words are a call's, never a command's.
+    expect(
+      retryWarningOf(
+        post({ error: 'Stopped while running: it may have done its work', call: {} }),
+        PR,
+      ),
+    ).toBeNull();
+  });
+});
+
 describe('runStages for a steps run', () => {
   it('an asked and approved run has trigger, approval, then a node per step', () => {
     const run = stepsRecord(

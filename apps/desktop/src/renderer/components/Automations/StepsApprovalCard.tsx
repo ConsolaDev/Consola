@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Bot, Hand, Repeat, Terminal } from 'lucide-react';
+import { Bot, Hand, KeyRound, Plug, Repeat, Terminal } from 'lucide-react';
 import type { RunDefinition, RunDefinitionView } from '../../../shared/automations';
+import { useSettings } from '../../contexts/SettingsContext';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ITEM_TEXT_LINE } from './agentGrantWords';
@@ -13,7 +14,10 @@ import {
   gateChoicesWords,
   loopFoot,
 } from './approvalCard';
+import { CallLines, ServerLines } from './CallLines';
+import { stepKindLabel } from './callWords';
 import { useIntent } from './parts';
+import { SecretLines, useEntrySecrets } from './SecretLines';
 import { WritesBlock } from './WritesBlock';
 
 type Loaded =
@@ -38,18 +42,24 @@ const FOLD_LINES = 8;
  * Reading the definition, and the step detail of a step whose agent names
  * skills (each `SKILL.md` as the run holds it: review M4), is all that
  * opening the card does. Start and Dismiss are the same approve and dismiss
- * intents the legacy card sends.
+ * intents the legacy card sends. Under the steps, the Secrets lines say
+ * where each secret goes and where this Mac binds it; while a name is unbound
+ * Start is Bind…, which opens Settings › Secrets.
  */
 export function StepsApprovalCard({
+  workspaceId,
   runId,
   itemType = null,
 }: {
+  /** The run's workspace, whose snapshot holds its secrets' bindings. */
+  workspaceId: string;
   runId: string;
   /** What the run's item is, for the pull request note; null for a scheduled run. */
   itemType?: 'pr' | 'issue' | null;
 }) {
   const [loaded, setLoaded] = useState<Loaded>({ state: 'loading' });
   const { busy, error, act } = useIntent();
+  const { openSettings } = useSettings();
 
   useEffect(() => {
     let live = true;
@@ -69,6 +79,8 @@ export function StepsApprovalCard({
 
   const ready = loaded.state === 'ready' ? loaded.definition : null;
   const dryRun = ready ? dryRunCommands(ready) : [];
+  // Its places come from the snapshot's uses of this entry (review S1), the definition's at any version a run can start.
+  const { unbound } = useEntrySecrets(workspaceId, ready?.automation.name ?? '');
 
   return (
     <div className="automations-approval" aria-label="What this run will do">
@@ -114,17 +126,40 @@ export function StepsApprovalCard({
           {dryRun.length > 0 && (
             <p className="automations-hint">Also runs in a dry run: {dryRun.join(', ')}</p>
           )}
+          {/* Each server its calls start or call, once: its definition is part of what is approved. */}
+          <ServerLines
+            calls={ready.automation.steps.flatMap((step) => {
+              const call = step.kind === 'uses' ? ready.calls?.[step.id] : undefined;
+              return call ? [call] : [];
+            })}
+          />
+          <SecretLines
+            workspaceId={workspaceId}
+            automation={ready.automation.name}
+            lineClassName="automations-hint"
+          />
         </>
       )}
       <div className="automations-card-actions">
-        <button
-          type="button"
-          className="dialog-button-primary automations-small-button"
-          disabled={busy !== null || !ready}
-          onClick={() => void act('approve', () => automationsBridge.approve(runId))}
-        >
-          {busy === 'approve' ? 'Starting…' : 'Start'}
-        </button>
+        {unbound ? (
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            onClick={() => openSettings('secrets')}
+          >
+            <KeyRound size={12} aria-hidden="true" />
+            Bind…
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            disabled={busy !== null || !ready}
+            onClick={() => void act('approve', () => automationsBridge.approve(runId))}
+          >
+            {busy === 'approve' ? 'Starting…' : 'Start'}
+          </button>
+        )}
         <button
           type="button"
           className="dialog-button-secondary automations-small-button"
@@ -200,7 +235,14 @@ function ApprovalStep({
   inner?: boolean;
 }) {
   // A gate asks a person and runs nothing: never drawn as a command.
-  const Icon = step.kind === 'agent' ? Bot : step.kind === 'gate' ? Hand : Terminal;
+  const Icon =
+    step.kind === 'agent'
+      ? Bot
+      : step.kind === 'gate'
+        ? Hand
+        : step.kind === 'uses'
+          ? Plug
+          : Terminal;
   // The agent it runs as, exactly as approved: who it is, then what this step asks.
   const agent = step.kind === 'agent' ? approvalAgent(definition, step.id) : null;
   const named = agent?.skills !== null && agent?.skills !== undefined;
@@ -211,11 +253,7 @@ function ApprovalStep({
         <Icon size={13} aria-hidden="true" />
         <span className="automations-approval-id">{step.id}</span>
         <span className="automations-meta">
-          {step.kind === 'agent'
-            ? (agent?.head ?? 'Agent, read-only')
-            : step.kind === 'gate'
-              ? 'Gate'
-              : 'Command'}
+          {step.kind === 'agent' ? (agent?.head ?? 'Agent, read-only') : stepKindLabel(step.kind)}
         </span>
       </div>
       {step.if !== undefined && (
@@ -255,7 +293,14 @@ function ApprovalStep({
           <Folded label={agent.file} text={agent.body} />
         </>
       )}
-      {step.kind === 'agent' ? (
+      {step.kind === 'uses' ? (
+        // The run's own snapshot of the call: what it sends, from where, with what trust.
+        definition.calls?.[step.id] ? (
+          <CallLines call={definition.calls[step.id]} outputs={Object.keys(step.outputs)} />
+        ) : (
+          <code className="automations-approval-code">{step.uses}</code>
+        )
+      ) : step.kind === 'agent' ? (
         step.action !== undefined ? (
           <>
             <div className="automations-approval-field">

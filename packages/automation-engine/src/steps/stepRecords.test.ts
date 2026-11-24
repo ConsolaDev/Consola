@@ -6,6 +6,7 @@ import type {
   RepeatStep,
   StepEntry,
   StepRun,
+  UsesStep,
 } from '@consola/factory-spec';
 import {
   closeSteps,
@@ -573,5 +574,53 @@ describe('withNextAttempt, with rounds', () => {
     expect(
       byId(withNextAttempt(rows, 'decide', { status: 'pending', nowIso: T2 }), 'decide').previous,
     ).toEqual([{ attempt: 1, status: 'completed', round: 2, decision: 'comment' }]);
+  });
+});
+
+describe('retrySteps (review M1)', () => {
+  it("drops the earlier attempt's call, so the next attempt starts with none", () => {
+    const failed: StepRun[] = [
+      {
+        id: 'post',
+        kind: 'uses',
+        status: 'failed',
+        attempt: 1,
+        error: '`slack#chat_post_message` reported an error: rate_limited.',
+        startedAt: AT,
+        finishedAt: AT,
+        call: {
+          server: { pgid: 4242, startedAt: 'Mon Nov 16 08:00:00 2026', ended: true },
+          intentAt: AT,
+          resultAt: AT,
+          resultBytes: 40,
+          isError: true,
+        },
+      },
+    ];
+    const entries: UsesStep[] = [
+      {
+        id: 'post',
+        named: true,
+        kind: 'uses',
+        uses: 'slack#chat_post_message',
+        server: 'slack',
+        tool: 'chat_post_message',
+        with: {},
+        outputs: {},
+        timeoutMs: 60_000,
+        dryRun: 'report',
+      },
+    ];
+    const [post] = retrySteps(failed, 'post', AT, entries);
+    expect(post).toMatchObject({ id: 'post', status: 'pending', attempt: 2 });
+    expect(Object.prototype.hasOwnProperty.call(post, 'call')).toBe(false);
+    expect(post.previous).toEqual([
+      {
+        attempt: 1,
+        status: 'failed',
+        error: '`slack#chat_post_message` reported an error: rate_limited.',
+        finishedAt: AT,
+      },
+    ]);
   });
 });

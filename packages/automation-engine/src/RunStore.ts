@@ -61,8 +61,8 @@ export class RunStore {
 
   /**
    * Read the state and every workspace's history, apply retention, and
-   * recover each run a quit cut off (`recoverAfterRestart`). Returns the
-   * runs this load recovered, as recorded.
+   * recover each run a quit or a crash cut off (`recoverAfterRestart`).
+   * Returns the runs this load recovered, as recorded.
    */
   public load(nowIso: string): RunRecord[] {
     let migrating: RunRecord[] | null = null;

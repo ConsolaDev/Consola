@@ -7,6 +7,7 @@ import {
   type StepsRunPreview,
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
+import { callRetryWarning } from './callWords';
 import {
   clockTime,
   formatAgo,
@@ -254,14 +255,15 @@ const INTERRUPTED_WARNING =
 
 /**
  * What Retry warns before it retries a step that may have done its work, or
- * null when it retries at once: a command Consola quit on, word for word; a
- * command ended while it ran, saying how, and what to check first (the run's
- * item, if it has one).
+ * null when it retries at once: a call's warning from its own record (Call
+ * 23); a command Consola quit on, word for word; a command ended while it
+ * ran, saying how, and what to check first (the run's item, if it has one).
  */
 export function retryWarningOf(
   step: StepRun,
   item: { type?: 'pr' | 'issue' } | undefined,
 ): string | null {
+  if (step.kind === 'uses') return callRetryWarning(step);
   if (isInterruptedCommand(step)) return INTERRUPTED_WARNING;
   const ended = endedWhileRunning(step);
   if (!ended) return null;

@@ -110,6 +110,8 @@ export function withNextAttempt(
       conversation: _conversation,
       reminded: _reminded,
       command: _command,
+      // A call's too (review M1): a stop before the next attempt starts must not read as the last one's.
+      call: _call,
       turn,
       model: _model,
       error,
