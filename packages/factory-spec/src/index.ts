@@ -90,6 +90,7 @@ export {
   factoryFilesOf,
   isIgnoredFileName,
   parseFactory,
+  storedFactoryFiles,
   type FactoryFiles,
   type FactoryNotice,
   type FactoryParseResult,

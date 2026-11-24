@@ -7,7 +7,7 @@
  * the agent's standing instructions, written by the person, part of the
  * approved version.
  */
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256';
 import { readFrontmatter, splitFrontmatter } from './frontmatter';
 import type { FactorySpecIssue } from './issues';
 import { stableStringify } from './run';
@@ -409,5 +409,5 @@ export function agentHash(
     body: agent.body,
     skills,
   });
-  return createHash('sha256').update(canonical).digest('hex');
+  return sha256Hex(canonical);
 }

@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { factoryFilesOf, isIgnoredFileName, parseFactory, type FactoryFiles } from './factory';
+import {
+  factoryFilesOf,
+  isIgnoredFileName,
+  parseFactory,
+  storedFactoryFiles,
+  type FactoryFiles,
+} from './factory';
 import { parseFactorySpec } from './parse';
 import { skillHash, type SkillFileEntry } from './skills';
 
@@ -1292,5 +1298,35 @@ describe('path artifacts across the folder (slice 3-B)', () => {
     const result = parseFactory(folder(OWNED(PATH_STEP('        agent: fixer\n'))));
     expect(result.issues).toEqual([]);
     expect(names(result)).toEqual(['fix']);
+  });
+});
+
+describe('storedFactoryFiles', () => {
+  it('puts each stored file where the folder’s reader would', () => {
+    const files = storedFactoryFiles([
+      { path: 'factory.yml', content: 'automations: []\n' },
+      { path: 'automations/triage.yaml', content: 'name: triage\n' },
+      { path: 'agents/reviewer.md', content: '---\ndescription: Reviews\n---\nBody\n' },
+      { path: 'skills/release/SKILL.md', content: 'skill' },
+      { path: 'skills/release/notes/one.md', content: 'one' },
+      { path: 'evals/smoke.yaml', content: 'later' },
+      { path: 'README.md', content: 'stray' },
+    ]);
+    expect(files.factoryYml).toBe('automations: []\n');
+    expect(files.automations).toEqual({ triage: 'name: triage\n' });
+    expect(files.agents).toEqual({ reviewer: '---\ndescription: Reviews\n---\nBody\n' });
+    expect(Object.keys(files.skills)).toEqual(['release']);
+    expect(files.skills.release.map((entry) => entry.path)).toEqual(['SKILL.md', 'notes/one.md']);
+    expect(files.laterFolders).toEqual(['evals']);
+    expect(files.stray).toEqual(['README.md']);
+  });
+
+  it('keeps a name such as __proto__ as a key like any other', () => {
+    const files = storedFactoryFiles([{ path: 'agents/__proto__.md', content: 'x' }]);
+    expect(Object.keys(files.agents)).toEqual(['__proto__']);
+  });
+
+  it('reads no files as a blank factory', () => {
+    expect(parseFactory(storedFactoryFiles([])).issues).toEqual([]);
   });
 });
