@@ -977,16 +977,15 @@ export async function runHeadless(
           resolve({ text: '', isError: true });
           return;
         }
+        let parsed: { result?: string; is_error?: boolean };
         try {
-          const parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
-          resolve({
-            text: (parsed.result ?? '').trim(),
-            isError: parsed.is_error === true,
-          });
+          parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
         } catch {
           // Non-JSON output means something went wrong upstream.
           resolve({ text: '', isError: true });
+          return;
         }
+        resolve({ text: (parsed.result ?? '').trim(), isError: parsed.is_error === true });
       },
     );
   });

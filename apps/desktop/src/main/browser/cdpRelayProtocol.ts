@@ -418,9 +418,9 @@ export function createRelayConnection(
             jsVersion: '',
           },
         };
+      // Both are acknowledged and ignored. Playwright asks to save downloads
+      // into its own folder, and downloads are main's to allow or cancel.
       case 'Target.setDiscoverTargets':
-      // Playwright asks to save downloads into its own folder. Downloads are
-      // main's to allow or cancel, so the request is acknowledged and ignored.
       case 'Browser.setDownloadBehavior':
         return { result: {} };
       case 'Target.getTargetInfo': {

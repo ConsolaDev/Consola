@@ -148,7 +148,7 @@ export class CodexDriver implements HarnessDriver {
   public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
     try {
       const thread = await this.locateThread(config, sessionId, { followPending: false });
-      return thread?.rollout ? readSessionModel(thread.rollout, 'codex') : null;
+      return thread?.rollout ? await readSessionModel(thread.rollout, 'codex') : null;
     } catch {
       return null;
     }

@@ -224,11 +224,7 @@ class Processes {
    * the group and to each of them, up to the grace for them to go, `SIGKILL`
    * to whatever is left, and how many were still alive just after.
    */
-  async end(
-    pgid: number,
-    leader: number,
-    before?: ProcessRow[] | undefined,
-  ): Promise<{ survivors: number }> {
+  async end(pgid: number, leader: number, before?: ProcessRow[]): Promise<{ survivors: number }> {
     const table = before ?? (await this.table()) ?? [];
     const outside = descendantsOf(table, leader)
       .filter((row) => row.pgid !== pgid)

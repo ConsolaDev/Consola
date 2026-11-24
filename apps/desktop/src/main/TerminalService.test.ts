@@ -71,6 +71,12 @@ import {
   resultLine,
 } from './drivers/streamJson.test-helpers';
 
+/** start() launches the CLI in the background; a microtask lets it begin. */
+async function started(service: TerminalService): Promise<void> {
+  service.start();
+  await Promise.resolve();
+}
+
 /** What deliverPendingPrompt writes: a bracketed paste, then Enter. */
 function pasted(prompt: string): string[] {
   return [`\x1b[200~${prompt}\x1b[201~`, '\r'];
@@ -126,7 +132,7 @@ async function buildService(initialPrompt?: string): Promise<TerminalService> {
     resume: false,
     initialPrompt,
   });
-  await service.start();
+  await started(service);
   return service;
 }
 
@@ -2373,7 +2379,7 @@ describe('TerminalService login environment', () => {
     });
     const output: string[] = [];
     service.on('data', (data) => output.push(data));
-    await service.start();
+    await started(service);
     await vi.advanceTimersByTimeAsync(1);
     service.destroy();
     return output.join('');
@@ -2391,7 +2397,7 @@ describe('TerminalService login environment', () => {
       providerAccountLogin: 'JaviDev',
       ...fields,
     });
-    await service.start();
+    await started(service);
     await vi.advanceTimersByTimeAsync(1);
     service.destroy();
     return { token, env: spawnMock.mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv | undefined };
@@ -2459,7 +2465,7 @@ describe('a write step’s session (slice 3-B Task 18)', () => {
       ...fields,
     });
     service.on('data', (data) => output.push(data));
-    await service.start();
+    await started(service);
     await vi.advanceTimersByTimeAsync(1);
     return {
       service,

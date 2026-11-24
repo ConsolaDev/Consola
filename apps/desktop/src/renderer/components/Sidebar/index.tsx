@@ -77,7 +77,9 @@ export function Sidebar() {
   const drawn = useRef<SelectionFrame | null>(null);
   // A selection belongs to the workspace it was made in.
   useEffect(() => clearSelection(), [activeWorkspaceId]);
-  // Rows deleted, filtered out or folded away leave the selection.
+  // Rows deleted, filtered out or folded away leave the selection, so this
+  // runs after every render.
+  // oxlint-disable-next-line @nkzw/require-use-effect-arguments -- on purpose, above
   useEffect(() => {
     if (drawn.current) pruneSelected(drawn.current.workspaceId, drawn.current.order);
   });

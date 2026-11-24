@@ -60,6 +60,11 @@ export default defineConfig({
       },
     },
     {
+      // No React here: a callback these files name `use` is not React's hook.
+      files: ['packages/host/**', 'packages/sandbox/**', 'apps/desktop/tests/fixtures/**'],
+      rules: { 'react/rules-of-hooks': 'off' },
+    },
+    {
       // Playwright requires the fixtures argument to be destructured.
       files: ['**/tests/e2e/**'],
       rules: { 'no-empty-pattern': 'off' },
@@ -74,15 +79,12 @@ export default defineConfig({
       files: ['**/*'],
       rules: {
         '@nkzw/no-instanceof': 'off', // 72
-        '@nkzw/require-use-effect-arguments': 'off', // 1
         curly: 'off', // 8161
         'import/no-namespace': 'off', // 855
         'no-console': 'off', // 211
-        'no-fallthrough': 'off', // 1
         'no-promise-executor-return': 'off', // 186
         'no-unused-vars': 'warn', // 14
         'no-useless-assignment': 'off', // 10
-        'promise/no-multiple-resolved': 'off', // 1
         'quality/no-array-filter-map': 'off', // 33
         'quality/no-chained-type-assertions': 'off', // 302
         'quality/no-conditional-empty-object-spread': 'off', // 716
@@ -94,13 +96,9 @@ export default defineConfig({
         'react/exhaustive-deps': 'warn', // 17
         'react/immutability': 'off', // 4
         'react/no-unescaped-entities': 'off', // 11
-        'react/no-unknown-property': 'off', // 1
         'react/purity': 'off', // 7
         'react/refs': 'off', // 80
-        'react/rules-of-hooks': 'off', // 3
         'react/set-state-in-effect': 'off', // 42
-        'typescript/await-thenable': 'off', // 4
-        'typescript/no-duplicate-type-constituents': 'off', // 1
         'typescript/no-explicit-any': 'warn', // 12
         'typescript/no-floating-promises': 'off', // 58
         'typescript/no-misused-promises': 'off', // 13
@@ -114,7 +112,6 @@ export default defineConfig({
         'typescript/no-unsafe-type-assertion': 'off', // 1157
         'typescript/only-throw-error': 'off', // 12
         'typescript/require-array-sort-compare': 'off', // 11
-        'typescript/return-await': 'off', // 1
         'typescript/unbound-method': 'off', // 69
         'typescript/use-unknown-in-catch-callback-variable': 'off', // 39
         'unicorn/catch-error-name': 'off', // 73

@@ -207,6 +207,7 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
         ref={webviewRef}
         className="browser-page-webview"
         src={initial.src}
+        // oxlint-disable-next-line react/no-unknown-property -- an Electron <webview> attribute
         partition={initial.partition}
         // Tells Electron this guest may ask for windows, which main's popup
         // policy then decides. A string, not `true`: React drops a boolean
