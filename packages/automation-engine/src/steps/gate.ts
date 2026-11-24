@@ -1,13 +1,5 @@
-import {
-  flatSteps,
-  gateChoices,
-  parseReadRef,
-  parseTemplate,
-  type RepeatStep,
-  type RunRecord,
-  type StepEntry,
-  type StepRun,
-} from '@consola/factory-spec';
+import { flatSteps, gateChoices, parseReadRef, parseTemplate } from '@consola/factory-spec';
+import type { RepeatStep, RunRecord, StepEntry, StepRun } from '@consola/factory-spec';
 
 /*
  * What a gate asks and offers, and whether an answer may be taken, decided

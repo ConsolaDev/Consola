@@ -1,5 +1,6 @@
 import { dialogBridge } from '../services/dialogBridge';
-import { useWorkspaceStore, type Workspace } from '../stores/workspaceStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
+import type { Workspace } from '../stores/workspaceStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import type { FolderInfo } from '../types/electron';
 

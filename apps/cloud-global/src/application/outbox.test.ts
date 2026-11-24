@@ -3,16 +3,17 @@ import {
   CELL_TOKEN_ALGORITHM,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_MESSAGE_TYPE,
-  type OutboxMessage,
-  type Region,
   readOutboxMessage,
 } from '@consola/cloud-contract';
+import type { OutboxMessage, Region } from '@consola/cloud-contract';
 import { and, eq, sql } from 'drizzle-orm';
-import { compactVerify, createLocalJWKSet, type JSONWebKeySet } from 'jose';
+import { compactVerify, createLocalJWKSet } from 'jose';
+import type { JSONWebKeySet } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCellTokenSigner } from '../adapters/cellToken/cellTokenSigner.js';
 import { createCellDelivery } from '../adapters/outbox/cellDelivery.js';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import type { Ed25519PrivateJwk } from '../config.js';

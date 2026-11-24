@@ -2,13 +2,11 @@ import { randomUUID } from 'node:crypto';
 import { readOutboxMessage } from '@consola/cloud-contract';
 import { asc, eq, sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { schema } from './schema.js';
-import {
-  type MemberChange,
-  type WorkspaceChangeToWrite,
-  writeWorkspaceChange,
-} from './workspaceChanges.js';
+import { writeWorkspaceChange } from './workspaceChanges.js';
+import type { MemberChange, WorkspaceChangeToWrite } from './workspaceChanges.js';
 
 let db: Database;
 let close: () => Promise<void>;

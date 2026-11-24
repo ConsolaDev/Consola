@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseFactorySpec, type RunItem, type StepsAutomation } from '@consola/factory-spec';
+import { parseFactorySpec } from '@consola/factory-spec';
+import type { RunItem, StepsAutomation } from '@consola/factory-spec';
 import type { RunDefinition } from '../steps/definition';
 import { runItemSource } from './itemSource';
 

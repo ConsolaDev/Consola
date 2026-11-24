@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session } from '../../shared/workspace';
-import { ConductorTools, type ConductorToolsDeps } from './ConductorTools';
+import { ConductorTools } from './ConductorTools';
+import type { ConductorToolsDeps } from './ConductorTools';
 import { makeSession, makeWorkspace } from './ConductorTools.test-helpers';
 
 let control: ConductorTools;

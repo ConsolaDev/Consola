@@ -34,9 +34,8 @@ import {
   NO_RUN_FILTER,
   runInsights,
   runWaitingForYou,
-  type LatestRun,
-  type RunInsights,
 } from './presentation';
+import type { LatestRun, RunInsights } from './presentation';
 
 /** Runs listed under an automation; the rest are in Activity. */
 const RUNS_SHOWN = 30;

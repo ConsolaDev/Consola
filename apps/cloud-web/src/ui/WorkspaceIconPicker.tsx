@@ -2,12 +2,8 @@ import { Popover, Tabs } from '@radix-ui/themes';
 import { useState } from 'react';
 import { messageForIconFailure } from '../domain/messages';
 import type { MyWorkspace } from '../domain/workspace';
-import {
-  iconsMatching,
-  WORKSPACE_EMOJIS,
-  WORKSPACE_SYMBOLS,
-  type WorkspaceIcon as Icon,
-} from '../domain/workspaceIcons';
+import { iconsMatching, WORKSPACE_EMOJIS, WORKSPACE_SYMBOLS } from '../domain/workspaceIcons';
+import type { WorkspaceIcon as Icon } from '../domain/workspaceIcons';
 import { setWorkspaceIcon } from '../services/api';
 import { useSettingsMenuHost } from './SettingsDialog';
 import { WorkspaceIcon } from './WorkspaceIcon';

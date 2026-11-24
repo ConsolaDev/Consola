@@ -1,4 +1,5 @@
-import { Sandbox, type SandboxOpts } from 'e2b';
+import { Sandbox } from 'e2b';
+import type { SandboxOpts } from 'e2b';
 
 /**
  * The few parts of E2B's SDK the provider uses, shaped as the SDK takes them. The provider

@@ -1,12 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import {
-  automationVersion,
-  parseFactorySpec,
-  stableStringify,
-  type StepRun,
-} from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import type { StepRun } from '@consola/factory-spec';
 import { listDefinition } from './AutomationService';
 import { describe, expect, it, vi } from 'vitest';
 import type { RunSecrets } from './secrets/runSecrets';
@@ -14,13 +10,8 @@ import { SecretReadError } from './secrets/secretsPort';
 import { NO_SECRETS } from './secrets/unbound';
 import { INTERRUPTED_COMMAND } from './steps/recover';
 import { maskFormsOf } from './secrets/values';
-import {
-  BIND_HINT,
-  stepsHarness,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { BIND_HINT, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 const HOUR = 60 * 60 * 1000;
 const NAME = 'page';

@@ -1,10 +1,10 @@
-import {
-  flatSteps,
-  type RepeatStep,
-  type RunRecord,
-  type StepEntry,
-  type StepRun,
-  type StepRunStatus,
+import { flatSteps } from '@consola/factory-spec';
+import type {
+  RepeatStep,
+  RunRecord,
+  StepEntry,
+  StepRun,
+  StepRunStatus,
 } from '@consola/factory-spec';
 import type { Lane, StepUpdate } from './sequence';
 

@@ -1,10 +1,9 @@
-import {
-  isAgentRunPreview,
-  isStepsRunPreview,
-  type RunRecord,
-  type StepRun,
-  type StepRunStatus,
-  type StepsRunPreview,
+import { isAgentRunPreview, isStepsRunPreview } from '../../../shared/automations';
+import type {
+  RunRecord,
+  StepRun,
+  StepRunStatus,
+  StepsRunPreview,
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { callRetryWarning } from './callWords';
@@ -15,8 +14,8 @@ import {
   formatElapsed,
   rejectedAfterStart,
   rejectedAtGate,
-  type RunFacts,
 } from './presentation';
+import type { RunFacts } from './presentation';
 
 /**
  * What a run's own page shows, as a CI service shows one run of a pipeline:

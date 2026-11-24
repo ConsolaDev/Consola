@@ -4,17 +4,16 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { JsonStateFile } from '../../main/state/JsonStateFile';
-import {
-  JsonAttentionLedger,
-  type AttentionLedgerStateFile,
-} from '../../main/attention/AttentionLedger';
+import { JsonAttentionLedger } from '../../main/attention/AttentionLedger';
+import type { AttentionLedgerStateFile } from '../../main/attention/AttentionLedger';
 import { SessionSource } from '../../main/attention/SessionSource';
 import { settleSession, unsettleSession } from '../../main/attention/settling';
 import { makeSession, makeWorkspace } from '../../main/conductor/ConductorTools.test-helpers';
 import { bucketize } from './bucketize';
 import { sessionEntries, sessionKey } from './entries';
 import { visibleNodes } from './fold';
-import { aggregateAttention, buildForest, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, buildForest, membersOf } from './forest';
+import type { TreeNode } from './forest';
 import { settleOffer } from './settleRules';
 
 /**

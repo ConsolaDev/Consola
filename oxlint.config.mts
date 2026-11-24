@@ -32,6 +32,9 @@ export default defineConfig({
     'prefer-object-has-own': 'off',
     // Off in Biome too (style.noNonNullAssertion).
     'typescript/no-non-null-assertion': 'off',
+    // `typeof import('x')` types vitest's mocked originals and lets
+    // shared/types.ts name an API without importing its module.
+    'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
   },
   overrides: [
     {
@@ -52,7 +55,6 @@ export default defineConfig({
         '@nkzw/require-use-effect-arguments': 'off', // 1
         curly: 'off', // 8161
         eqeqeq: 'off', // 9
-        'import/consistent-type-specifier-style': 'off', // 1821
         'import/no-namespace': 'off', // 855
         'no-console': 'off', // 211
         'no-fallthrough': 'off', // 1
@@ -80,7 +82,6 @@ export default defineConfig({
         'react/set-state-in-effect': 'off', // 42
         'typescript/array-type': 'off', // 3537
         'typescript/await-thenable': 'off', // 4
-        'typescript/consistent-type-imports': 'off', // 19
         'typescript/no-duplicate-type-constituents': 'off', // 1
         'typescript/no-explicit-any': 'warn', // 12
         'typescript/no-floating-promises': 'off', // 58

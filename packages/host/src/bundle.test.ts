@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - It builds the host's bundle and runs it with node, and runs the sandbox's start script with sh.
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import {
   chmodSync,

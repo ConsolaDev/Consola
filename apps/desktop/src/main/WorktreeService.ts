@@ -7,7 +7,8 @@ import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
 import type { RemovedWorktree } from '../shared/worktreeCleanup';
-import { getProviderDriver, type GitProviderDriver } from './providers';
+import { getProviderDriver } from './providers';
+import type { GitProviderDriver } from './providers';
 import {
   deleteRunClone,
   fetchKeepRef,
@@ -19,13 +20,10 @@ import {
 } from '@consola/automation-engine';
 import { withoutGitHooks } from './gitHooks';
 import { resolveSshRemote } from './sshRemote';
-import {
-  type AtRiskFiles,
-  ignoredAtRisk,
-  type NestedRepos,
-  nestedRepos,
-} from './worktreeCleanup/localFiles';
-import { type PathLock, worktreePathLock } from './worktreeCleanup/PathLock';
+import { ignoredAtRisk, nestedRepos } from './worktreeCleanup/localFiles';
+import type { AtRiskFiles, NestedRepos } from './worktreeCleanup/localFiles';
+import { worktreePathLock } from './worktreeCleanup/PathLock';
+import type { PathLock } from './worktreeCleanup/PathLock';
 
 const execFileAsync = promisify(execFile);
 

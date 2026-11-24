@@ -6,7 +6,8 @@ import {
   GITHUB_EVENT_TYPE,
   OUTBOX_MESSAGE_TYPE,
 } from '@consola/cloud-contract';
-import { createRemoteJWKSet, errors, type JWTVerifyGetKey, jwtVerify } from 'jose';
+import { createRemoteJWKSet, errors, jwtVerify } from 'jose';
+import type { JWTVerifyGetKey } from 'jose';
 import type { SignatureCheck, TokenVerifier } from '../../application/ports.js';
 
 /** The `typ` of each kind of delivery `cloud-global` signs with the token's key: none is a token. */

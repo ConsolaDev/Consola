@@ -1,4 +1,5 @@
-import { isRegion, type Region } from '../../domain/region.js';
+import { isRegion } from '../../domain/region.js';
+import type { Region } from '../../domain/region.js';
 
 /**
  * A stored workspace's region, read back only when it is one of `REGIONS`. Any other value is a

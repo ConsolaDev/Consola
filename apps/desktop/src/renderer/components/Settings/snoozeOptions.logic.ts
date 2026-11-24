@@ -3,10 +3,9 @@ import {
   isSnoozePresetSetting,
   MAX_SNOOZE_MINUTES,
   resolveSnoozePresets,
-  type SnoozePresetDay,
-  type SnoozePresetSetting,
   snoozePresetsEqual,
 } from '../../../shared/snooze';
+import type { SnoozePresetDay, SnoozePresetSetting } from '../../../shared/snooze';
 
 /** One row of the editor: a choice, and a key that stays with it while it is edited and moved. */
 export interface DraftRow {

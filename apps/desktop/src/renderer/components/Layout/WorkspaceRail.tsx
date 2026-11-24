@@ -12,9 +12,8 @@ import {
   defaultDropAnimationSideEffects,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type Modifier,
 } from '@dnd-kit/core';
+import type { DragEndEvent, Modifier } from '@dnd-kit/core';
 import {
   SortableContext,
   arrayMove,
@@ -25,7 +24,8 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { useAttentionStore } from '../../stores/attentionStore';

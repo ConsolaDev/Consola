@@ -1,11 +1,9 @@
-import {
-  AUTOMATION_NAME_PATTERN,
-  type Automation,
-  describeOutputType,
-  flatSteps,
-  type LineRange,
-  type RunStatus as EngineRunStatus,
-  type StepRunStatus,
+import { AUTOMATION_NAME_PATTERN, describeOutputType, flatSteps } from '@consola/factory-spec';
+import type {
+  Automation,
+  LineRange,
+  RunStatus as EngineRunStatus,
+  StepRunStatus,
 } from '@consola/factory-spec';
 
 /**

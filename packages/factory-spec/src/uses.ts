@@ -10,7 +10,8 @@
  */
 import type { OutputType } from './outputs';
 import { MCP_SERVER_NAME_PATTERN } from './servers';
-import { parseTemplate, templatePaths, type TemplatePath } from './template';
+import { parseTemplate, templatePaths } from './template';
+import type { TemplatePath } from './template';
 
 export const USES_REF_PATTERN = /^([a-z][a-z0-9-]{0,63})#([A-Za-z0-9._-]{1,128})$/;
 export const DEFAULT_CALL_TIMEOUT_MS = 60_000;

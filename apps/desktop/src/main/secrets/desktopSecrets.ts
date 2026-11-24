@@ -2,23 +2,20 @@ import { createHash } from 'node:crypto';
 import {
   describeError,
   PERSONAL_FACTORY,
-  type SecretBinding,
   SecretReadError,
   SecretReaderFailure,
-  type SecretsPort,
-  type readKeychainItem,
-  type readOnePasswordField,
+} from '@consola/automation-engine';
+import type {
+  SecretBinding,
+  SecretsPort,
+  readKeychainItem,
+  readOnePasswordField,
 } from '@consola/automation-engine';
 import type { SecretReferenceInput } from '../../shared/secrets';
 import type { BindingsStore } from './BindingsStore';
 import type { SecretPrograms } from './programs';
-import {
-  type BindingRef,
-  formatReference,
-  REFERENCE_WORDS,
-  referenceFromInput,
-  referenceLabel,
-} from './references';
+import { formatReference, REFERENCE_WORDS, referenceFromInput, referenceLabel } from './references';
+import type { BindingRef } from './references';
 
 /**
  * The desktop's secrets: the engine's `SecretsPort` over `secret-bindings.json`

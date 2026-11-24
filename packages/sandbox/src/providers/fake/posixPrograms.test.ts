@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { type Sandbox, sandboxesFrom } from '../../application/sandboxes';
+import { sandboxesFrom } from '../../application/sandboxes';
+import type { Sandbox } from '../../application/sandboxes';
 import { FakeProvider } from './FakeProvider';
 import { POSIX_PROGRAMS } from './posixPrograms';
 

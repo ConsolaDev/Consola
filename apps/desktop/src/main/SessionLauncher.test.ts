@@ -9,9 +9,8 @@ import {
   automationRecordLaunch,
   recordLaunchFields,
   reportTurnsFor,
-  type ExistingTerminal,
-  type StepContinuation,
 } from './SessionLauncher';
+import type { ExistingTerminal, StepContinuation } from './SessionLauncher';
 import { launchedWithFullTools } from './automations/launchAgentRun';
 import { WorktreeService } from './WorktreeService';
 import { worktreePathLock } from './worktreeCleanup/PathLock';

@@ -1,4 +1,5 @@
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import {
   CELL_TOKEN_ALGORITHM,
   GITHUB_TOKEN_REQUEST_TYPE,

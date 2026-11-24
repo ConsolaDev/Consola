@@ -57,8 +57,8 @@ import {
   bracketedPaste,
   turnSummary,
   unattendedNotice,
-  type TerminalExitInfo,
 } from './TerminalService';
+import type { TerminalExitInfo } from './TerminalService';
 import { ScreenModel } from './ScreenModel';
 import { createClaudeTurnReader } from './drivers/claudeTurnReader';
 import type { TurnInit, TurnReport } from './drivers';

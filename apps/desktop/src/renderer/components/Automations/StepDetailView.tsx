@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import type {
   LogTail,
@@ -35,8 +36,8 @@ import {
   variableRows,
   visibleTail,
   writeRows,
-  type StepTone,
 } from './stepDetail';
+import type { StepTone } from './stepDetail';
 
 /** What a log read said when the file's own cap cut it short. */
 export const LOG_CAPPED = 'The command wrote more than this; Consola kept the first 1 MB.';

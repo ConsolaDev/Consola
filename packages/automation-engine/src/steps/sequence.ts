@@ -1,7 +1,6 @@
 import {
   CHECKOUT_CHANGES_REF,
   evaluateExpression,
-  type Expr,
   expressionPaths,
   flatSteps,
   leafSteps,
@@ -9,13 +8,16 @@ import {
   parseReadRef,
   templatePaths,
   usesTexts,
-  type ExprValue,
-  type PathExpr,
-  type RepeatStep,
-  type Step,
-  type StepEntry,
-  type StepRun,
-  type StepRunStatus,
+} from '@consola/factory-spec';
+import type {
+  Expr,
+  ExprValue,
+  PathExpr,
+  RepeatStep,
+  Step,
+  StepEntry,
+  StepRun,
+  StepRunStatus,
 } from '@consola/factory-spec';
 
 /*

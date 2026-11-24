@@ -1,22 +1,13 @@
-import {
-  type FactoriesState,
-  type Factory,
-  type FactoryChange,
-  type FactoryRead,
-  type FactoryVersion,
-  isFactoryNameProblem,
+import { isFactoryNameProblem } from '../domain/factories';
+import type {
+  FactoriesState,
+  Factory,
+  FactoryChange,
+  FactoryRead,
+  FactoryVersion,
 } from '../domain/factories';
-import {
-  type CellApi,
-  type CellDeps,
-  type CellRefusal,
-  type CellSession,
-  codeOf,
-  createCellSession,
-  PENDING,
-  pageCellSession,
-  UNAVAILABLE,
-} from './cell';
+import { codeOf, createCellSession, PENDING, pageCellSession, UNAVAILABLE } from './cell';
+import type { CellApi, CellDeps, CellRefusal, CellSession } from './cell';
 
 /*
  * A workspace's factories, from its regional cell (`cell.ts`: the token, the address, the states

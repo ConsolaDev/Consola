@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PollTrigger } from '@consola/factory-spec';
-import { readCheckResult, type PolledItem } from './checkResult';
+import { readCheckResult } from './checkResult';
+import type { PolledItem } from './checkResult';
 import type { ItemRef } from '../views';
 
 const PR_URL = /^https:\/\/github\.com\/sprocket\/catalog-portal\/(pull|issues)\/(\d+)$/;

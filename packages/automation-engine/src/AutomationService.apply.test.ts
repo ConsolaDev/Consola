@@ -20,9 +20,8 @@ import {
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * The factory folder applies as a unit: from its first clean apply on, a

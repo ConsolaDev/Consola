@@ -1,7 +1,8 @@
 import { KeyRound } from 'lucide-react';
 import type { SecretBindingView } from '../../../shared/automations';
 import { useAutomationsStore } from '../../stores/automationsStore';
-import { needsBinding, secretCardLines, secretPlacesOf, type SecretPlace } from './secretWords';
+import { needsBinding, secretCardLines, secretPlacesOf } from './secretWords';
+import type { SecretPlace } from './secretWords';
 
 /**
  * An entry's secrets as the workspace's snapshot holds them (review S1): its

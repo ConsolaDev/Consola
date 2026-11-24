@@ -1,9 +1,11 @@
-import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
+import { _electron as electron } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { BUILT_IN_HARNESS_ID } from '../../../src/shared/constants';
-import { createBuiltInHarness, type Harness } from '../../../src/shared/harness';
+import { createBuiltInHarness } from '../../../src/shared/harness';
+import type { Harness } from '../../../src/shared/harness';
 
 export interface LaunchOptions {
   /** Profile directory. Defaults to a fresh temp dir, so runs cannot collide. */

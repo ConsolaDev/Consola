@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { INBOX_SECTIONS, sectionItemType, type InboxSection } from '../../../shared/inboxSections';
+import { INBOX_SECTIONS, sectionItemType } from '../../../shared/inboxSections';
+import type { InboxSection } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import {
   actionConversation,
   createDefaultActions,
   createDefaultSectionDefaults,
-  type ActionConversation,
-  type WorkItemAction,
 } from '../../../shared/workItemActions';
+import type { ActionConversation, WorkItemAction } from '../../../shared/workItemActions';
 import { generateId } from '../../../shared/ids';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 

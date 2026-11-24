@@ -1,4 +1,5 @@
-import { useRef, type MutableRefObject } from 'react';
+import { useRef } from 'react';
+import type { MutableRefObject } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { AlarmClockOff, Archive, ArchiveRestore, Trash2, X } from 'lucide-react';
 import { sessionLabel } from '../../../shared/sessionLabel';

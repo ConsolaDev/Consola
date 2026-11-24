@@ -1,11 +1,7 @@
 import type { Debugger, WebContents } from 'electron';
 import type { ConnectOverCDPTransport } from 'playwright-core';
-import {
-  createRelayConnection,
-  MAX_COMMANDS_IN_FLIGHT,
-  type RelayConnection,
-  type RelayPage,
-} from './cdpRelayProtocol';
+import { createRelayConnection, MAX_COMMANDS_IN_FLIGHT } from './cdpRelayProtocol';
+import type { RelayConnection, RelayPage } from './cdpRelayProtocol';
 
 /** The guest page the relay serves; a `WebContents` is one. */
 export type RelayGuest = Pick<

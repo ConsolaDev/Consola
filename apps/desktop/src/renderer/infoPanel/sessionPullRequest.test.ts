@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BranchPullRequestAnswer } from '../../shared/branchPullRequest';
 import type { WorkItemRef } from '../../shared/workItems';
-import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import type { BranchPullRequestEntry } from '../stores/branchPullRequestStore';
-import {
-  type PullRequestSectionView,
-  pullRequestSectionView,
-  sessionPullRequest,
-} from './sessionPullRequest';
+import { pullRequestSectionView, sessionPullRequest } from './sessionPullRequest';
+import type { PullRequestSectionView } from './sessionPullRequest';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true);
 const unlinked = createSessionRecord({

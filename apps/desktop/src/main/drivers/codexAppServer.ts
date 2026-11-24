@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { type CodexUsageAnswer, codexPlanApplies } from './codexUsage';
+import { codexPlanApplies } from './codexUsage';
+import type { CodexUsageAnswer } from './codexUsage';
 
 /**
  * Reserve a resumable Codex conversation without running a model turn.

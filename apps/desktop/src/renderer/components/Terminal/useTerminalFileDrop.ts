@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 import { terminalBridge } from '../../services/terminalBridge';
 
 interface UseTerminalFileDropOptions {

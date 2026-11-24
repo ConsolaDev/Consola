@@ -5,26 +5,22 @@ import type {
   HarnessSwitchResult,
 } from '../../shared/harnessSwitch';
 import type { HarnessDriverId } from '../../shared/types';
-import {
-  checkoutPathForSession,
-  generateUuid,
-  switchedSession,
-  type ConversationLink,
-  type HarnessSwitchChange,
-  type Session,
-  type Workspace,
+import { checkoutPathForSession, generateUuid, switchedSession } from '../../shared/workspace';
+import type {
+  ConversationLink,
+  HarnessSwitchChange,
+  Session,
+  Workspace,
 } from '../../shared/workspace';
-import { getDriver, toHarnessConfig, toolPolicyProblem, type HarnessDriver } from '../drivers';
-import { launchFieldsFor, type SessionLauncher } from '../SessionLauncher';
+import { getDriver, toHarnessConfig, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
+import { launchFieldsFor } from '../SessionLauncher';
+import type { SessionLauncher } from '../SessionLauncher';
 import type { ConversationOpening, TerminalHarnessSwitch } from '../TerminalService';
 import { handoffPrompt, renderHandoff } from './handoff';
 import type { HandoffStore } from './HandoffStore';
-import {
-  conversationSupport,
-  describeSwitch,
-  planHarnessSwitch,
-  type HarnessSwitchPlan,
-} from './plan';
+import { conversationSupport, describeSwitch, planHarnessSwitch } from './plan';
+import type { HarnessSwitchPlan } from './plan';
 
 export interface HarnessSwitcherDeps {
   workspaces: {

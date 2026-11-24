@@ -2,7 +2,8 @@ import { filteredScope, newSessionScope, useHomeStore } from '../stores/homeStor
 import { closePanelOnWorkspaceSwitch, useNavigationStore } from '../stores/navigationStore';
 import { useSessionFilterStore } from '../stores/sessionFilterStore';
 import { useTerminalStore } from '../stores/terminalStore';
-import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
+import type { Session } from '../stores/workspaceStore';
 import { providerBridge } from '../services/providerBridge';
 import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
@@ -11,10 +12,8 @@ import { ipcErrorMessage } from './ipcErrorMessage';
 import { NEW_SESSION_NAME, generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import type { SessionDeleteOutcome } from '../../shared/worktreeCleanup';
-import {
-  useNewSessionDialogStore,
-  type NewSessionDestination,
-} from '../stores/newSessionDialogStore';
+import { useNewSessionDialogStore } from '../stores/newSessionDialogStore';
+import type { NewSessionDestination } from '../stores/newSessionDialogStore';
 
 export { generateSessionInstanceId };
 

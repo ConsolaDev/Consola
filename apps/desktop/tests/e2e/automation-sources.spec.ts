@@ -1,6 +1,8 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { reReviewEntry } from '@consola/automation-engine';
-import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
+import { parseAutomationEntry } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';

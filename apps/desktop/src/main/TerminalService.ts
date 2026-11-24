@@ -4,21 +4,16 @@ import * as fs from 'node:fs';
 import type { TerminalDimensions, HarnessLaunchFields, ScreenReplay } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv, loginEnvProblem, loginEnvRetry } from './LoginEnvironment';
-import {
-  getDriver,
-  toHarnessConfig,
-  type HarnessConfig,
-  type HarnessDriver,
-  type TurnEvent,
-  type TurnReader,
-  type TurnReport,
-} from './drivers';
+import { getDriver, toHarnessConfig } from './drivers';
+import type { HarnessConfig, HarnessDriver, TurnEvent, TurnReader, TurnReport } from './drivers';
 import type { SessionLaunch } from './drivers/HarnessDriver';
 import type { AgentGrants } from '../shared/agentGrants';
 import { ScreenModel } from './ScreenModel';
-import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
+import { PROVIDER_META, isGitProviderId } from '../shared/providers';
+import type { GitProviderId } from '../shared/providers';
 import { getProviderDriver, layerProviderToken } from './providers';
-import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
+import { deriveTerminalStatus } from '../shared/terminalStatus';
+import type { TerminalStatus } from '../shared/terminalStatus';
 import type { SessionToolPolicy } from '../shared/workspace';
 import { oneLine, withoutControls } from '../shared/oneLine';
 import { formatCostUsd } from '../shared/cost';

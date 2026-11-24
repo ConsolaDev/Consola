@@ -1,15 +1,11 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { SessionOpenedError } from '@consola/automation-engine';
-import { launchFieldsFor, type Harness } from '../shared/harness';
+import { launchFieldsFor } from '../shared/harness';
+import type { Harness } from '../shared/harness';
 import type { ActionConversation } from '../shared/workItemActions';
-import {
-  generateSessionInstanceId,
-  generateUuid,
-  type NewSessionFields,
-  type Session,
-  type Workspace,
-} from '../shared/workspace';
+import { generateSessionInstanceId, generateUuid } from '../shared/workspace';
+import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 import { toolPolicyProblem } from './drivers';
 import { openingFor } from './harnessSwitch/handoff';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';

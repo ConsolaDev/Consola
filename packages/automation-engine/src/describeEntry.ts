@@ -1,14 +1,11 @@
-import {
-  flatSteps,
-  isRunOwnedCheckout,
-  isStepsEntry,
-  leafSteps,
-  type AgentDefinition,
-  type Automation,
-  type RepeatStep,
-  type Step,
-  type StepEntry,
-  type StepsAutomation,
+import { flatSteps, isRunOwnedCheckout, isStepsEntry, leafSteps } from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  Automation,
+  RepeatStep,
+  Step,
+  StepEntry,
+  StepsAutomation,
 } from '@consola/factory-spec';
 import { clipText } from './steps/commandIO';
 import type { AgentRequirements } from './steps/definition';

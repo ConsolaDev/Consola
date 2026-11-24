@@ -2,11 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import type { Session, Workspace } from '../../shared/workspace';
-import {
-  createRunInSessionCoalescer,
-  runActionInSession,
-  type RunActionInSessionDeps,
-} from './runActionInSession';
+import { createRunInSessionCoalescer, runActionInSession } from './runActionInSession';
+import type { RunActionInSessionDeps } from './runActionInSession';
 import { createStubDriver } from './stubDriver.test-helpers';
 
 const pr51: WorkItemRef = {

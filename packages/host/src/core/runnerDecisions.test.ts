@@ -24,10 +24,10 @@ import {
   sandboxLifetimeSeconds,
   scrubSecrets,
   scrubUpdate,
-  type SandboxEnd,
   updateForExit,
   updateForLine,
 } from './runnerDecisions.ts';
+import type { SandboxEnd } from './runnerDecisions.ts';
 
 const ID = 'session-sprocket-1';
 

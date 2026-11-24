@@ -5,17 +5,14 @@
  * What cannot be kept is dropped, what cannot be read at all is the default,
  * and nothing found there throws.
  */
-import {
-  defaultLayout,
-  firstFreeId,
-  type GroupId,
-  type LayoutNode,
-  MAX_GROUPS,
-  NEW_TAB,
-  type SidePanelLayout,
-  type SplitOrientation,
-  type TabGroupNode,
-  type TabId,
+import { defaultLayout, firstFreeId, MAX_GROUPS, NEW_TAB } from './layout';
+import type {
+  GroupId,
+  LayoutNode,
+  SidePanelLayout,
+  SplitOrientation,
+  TabGroupNode,
+  TabId,
 } from './layout';
 
 type Stored = Record<string, unknown>;

@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { paths } from './cellApiContract';
 import {
-  type CellFailureCode,
-  type CloudSession,
-  type CloudSessionStatus,
   chatMounted,
   keepsShownOn,
-  type Harness,
   listPollIntervalMs,
   pollIntervalMs,
-  type StartRefusalCode,
   sessionLabel,
   sessionScreen,
   shouldRenewPass,
   startedAt,
+} from './cloudSession';
+import type {
+  CellFailureCode,
+  CloudSession,
+  CloudSessionStatus,
+  Harness,
+  StartRefusalCode,
 } from './cloudSession';
 import {
   HARNESS_NAMES,

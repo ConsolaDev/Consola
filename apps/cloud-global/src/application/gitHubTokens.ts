@@ -1,11 +1,6 @@
 import { readGitHubTokenRequest } from '@consola/cloud-contract';
-import {
-  type GrantedPermissions,
-  grantedAsAsked,
-  scopeFor,
-  type TokenRequestProblem,
-  uncoveredRepositories,
-} from '../domain/gitHubTokens.js';
+import { grantedAsAsked, scopeFor, uncoveredRepositories } from '../domain/gitHubTokens.js';
+import type { GrantedPermissions, TokenRequestProblem } from '../domain/gitHubTokens.js';
 import type { CellRequestVerifier, GitHubApp, GitHubTokenMinter, TokenMintStore } from './ports.js';
 
 /** How a cell's request for a GitHub token ended. */

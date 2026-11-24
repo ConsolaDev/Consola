@@ -1,16 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
+import { answer, PageTextError, plain, refuseWhileDialog, tabIdInput } from './browserToolAccess';
+import type { CallerAccess } from './browserToolAccess';
 import {
-  answer,
-  type CallerAccess,
-  PageTextError,
-  plain,
-  refuseWhileDialog,
-  tabIdInput,
-} from './browserToolAccess';
-import {
-  type BrowserActToolsDeps,
   countOf,
   openedDialogContent,
   pageStepFailure,
@@ -18,7 +11,9 @@ import {
   staleRefMessage,
   unlessDialog,
 } from './browserPageSteps';
-import { type BrowserToolContent, quoted } from './browserToolResults';
+import type { BrowserActToolsDeps } from './browserPageSteps';
+import { quoted } from './browserToolResults';
+import type { BrowserToolContent } from './browserToolResults';
 import { PAGE_CALL_TIMEOUT_MS } from './PageDriver';
 
 /** How long `wait_for` waits unless told, and the longest it may. */

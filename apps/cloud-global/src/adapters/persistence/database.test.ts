@@ -5,7 +5,8 @@ import { fileURLToPath } from 'node:url';
 import { sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { schema } from './schema.js';
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url));

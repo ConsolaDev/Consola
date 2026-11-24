@@ -1,4 +1,5 @@
-import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
+import { StartedByHandError } from '@consola/automation-engine';
+import type { AgentLaunchRequest } from '@consola/automation-engine';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { AgentGrants } from '../../shared/agentGrants';
@@ -6,9 +7,12 @@ import type { GitProviderId } from '../../shared/providers';
 import type { HarnessDriverId } from '../../shared/types';
 import type { WorkItemRef } from '../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../shared/workItems';
-import { launchFieldsFor, type Harness } from '../../shared/harness';
-import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
-import { getDriver, type HarnessDriver, toHarnessConfig, toolPolicyProblem } from '../drivers';
+import { launchFieldsFor } from '../../shared/harness';
+import type { Harness } from '../../shared/harness';
+import { generateSessionInstanceId } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
+import { getDriver, toHarnessConfig, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import type { CompileHost, McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import {

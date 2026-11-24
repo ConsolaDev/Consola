@@ -1,6 +1,7 @@
 import type { BrowserWindow, WebContents } from 'electron';
 import type { BrowserFoundMessage } from '../../shared/browser';
-import { stepZoom, type FindResult, type ZoomStep } from '../../shared/browserTools';
+import { stepZoom } from '../../shared/browserTools';
+import type { FindResult, ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 
 /** A page that has not answered a capture by now is not going to. */

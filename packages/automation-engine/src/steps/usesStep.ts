@@ -1,14 +1,12 @@
-import {
-  checkOutputs,
-  coerceOutput,
-  parseTemplate,
-  type McpServerDefinition,
-  type OutputType,
-  type OutputValue,
-  type RunRecord,
-  type StepRun,
-  type TemplatePath,
-  type UsesStep,
+import { checkOutputs, coerceOutput, parseTemplate } from '@consola/factory-spec';
+import type {
+  McpServerDefinition,
+  OutputType,
+  OutputValue,
+  RunRecord,
+  StepRun,
+  TemplatePath,
+  UsesStep,
 } from '@consola/factory-spec';
 import type {
   EngineToolContext,
@@ -20,13 +18,8 @@ import type {
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
 import { clipText, formatDuration, maskSecrets, utf8Bytes } from './commandIO';
-import {
-  MAX_ARTIFACT_BYTES,
-  type CallFile,
-  type CallResultFile,
-  type RenderedArgument,
-  type RunDefinition,
-} from './definition';
+import { MAX_ARTIFACT_BYTES } from './definition';
+import type { CallFile, CallResultFile, RenderedArgument, RunDefinition } from './definition';
 import { withStep } from './stepRecords';
 
 /*

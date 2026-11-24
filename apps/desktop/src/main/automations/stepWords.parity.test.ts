@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  describeFailure,
-  WAITING_FOR_CHECKOUT,
-  type CommandResult,
-} from '@consola/automation-engine';
+import { describeFailure, WAITING_FOR_CHECKOUT } from '@consola/automation-engine';
+import type { CommandResult } from '@consola/automation-engine';
 import { CHECKOUT_WAIT } from '../../renderer/components/Automations/presentation';
 import { COMMAND_STOPPED, COMMAND_TIMED_OUT } from '../../renderer/components/Automations/runPage';
 

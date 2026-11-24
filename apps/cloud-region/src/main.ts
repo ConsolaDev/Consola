@@ -1,13 +1,12 @@
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { serve } from '@hono/node-server';
-import {
-  migrateDatabase,
-  type OpenDatabase,
-  openDatabase,
-} from './adapters/persistence/database.js';
-import { type Cell, composeCell } from './compose.js';
-import { type CellConfig, ConfigError, loadConfig } from './config.js';
+import { migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import type { OpenDatabase } from './adapters/persistence/database.js';
+import { composeCell } from './compose.js';
+import type { Cell } from './compose.js';
+import { ConfigError, loadConfig } from './config.js';
+import type { CellConfig } from './config.js';
 import { describeStartupFailure } from './startupError.js';
 
 // Beside package.json, from both `src/main.ts` (tsx) and `dist/main.js` (node).

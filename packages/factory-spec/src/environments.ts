@@ -15,7 +15,8 @@
  */
 import { createHash } from 'node:crypto';
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, formatPath, type FactorySpecIssue } from './issues';
+import { closestNode, formatPath } from './issues';
+import type { FactorySpecIssue } from './issues';
 import { stableStringify } from './run';
 import { ENV_NAME_PATTERN, isRefusedEnvName } from './steps';
 import { documentValue } from './yamlValue';

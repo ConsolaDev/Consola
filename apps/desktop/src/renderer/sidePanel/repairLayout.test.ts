@@ -4,13 +4,11 @@ import {
   defaultLayout,
   groupsOf,
   isInFront,
-  type LayoutNode,
   NEW_TAB,
   openKind,
-  type SidePanelLayout,
-  type SplitOrientation,
   setVisible,
 } from './layout';
+import type { LayoutNode, SidePanelLayout, SplitOrientation } from './layout';
 import { repairLayout } from './repairLayout';
 
 /** How many tabs the layout holds, placeholders included. */

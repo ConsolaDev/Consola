@@ -3,8 +3,10 @@ import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
-import { createLaunchCoalescer, launchWorkItem, type WorkItemLaunchDeps } from './launchWorkItem';
-import { launchAgentRun, type AgentLaunchDeps } from '../automations/launchAgentRun';
+import { createLaunchCoalescer, launchWorkItem } from './launchWorkItem';
+import type { WorkItemLaunchDeps } from './launchWorkItem';
+import { launchAgentRun } from '../automations/launchAgentRun';
+import type { AgentLaunchDeps } from '../automations/launchAgentRun';
 
 const pr51: WorkItemRef = {
   provider: 'github',

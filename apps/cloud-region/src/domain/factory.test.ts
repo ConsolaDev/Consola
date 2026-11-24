@@ -6,11 +6,10 @@ import {
   FACTORY_BYTES_MAX,
   FACTORY_FILES_MAX,
   FACTORY_NAME_MAX,
-  type Factory,
-  type FactoryFile,
   factoriesSeenBy,
   judgeFactoryChange,
 } from './factory.js';
+import type { Factory, FactoryFile } from './factory.js';
 import type { Team } from './team.js';
 
 // A small factory, in the format `packages/factory-spec` defines: an automation in factory.yml,

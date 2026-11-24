@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { ChevronDown, Play } from 'lucide-react';
 import type { ItemTarget, ItemTargetRow, ItemTargets } from '../../../shared/automations';

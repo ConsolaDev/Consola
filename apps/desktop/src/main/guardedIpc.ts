@@ -1,4 +1,5 @@
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { isTrustedSender } from './ipcSenderGuard';
 import { isConsolaContents } from './windowRegistry';
 

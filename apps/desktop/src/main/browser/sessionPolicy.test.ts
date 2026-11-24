@@ -1,23 +1,22 @@
 import { EventEmitter } from 'node:events';
 import type { DownloadItem, Session, WebContents } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
+import { browserPartitionFor } from '../../shared/browser';
+import type { BrowserTab } from '../../shared/browser';
 import {
   clearBrowsingData,
   configurePartition,
   decideDownload,
   decidePermission,
   downloadDialogTitle,
-  type DownloadFacts,
-  type DownloadPlaces,
   downloadRefusal,
-  type DownloadSource,
   downloadSource,
   gateDownloads,
   isInvited,
   partitionFor,
   QUIET_SESSION,
 } from './sessionPolicy';
+import type { DownloadFacts, DownloadPlaces, DownloadSource } from './sessionPolicy';
 import { SessionDownloads } from './downloadGate';
 import { PERSON_INPUT_GUARD_MS } from './PersonInput';
 

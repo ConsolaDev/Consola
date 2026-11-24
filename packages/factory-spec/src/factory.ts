@@ -7,17 +7,22 @@
  * defined twice. The texts come in already read (a runner's adapter reads the
  * folder), so this does no I/O and every runner parses a folder alike.
  */
-import { agentHash, parseAgentFile, type AgentDefinition } from './agents';
-import { parseEnvironmentFile, type EnvironmentDefinition } from './environments';
+import { agentHash, parseAgentFile } from './agents';
+import type { AgentDefinition } from './agents';
+import { parseEnvironmentFile } from './environments';
+import type { EnvironmentDefinition } from './environments';
 import { parseAutomationFile } from './automationFile';
 import { usesNotices } from './callArguments';
-import { formatPath, type FactorySpecIssue } from './issues';
+import { formatPath } from './issues';
+import type { FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
 import { isRunOwnedCheckout } from './flow';
-import { isStepsEntry, type Automation } from './schema';
+import { isStepsEntry } from './schema';
+import type { Automation } from './schema';
 import type { McpServerDefinition } from './servers';
-import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
+import { parseSkill } from './skills';
+import type { SkillDefinition, SkillFileEntry } from './skills';
 import { flatSteps, leafSteps } from './steps';
 
 /** The largest text file the folder's reader reads; a larger one is reported as not read. */

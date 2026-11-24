@@ -48,8 +48,8 @@ import {
   OrchestrationV2ShellHttpSnapshot,
   OrchestrationV2ShellResumable,
   OrchestrationV2ThreadBoundedSnapshot,
-  type ServerAuthDescriptor,
 } from '@t3tools/contracts';
+import type { ServerAuthDescriptor } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
 import * as DateTime from 'effect/DateTime';
 import * as Effect from 'effect/Effect';

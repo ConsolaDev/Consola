@@ -1,5 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react';
-import { createShiftGuard, type RowBox } from '../../sidebar/shiftGuard';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import type { RefObject } from 'react';
+import { createShiftGuard } from '../../sidebar/shiftGuard';
+import type { RowBox } from '../../sidebar/shiftGuard';
 
 /** A tree's row: a conductor's children ride inside it, as they do in `BucketMotion`. */
 const ROW = '.session-list > [data-entry-key]';

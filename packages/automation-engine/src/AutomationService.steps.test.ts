@@ -1,13 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
-import {
-  automationVersion,
-  parseFactorySpec,
-  stableStringify,
-  type RunRecord,
-  type StepRunStatus,
-} from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import type { RunRecord, StepRunStatus } from '@consola/factory-spec';
 import { INTERRUPTED_PROMPT } from './AutomationService';
 import { inboxItem } from './inboxItems.test-helpers';
 import { INTERRUPTED_COMMAND, recoverAfterRestart } from './steps/recover';
@@ -18,10 +13,8 @@ import {
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
-  type FakeCommand,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { FakeCommand, StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 import { SessionOpenedError, StartedByHandError } from './support';
 import type { InboxItemView, SessionView } from './views';
 

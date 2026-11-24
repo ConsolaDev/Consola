@@ -7,11 +7,11 @@ import {
   GITHUB_EVENT_DELIVERY_PATH,
   GITHUB_EVENT_TYPE,
   GITHUB_PAYLOAD_MAX_BYTES,
-  type GitHubEventMessage,
   isGitHubDeliveryId,
   isGitHubEventName,
   readGitHubEventMessage,
 } from './gitHubEvent.js';
+import type { GitHubEventMessage } from './gitHubEvent.js';
 import { OUTBOX_DELIVERY_PATH, OUTBOX_MESSAGE_TYPE } from './outboxDelivery.js';
 
 /** A pull request opened in the `sprocket` organisation's repository, as GitHub sends it. */

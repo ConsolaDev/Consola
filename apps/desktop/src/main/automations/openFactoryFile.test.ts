@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { openFactoryFile, type OpenFactoryFileDeps } from './openFactoryFile';
+import { openFactoryFile } from './openFactoryFile';
+import type { OpenFactoryFileDeps } from './openFactoryFile';
 
 /*
  * Open on a factory file hands a path to the OS. A file of the folder can be

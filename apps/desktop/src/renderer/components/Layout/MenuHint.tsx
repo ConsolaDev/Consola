@@ -1,4 +1,5 @@
-import { useEffect, useState, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 
 /**

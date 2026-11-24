@@ -1,4 +1,5 @@
-import { createElement, type ComponentType, type ReactElement, type ReactNode } from 'react';
+import { createElement } from 'react';
+import type { ComponentType, ReactElement, ReactNode } from 'react';
 import type { Bucket } from './bucketize';
 import type { Entry } from './entry';
 import { RunRow, activateRun } from '../components/Sidebar/rows/RunRow';

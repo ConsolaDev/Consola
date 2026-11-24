@@ -10,11 +10,8 @@ import {
   LATER_FOLDERS,
   replaceAutomationEntry,
 } from '@consola/factory-spec';
-import {
-  AutomationService,
-  type AutomationNotice,
-  type AutomationServiceDeps,
-} from '../AutomationService';
+import { AutomationService } from '../AutomationService';
+import type { AutomationNotice, AutomationServiceDeps } from '../AutomationService';
 import { itemKey } from '../inboxItems.test-helpers';
 import { RunFolder } from '../node/runFolder';
 import type {
@@ -36,12 +33,14 @@ import type {
   ServerGroup,
   WorkItemPort,
 } from '../ports';
-import { RunStore, type AutomationStateFile } from '../RunStore';
+import { RunStore } from '../RunStore';
+import type { AutomationStateFile } from '../RunStore';
 import type { ServerGroupsFile } from '../servers/serverGroups';
 import { memoryHistory } from '../runHistory.test-helpers';
 import type { SecretBinding, SecretsPort } from '../secrets/secretsPort';
 import { StartedByHandError } from '../support';
-import { FakeToolRegistry, type TestTool } from '../tools.test-helpers';
+import { FakeToolRegistry } from '../tools.test-helpers';
+import type { TestTool } from '../tools.test-helpers';
 import type {
   InboxItemView,
   ItemRef,
@@ -53,12 +52,8 @@ import type {
   WorkspaceView,
 } from '../views';
 import type { CheckoutRequest } from './checkout';
-import {
-  runOwnedDirName,
-  type RunCheckoutPort,
-  type SettleResult,
-  type StepProcesses,
-} from './runCheckout';
+import { runOwnedDirName } from './runCheckout';
+import type { RunCheckoutPort, SettleResult, StepProcesses } from './runCheckout';
 import { maskSecrets } from './commandIO';
 import type { StepToolAnswer } from './stepTools';
 

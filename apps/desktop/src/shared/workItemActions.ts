@@ -1,5 +1,6 @@
 import { generateId } from './ids';
-import { INBOX_SECTIONS, sectionItemType, type InboxSection } from './inboxSections';
+import { INBOX_SECTIONS, sectionItemType } from './inboxSections';
+import type { InboxSection } from './inboxSections';
 
 /**
  * Actions: the verbs a workspace offers on a work item.

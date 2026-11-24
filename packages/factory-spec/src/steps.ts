@@ -8,15 +8,8 @@
  * pointing at the key it is about, so a refusal can say why.
  */
 import { z } from 'zod';
-import {
-  checkExpression,
-  expressionPaths,
-  MAX_IF_LENGTH,
-  parseExpression,
-  type Expr,
-  type ExprType,
-  type ExpressionScope,
-} from './expression';
+import { checkExpression, expressionPaths, MAX_IF_LENGTH, parseExpression } from './expression';
+import type { Expr, ExprType, ExpressionScope } from './expression';
 import { branchPlaceholderNames } from './branchName';
 import { parseDurationMs } from './duration';
 import {
@@ -29,19 +22,21 @@ import {
   gateHasNo,
   MAX_LOOP_STEPS,
   ON_EXHAUSTED_OUTSIDE,
-  type OnExhausted,
   parseGateBody,
   parseOnExhausted,
   parseRepeatHeader,
   parseRetry,
   parseThen,
 } from './flow';
+import type { OnExhausted } from './flow';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
 import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
-import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
-import { checkUsesStep, parseUsesStep, usesTexts, type UsesStep } from './uses';
+import { hasTemplateBraces, parseTemplate, templatePaths } from './template';
+import type { TemplatePath } from './template';
+import { checkUsesStep, parseUsesStep, usesTexts } from './uses';
+import type { UsesStep } from './uses';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;

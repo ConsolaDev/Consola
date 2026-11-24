@@ -1,8 +1,5 @@
-import {
-  type GitHubEventMessage,
-  type ReadResult,
-  readGitHubEventMessage,
-} from '@consola/cloud-contract';
+import { readGitHubEventMessage } from '@consola/cloud-contract';
+import type { GitHubEventMessage, ReadResult } from '@consola/cloud-contract';
 import type { Region } from '../domain/region.js';
 import type { DeliveryVerifier, GitHubEventStore } from './ports.js';
 import { readJsonPayload, whatFailed } from './signedPayload.js';

@@ -1,4 +1,5 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
 import { useReducedMotion } from './useReducedMotion';
 
 /** Ease-out-quart: quick to arrive, quiet to stop. The `--ease-out-quart` token, for motion written in JS. */

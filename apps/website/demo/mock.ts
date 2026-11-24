@@ -11,12 +11,8 @@ import {
 } from './fixtures';
 import { substitutePlaceholders } from '../../desktop/src/shared/workItemPrompt';
 import { DEFAULT_DIMENSIONS } from '../../desktop/src/shared/constants';
-import {
-  createLabelRecord,
-  type Workspace,
-  type Session,
-  type NewSessionFields,
-} from '../../desktop/src/shared/workspace';
+import { createLabelRecord } from '../../desktop/src/shared/workspace';
+import type { Workspace, Session, NewSessionFields } from '../../desktop/src/shared/workspace';
 import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/shared/types';
 import type { WorkItemRef } from '../../desktop/src/shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../desktop/src/shared/workItemDetails';

@@ -1,16 +1,14 @@
-import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import type { AutomationCapabilities, AutomationView } from '@consola/automation-engine';
 import type { SnoozeView } from '../../shared/attention';
-import {
-  consolaTools,
-  type AutomationControl,
-  type ConsolaToolDeps,
-  type SnoozeControl,
-} from './consolaTools';
-import { agentContext, ToolRegistry, type ToolContext } from './Tool';
+import { consolaTools } from './consolaTools';
+import type { AutomationControl, ConsolaToolDeps, SnoozeControl } from './consolaTools';
+import { agentContext, ToolRegistry } from './Tool';
+import type { ToolContext } from './Tool';
 
 /** The session asking: an ordinary one, in a worktree, in a group, on a pinned harness and model. */
 const caller = () =>

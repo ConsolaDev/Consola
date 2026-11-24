@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { resolveAddressInput, type BrowserHistoryEntry } from '../../../shared/browser';
+import { resolveAddressInput } from '../../../shared/browser';
+import type { BrowserHistoryEntry } from '../../../shared/browser';
 import { suggestFromHistory } from '../../../shared/browserTools';
 import { browserBridge } from '../../services/browserBridge';
 import {

@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import { messageForTeamProblem } from '../domain/teamMessages';
-import { checkTeamName, TEAM_NAME_MAX, type TeamProblem } from '../domain/teams';
+import { checkTeamName, TEAM_NAME_MAX } from '../domain/teams';
+import type { TeamProblem } from '../domain/teams';
 
 /** What a submit came to: nothing to say, a sentence, or the problems with the name. */
 type Outcome = string | null | { kind: 'invalid'; problems: TeamProblem[] };

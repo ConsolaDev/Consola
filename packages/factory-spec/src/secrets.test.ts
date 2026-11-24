@@ -12,7 +12,8 @@ import {
 } from './secrets';
 import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
-import { isStepsEntry, type Automation } from './schema';
+import { isStepsEntry } from './schema';
+import type { Automation } from './schema';
 import type { McpServerDefinition } from './servers';
 import type { Step } from './steps';
 

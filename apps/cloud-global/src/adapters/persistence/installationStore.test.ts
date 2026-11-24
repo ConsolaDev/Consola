@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InstallationStore } from '../../application/ports.js';
 import type { GitHubInstallation } from '../../domain/connections.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { createInstallationStore } from './installationStore.js';
 import { schema } from './schema.js';
 

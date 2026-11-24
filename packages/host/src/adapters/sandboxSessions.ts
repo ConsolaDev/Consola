@@ -10,7 +10,8 @@
  * the runner not: each sandbox is leased for `SANDBOX_LEASE_SECONDS` and renewed while the runner
  * holds it, never past the cap.
  */
-import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
+import { isHostUrl } from '@consola/runner-protocol';
+import type { SessionStart, SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -26,14 +27,12 @@ import {
   HostLineBuffer,
   lifetimeStopAfterMs,
   offerRefusal,
-  type RunnerOffer,
   readSessionLine,
   SANDBOX_LEASE_RENEW_SECONDS,
   SANDBOX_LEASE_SECONDS,
   SESSION_START_ARGV,
   SESSION_TEMPLATE,
   StderrTail,
-  type SandboxSecrets,
   sandboxEnvFor,
   sandboxLifetimeSeconds,
   scrubSecrets,
@@ -41,6 +40,7 @@ import {
   updateForExit,
   updateForLine,
 } from '../core/runnerDecisions.ts';
+import type { RunnerOffer, SandboxSecrets } from '../core/runnerDecisions.ts';
 
 /**
  * How long after the host's `exit` line the runner stops the sandbox itself, should the host not

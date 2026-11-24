@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
-import { NEW_SESSION_NAME, type Session, type Workspace } from '../../shared/workspace';
+import { NEW_SESSION_NAME } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { BrowserService } from '../browser/BrowserService';
 import { BrowserStateStore } from '../browser/BrowserStateStore';

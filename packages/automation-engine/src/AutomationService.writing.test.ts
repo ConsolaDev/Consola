@@ -18,9 +18,8 @@ import {
   runCheckoutPathFor,
   stepsHarness,
   WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * Slice 3-B, writing: a run with `checkout: { repo, branch }` works in a

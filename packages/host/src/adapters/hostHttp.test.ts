@@ -3,7 +3,8 @@ import * as HttpServerRequest from 'effect/http/HttpServerRequest';
 import * as HttpServerResponse from 'effect/http/HttpServerResponse';
 import * as Logger from 'effect/Logger';
 import { describe, expect, it } from 'vite-plus/test';
-import { type HostHttp, RPC_TICKET_PATH, serveHostHttp } from './hostHttp.ts';
+import { RPC_TICKET_PATH, serveHostHttp } from './hostHttp.ts';
+import type { HostHttp } from './hostHttp.ts';
 import { PassRejected } from './passVerifier.ts';
 
 const PASS = 'a-pass-for-session-sprocket';

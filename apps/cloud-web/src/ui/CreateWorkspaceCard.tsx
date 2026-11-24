@@ -1,20 +1,14 @@
-import { type FormEvent, useId, useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import {
   messagesForCreateRefusal,
   messagesForWorkspaceProblems,
   REGION_HINT,
   SLUG_HINT,
-  type WorkspaceFormMessages,
 } from '../domain/messages';
-import {
-  checkNewWorkspace,
-  NEW_DRAFT,
-  REGIONS,
-  type WorkspaceDraft,
-  type WorkspaceProblem,
-  withName,
-  withSlug,
-} from '../domain/workspace';
+import type { WorkspaceFormMessages } from '../domain/messages';
+import { checkNewWorkspace, NEW_DRAFT, REGIONS, withName, withSlug } from '../domain/workspace';
+import type { WorkspaceDraft, WorkspaceProblem } from '../domain/workspace';
 import { createWorkspace } from '../services/api';
 
 function problemsOf(draft: WorkspaceDraft): WorkspaceProblem[] {

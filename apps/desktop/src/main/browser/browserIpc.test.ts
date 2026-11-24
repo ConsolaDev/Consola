@@ -2,7 +2,8 @@ import type { BrowserWindow, WebContents } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserService } from './BrowserService';
-import { type BrowserIpcDeps, registerBrowserHandlers } from './browserIpc';
+import { registerBrowserHandlers } from './browserIpc';
+import type { BrowserIpcDeps } from './browserIpc';
 
 type Handler = (event: { sender: WebContents }, ...args: unknown[]) => unknown;
 

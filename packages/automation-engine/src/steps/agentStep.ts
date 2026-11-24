@@ -1,12 +1,5 @@
-import {
-  leafSteps,
-  parseReadRef,
-  parseTemplate,
-  renderTemplate,
-  type AgentStep,
-  type RunRecord,
-  type StepRun,
-} from '@consola/factory-spec';
+import { leafSteps, parseReadRef, parseTemplate, renderTemplate } from '@consola/factory-spec';
+import type { AgentStep, RunRecord, StepRun } from '@consola/factory-spec';
 import type { AgentLaunchRequest, CheckoutKind, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
@@ -16,7 +9,8 @@ import { describeReason } from './commandStep';
 import type { RunDefinition } from './definition';
 import { CHECKOUT_REFS } from './runCheckout';
 import { joinNames } from './sequence';
-import { renderStepPrompt, type StepPromptInput } from './stepPrompt';
+import { renderStepPrompt } from './stepPrompt';
+import type { StepPromptInput } from './stepPrompt';
 
 /*
  * An agent step's launch, decided from its run's record and definition (and,

@@ -10,7 +10,6 @@ import {
   CALL_DEADLINE_MS,
   clampDeadline,
   CONSOLE_ERRORS_KEPT,
-  type DriverRelay,
   FAILED_REQUESTS_KEPT,
   MAX_CALL_DEADLINE_MS,
   PageDriver,
@@ -18,6 +17,7 @@ import {
   pastDeadlineMessage,
   RELEASE_CONSOLE_EVERY,
 } from './PageDriver';
+import type { DriverRelay } from './PageDriver';
 
 const T0 = 1_700_000_000_000;
 

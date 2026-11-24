@@ -1,30 +1,24 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import {
-  isBlankPageUrl,
-  MAX_TABS_PER_SESSION,
-  resolveAddressInput,
-  type BrowserTabSnapshot,
-  type LocalServer,
-} from '../../shared/browser';
-import { checkoutPathForSession, type Workspace } from '../../shared/workspace';
+import { isBlankPageUrl, MAX_TABS_PER_SESSION, resolveAddressInput } from '../../shared/browser';
+import type { BrowserTabSnapshot, LocalServer } from '../../shared/browser';
+import { checkoutPathForSession } from '../../shared/workspace';
+import type { Workspace } from '../../shared/workspace';
 import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
-import { type AgentMoveBrowser, type AgentMoveDeps, moveAsAgent } from './agentMove';
+import { moveAsAgent } from './agentMove';
+import type { AgentMoveBrowser, AgentMoveDeps } from './agentMove';
 import type { BrowserService } from './BrowserService';
-import { addActTools, type BrowserActToolsDeps } from './browserActTools';
+import { addActTools } from './browserActTools';
+import type { BrowserActToolsDeps } from './browserActTools';
 import { giveWay, pageStepFailure } from './browserPageSteps';
 import { addDialogTool } from './browserDialogTool';
-import {
-  answer,
-  CallerAccess,
-  plain,
-  refuseWhileDialog,
-  tabIdInput,
-  type ToolDialogs,
-} from './browserToolAccess';
-import { type BrowserToolContent, snapshotContent, statusContent } from './browserToolResults';
+import { answer, CallerAccess, plain, refuseWhileDialog, tabIdInput } from './browserToolAccess';
+import type { ToolDialogs } from './browserToolAccess';
+import { snapshotContent, statusContent } from './browserToolResults';
+import type { BrowserToolContent } from './browserToolResults';
 import { addWaitTool } from './browserWaitTool';
-import { type PageDriver, PageStepError } from './PageDriver';
+import { PageStepError } from './PageDriver';
+import type { PageDriver } from './PageDriver';
 
 const PERSON_TAB_MESSAGE = 'Only a tab the agent opened can be closed.';
 const TAB_CAP_MESSAGE = `This session already has ${MAX_TABS_PER_SESSION} tabs; close one first.`;

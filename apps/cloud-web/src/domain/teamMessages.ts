@@ -1,5 +1,6 @@
 import { messageForCellRefusal } from './cell';
-import { type TeamChange, TEAM_NAME_MAX, type TeamProblem, type TeamsState } from './teams';
+import { TEAM_NAME_MAX } from './teams';
+import type { TeamChange, TeamProblem, TeamsState } from './teams';
 
 /** What the Teams page says, for each rule and each answer. */
 

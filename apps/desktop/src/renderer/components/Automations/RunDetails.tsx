@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ArrowRight,
   Check,
@@ -11,12 +12,8 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react';
-import {
-  isAgentRunPreview,
-  isStepsRunPreview,
-  type RunListEntry,
-  type RunRecord,
-} from '../../../shared/automations';
+import { isAgentRunPreview, isStepsRunPreview } from '../../../shared/automations';
+import type { RunListEntry, RunRecord } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { formatCostUsd } from '../../../shared/cost';
 import type { Workspace } from '../../../shared/workspace';
@@ -49,15 +46,8 @@ import {
   runStatusLabel,
   triggerInWords,
 } from './presentation';
-import {
-  adjacentRuns,
-  durationAgainstUsual,
-  leadDetail,
-  runNotes,
-  runStages,
-  type RunStage,
-  type RunStageKey,
-} from './runPage';
+import { adjacentRuns, durationAgainstUsual, leadDetail, runNotes, runStages } from './runPage';
+import type { RunStage, RunStageKey } from './runPage';
 
 const NO_RUNS: RunListEntry[] = [];
 

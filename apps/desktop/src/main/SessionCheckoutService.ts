@@ -5,7 +5,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { CheckoutContext, CheckoutWorktree, SessionCheckout } from '../shared/sessionCheckout';
-import { type PathLock, worktreePathLock } from './worktreeCleanup/PathLock';
+import { worktreePathLock } from './worktreeCleanup/PathLock';
+import type { PathLock } from './worktreeCleanup/PathLock';
 
 const exec = promisify(execFile);
 

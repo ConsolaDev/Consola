@@ -1,4 +1,5 @@
-import { REGIONS, type Region } from '@consola/cloud-contract';
+import { REGIONS } from '@consola/cloud-contract';
+import type { Region } from '@consola/cloud-contract';
 import { z } from 'zod';
 
 /**

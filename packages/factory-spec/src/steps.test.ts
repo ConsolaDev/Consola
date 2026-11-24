@@ -12,11 +12,8 @@ import {
   REFUSED_ENV_PREFIXES,
   stepItemFieldProblems,
   stepItemFields,
-  type AgentStep,
-  type CommandStep,
-  type ItemFieldTable,
-  type Step,
 } from './steps';
+import type { AgentStep, CommandStep, ItemFieldTable, Step } from './steps';
 
 /** One entry, its fields indented under `- name: a`. */
 const one = (fields: string) =>

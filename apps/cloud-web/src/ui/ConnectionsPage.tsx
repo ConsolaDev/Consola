@@ -10,7 +10,8 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { type CSSProperties, useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   accountCount,
   CONNECTIONS_UNAVAILABLE,
@@ -33,14 +34,16 @@ import {
 import {
   accountKind,
   avatarUrl,
-  type Connections,
-  type ConnectionsState,
-  type GitHubAccount,
-  type GitHubConnection,
-  type GitHubResult,
   isSuccess,
   justConnectedId,
   LATER_SERVICES,
+} from '../domain/connections';
+import type {
+  Connections,
+  ConnectionsState,
+  GitHubAccount,
+  GitHubConnection,
+  GitHubResult,
 } from '../domain/connections';
 import { disconnectGitHub, loadConnections, startGitHubConnect } from '../services/api';
 import { goToGitHub, takeGitHubResult } from '../services/gitHubRedirect';

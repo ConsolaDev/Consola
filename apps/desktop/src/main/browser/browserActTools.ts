@@ -2,7 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
 import {
-  type BrowserActToolsDeps,
   countOf,
   giveWay,
   messageOf,
@@ -12,16 +11,10 @@ import {
   staleRefMessage,
   unlessDialog,
 } from './browserPageSteps';
+import type { BrowserActToolsDeps } from './browserPageSteps';
+import { answer, PageTextError, plain, refuseWhileDialog, tabIdInput } from './browserToolAccess';
+import type { CallerAccess } from './browserToolAccess';
 import {
-  answer,
-  type CallerAccess,
-  PageTextError,
-  plain,
-  refuseWhileDialog,
-  tabIdInput,
-} from './browserToolAccess';
-import {
-  type BrowserToolContent,
   cutSentence,
   evaluateContent,
   firstLine,
@@ -29,18 +22,16 @@ import {
   untrusted,
   untrustedJson,
 } from './browserToolResults';
-import { type KeyPress, parseKeyPress } from './keyPress';
-import {
-  type ActRefusal,
-  actRefusalIn,
-  clickInPage,
-  type FillOutcome,
-  fillInPage,
-  type KeyOutcome,
-  pressInPage,
-  type ScrollDirection,
-  type ScrollOutcome,
-  scrollInPage,
+import type { BrowserToolContent } from './browserToolResults';
+import { parseKeyPress } from './keyPress';
+import type { KeyPress } from './keyPress';
+import { actRefusalIn, clickInPage, fillInPage, pressInPage, scrollInPage } from './pageInput';
+import type {
+  ActRefusal,
+  FillOutcome,
+  KeyOutcome,
+  ScrollDirection,
+  ScrollOutcome,
 } from './pageInput';
 
 export type { BrowserActToolsDeps } from './browserPageSteps';

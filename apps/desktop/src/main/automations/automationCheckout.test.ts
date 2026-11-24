@@ -8,7 +8,8 @@ import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { chainWorktreeStep, itemActionLaunchKey } from '../providers/launchWorkItem';
 import { HeadCheckoutError, WorktreeService } from '../WorktreeService';
-import { automationCheckoutPort, type AutomationCheckoutDeps } from './automationCheckout';
+import { automationCheckoutPort } from './automationCheckout';
+import type { AutomationCheckoutDeps } from './automationCheckout';
 
 const STUB_GH = path.resolve(__dirname, '../../../tests/fixtures/stub-gh/gh');
 

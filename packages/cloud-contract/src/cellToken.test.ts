@@ -4,10 +4,10 @@ import {
   CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
-  type CellTokenGrant,
   cellTokenClaims,
   readCellTokenClaims,
 } from './cellToken.js';
+import type { CellTokenGrant } from './cellToken.js';
 
 const MINTED = 1_800_000_000;
 

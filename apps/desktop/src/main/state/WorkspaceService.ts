@@ -6,8 +6,8 @@ import {
   createDefaultActions,
   createDefaultSectionDefaults,
   validateActionsWrite,
-  type WorkItemAction,
 } from '../../shared/workItemActions';
+import type { WorkItemAction } from '../../shared/workItemActions';
 import { sameWorkItem } from '../../shared/workItems';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
@@ -20,20 +20,22 @@ import {
   migrateWorkspaceState,
   scopeForSession,
   switchedSession,
-  type DeletedLabel,
-  type HarnessSwitchChange,
-  type Group,
-  type Label,
-  type NewLabelFields,
-  type NewGroupFields,
-  type NewScopeFields,
-  type NewSessionFields,
-  type Scope,
-  type Session,
-  type SessionUpdates,
-  type Workspace,
-  type WorkspaceProvider,
-  type WorkspaceUpdates,
+} from '../../shared/workspace';
+import type {
+  DeletedLabel,
+  HarnessSwitchChange,
+  Group,
+  Label,
+  NewLabelFields,
+  NewGroupFields,
+  NewScopeFields,
+  NewSessionFields,
+  Scope,
+  Session,
+  SessionUpdates,
+  Workspace,
+  WorkspaceProvider,
+  WorkspaceUpdates,
 } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 

@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  advanceSeen,
-  forgetFired,
-  heldRevision,
-  markFired,
-  type OpenState,
-  type SeenRecord,
-} from './seenRecord';
+import { advanceSeen, forgetFired, heldRevision, markFired } from './seenRecord';
+import type { OpenState, SeenRecord } from './seenRecord';
 
 const at = '2026-11-05T09:00:00.000Z';
 const later = '2026-11-05T09:03:00.000Z';

@@ -1,6 +1,7 @@
 import type { Attention } from '../../shared/attention';
 import type { Entry } from './entry';
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf } from './forest';
+import type { TreeNode } from './forest';
 import type { WorkingObservation } from './workingExits';
 
 /**

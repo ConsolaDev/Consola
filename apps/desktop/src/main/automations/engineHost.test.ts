@@ -11,10 +11,10 @@ import {
   AutomationService,
   RunFolder,
   RunStore,
-  type RunHistory,
-  type WorkspaceView,
 } from '@consola/automation-engine';
-import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
+import type { RunHistory, WorkspaceView } from '@consola/automation-engine';
+import { consolaTools } from '../tools/consolaTools';
+import type { ConsolaToolDeps } from '../tools/consolaTools';
 import { ToolRegistry } from '../tools/Tool';
 
 /*

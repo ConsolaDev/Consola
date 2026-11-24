@@ -1,5 +1,7 @@
-import { type BrowserTab, isAllowedPageUrl } from '../../shared/browser';
-import { personIsUsing, type TabHands } from './PersonInput';
+import { isAllowedPageUrl } from '../../shared/browser';
+import type { BrowserTab } from '../../shared/browser';
+import { personIsUsing } from './PersonInput';
+import type { TabHands } from './PersonInput';
 
 /** What `setWindowOpenHandler` is told about a window a page wants to open. */
 export interface PopupRequest {

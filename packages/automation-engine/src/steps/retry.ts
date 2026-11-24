@@ -1,10 +1,5 @@
-import {
-  flatSteps,
-  type Step,
-  type StepEntry,
-  type StepRun,
-  type StepRunStatus,
-} from '@consola/factory-spec';
+import { flatSteps } from '@consola/factory-spec';
+import type { Step, StepEntry, StepRun, StepRunStatus } from '@consola/factory-spec';
 import { CALL_SETTLE_INTERRUPTED, INTERRUPTED_CALL } from './recover';
 
 /*

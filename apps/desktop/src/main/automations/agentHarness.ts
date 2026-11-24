@@ -3,13 +3,16 @@ import type {
   AgentHarnessQuery,
   EntryAgentsView,
 } from '@consola/automation-engine';
-import { launchFieldsFor, type Harness } from '../../shared/harness';
+import { launchFieldsFor } from '../../shared/harness';
+import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
-import { getDriver, type HarnessDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
+import { getDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import { denyReadList } from '../drivers/claudeWriteAgent';
 import type { HarnessVersions } from '../drivers/harnessVersions';
 import { UNKNOWN_CLI_VERSION } from '../drivers/harnessVersions';
-import { type CompileHost, toHarnessConfig } from '../drivers/HarnessDriver';
+import { toHarnessConfig } from '../drivers/HarnessDriver';
+import type { CompileHost } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 

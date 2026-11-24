@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Loader2, RefreshCw } from 'lucide-react';
-import { PROVIDER_META, type ProviderProbeResult } from '../../../shared/providers';
+import { PROVIDER_META } from '../../../shared/providers';
+import type { ProviderProbeResult } from '../../../shared/providers';
 import type { Workspace } from '../../../shared/workspace';
 import { providerBridge } from '../../services/providerBridge';
 import { useWorkspaceStore } from '../../stores/workspaceStore';

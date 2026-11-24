@@ -1,8 +1,5 @@
-import {
-  WORKSPACE_ICON_IMAGE_SIZE,
-  isWorkspaceImageIcon,
-  type WorkspaceImageIcon,
-} from '../../shared/workspaceIcons';
+import { WORKSPACE_ICON_IMAGE_SIZE, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
+import type { WorkspaceImageIcon } from '../../shared/workspaceIcons';
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);

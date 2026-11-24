@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isAgentRunPreview, isStepsRunPreview, runTitle, type RunRecord } from './automations';
+import { isAgentRunPreview, isStepsRunPreview, runTitle } from './automations';
+import type { RunRecord } from './automations';
 
 function run(id: string, fields: Partial<RunRecord> & { actorId?: string } = {}): RunRecord {
   const { actorId, ...rest } = fields;

@@ -1,14 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Check } from 'lucide-react';
-import {
-  type CleanupHistoryEntry,
-  effectiveWorktreeCleanup,
-  type WorkspaceWorktreeCleanup,
-  type WorktreeCleanupRules,
+import { effectiveWorktreeCleanup } from '../../../shared/worktreeCleanup';
+import type {
+  CleanupHistoryEntry,
+  WorkspaceWorktreeCleanup,
+  WorktreeCleanupRules,
 } from '../../../shared/worktreeCleanup';
 import { worktreeCleanupBridge } from '../../services/worktreeCleanupBridge';
 import { usePreferencesStore } from '../../stores/preferencesStore';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { CleanupHistoryList } from './CleanupEntries';
 import { removesMore, RulesEditor } from './RulesEditor';
 import { useCleanupActions } from './useCleanupActions';

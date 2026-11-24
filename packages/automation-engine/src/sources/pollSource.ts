@@ -9,9 +9,8 @@ import {
   POLL_FENCE_HEADING,
   READ_ONLY_NOTE,
   UNWATCHED_NOTE,
-  type ItemSource,
-  type SourceItem,
 } from './itemSource';
+import type { ItemSource, SourceItem } from './itemSource';
 
 /*
  * A poll's item source. Its items are the objects its check command printed:

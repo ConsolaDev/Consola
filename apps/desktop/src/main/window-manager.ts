@@ -1,4 +1,5 @@
-import { BrowserWindow, app, screen, session, shell, type WebContents } from 'electron';
+import { BrowserWindow, app, screen, session, shell } from 'electron';
+import type { WebContents } from 'electron';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';

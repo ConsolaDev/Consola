@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { FIRST_SEQUENCE, type OutboxMessage, type WorkspaceChange } from '@consola/cloud-contract';
+import { FIRST_SEQUENCE } from '@consola/cloud-contract';
+import type { OutboxMessage, WorkspaceChange } from '@consola/cloud-contract';
 import { and, eq, max, ne } from 'drizzle-orm';
 import type { NewWorkspace } from '../../domain/workspace.js';
 import type { Transaction } from './database.js';

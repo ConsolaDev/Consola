@@ -67,9 +67,8 @@ import {
   issuesByFile,
   issuesTitle,
   noticesLine,
-  type RunListFilter,
-  type YamlToken,
 } from './presentation';
+import type { RunListFilter, YamlToken } from './presentation';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
 const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();

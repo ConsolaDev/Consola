@@ -4,7 +4,8 @@ import { AntigravityDriver } from './AntigravityDriver';
 import { ClaudeDriver, runHeadless } from './ClaudeDriver';
 import { CodexDriver } from './CodexDriver';
 import type { HarnessDriver } from './HarnessDriver';
-import { guardTestLaunches, testLaunchProblem, type TestLaunches } from './testLaunchGuard';
+import { guardTestLaunches, testLaunchProblem } from './testLaunchGuard';
+import type { TestLaunches } from './testLaunchGuard';
 
 /*
  * In an end-to-end test run, no CLI the app launches is one the test did not

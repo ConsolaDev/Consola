@@ -4,7 +4,8 @@ import type { Command } from '../domain/sandbox';
 import { FakeProvider } from '../providers/fake/FakeProvider';
 import { POSIX_PROGRAMS } from '../providers/fake/posixPrograms';
 import type { ProviderCommand, ProviderSandbox, SandboxProvider } from './ports';
-import { requireCapability, type Sandbox, sandboxesFrom } from './sandboxes';
+import { requireCapability, sandboxesFrom } from './sandboxes';
+import type { Sandbox } from './sandboxes';
 
 /** A provider that records every call it gets, and answers as `overrides` say. */
 function spy(

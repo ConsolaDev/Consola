@@ -5,7 +5,8 @@ import {
   passClaims,
 } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vite-plus/test';
-import { checkPassClaims, DEV_PASS_SECONDS, type PassClaims, readPass } from './pass.ts';
+import { checkPassClaims, DEV_PASS_SECONDS, readPass } from './pass.ts';
+import type { PassClaims } from './pass.ts';
 
 const NOW = 1_800_000_000;
 const claims = (over: Partial<PassClaims> = {}): PassClaims => ({

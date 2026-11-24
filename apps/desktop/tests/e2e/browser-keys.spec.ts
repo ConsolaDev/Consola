@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { showBrowser, sidePanelChord } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * ⌘Q and ⌘W with the keyboard in the browser. A page, or a popup it opened,

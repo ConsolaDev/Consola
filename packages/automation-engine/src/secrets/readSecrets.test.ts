@@ -1,11 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { readSecrets, type SecretsRead } from './readSecrets';
-import {
-  PERSONAL_FACTORY,
-  SecretReadError,
-  type SecretBinding,
-  type SecretsPort,
-} from './secretsPort';
+import { readSecrets } from './readSecrets';
+import type { SecretsRead } from './readSecrets';
+import { PERSONAL_FACTORY, SecretReadError } from './secretsPort';
+import type { SecretBinding, SecretsPort } from './secretsPort';
 import { maskFormsOf } from './values';
 
 const A_VALUE = 'stub-a-secret-7f3a"\\back%slash';

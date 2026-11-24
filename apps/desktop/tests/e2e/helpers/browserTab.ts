@@ -1,4 +1,5 @@
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 
 /** ⇧⌘L: opens the Browser tab, or hides the side panel while that tab is in front. */
 export function browserChord(): string {

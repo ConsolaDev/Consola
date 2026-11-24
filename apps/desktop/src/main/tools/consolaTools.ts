@@ -8,17 +8,13 @@ import type { BatchResult, SnoozeBatchResult } from '../../shared/preferences';
 import type { SnoozeActor } from '../attention/Snoozer';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
-import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
+import { generateSessionInstanceId } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import type { WorkItemDetails } from '../providers/GitProviderDriver';
 import type { SessionCleanupService } from '../cleanup/SessionCleanupService';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import {
-  defineTool,
-  workspacesInScope,
-  type ToolContext,
-  type ToolDefinition,
-  type ToolResult,
-} from './Tool';
+import { defineTool, workspacesInScope } from './Tool';
+import type { ToolContext, ToolDefinition, ToolResult } from './Tool';
 
 /**
  * The tools Consola itself offers. Descriptions are written for the agent

@@ -7,7 +7,8 @@ import type {
   InstallationStore,
   WebhookSignatures,
 } from '../../application/ports.js';
-import { receiveGitHubWebhook, type WebhookOutcome } from '../../application/webhooks.js';
+import { receiveGitHubWebhook } from '../../application/webhooks.js';
+import type { WebhookOutcome } from '../../application/webhooks.js';
 import { cellUrlVariable } from '../../config.js';
 import { postGitHubWebhook } from './contract.js';
 

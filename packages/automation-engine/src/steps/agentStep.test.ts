@@ -7,18 +7,21 @@ import {
   parseAgentFile,
   parseFactory,
   parseFactorySpec,
-  type AgentStep,
-  type RunItem,
-  type RunRecord,
-  type RunTrigger,
-  type Step,
-  type StepRun,
-  type StepsAutomation,
+} from '@consola/factory-spec';
+import type {
+  AgentStep,
+  RunItem,
+  RunRecord,
+  RunTrigger,
+  Step,
+  StepRun,
+  StepsAutomation,
 } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import { POLL_FENCE_HEADING, runItemSource } from '../sources/itemSource';
 import { agentStepLaunch, budgetLeft, endedWithout, stepCap } from './agentStep';
-import { agentRequirements, type AgentRequirements, type RunDefinition } from './definition';
+import { agentRequirements } from './definition';
+import type { AgentRequirements, RunDefinition } from './definition';
 
 const automation = parseFactorySpec(`version: 1
 automations:

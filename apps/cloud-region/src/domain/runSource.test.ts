@@ -1,4 +1,5 @@
-import { type Automation, parseFactory } from '@consola/factory-spec';
+import { parseFactory } from '@consola/factory-spec';
+import type { Automation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import type { FactoryFile } from './factory.js';
 import { sourceOf } from './runSource.js';

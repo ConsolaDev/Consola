@@ -2,22 +2,20 @@ import { ExternalLink, List } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { NO_FILTERS, withFactory } from '../domain/runFilters';
 import { messageForRunAnswer, runRefreshFailedWords } from '../domain/runMessages';
-import {
-  type RunAnswer,
-  type RunDetail,
-  RUN_POLL_WAITING_MS,
-  runPollDelay,
-  safeItemUrl,
-} from '../domain/runs';
-import { hashOfRun, type RunPlace } from '../domain/runsRoute';
+import { RUN_POLL_WAITING_MS, runPollDelay, safeItemUrl } from '../domain/runs';
+import type { RunAnswer, RunDetail } from '../domain/runs';
+import { hashOfRun } from '../domain/runsRoute';
+import type { RunPlace } from '../domain/runsRoute';
 import { itemLabel, itemNoun, lookOf, statusWords } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
-import { readRunPagePrefs, type RunPagePrefs, writeRunPagePrefs } from '../services/runPagePrefs';
+import { readRunPagePrefs, writeRunPagePrefs } from '../services/runPagePrefs';
+import type { RunPagePrefs } from '../services/runPagePrefs';
 import { runsService } from '../services/runs';
 import { showRunPlace } from '../services/runsAddress';
 import { ApprovalCard } from './ApprovalCard';
-import { type RunInfoSectionId, RunInfoPanel } from './RunInfoPanel';
+import { RunInfoPanel } from './RunInfoPanel';
+import type { RunInfoSectionId } from './RunInfoPanel';
 import { RequestPane, StepsPane } from './RunPanes';
 import { StatusGlyph } from './RunStatusIcon';
 import { useNow, usePoll } from './usePoll';

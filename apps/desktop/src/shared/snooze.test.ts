@@ -15,10 +15,10 @@ import {
   resolveCustomSnooze,
   resolveSnoozePresets,
   SNOOZE_PRESET_MAX_MS,
-  type SnoozePresetSetting,
   snoozePresetsEqual,
   snoozeWakeLabel,
 } from './snooze';
+import type { SnoozePresetSetting } from './snooze';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

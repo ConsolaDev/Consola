@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fanOut, type FanOutDeps } from './fanOut';
+import { fanOut } from './fanOut';
+import type { FanOutDeps } from './fanOut';
 import type { Group, Session, Workspace } from '../shared/workspace';
 
 const workspace = {

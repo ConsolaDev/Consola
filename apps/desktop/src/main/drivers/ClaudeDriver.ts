@@ -30,19 +30,18 @@ import {
 import { claudeAttentionHooks, claudeSettings } from './claudeHooks';
 import { budgetFlags, writeAgentArgs } from './claudeWriteAgent';
 import { createClaudeTurnReader } from './claudeTurnReader';
-import {
-  looseningProblem,
-  namedFlags,
-  type CliNameRead,
-  type CompileAgentInput,
-  type CompiledAgent,
-  type HarnessConfig,
-  type HarnessDriver,
-  type McpServerReport,
-  type SessionLaunch,
-  type TextGenerationRequest,
-  type TurnReader,
-  type UsageLimitReporting,
+import { looseningProblem, namedFlags } from './HarnessDriver';
+import type {
+  CliNameRead,
+  CompileAgentInput,
+  CompiledAgent,
+  HarnessConfig,
+  HarnessDriver,
+  McpServerReport,
+  SessionLaunch,
+  TextGenerationRequest,
+  TurnReader,
+  UsageLimitReporting,
 } from './HarnessDriver';
 
 /**

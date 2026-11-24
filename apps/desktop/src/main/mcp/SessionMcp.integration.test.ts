@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
@@ -8,14 +9,18 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
-import { isStepsEntry, parseFactorySpec, type RunRecord } from '@consola/factory-spec';
+import { isStepsEntry, parseFactorySpec } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import { RunFolder, StepIO, stepToolSpecs } from '@consola/automation-engine';
-import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
+import { ConductorTools } from '../conductor/ConductorTools';
+import type { ConductorToolsDeps } from '../conductor/ConductorTools';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
-import { consolaTools, MAX_DIFF_CHARS, type ConsolaToolDeps } from '../tools/consolaTools';
+import { consolaTools, MAX_DIFF_CHARS } from '../tools/consolaTools';
+import type { ConsolaToolDeps } from '../tools/consolaTools';
 import { agentContext, ToolRegistry } from '../tools/Tool';
 import { sessionRecord, toSessionView } from '../automations/engineViews';
-import { buildSessionServer, type SessionServerDeps } from './buildSessionServer';
+import { buildSessionServer } from './buildSessionServer';
+import type { SessionServerDeps } from './buildSessionServer';
 import { SessionMcpHost } from './SessionMcpHost';
 
 /** A fake agent: the MCP SDK client over a raw socket, like the shim pipes. */

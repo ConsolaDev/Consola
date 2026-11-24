@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createShiftGuard, MOVED_ROW_PRESS_MS, OWN_INPUT_MS, type RowBox } from './shiftGuard';
+import { createShiftGuard, MOVED_ROW_PRESS_MS, OWN_INPUT_MS } from './shiftGuard';
+import type { RowBox } from './shiftGuard';
 
 let clock = 0;
 let guard: ReturnType<typeof createShiftGuard>;

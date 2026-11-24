@@ -1,14 +1,9 @@
-import {
-  fieldProblem,
-  isId,
-  isRecord,
-  isWholeNumber,
-  type ReadResult,
-  read,
-  refused,
-} from './read.js';
-import { isRegion, type Region } from './region.js';
-import { isWorkspaceRole, type WorkspaceRole } from './workspaceRole.js';
+import { fieldProblem, isId, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
+import { isRegion } from './region.js';
+import type { Region } from './region.js';
+import { isWorkspaceRole } from './workspaceRole.js';
+import type { WorkspaceRole } from './workspaceRole.js';
 
 /**
  * The changes `cloud-global` tells a workspace's cell about, through its outbox: each message is

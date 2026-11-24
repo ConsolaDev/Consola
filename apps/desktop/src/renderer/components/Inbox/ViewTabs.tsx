@@ -1,6 +1,7 @@
 // src/renderer/components/Inbox/ViewTabs.tsx
 import { useRef } from 'react';
-import { INBOX_VIEWS, type InboxViewId } from '../../../shared/inboxViews';
+import { INBOX_VIEWS } from '../../../shared/inboxViews';
+import type { InboxViewId } from '../../../shared/inboxViews';
 
 interface ViewTabsProps {
   active: InboxViewId;

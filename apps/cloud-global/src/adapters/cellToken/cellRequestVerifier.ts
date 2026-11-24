@@ -1,9 +1,7 @@
-import { createPublicKey, type KeyObject } from 'node:crypto';
-import {
-  CELL_TOKEN_ALGORITHM,
-  GITHUB_TOKEN_REQUEST_TYPE,
-  type Region,
-} from '@consola/cloud-contract';
+import { createPublicKey } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
+import { CELL_TOKEN_ALGORITHM, GITHUB_TOKEN_REQUEST_TYPE } from '@consola/cloud-contract';
+import type { Region } from '@consola/cloud-contract';
 import { calculateJwkThumbprint, compactVerify, decodeProtectedHeader } from 'jose';
 import type { CellRequestVerifier } from '../../application/ports.js';
 import type { Ed25519PublicJwk } from '../../config.js';

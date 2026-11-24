@@ -9,7 +9,8 @@ import {
   parseLaunchArgs,
   useHarnessStore,
 } from '../../stores/harnessStore';
-import { ConfigFields, IdentityFields, type HarnessDraft } from './harnessFields';
+import { ConfigFields, IdentityFields } from './harnessFields';
+import type { HarnessDraft } from './harnessFields';
 import { HarnessIcon } from '../HarnessIcon';
 import './styles.css';
 

@@ -1,11 +1,8 @@
-import {
-  GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
-  type GitHubTokenAsk,
-  gitHubTokenRequest,
-  type Region,
-} from '@consola/cloud-contract';
+import { GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS, gitHubTokenRequest } from '@consola/cloud-contract';
+import type { GitHubTokenAsk, Region } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createTokenMintStore } from '../adapters/persistence/tokenMintStore.js';
 import type { GitHubRepository } from '../domain/connections.js';

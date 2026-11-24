@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RunRecord } from '@consola/factory-spec';
-import {
-  MAX_RUNS_PER_WORKSPACE,
-  RETENTION_DAYS,
-  RunStore,
-  type AutomationStateFile,
-} from './RunStore';
+import { MAX_RUNS_PER_WORKSPACE, RETENTION_DAYS, RunStore } from './RunStore';
+import type { AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
 
 const NOW = '2026-11-12T10:00:00.000Z';

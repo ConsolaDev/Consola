@@ -1,7 +1,9 @@
-import { Component, type RefObject } from 'react';
+import { Component } from 'react';
+import type { RefObject } from 'react';
 import { EASE_OUT } from '../../hooks/useSettleOnChange';
 import type { Bucket } from '../../sidebar/bucketize';
-import { departures, travelDuration, type Placement } from '../../sidebar/departures';
+import { departures, travelDuration } from '../../sidebar/departures';
+import type { Placement } from '../../sidebar/departures';
 import type { EntryKey } from '../../sidebar/entry';
 
 const BUCKETS: Bucket[] = ['waiting', 'working', 'snoozed', 'settled'];

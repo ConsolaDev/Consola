@@ -1,4 +1,5 @@
-import { parseAutomationEntry, type Automation } from '@consola/factory-spec';
+import { parseAutomationEntry } from '@consola/factory-spec';
+import type { Automation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import type { SecretsPort } from './secretsPort';
 import { NO_SECRETS, unboundOf, unboundProblem } from './unbound';

@@ -1,4 +1,5 @@
-import { useId, useState, type ReactNode } from 'react';
+import { useId, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ChevronRight,
   CircleCheck,
@@ -16,15 +17,10 @@ import {
   RotateCcw,
   ScanSearch,
   Square,
-  type LucideIcon,
 } from 'lucide-react';
-import {
-  isStepsRunPreview,
-  type AutomationView,
-  type RunListEntry,
-  type RunRecord,
-  type StepRun,
-} from '../../../shared/automations';
+import type { LucideIcon } from 'lucide-react';
+import { isStepsRunPreview } from '../../../shared/automations';
+import type { AutomationView, RunListEntry, RunRecord, StepRun } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
@@ -43,8 +39,8 @@ import {
   runRetryTarget,
   stopOffered,
   traceRows,
-  type TraceRow,
 } from './runPage';
+import type { TraceRow } from './runPage';
 import {
   durationOf,
   failureWords,
@@ -55,8 +51,8 @@ import {
   stepSummary,
   stepTone,
   turnFacts,
-  type StepTone,
 } from './stepDetail';
+import type { StepTone } from './stepDetail';
 import { formatElapsed, waitingForWords } from './presentation';
 
 const TONE_ICONS: Record<StepTone, LucideIcon> = {

@@ -9,9 +9,8 @@ import {
   primaryScope,
   scopeForSession,
   switchedSession,
-  type Session,
-  type Workspace,
 } from './workspace';
+import type { Session, Workspace } from './workspace';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 

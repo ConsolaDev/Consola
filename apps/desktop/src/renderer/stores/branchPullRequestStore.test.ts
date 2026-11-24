@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BranchPullRequestAnswer } from '../../shared/branchPullRequest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
-import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
-import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
+import { INBOX_REFRESH_INTERVAL_MS } from '../../shared/workItems';
+import type { WorkItemRef } from '../../shared/workItems';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Workspace } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import {
   defaultLayout,
@@ -18,8 +20,6 @@ vi.mock('../services/providerBridge', () => ({
 
 import { providerBridge } from '../services/providerBridge';
 import {
-  type BranchLookupAsk,
-  type BranchPullRequestEntry,
   branchLookupAsk,
   branchLookupKey,
   foundPullRequestOf,
@@ -27,6 +27,7 @@ import {
   looksAtPullRequest,
   useBranchPullRequestStore,
 } from './branchPullRequestStore';
+import type { BranchLookupAsk, BranchPullRequestEntry } from './branchPullRequestStore';
 import { useCheckoutStore } from './checkoutStore';
 
 const findBranchPullRequest = vi.mocked(providerBridge.findBranchPullRequest);

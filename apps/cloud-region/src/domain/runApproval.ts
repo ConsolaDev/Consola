@@ -1,4 +1,5 @@
-import { type Automation, type AutomationMode, flatSteps } from '@consola/factory-spec';
+import { flatSteps } from '@consola/factory-spec';
+import type { Automation, AutomationMode } from '@consola/factory-spec';
 import type { RunStatus } from './run.js';
 import type { Team } from './team.js';
 

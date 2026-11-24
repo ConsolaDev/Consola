@@ -1,10 +1,5 @@
-import {
-  CommandId,
-  type ModelSelection,
-  type OrchestrationV2Command,
-  type RuntimeMode,
-  ThreadId,
-} from '@t3tools/contracts';
+import { CommandId, ThreadId } from '@t3tools/contracts';
+import type { ModelSelection, OrchestrationV2Command, RuntimeMode } from '@t3tools/contracts';
 import type { OrchestratorV2ScenarioResult } from '@t3tools/server-orchestration/testing';
 import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';

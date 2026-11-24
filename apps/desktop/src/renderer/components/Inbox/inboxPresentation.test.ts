@@ -1,7 +1,8 @@
 // src/renderer/components/Inbox/inboxPresentation.test.ts
 import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '../../../shared/workItems';
-import { createSessionRecord, type Session } from '../../../shared/workspace';
+import { createSessionRecord } from '../../../shared/workspace';
+import type { Session } from '../../../shared/workspace';
 import {
   checksLabel,
   formatAge,

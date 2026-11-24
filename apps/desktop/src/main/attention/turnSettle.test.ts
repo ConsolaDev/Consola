@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SETTLE_MS, TurnSettle, type SettledStatus } from './turnSettle';
+import { SETTLE_MS, TurnSettle } from './turnSettle';
+import type { SettledStatus } from './turnSettle';
 
 let finished: Array<[string, SettledStatus]>;
 

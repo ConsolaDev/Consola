@@ -1,15 +1,15 @@
-import {
-  isAgentRunPreview,
-  type AutomationMode,
-  type AutomationView,
-  type AutomationsSnapshot,
-  type FactoryNotice,
-  type FactorySpecIssue,
-  type ItemTarget,
-  type ItemTargetRow,
-  type ItemTargets,
-  type RunListEntry,
-  type RunRecord,
+import { isAgentRunPreview } from '../../../shared/automations';
+import type {
+  AutomationMode,
+  AutomationView,
+  AutomationsSnapshot,
+  FactoryNotice,
+  FactorySpecIssue,
+  ItemTarget,
+  ItemTargetRow,
+  ItemTargets,
+  RunListEntry,
+  RunRecord,
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 

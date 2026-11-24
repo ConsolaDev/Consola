@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { defineTool, ToolRegistry, type ToolContext } from './Tool';
-import { type ConsolaToolDeps, consolaTools } from './consolaTools';
+import { defineTool, ToolRegistry } from './Tool';
+import type { ToolContext } from './Tool';
+import { consolaTools } from './consolaTools';
+import type { ConsolaToolDeps } from './consolaTools';
 
 const context: ToolContext = {
   caller: { kind: 'automation', automation: 'test' },

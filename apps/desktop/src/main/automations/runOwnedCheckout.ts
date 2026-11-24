@@ -13,12 +13,11 @@ import {
   sessionHoldsRetry,
   settleBetweenSteps,
   settleRunClone,
-  type RunCheckoutPort,
-  type SettleResult,
-  type StepProcesses,
 } from '@consola/automation-engine';
+import type { RunCheckoutPort, SettleResult, StepProcesses } from '@consola/automation-engine';
 import type { Session, Workspace } from '../../shared/workspace';
-import { ProcessCwdIndex, type ProcessSnapshot } from '../worktreeCleanup/ProcessCwdIndex';
+import { ProcessCwdIndex } from '../worktreeCleanup/ProcessCwdIndex';
+import type { ProcessSnapshot } from '../worktreeCleanup/ProcessCwdIndex';
 import { launchedWithFullTools } from './launchAgentRun';
 
 /** What the desktop's run-owned checkout port is built from (slice 3-B Task 18, Calls 1, 8, 12). */

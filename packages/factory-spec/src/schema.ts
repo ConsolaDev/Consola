@@ -2,8 +2,10 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
 import { AUTOMATION_NAME_PATTERN } from './names';
-import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
-import { parseToolRef, type RunTarget } from './runTarget';
+import { parseManualTrigger, parsePollTrigger } from './poll';
+import type { ManualTrigger, PollTrigger } from './poll';
+import { parseToolRef } from './runTarget';
+import type { RunTarget } from './runTarget';
 import { ENTRY_SECRETS_REASON } from './secrets';
 import { ENTRY_USES_REASON } from './uses';
 import {
@@ -12,9 +14,9 @@ import {
   LATER_KEYS,
   laterKeyMessage,
   stepsSchema,
-  type StepEntry,
   ENVIRONMENT_IN_AGENT_FILE,
 } from './steps';
+import type { StepEntry } from './steps';
 import { branchPlaceholderNames } from './branchName';
 import {
   isItemCheckout,
@@ -26,9 +28,8 @@ import {
   parseRetry,
   REPO_ENTRY_SHAPE,
   REPO_PATTERN,
-  type EntryCheckout,
-  type Fail,
 } from './flow';
+import type { EntryCheckout, Fail } from './flow';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for

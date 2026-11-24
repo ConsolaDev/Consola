@@ -5,8 +5,8 @@ import {
   parseSkill,
   SKILL_TEXT_EXTENSIONS,
   skillHash,
-  type SkillFileEntry,
 } from './skills';
+import type { SkillFileEntry } from './skills';
 
 type RegularFile = { path: string; bytes: Uint8Array };
 

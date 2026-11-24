@@ -4,17 +4,18 @@
 // every property alike with them and without them, at rest, hovered and focused, and its root
 // keep its containment. And on a page with no CSS, the guard and the floor that keep the page's
 // CSS out change nothing of t3's own.
-import { beforeAll, expect, it, type TestContext } from 'vite-plus/test';
+import { beforeAll, expect, it } from 'vite-plus/test';
+import type { TestContext } from 'vite-plus/test';
 import { userEvent } from 'vite-plus/test/browser';
 import {
   barePage,
   cloudWebPage,
   desktopPage,
-  type EmbeddingPage,
   reachingPage,
   tailwind4Page,
   tailwindPage,
 } from './testing/embeddingPages.ts';
+import type { EmbeddingPage } from './testing/embeddingPages.ts';
 import { addToPage, answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);

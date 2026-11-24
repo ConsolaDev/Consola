@@ -1,13 +1,9 @@
 import { CELL_TOKEN_ALGORITHM, OUTBOX_MESSAGE_TYPE } from '@consola/cloud-contract';
-import { type CompactVerifyGetKey, compactVerify, errors } from 'jose';
+import { compactVerify, errors } from 'jose';
+import type { CompactVerifyGetKey } from 'jose';
 import type { DeliveryCheck, DeliveryVerifier } from '../../application/ports.js';
-import {
-  type CellTokenKeys,
-  KeysUnavailable,
-  keyNamedBy,
-  keysUnavailableLine,
-  NoKeyNamed,
-} from './cellTokens.js';
+import { KeysUnavailable, keyNamedBy, keysUnavailableLine, NoKeyNamed } from './cellTokens.js';
+import type { CellTokenKeys } from './cellTokens.js';
 
 /** A JWS whose `typ` is not the one the verifier takes: a cell token, say. */
 class NotAMessage extends Error {}

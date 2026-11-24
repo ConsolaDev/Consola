@@ -1,4 +1,5 @@
-import { useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { CSSProperties, MouseEvent, ReactNode } from 'react';
 import {
   ArrowRight,
   Bell,
@@ -16,8 +17,8 @@ import {
   SquareTerminal,
   Wrench,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type {
   AutomationsSnapshot,
   TemplateNeed,

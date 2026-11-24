@@ -23,8 +23,8 @@ import {
   pullRequestDetails,
   timelineQuery,
   toThread,
-  type OwnedNodeType,
 } from './itemDetails';
+import type { OwnedNodeType } from './itemDetails';
 import type {
   WorkItemDetails as SharedWorkItemDetails,
   WorkItemMutation,

@@ -2,8 +2,8 @@ import { useId } from 'react';
 import {
   RUN_FINISHED_MINUTES_CHOICES,
   SETTLED_DAYS_CHOICES,
-  type WorktreeCleanupRules,
 } from '../../../shared/worktreeCleanup';
+import type { WorktreeCleanupRules } from '../../../shared/worktreeCleanup';
 
 const daysLabel = (days: number) => (days === 0 ? 'Off' : days === 1 ? '1 day' : `${days} days`);
 

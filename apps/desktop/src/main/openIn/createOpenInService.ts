@@ -3,7 +3,8 @@ import * as os from 'node:os';
 import { promisify } from 'node:util';
 import { nativeImage, shell } from 'electron';
 import { exposeToTests, isTest, openInApplicationsDir } from '../test-mode';
-import { createRecordingLauncher, createSystemLauncher, type Launcher } from './launchers';
+import { createRecordingLauncher, createSystemLauncher } from './launchers';
+import type { Launcher } from './launchers';
 import { OpenInService } from './OpenInService';
 import { applicationDirs, detectTargets } from './targets';
 

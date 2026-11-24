@@ -1,6 +1,7 @@
 import { secretNameProblem } from '@consola/factory-spec';
 import type { JsonStateFile } from '../state/JsonStateFile';
-import { type BindingRef, formatReference, parseReference } from './references';
+import { formatReference, parseReference } from './references';
+import type { BindingRef } from './references';
 
 /**
  * Where this Mac keeps each secret name's binding: `secret-bindings.json` in

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { detectOpenTrigger, type TypeaheadTriggerConfig } from './detectOpenTrigger';
+import { detectOpenTrigger } from './detectOpenTrigger';
+import type { TypeaheadTriggerConfig } from './detectOpenTrigger';
 import { spliceTypeaheadSelection } from './spliceTypeaheadSelection';
 
 const SLASH: TypeaheadTriggerConfig = { char: '/', position: 'message-start' };

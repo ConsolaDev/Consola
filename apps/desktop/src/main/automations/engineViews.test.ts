@@ -7,14 +7,17 @@ import {
   firstActionFor,
   fallbackWorkItemTitle as engineFallbackTitle,
   firstScope,
-  type ToolsPort,
 } from '@consola/automation-engine';
+import type { ToolsPort } from '@consola/automation-engine';
 import { describeError } from '../describeError';
 import { CONSOLA_NAMESPACE, ToolRegistry, agentContext } from '../tools/Tool';
-import { defaultActionFor, type WorkItemAction } from '../../shared/workItemActions';
+import { defaultActionFor } from '../../shared/workItemActions';
+import type { WorkItemAction } from '../../shared/workItemActions';
 import { fallbackWorkItemTitle, substitutePlaceholders } from '../../shared/workItemPrompt';
-import { primaryScope, type Scope, type Session, type Workspace } from '../../shared/workspace';
-import { workItemKey, type InboxItem } from '../../shared/workItems';
+import { primaryScope } from '../../shared/workspace';
+import type { Scope, Session, Workspace } from '../../shared/workspace';
+import { workItemKey } from '../../shared/workItems';
+import type { InboxItem } from '../../shared/workItems';
 import {
   sessionRecord,
   toInboxItemView,

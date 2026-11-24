@@ -9,17 +9,16 @@ import {
   phaseOf,
   progressOf,
   RUN_STATUSES,
-  type RunWrite,
   requestPhase,
   NO_STEP_DETAIL,
   OUTPUT_TAIL_MAX,
-  type StepRecord,
   stepDefinitionOf,
   stepRecordOf,
   TITLE_MAX,
   tailOf,
   titleOf,
 } from './run.js';
+import type { RunWrite, StepRecord } from './run.js';
 
 const T = '2026-11-20T10:00:00.000Z';
 

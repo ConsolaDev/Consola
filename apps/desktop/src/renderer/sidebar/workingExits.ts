@@ -1,6 +1,7 @@
 import type { Attention } from '../../shared/attention';
 import type { EntryKey } from './entry';
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf } from './forest';
+import type { TreeNode } from './forest';
 
 /**
  * How long a tree that stopped on its own stays in Working. A turn often ends

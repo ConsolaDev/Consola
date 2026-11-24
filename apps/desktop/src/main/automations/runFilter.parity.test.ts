@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  filterRuns as engineFilterRuns,
-  NO_RUN_FILTER,
-  type RunListEntry,
-  type RunListFilter,
-} from '@consola/automation-engine';
+import { filterRuns as engineFilterRuns, NO_RUN_FILTER } from '@consola/automation-engine';
+import type { RunListEntry, RunListFilter } from '@consola/automation-engine';
 import { filterRuns as rendererFilterRuns } from '../../renderer/components/Automations/presentation';
 
 /**

@@ -9,8 +9,8 @@ import {
   MAX_CONCURRENT_CHECKS,
   nextCheckAt,
   waitAfter,
-  type CheckState,
 } from './pollRunner';
+import type { CheckState } from './pollRunner';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;

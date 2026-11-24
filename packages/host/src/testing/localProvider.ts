@@ -14,18 +14,19 @@
  * against the built cell. It need not pass the whole sandbox contract; `sandboxesFrom` takes its
  * answers.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  type Command,
-  type CreateSandboxOptions,
-  type ProviderCommand,
-  type ProviderSandbox,
-  SandboxError,
-  type SandboxProvider,
+import { SandboxError } from '@consola/sandbox';
+import type {
+  Command,
+  CreateSandboxOptions,
+  ProviderCommand,
+  ProviderSandbox,
+  SandboxProvider,
 } from '@consola/sandbox';
 import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts';
 

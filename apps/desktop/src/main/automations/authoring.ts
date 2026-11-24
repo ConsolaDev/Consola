@@ -1,11 +1,7 @@
 import * as path from 'node:path';
 import type { AuthoringBasis, AuthoringRequest } from '../../shared/automations';
-import {
-  generateSessionInstanceId,
-  primaryScope,
-  type Session,
-  type Workspace,
-} from '../../shared/workspace';
+import { generateSessionInstanceId, primaryScope } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import { AUTOMATION_TEMPLATES } from '@consola/automation-engine';
 

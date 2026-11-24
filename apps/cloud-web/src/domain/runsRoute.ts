@@ -1,4 +1,5 @@
-import { filtersOfQuery, type RunFilters, queryOfFilters } from './runFilters';
+import { filtersOfQuery, queryOfFilters } from './runFilters';
+import type { RunFilters } from './runFilters';
 
 /**
  * Where the Runs section is, as the address names it. The list is `#/runs`, its filters after a

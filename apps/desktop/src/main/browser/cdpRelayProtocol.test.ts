@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createRelayConnection, PAGE_SESSION_ID, type RelayPage } from './cdpRelayProtocol';
+import { createRelayConnection, PAGE_SESSION_ID } from './cdpRelayProtocol';
+import type { RelayPage } from './cdpRelayProtocol';
 import { EventBudget, TOO_MANY_BYTES_MESSAGE, TOO_MANY_EVENTS_MESSAGE } from './relayBudget';
 
 type Message = Record<string, unknown>;

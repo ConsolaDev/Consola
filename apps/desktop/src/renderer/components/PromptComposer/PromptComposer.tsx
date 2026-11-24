@@ -2,13 +2,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { ArrowUp, Loader2 } from 'lucide-react';
 import type { Harness } from '../../../shared/harness';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
-import {
-  spliceTypeaheadSelection,
-  useTypeahead,
-  type OpenTypeahead,
-  type TypeaheadTriggerConfig,
-} from '../../hooks/typeahead';
-import { TypeaheadPopover, rowElementId, type TypeaheadItem } from '../Typeahead';
+import { spliceTypeaheadSelection, useTypeahead } from '../../hooks/typeahead';
+import type { OpenTypeahead, TypeaheadTriggerConfig } from '../../hooks/typeahead';
+import { TypeaheadPopover, rowElementId } from '../Typeahead';
+import type { TypeaheadItem } from '../Typeahead';
 import { agentItems, commandItems, rankTypeaheadItems } from './typeaheadCandidates';
 import './styles.css';
 

@@ -1,15 +1,15 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Select } from '@radix-ui/themes';
 import { ArrowUpRight, Boxes, Cpu, Folder, GitBranch, Layers2, Loader2, X } from 'lucide-react';
 import { HarnessIcon } from '../HarnessIcon';
 import { WorkspaceIcon } from '../WorkspaceIcon';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
-import {
-  useNewSessionDialogStore,
-  type NewSessionDestination,
-} from '../../stores/newSessionDialogStore';
+import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
+import type { NewSessionDestination } from '../../stores/newSessionDialogStore';
 import { newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { createSessionAndOpen } from '../../utils/sessionActions';

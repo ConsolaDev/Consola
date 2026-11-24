@@ -1,10 +1,9 @@
-import {
-  isBlankPageUrl,
-  isLoopbackHost,
-  type BrowserHistoryEntry,
-  type BrowserSessionSnapshot,
-  type BrowserTabError,
-  type BrowserTabSnapshot,
+import { isBlankPageUrl, isLoopbackHost } from '../../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserSessionSnapshot,
+  BrowserTabError,
+  BrowserTabSnapshot,
 } from '../../../shared/browser';
 
 /**

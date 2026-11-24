@@ -1,4 +1,5 @@
-import { isWorkspaceIcon, type WorkspaceIcon } from '../../domain/workspaceIcon.js';
+import { isWorkspaceIcon } from '../../domain/workspaceIcon.js';
+import type { WorkspaceIcon } from '../../domain/workspaceIcon.js';
 
 /**
  * A stored workspace's icon, kept in Better Auth's `organization.logo`. Only an id of

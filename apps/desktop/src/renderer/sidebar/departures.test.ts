@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Bucket } from './bucketize';
-import { departures, placementOf, travelDuration, type Placement } from './departures';
+import { departures, placementOf, travelDuration } from './departures';
+import type { Placement } from './departures';
 import { entry, keyOf, node } from './entryFixtures';
 
 const at = (pairs: Record<string, Bucket>): Placement =>

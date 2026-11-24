@@ -1,16 +1,11 @@
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import {
-  exhaustedWindows,
-  type HarnessLimits,
-  harnessLimitedUntil,
-  limitResetAt,
-  type SessionUsageLimit,
-  type UsageLimitsState,
-} from '../../shared/usageLimits';
+import { exhaustedWindows, harnessLimitedUntil, limitResetAt } from '../../shared/usageLimits';
+import type { HarnessLimits, SessionUsageLimit, UsageLimitsState } from '../../shared/usageLimits';
 import type { Session, Workspace } from '../../shared/workspace';
 import { findSessionById, findSessionByInstanceId } from '../attention';
 import type { Snoozer } from '../attention/Snoozer';
-import { type ArmedTimer, armAt } from '../attention/wakeTimer';
+import { armAt } from '../attention/wakeTimer';
+import type { ArmedTimer } from '../attention/wakeTimer';
 import type { HarnessConfig, HarnessDriver } from '../drivers';
 import type { JsonStateFile } from '../state/JsonStateFile';
 import type { HarnessLimitsCache } from './HarnessLimitsCache';

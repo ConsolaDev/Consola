@@ -9,9 +9,11 @@ import * as Effect from 'effect/Effect';
 import * as Queue from 'effect/Queue';
 import type * as Scope from 'effect/Scope';
 import { describe, expect, it } from 'vite-plus/test';
-import { type WebSocket, WebSocketServer } from 'ws';
+import { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import type { LiveSessions } from './sandboxSessions.ts';
-import { CELL_FRAME_LIMIT_BYTES, type CellSocket, makeCellSocket } from './cellSocket.ts';
+import { CELL_FRAME_LIMIT_BYTES, makeCellSocket } from './cellSocket.ts';
+import type { CellSocket } from './cellSocket.ts';
 
 const SECRET = 'runner-secret-sprocket-0123456789abcdef';
 const OFFER = { repositories: ['sprocket/catalog-portal'], harnesses: ['claude' as const] };

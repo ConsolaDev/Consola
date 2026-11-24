@@ -13,12 +13,12 @@
  * their enrichment refreshes (the host resolves none, and its descriptor says so), idle subagents
  * and older settled threads (the host lists one thread, and offers neither), and the archive.
  */
-import {
-  type OrchestrationV2ShellHttpSnapshot,
-  type OrchestrationV2ShellResumable,
-  type OrchestrationV2ShellStreamItem,
-  OrchestrationV2GetShellSnapshotError,
-  type OrchestrationV2SubscribeShellInput,
+import { OrchestrationV2GetShellSnapshotError } from '@t3tools/contracts';
+import type {
+  OrchestrationV2ShellHttpSnapshot,
+  OrchestrationV2ShellResumable,
+  OrchestrationV2ShellStreamItem,
+  OrchestrationV2SubscribeShellInput,
 } from '@t3tools/contracts';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
@@ -27,12 +27,12 @@ import {
   bufferShellLiveStream,
   coalesceShellApplicationEvents,
   projectIdentitiesDigest,
-  type ShellApplicationEvent,
   shellStreamItemFromThreadShell,
   shellStreamItemsFromInitialSnapshot,
   skipUnchangedThreadShells,
   toShellApplicationEvent,
 } from 't3/orchestration-v2/ShellStream.ts';
+import type { ShellApplicationEvent } from 't3/orchestration-v2/ShellStream.ts';
 import { rpcInitialItems } from 't3/rpcInitialItems.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 

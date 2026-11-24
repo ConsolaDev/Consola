@@ -1,9 +1,5 @@
-import {
-  parseFieldPath,
-  readFieldPath,
-  type FieldPath,
-  type PollTrigger,
-} from '@consola/factory-spec';
+import { parseFieldPath, readFieldPath } from '@consola/factory-spec';
+import type { FieldPath, PollTrigger } from '@consola/factory-spec';
 import type { WorkItemPort } from '../ports';
 import { clipText } from '../steps/commandIO';
 import { fallbackWorkItemTitle } from '../support';

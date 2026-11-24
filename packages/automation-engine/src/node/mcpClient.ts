@@ -5,7 +5,8 @@
  * whole afterwards; the SDK is used for the protocol only. The only engine
  * file that imports `@modelcontextprotocol/sdk` (`boundary.test.ts`).
  */
-import { type ChildProcessWithoutNullStreams, execFile, spawn } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -15,14 +16,13 @@ import type { FetchLike, Transport } from '@modelcontextprotocol/sdk/shared/tran
 import {
   CallToolResultSchema,
   ErrorCode,
-  type JSONRPCMessage,
   ListToolsResultSchema,
   McpError,
-  type RequestId,
   isJSONRPCErrorResponse,
   isJSONRPCRequest,
   isJSONRPCResultResponse,
 } from '@modelcontextprotocol/sdk/types.js';
+import type { JSONRPCMessage, RequestId } from '@modelcontextprotocol/sdk/types.js';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js';
 import type {
   McpCallOutcome,

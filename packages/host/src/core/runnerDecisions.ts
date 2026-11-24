@@ -5,17 +5,16 @@
  * Nothing here reaches the machine; `adapters/sandboxSessions.ts` and `adapters/cellSocket.ts`
  * act on it.
  */
-import {
-  type EndedSession,
-  HARNESSES,
-  type Harness,
-  isRepository,
-  type Repository,
-  readStartScriptLine,
-  type SessionStart,
-  type SessionUpdate,
+import { HARNESSES, isRepository, readStartScriptLine } from '@consola/runner-protocol';
+import type {
+  EndedSession,
+  Harness,
+  Repository,
+  SessionStart,
+  SessionUpdate,
 } from '@consola/runner-protocol';
-import { type HostLine, readHostLine } from './hostLine.ts';
+import { readHostLine } from './hostLine.ts';
+import type { HostLine } from './hostLine.ts';
 
 /** The template a session's sandbox starts from (`sandbox-template/`, built on E2B under this name). */
 export const SESSION_TEMPLATE = 'consola-session';

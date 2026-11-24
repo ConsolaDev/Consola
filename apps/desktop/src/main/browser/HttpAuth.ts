@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, WebContents } from 'electron';
-import {
-  isAllowedPageUrl,
-  type BrowserAuthCancelledMessage,
-  type BrowserAuthRequestMessage,
-  type BrowserCredentials,
+import { isAllowedPageUrl } from '../../shared/browser';
+import type {
+  BrowserAuthCancelledMessage,
+  BrowserAuthRequestMessage,
+  BrowserCredentials,
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/constants';
 

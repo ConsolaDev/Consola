@@ -3,13 +3,15 @@ import {
   isStepsEntry,
   leafSteps,
   stepsResolvedBody,
-  type AgentDefinition,
-  type Automation,
-  type EnvironmentDefinition,
-  type FactoryFiles,
-  type FactoryNotice,
-  type FactoryParseResult,
-  type FactorySpecIssue,
+} from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  Automation,
+  EnvironmentDefinition,
+  FactoryFiles,
+  FactoryNotice,
+  FactoryParseResult,
+  FactorySpecIssue,
 } from '@consola/factory-spec';
 import type { AgentHarnessAnswer, AgentHarnessQuery, AppliedSkill, CheckoutKind } from '../ports';
 import { entryCheckoutKind } from '../steps/checkout';

@@ -5,12 +5,9 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpServerLaunch, McpSession, ServerGroup } from '../ports';
 import { maskFormsOf } from '../secrets/values';
-import { type NodeMcpClientOptions, SERVER_LOG_CAP_BYTES, nodeMcpClient } from './mcpClient';
+import { SERVER_LOG_CAP_BYTES, nodeMcpClient } from './mcpClient';
+import type { NodeMcpClientOptions } from './mcpClient';
 import {
-  type HttpRequestEvent,
-  type HttpServerOptions,
-  type ScratchBehaviour,
-  type StartedHttpServer,
   alive,
   eventsIn,
   lstartOf,
@@ -20,6 +17,12 @@ import {
   writePs,
   writeScratchServer,
   writeSdkServer,
+} from './mcpClient.test-helpers';
+import type {
+  HttpRequestEvent,
+  HttpServerOptions,
+  ScratchBehaviour,
+  StartedHttpServer,
 } from './mcpClient.test-helpers';
 
 /*

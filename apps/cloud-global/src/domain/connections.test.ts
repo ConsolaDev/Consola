@@ -2,13 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   checkInstaller,
   checkInstallState,
-  type GitHubInstallation,
   INSTALL_STATE_LIFETIME_SECONDS,
   installationSettingsUrl,
   mayManageConnections,
   newInstallState,
   readGitHubId,
 } from './connections.js';
+import type { GitHubInstallation } from './connections.js';
 import type { SignedIn } from './person.js';
 
 const session: SignedIn = {

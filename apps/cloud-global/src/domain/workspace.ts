@@ -1,5 +1,6 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import { isRegion, type Region } from './region.js';
+import { isRegion } from './region.js';
+import type { Region } from './region.js';
 import type { WorkspaceIcon } from './workspaceIcon.js';
 
 /**

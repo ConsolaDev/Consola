@@ -3,23 +3,24 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   PERSONAL_FACTORY,
-  type SecretBinding,
   SecretReadError,
   SecretReaderFailure,
   readSecrets,
 } from '@consola/automation-engine';
+import type { SecretBinding } from '@consola/automation-engine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JsonStateFile } from '../state/JsonStateFile';
-import { BindingsStore, type SecretBindingsFile } from './BindingsStore';
+import { BindingsStore } from './BindingsStore';
+import type { SecretBindingsFile } from './BindingsStore';
 import {
   asSecretReferenceInput,
   bindSecret,
   DESKTOP_BIND_HINT,
-  type DesktopSecretsDeps,
   desktopSecretsPort,
   NO_OP_KEPT,
   OP_MISSING_WORDS,
 } from './desktopSecrets';
+import type { DesktopSecretsDeps } from './desktopSecrets';
 import { secretPrograms } from './programs';
 import { KEYCHAIN_ACCOUNT_WORDS, REFERENCE_WORDS } from './references';
 

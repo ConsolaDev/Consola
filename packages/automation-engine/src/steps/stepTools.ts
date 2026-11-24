@@ -5,18 +5,16 @@ import {
   describeOutputType,
   leafSteps,
   parseReadRef,
-  type AgentStep,
-  type OutputType,
-  type RunRecord,
-  type StepRun,
 } from '@consola/factory-spec';
+import type { AgentStep, OutputType, RunRecord, StepRun } from '@consola/factory-spec';
 import type { RunFolderPort } from '../ports';
 import type { RunStore } from '../RunStore';
 import { OF_EARLIER_RUN, previousDocument } from '../sources/previous';
 import { describeError } from '../support';
 import type { SessionView } from '../views';
 import { clipText } from './commandIO';
-import { MAX_ARTIFACT_BYTES, type RunDefinition } from './definition';
+import { MAX_ARTIFACT_BYTES } from './definition';
+import type { RunDefinition } from './definition';
 import {
   CHECKOUT_FILES,
   CHECKOUT_MATERIAL_BYTES,

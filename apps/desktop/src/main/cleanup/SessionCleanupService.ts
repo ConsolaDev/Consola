@@ -13,16 +13,13 @@ import { describeError } from '../describeError';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { PullRequestLookup, PullRequestState } from '../providers/pullRequests';
 import type { SessionRemover } from '../SessionRemover';
-import { type ToolScope, workspacesInScope } from '../tools/Tool';
+import { workspacesInScope } from '../tools/Tool';
+import type { ToolScope } from '../tools/Tool';
 import type { WorktreeService } from '../WorktreeService';
 import type { ResolvedPullRequest, WorktreeCleanupService } from '../worktreeCleanup';
 import { judge } from '../worktreeCleanup/policy';
-import {
-  type Attribution,
-  judgeLookup,
-  PullRequestResolver,
-  toFact,
-} from '../worktreeCleanup/PullRequestResolver';
+import { judgeLookup, PullRequestResolver, toFact } from '../worktreeCleanup/PullRequestResolver';
+import type { Attribution } from '../worktreeCleanup/PullRequestResolver';
 
 /**
  * Finding and removing sessions whose pull request is finished, and deleting

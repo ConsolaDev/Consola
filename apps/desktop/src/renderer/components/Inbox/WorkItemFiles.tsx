@@ -1,15 +1,5 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-} from 'react';
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
   ChevronDown,
@@ -22,8 +12,8 @@ import {
   FileSymlink,
   MessageSquare,
   Plus,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { WorkItemDetails, WorkItemThread } from '../../../shared/workItemDetails';
 import { MOD_KEY, isSubmitChord } from './inboxPresentation';
 import {
@@ -37,9 +27,8 @@ import {
   splitPath,
   suggestionText,
   threadRow,
-  type DiffRow,
-  type LineRange,
 } from './workItemDetailPresentation';
+import type { DiffRow, LineRange } from './workItemDetailPresentation';
 import { DiffCounts, Messages, useWorkItemDetail } from './WorkItemDetailParts';
 import { MarkdownEditor } from './WorkItemMarkdownEditor';
 import { ReviewThread } from './WorkItemThread';

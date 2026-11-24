@@ -1,10 +1,9 @@
-import {
-  MAX_HISTORY_PER_WORKSPACE,
-  MAX_TABS_PER_SESSION,
-  type BrowserHistoryEntry,
-  type BrowserStateFile,
-  type BrowserTab,
-  type SessionBrowser,
+import { MAX_HISTORY_PER_WORKSPACE, MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserStateFile,
+  BrowserTab,
+  SessionBrowser,
 } from '../../shared/browser';
 
 /** The slice of `JsonStateFile` the store needs, so tests can use a fake. */

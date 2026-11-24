@@ -5,7 +5,8 @@ import * as path from 'node:path';
 import { AUTOMATION_NAME_PATTERN, skillHash } from '@consola/factory-spec';
 import type { ClaudeAgentGrants } from '../../shared/agentGrants';
 import { CONSOLA_MCP_SERVER } from '../mcp/names';
-import { type ControlRequest, INITIALIZE, requestControl } from './claudeCapabilities';
+import { INITIALIZE, requestControl } from './claudeCapabilities';
+import type { ControlRequest } from './claudeCapabilities';
 import { CLAUDE_SIGN_IN_HINT } from './claudeTurnReader';
 import { fileToolDenyRules, sandboxSettings, sandboxSettingsProblem } from './claudeWriteAgent';
 import type {

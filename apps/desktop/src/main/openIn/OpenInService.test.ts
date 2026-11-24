@@ -2,8 +2,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ICON_READ_TIMEOUT_MS, OpenInService, type OpenInServiceDeps } from './OpenInService';
-import { FINDER_PATH, type DetectedTarget } from './targets';
+import { ICON_READ_TIMEOUT_MS, OpenInService } from './OpenInService';
+import type { OpenInServiceDeps } from './OpenInService';
+import { FINDER_PATH } from './targets';
+import type { DetectedTarget } from './targets';
 
 const VS_CODE: DetectedTarget = {
   id: 'vscode',

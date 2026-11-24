@@ -2,11 +2,8 @@
  * t3's connection runtime as `AgentChat` uses it: its services, an effect run against them, and
  * the stores where t3 keeps what it knows of a host (`src/storedSessions.ts` clears them).
  */
-import {
-  BearerConnectionCredential,
-  CredentialStore,
-  type EnvironmentRegistry,
-} from '@t3tools/client-runtime/connection';
+import { BearerConnectionCredential, CredentialStore } from '@t3tools/client-runtime/connection';
+import type { EnvironmentRegistry } from '@t3tools/client-runtime/connection';
 import { Persistence } from '@t3tools/client-runtime/platform';
 import { EnvironmentId } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';

@@ -16,8 +16,8 @@ import {
   RotateCcw,
   Timer,
   Trash2,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type {
   AgentRunPreview,
   AutomationsSnapshot,
@@ -47,9 +47,8 @@ import {
   runTitle,
   runStatusLabel,
   triggerInWords,
-  type RunAutomationOption,
-  type RunFacts,
 } from './presentation';
+import type { RunAutomationOption, RunFacts } from './presentation';
 
 /**
  * A run's status as a dot. Decorative: whatever shows one also says the

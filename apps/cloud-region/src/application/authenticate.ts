@@ -1,4 +1,5 @@
-import { type Admission, admitClaims } from '../domain/caller.js';
+import { admitClaims } from '../domain/caller.js';
+import type { Admission } from '../domain/caller.js';
 import type { Region } from '../domain/region.js';
 import type { Clock, TokenVerifier } from './ports.js';
 

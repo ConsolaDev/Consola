@@ -1,5 +1,6 @@
 import { drizzleAdapter } from '@better-auth/drizzle-adapter';
-import { APIError, type BetterAuthPlugin, betterAuth } from 'better-auth';
+import { APIError, betterAuth } from 'better-auth';
+import type { BetterAuthPlugin } from 'better-auth';
 import { organization } from 'better-auth/plugins';
 import type { MembershipStore, PeopleStore, SessionStore } from '../../application/ports.js';
 import { mayCreateAccount, mayStartSession } from '../../application/signIn.js';

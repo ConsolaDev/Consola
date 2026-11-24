@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
-import { bucketize, type Bucket } from './bucketize';
-import { buildForest, type TreeNode } from './forest';
+import { bucketize } from './bucketize';
+import type { Bucket } from './bucketize';
+import { buildForest } from './forest';
+import type { TreeNode } from './forest';
 import { entry, ids, keyOf, node } from './entryFixtures';
 import type { WorkingObservation } from './workingExits';
 

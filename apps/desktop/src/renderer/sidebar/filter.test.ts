@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { bucketize } from './bucketize';
 import { applyFilter } from './filter';
 import { buildForest } from './forest';
-import { RUN_FACET_DOMAIN, type Entry } from './entry';
+import { RUN_FACET_DOMAIN } from './entry';
+import type { Entry } from './entry';
 import { entry, ids, keyOf } from './entryFixtures';
 
 const keys = (list: { key: string }[]) => list.map((e) => e.key.replace('session:', ''));

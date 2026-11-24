@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
-  type ApproveAnswer,
   approverWords,
   messageForApproveAnswer,
   promptFirstLine,
   receiptWords,
   willRunAnything,
 } from './runApproval';
+import type { ApproveAnswer } from './runApproval';
 
 const NOW = Date.parse('2026-11-23T12:00:00.000Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();

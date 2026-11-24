@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationEntry } from '../../shared/conversation';
 import type { ConversationLink, Session } from '../../shared/workspace';
-import {
-  handoffPrompt,
-  MAX_HANDOFF_CHARS,
-  openingFor,
-  renderHandoff,
-  type HandoffContext,
-} from './handoff';
+import { handoffPrompt, MAX_HANDOFF_CHARS, openingFor, renderHandoff } from './handoff';
+import type { HandoffContext } from './handoff';
 
 const context: HandoffContext = {
   sessionName: 'Fix the flaky test',

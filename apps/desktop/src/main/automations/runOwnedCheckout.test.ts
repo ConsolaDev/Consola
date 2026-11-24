@@ -1,4 +1,5 @@
-import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -15,11 +16,8 @@ import { WorktreeService } from '../WorktreeService';
 import { PathLock } from '../worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from '../worktreeCleanup/ProcessCwdIndex';
 import { WorktreeRebuilder } from '../worktreeCleanup/WorktreeRebuilder';
-import {
-  runCheckoutSpawnRefusal,
-  runOwnedCheckoutPort,
-  type RunOwnedCheckoutDeps,
-} from './runOwnedCheckout';
+import { runCheckoutSpawnRefusal, runOwnedCheckoutPort } from './runOwnedCheckout';
+import type { RunOwnedCheckoutDeps } from './runOwnedCheckout';
 
 /*
  * The desktop's half of a run's own checkout (slice 3-B Task 18), against

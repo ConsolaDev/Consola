@@ -4,7 +4,8 @@ import * as path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
-import { cloneWorkspaceRepo, type CloneRepoDeps } from './cloneRepo';
+import { cloneWorkspaceRepo } from './cloneRepo';
+import type { CloneRepoDeps } from './cloneRepo';
 import { createStubDriver } from './stubDriver.test-helpers';
 
 // Every dir handed out by tmpDir(), swept in one afterAll — these tests spin

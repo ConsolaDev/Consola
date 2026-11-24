@@ -8,8 +8,8 @@ import {
   ViewMemoryService,
   normalizeView,
   resolveRememberedView,
-  type ViewMemoryStateFile,
 } from './ViewMemoryService';
+import type { ViewMemoryStateFile } from './ViewMemoryService';
 import type { WorkspaceView } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
 

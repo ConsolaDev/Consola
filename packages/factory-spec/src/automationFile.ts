@@ -5,9 +5,11 @@
  * its own with no change but removing `name:`.
  */
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, linesAt, toIssue, type FactorySpecIssue, type LineRange } from './issues';
+import { closestNode, linesAt, toIssue } from './issues';
+import type { FactorySpecIssue, LineRange } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
-import { automationSchema, type Automation } from './schema';
+import { automationSchema } from './schema';
+import type { Automation } from './schema';
 import { documentValue } from './yamlValue';
 
 export interface AutomationFileResult {

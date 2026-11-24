@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  actRefusalIn,
-  clickInPage,
-  fillInPage,
-  type PageKeyPress,
-  pressInPage,
-  scrollInPage,
-} from './pageInput';
+import { actRefusalIn, clickInPage, fillInPage, pressInPage, scrollInPage } from './pageInput';
+import type { PageKeyPress } from './pageInput';
 
 /*
  * A small stand-in for the page's DOM: just what the in-page acts touch,

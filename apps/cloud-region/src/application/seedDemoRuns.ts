@@ -1,17 +1,16 @@
 import type { Factory, FactoryFile } from '../domain/factory.js';
-import {
-  NO_STEP_DETAIL,
-  type OutputValue,
-  type RunItem,
-  type RunStatus,
-  type RunTrigger,
-  type RunWrite,
-  type StepDetail,
-  type StepKind,
-  type StepRecord,
-  type StepStatus,
-  tailOf,
-  type WaitingOn,
+import { NO_STEP_DETAIL, tailOf } from '../domain/run.js';
+import type {
+  OutputValue,
+  RunItem,
+  RunStatus,
+  RunTrigger,
+  RunWrite,
+  StepDetail,
+  StepKind,
+  StepRecord,
+  StepStatus,
+  WaitingOn,
 } from '../domain/run.js';
 import type { Team } from '../domain/team.js';
 import type { FactoryStore, RunStore, TeamStore } from './ports.js';

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseFactorySpec, type StepRun, type StepsAutomation } from '@consola/factory-spec';
+import { parseFactorySpec } from '@consola/factory-spec';
+import type { StepRun, StepsAutomation } from '@consola/factory-spec';
 import type { TurnOutcome, TurnReportView, TurnResultView } from '../views';
 import type { AgentRequirements, RunDefinition } from './definition';
 import {

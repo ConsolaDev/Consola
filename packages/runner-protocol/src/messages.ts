@@ -1,4 +1,5 @@
-import { fieldProblem, isId, isRecord, type ReadResult, read, refused } from './read.js';
+import { fieldProblem, isId, isRecord, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
 
 /** The agent CLIs a runner can start a session with. */
 export const HARNESSES = ['claude', 'codex'] as const;

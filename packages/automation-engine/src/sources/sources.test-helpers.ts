@@ -1,15 +1,15 @@
 import * as path from 'node:path';
-import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
+import { parseAutomationEntry } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import { reReviewEntry, RE_REVIEW_NAME } from '../factoryTemplates';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
-import {
-  stepsHarness,
-  WORKSPACE_ID,
-  type FakeCommand,
-  type StepsHarness,
-  type StepsHarnessOptions,
-  type StepsWorld,
+import { stepsHarness, WORKSPACE_ID } from '../steps/steps.test-helpers';
+import type {
+  FakeCommand,
+  StepsHarness,
+  StepsHarnessOptions,
+  StepsWorld,
 } from '../steps/steps.test-helpers';
 import type { ItemRef, ItemTarget } from '../views';
 

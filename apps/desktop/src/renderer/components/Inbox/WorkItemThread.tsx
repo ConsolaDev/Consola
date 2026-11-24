@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState, type ReactNode } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   ChevronDown,
@@ -28,8 +29,8 @@ import {
   RelativeTime,
   WorkItemMarkdown,
   useWorkItemDetail,
-  type MessageAt,
 } from './WorkItemDetailParts';
+import type { MessageAt } from './WorkItemDetailParts';
 import { MarkdownEditor } from './WorkItemMarkdownEditor';
 
 /** Lines of a thread's hunk shown before "Show more": the ones leading to the comment. */

@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import type { Workspace } from '../../../shared/workspace';
-import { useAutomationsStore, type AutomationsPanel } from '../../stores/automationsStore';
+import { useAutomationsStore } from '../../stores/automationsStore';
+import type { AutomationsPanel } from '../../stores/automationsStore';
 import { AutomationDetails } from './AutomationDetails';
 import { NewAutomation } from './NewAutomation';
 import { RunDetails } from './RunDetails';

@@ -11,9 +11,8 @@ import {
   MAX_SKILL_BYTES,
   MAX_SKILL_FILES,
   replaceAutomationEntry,
-  type FactoryFiles,
-  type SkillFileEntry,
 } from '@consola/factory-spec';
+import type { FactoryFiles, SkillFileEntry } from '@consola/factory-spec';
 import type { FactoryFolderHandle, FactoryFolderRead } from '../ports';
 
 /** Workspace ids are generated tokens; anything else never reaches the filesystem as a path. */

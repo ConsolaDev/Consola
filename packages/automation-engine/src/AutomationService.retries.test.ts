@@ -1,20 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import {
-  automationVersion,
-  leafSteps,
-  parseFactorySpec,
-  type RunRecord,
-  type StepRun,
-} from '@consola/factory-spec';
+import { automationVersion, leafSteps, parseFactorySpec } from '@consola/factory-spec';
+import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { inboxItem } from './inboxItems.test-helpers';
 import {
   checkoutPathFor,
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /** One `- name:` entry: its head lines as given, then `steps:` with each item's lines. */
 function entry(name: string, head: string, ...steps: string[]): string {

@@ -1,4 +1,5 @@
-import { type Phase, type RunStatus, type StepSummary, stepHasEnded } from './runs';
+import { stepHasEnded } from './runs';
+import type { Phase, RunStatus, StepSummary } from './runs';
 import { costInWords, durationInWords, workedFor } from './runWords';
 
 /**

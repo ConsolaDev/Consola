@@ -1,6 +1,8 @@
 import type { Attention } from '../../shared/attention';
-import { SESSION_FACET_DOMAIN, type Entry } from './entry';
-import { buildForest, type TreeNode } from './forest';
+import { SESSION_FACET_DOMAIN } from './entry';
+import type { Entry } from './entry';
+import { buildForest } from './forest';
+import type { TreeNode } from './forest';
 
 /** An entry keyed `session:<id>`, with only what a test names. */
 export function entry(id: string, attention: Attention, rest: Partial<Entry> = {}): Entry {

@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CdpRelay, type CdpRelayOptions, DEVTOOLS_OPEN_MESSAGE, type RelayGuest } from './CdpRelay';
+import { CdpRelay, DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
+import type { CdpRelayOptions, RelayGuest } from './CdpRelay';
 import { PAGE_SESSION_ID } from './cdpRelayProtocol';
 
 type Message = Record<string, unknown>;

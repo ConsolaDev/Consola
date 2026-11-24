@@ -1,5 +1,6 @@
 import { ChevronRight, ExternalLink } from 'lucide-react';
-import { type ReactNode, useId } from 'react';
+import { useId } from 'react';
+import type { ReactNode } from 'react';
 import './InfoPanel.css';
 
 /*

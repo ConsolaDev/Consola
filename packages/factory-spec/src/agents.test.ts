@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  agentHash,
-  HARNESS_ID_PATTERN,
-  MAX_AGENT_BODY_BYTES,
-  parseAgentFile,
-  type ParsedAgent,
-} from './agents';
+import { agentHash, HARNESS_ID_PATTERN, MAX_AGENT_BODY_BYTES, parseAgentFile } from './agents';
+import type { ParsedAgent } from './agents';
 import { AGENT_SECRETS_REASON } from './secrets';
 
 const BODY = 'You investigate production alerts.\n';

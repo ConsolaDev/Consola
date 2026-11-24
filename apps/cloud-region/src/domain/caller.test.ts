@@ -1,11 +1,12 @@
 import {
   CELL_TOKEN_LIFETIME_SECONDS,
   CLOCK_SKEW_SECONDS,
-  type CellTokenGrant,
   cellTokenClaims,
 } from '@consola/cloud-contract';
+import type { CellTokenGrant } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import { admitClaims, type Caller } from './caller.js';
+import { admitClaims } from './caller.js';
+import type { Caller } from './caller.js';
 
 const NOW = 1_800_000_000;
 

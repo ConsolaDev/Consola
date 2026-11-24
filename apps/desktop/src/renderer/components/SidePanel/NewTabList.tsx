@@ -1,6 +1,9 @@
-import { type KeyboardEvent, useEffect, useId, useRef, useState } from 'react';
-import { type GroupId, NEW_TAB } from '../../sidePanel/layout';
-import { newTabOptions, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
+import { NEW_TAB } from '../../sidePanel/layout';
+import type { GroupId } from '../../sidePanel/layout';
+import { newTabOptions } from '../../sidePanel/tabKinds';
+import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { keyboardAfterClose } from './keyboardAfterClose';
 

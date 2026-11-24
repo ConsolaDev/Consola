@@ -7,17 +7,10 @@ import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 import type { PullRequestState } from '../providers/pullRequests';
 import type { WorktreeInspection, WorktreeService } from '../WorktreeService';
 import type { PathLock } from './PathLock';
-import {
-  type DiskFacts,
-  type JudgeRequest,
-  type PullRequestFact,
-  type TreeFacts,
-  treeBlockers,
-  treeDue,
-  type UserFacts,
-  userBlockers,
-} from './policy';
-import { ProcessCwdIndex, type ProcessSnapshot } from './ProcessCwdIndex';
+import { treeBlockers, treeDue, userBlockers } from './policy';
+import type { DiskFacts, JudgeRequest, PullRequestFact, TreeFacts, UserFacts } from './policy';
+import { ProcessCwdIndex } from './ProcessCwdIndex';
+import type { ProcessSnapshot } from './ProcessCwdIndex';
 import type { TreeUser } from './TreeIndex';
 
 /** What the sweep's rules read about a session, beyond what every caller reads. */

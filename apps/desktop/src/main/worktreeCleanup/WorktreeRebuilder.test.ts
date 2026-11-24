@@ -4,11 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
-import {
-  DEFAULT_WORKTREE_CLEANUP_RULES,
-  keepRefFor,
-  type RemovedWorktree,
-} from '../../shared/worktreeCleanup';
+import { DEFAULT_WORKTREE_CLEANUP_RULES, keepRefFor } from '../../shared/worktreeCleanup';
+import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { WorktreeService } from '../WorktreeService';
 import { PathLock } from './PathLock';

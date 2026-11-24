@@ -1,6 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - It starts the host with node and reads what it prints.
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { execFileSync, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -13,7 +15,8 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { get } from 'node:http';
-import { type AddressInfo, createServer, type Server } from 'node:net';
+import { createServer } from 'node:net';
+import type { AddressInfo, Server } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +31,8 @@ import * as Stream from 'effect/Stream';
 import { E2BProvider } from '@consola/sandbox/e2b';
 import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
-import { type WebSocket, WebSocketServer } from 'ws';
+import { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import { DEV_PASS_SECONDS } from './adapters/devPass.ts';
 import { HOST_LINE_TYPES } from './adapters/stdoutEvents.ts';
 import {

@@ -1,16 +1,15 @@
 import { lazy, Suspense, useRef, useState } from 'react';
 import {
-  type CloudSession,
   chatMounted,
   isEnded,
   keepsShownOn,
   pollIntervalMs,
-  type SessionAnswer,
   sessionLabel,
   sessionScreen,
   shouldRenewPass,
   startedAt,
 } from '../domain/cloudSession';
+import type { CloudSession, SessionAnswer } from '../domain/cloudSession';
 import {
   CHAT_NOT_LOADED_WORDS,
   CONNECTING_WORDS,

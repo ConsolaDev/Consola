@@ -1,12 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  type AgentWorkspace,
-  closeAgentWorkspace,
-  launchAgentWorkspace,
-  showBrowser,
-} from './helpers/agentWorkspace';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { closeAgentWorkspace, launchAgentWorkspace, showBrowser } from './helpers/agentWorkspace';
+import type { AgentWorkspace } from './helpers/agentWorkspace';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * A page that asks to stay (`beforeunload`) after the person pressed in it

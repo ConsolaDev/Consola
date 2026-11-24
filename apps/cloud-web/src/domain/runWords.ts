@@ -1,13 +1,13 @@
-import {
-  isLive,
-  type Phase,
-  type RunDetail,
-  type RunItem,
-  type RunStatus,
-  type RunSummary,
-  type RunTrigger,
-  type StepStatus,
-  type StepSummary,
+import { isLive } from './runs';
+import type {
+  Phase,
+  RunDetail,
+  RunItem,
+  RunStatus,
+  RunSummary,
+  RunTrigger,
+  StepStatus,
+  StepSummary,
 } from './runs';
 
 /**

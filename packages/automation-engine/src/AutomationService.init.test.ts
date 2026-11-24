@@ -2,13 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
-import {
-  stepsHarness,
-  turnReport,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { stepsHarness, turnReport, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * The `init` check: a step's turn printed its `system/init`, and every server

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { isRegion, REGIONS, type Region } from './domain/region.js';
+import { isRegion, REGIONS } from './domain/region.js';
+import type { Region } from './domain/region.js';
 
 /**
  * The workspace's runner and the key its sessions' passes are signed with: the POC's stand-in for

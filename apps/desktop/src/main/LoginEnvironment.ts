@@ -1,9 +1,5 @@
-import {
-  execFile,
-  execFileSync,
-  type ExecFileOptions,
-  type ExecFileSyncOptionsWithStringEncoding,
-} from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import type { ExecFileOptions, ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import * as os from 'node:os';
 import { keepLaunchClaudeConfigDir } from './test-mode';
 

@@ -1,8 +1,5 @@
-import {
-  CAPABILITY_ABILITIES,
-  SANDBOX_CAPABILITIES,
-  type SandboxCapability,
-} from '../domain/capabilities';
+import { CAPABILITY_ABILITIES, SANDBOX_CAPABILITIES } from '../domain/capabilities';
+import type { SandboxCapability } from '../domain/capabilities';
 import { asSandboxError, SandboxError } from '../domain/errors';
 import {
   commandProblem,

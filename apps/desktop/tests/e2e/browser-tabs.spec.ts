@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * The in-app browser's tabs: the strip, links that want a new tab, and the

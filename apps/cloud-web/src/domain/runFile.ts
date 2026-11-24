@@ -1,5 +1,6 @@
 import type { LineRange, RunSource } from './runs';
-import { type YamlToken, yamlTokens } from './yamlTokens';
+import { yamlTokens } from './yamlTokens';
+import type { YamlToken } from './yamlTokens';
 
 /**
  * The file behind an automation run, as its File view and its info panel's Definition say it:

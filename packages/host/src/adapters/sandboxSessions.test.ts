@@ -1,12 +1,6 @@
 import type { Harness, SessionStart, SessionUpdate } from '@consola/runner-protocol';
-import {
-  type FakeProcess,
-  FakeProvider,
-  type FakeProviderOptions,
-  SandboxError,
-  type SandboxProvider,
-  sandboxesFrom,
-} from '@consola/sandbox';
+import { FakeProvider, SandboxError, sandboxesFrom } from '@consola/sandbox';
+import type { FakeProcess, FakeProviderOptions, SandboxProvider } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
@@ -14,7 +8,8 @@ import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Queue from 'effect/Queue';
 import { describe, expect, it } from 'vite-plus/test';
-import { type SandboxSessions, makeSandboxSessions } from './sandboxSessions.ts';
+import { makeSandboxSessions } from './sandboxSessions.ts';
+import type { SandboxSessions } from './sandboxSessions.ts';
 
 const GIT_TOKEN = 'ghp_sprocketGitToken0123';
 const ANTHROPIC_KEY = 'sk-ant-sprocket-0123';

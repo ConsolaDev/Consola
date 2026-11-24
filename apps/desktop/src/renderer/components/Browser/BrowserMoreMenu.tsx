@@ -1,7 +1,8 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Bug, MoreHorizontal, RefreshCcw, Search, Trash2, ZoomIn, ZoomOut } from 'lucide-react';
-import { zoomPercent, type ZoomStep } from '../../../shared/browserTools';
+import { zoomPercent } from '../../../shared/browserTools';
+import type { ZoomStep } from '../../../shared/browserTools';
 import { browserBridge } from '../../services/browserBridge';
 import { requestFind } from '../../stores/browserFindStore';
 import { isMac } from '../../utils/platform';

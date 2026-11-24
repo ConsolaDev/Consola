@@ -7,7 +7,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Scope, Workspace } from '../shared/workspace';
-import { getProviderDriver, type GitProviderDriver } from './providers';
+import { getProviderDriver } from './providers';
+import type { GitProviderDriver } from './providers';
 import { createStubDriver } from './providers/stubDriver.test-helpers';
 import { HeadCheckoutError, WorktreeService, worktreeDirName } from './WorktreeService';
 

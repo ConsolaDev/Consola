@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRecordingLauncher, createSystemLauncher } from './launchers';
-import { FINDER_PATH, type DetectedTarget } from './targets';
+import { FINDER_PATH } from './targets';
+import type { DetectedTarget } from './targets';
 
 const VS_CODE: DetectedTarget = {
   id: 'vscode',

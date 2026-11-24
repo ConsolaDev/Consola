@@ -1,4 +1,5 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Check,
@@ -15,13 +16,8 @@ import { EditLabelDialog } from '../Dialogs/EditLabelDialog';
 import type { Label } from '../../../shared/workspace';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
-import {
-  deriveFacets,
-  effectiveFilters,
-  hasActiveFilters,
-  type FacetKey,
-  type FacetValue,
-} from '../../utils/sessionFilters';
+import { deriveFacets, effectiveFilters, hasActiveFilters } from '../../utils/sessionFilters';
+import type { FacetKey, FacetValue } from '../../utils/sessionFilters';
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
 import { useSettings } from '../../contexts/SettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';

@@ -6,9 +6,8 @@ import {
   PersonInputClock,
   placePopupTab,
   popupTitle,
-  type PopupContext,
-  type PopupTabFacts,
 } from './popupPolicy';
+import type { PopupContext, PopupTabFacts } from './popupPolicy';
 import { PERSON_INPUT_GUARD_MS } from './PersonInput';
 
 const ready: PopupContext = {

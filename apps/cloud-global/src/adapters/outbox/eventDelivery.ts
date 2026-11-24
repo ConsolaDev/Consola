@@ -2,8 +2,8 @@ import {
   GITHUB_EVENT_ANSWER,
   GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
   GITHUB_EVENT_DELIVERY_PATH,
-  type Region,
 } from '@consola/cloud-contract';
+import type { Region } from '@consola/cloud-contract';
 import type { CellEventAnswer, CellEvents } from '../../application/ports.js';
 import { connectionFailure } from './cellDelivery.js';
 

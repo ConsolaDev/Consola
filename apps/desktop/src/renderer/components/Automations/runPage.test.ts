@@ -29,8 +29,8 @@ import {
   triggerStageWords,
   toolCounts,
   workedMs,
-  type RunStageState,
 } from './runPage';
+import type { RunStageState } from './runPage';
 import { rejectedAtGate } from './presentation';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');

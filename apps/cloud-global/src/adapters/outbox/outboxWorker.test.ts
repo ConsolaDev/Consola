@@ -4,15 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CellDelivery, DeliveryAnswer, OutboxStore } from '../../application/ports.js';
 import type { Ed25519PrivateJwk } from '../../config.js';
 import { createCellTokenSigner } from '../cellToken/cellTokenSigner.js';
-import { type Database, migrateDatabase, openDatabase } from '../persistence/database.js';
+import { migrateDatabase, openDatabase } from '../persistence/database.js';
+import type { Database } from '../persistence/database.js';
 import { schema } from '../persistence/schema.js';
 import { createDrizzleStores } from '../persistence/stores.js';
-import {
-  createOutboxWorker,
-  OUTBOX_POLL_MS,
-  type OutboxWorker,
-  type Timers,
-} from './outboxWorker.js';
+import { createOutboxWorker, OUTBOX_POLL_MS } from './outboxWorker.js';
+import type { OutboxWorker, Timers } from './outboxWorker.js';
 
 /** Timers the test fires by hand. */
 function handTimers() {

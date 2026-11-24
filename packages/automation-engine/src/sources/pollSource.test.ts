@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { PollTrigger, RunItem } from '@consola/factory-spec';
 import { workItemSource } from '../connections';
-import {
-  MAX_FENCED_CHARS,
-  MAX_FENCED_FIELDS,
-  POLL_FENCE_HEADING,
-  type SourceItem,
-} from './itemSource';
+import { MAX_FENCED_CHARS, MAX_FENCED_FIELDS, POLL_FENCE_HEADING } from './itemSource';
+import type { SourceItem } from './itemSource';
 import { pollSource } from './pollSource';
 
 const trigger = (extra: Partial<PollTrigger>): PollTrigger => ({

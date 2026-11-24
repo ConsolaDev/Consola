@@ -5,12 +5,8 @@ import {
   evaluateExpression,
   expressionPaths,
   parseExpression,
-  type Expr,
-  type ExprType,
-  type ExprValue,
-  type ExpressionScope,
-  type PathExpr,
 } from './expression';
+import type { Expr, ExprType, ExprValue, ExpressionScope, PathExpr } from './expression';
 
 function parse(source: string): Expr {
   const result = parseExpression(source);

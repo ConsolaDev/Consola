@@ -1,13 +1,7 @@
-import {
-  fieldProblem,
-  isId,
-  isRecord,
-  isWholeNumber,
-  type ReadResult,
-  read,
-  refused,
-} from './read.js';
-import { isRegion, type Region } from './region.js';
+import { fieldProblem, isId, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
+import { isRegion } from './region.js';
+import type { Region } from './region.js';
 
 /**
  * How `cloud-global` passes one of GitHub's webhook events on to the cell of the workspace that

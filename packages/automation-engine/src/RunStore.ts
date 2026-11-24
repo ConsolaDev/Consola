@@ -1,4 +1,5 @@
-import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
+import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import type { RunHistory, StateFile } from './ports';
 import type { SeenRecord } from './seenRecord';
 import { isStepsRun, recoverAfterRestart } from './steps/recover';

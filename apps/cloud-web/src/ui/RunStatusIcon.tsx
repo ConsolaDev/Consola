@@ -9,8 +9,10 @@ import {
   Webhook,
 } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import { progressOf, type RunSummary, type Starter } from '../domain/runs';
-import { childrenTone, childrenWords, lookOf, type RunLook, statusWords } from '../domain/runWords';
+import { progressOf } from '../domain/runs';
+import type { RunSummary, Starter } from '../domain/runs';
+import { childrenTone, childrenWords, lookOf, statusWords } from '../domain/runWords';
+import type { RunLook } from '../domain/runWords';
 import { Avatar } from './Avatar';
 
 /** The pie's circumference: a circle of radius 3.5 drawn 7 wide fills a disc of radius 7. */

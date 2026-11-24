@@ -7,7 +7,8 @@
  * runner's policy lives here, in the core, so the Node adapter and every
  * view read one list.
  */
-import { unpinnedLauncher, type McpServerDefinition } from '@consola/factory-spec';
+import { unpinnedLauncher } from '@consola/factory-spec';
+import type { McpServerDefinition } from '@consola/factory-spec';
 
 /**
  * What a stdio server's environment starts from, taken from the runner's (on

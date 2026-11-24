@@ -8,19 +8,16 @@ import {
   listPollDelay,
   mergeRefresh,
   PHASES,
-  type Phase,
   progressOf,
   RUN_POLL_ACTIVE_MS,
   RUN_POLL_WAITING_MS,
-  type RUN_TRIGGERS,
-  type RunSummary,
-  type RunTrigger,
   refreshLimit,
   runPollDelay,
   safeItemUrl,
   starterOf,
   stepHasEnded,
 } from './runs';
+import type { Phase, RUN_TRIGGERS, RunSummary, RunTrigger } from './runs';
 
 type Schemas = components['schemas'];
 

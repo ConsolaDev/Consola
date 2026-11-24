@@ -4,13 +4,8 @@ import { Folder, FolderGit2, GitBranch, Laptop, Lock } from 'lucide-react';
 import { getDriverDescriptor } from '../../../shared/constants';
 import type { CheckoutInfo } from '../../../shared/sessionCheckout';
 import type { Session } from '../../../shared/workspace';
-import {
-  folderLine,
-  harnessLine,
-  policyLine,
-  splitForMiddle,
-  type FolderLine,
-} from '../../infoPanel/environment';
+import { folderLine, harnessLine, policyLine, splitForMiddle } from '../../infoPanel/environment';
+import type { FolderLine } from '../../infoPanel/environment';
 import { useComputerName } from '../../infoPanel/useComputerName';
 import type { TabFacts } from '../../sidePanel/tabKinds';
 import {

@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { ServerCrash, ShieldAlert, Unplug } from 'lucide-react';
 import type { BrowserTabError, BrowserTabSnapshot } from '../../../shared/browser';
 import { nextShownError } from './browserView';

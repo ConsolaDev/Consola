@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import {
-  isStepsEntry,
-  parseFactory,
-  parseFactorySpec,
-  type AgentStep,
-  type Automation,
-  type GateStep,
-  type StepsAutomation,
-  type UsesStep,
+import { isStepsEntry, parseFactory, parseFactorySpec } from '@consola/factory-spec';
+import type {
+  AgentStep,
+  Automation,
+  GateStep,
+  StepsAutomation,
+  UsesStep,
 } from '@consola/factory-spec';
 import {
   describeEvery,
@@ -21,8 +19,8 @@ import {
   FILE_TOOL_LINKS_HEDGE,
   KEYCHAIN_SENTENCE,
   KEYCHAIN_SIGN_INS_SENTENCE,
-  type WriteVersions,
 } from './describeEntry';
+import type { WriteVersions } from './describeEntry';
 import { agentRequirements } from './steps/definition';
 
 describe('describeEvery', () => {

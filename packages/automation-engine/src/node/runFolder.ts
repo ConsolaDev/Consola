@@ -6,7 +6,8 @@ import {
   STEP_ID_PATTERN,
 } from '@consola/factory-spec';
 import type { RunFolderPort } from '../ports';
-import { MAX_ARTIFACT_BYTES, type RunDefinition } from '../steps/definition';
+import { MAX_ARTIFACT_BYTES } from '../steps/definition';
+import type { RunDefinition } from '../steps/definition';
 import type { StepTurnFile } from '../views';
 import { workspaceDataDir } from './factoryFolder';
 

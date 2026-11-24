@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { deriveAttention } from './deriveAttention';
-import { HookSignals, type AttentionSignal, type HookInputs } from './hookSignals';
+import { HookSignals } from './hookSignals';
+import type { AttentionSignal, HookInputs } from './hookSignals';
 import { DROP_HOLD_MS, SteadyStatus, UNTURNED_WORK_MS } from './steadyStatus';
 
 function setup() {

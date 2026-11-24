@@ -2,7 +2,8 @@ import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TokenMintStore } from '../../application/ports.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { schema } from './schema.js';
 import { createTokenMintStore } from './tokenMintStore.js';
 

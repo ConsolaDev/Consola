@@ -1,10 +1,5 @@
-import {
-  type EndedStatus,
-  type Harness,
-  isHarness,
-  isRepository,
-  type Repository,
-} from '@consola/runner-protocol';
+import { isHarness, isRepository } from '@consola/runner-protocol';
+import type { EndedStatus, Harness, Repository } from '@consola/runner-protocol';
 
 /** Where a cloud session is in its life. `stopped` and `failed` are ends. */
 export const CLOUD_SESSION_STATUSES = ['starting', 'running', 'stopped', 'failed'] as const;

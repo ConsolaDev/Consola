@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import type { WorkItemDetails } from '../../shared/workItemDetails';
-import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef, workItemKey } from '../../shared/workItems';
+import { INBOX_REFRESH_INTERVAL_MS, workItemKey } from '../../shared/workItems';
+import type { WorkItemRef } from '../../shared/workItems';
 import { inboxBridge } from '../services/inboxBridge';
 import { ipcErrorMessage } from '../utils/ipcErrorMessage';
 

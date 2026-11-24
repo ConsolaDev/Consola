@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
-import { parseFactory, type FactoryFiles } from './factory';
+import { parseFactory } from './factory';
+import type { FactoryFiles } from './factory';
 
 /*
  * YAML aliases (`*name`) can expand a short file into an enormous value, and

@@ -1,4 +1,5 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
@@ -13,11 +14,11 @@ import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../../shared/workItemDetails';
 import { inboxBridge } from '../../services/inboxBridge';
 import {
-  type DetailsTarget,
   detailsKey,
   useWorkItemDetails,
   useWorkItemDetailsStore,
 } from '../../stores/workItemDetailsStore';
+import type { DetailsTarget } from '../../stores/workItemDetailsStore';
 import type { RevealTarget } from '../../infoPanel/pullRequestLines';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import {
@@ -27,16 +28,10 @@ import {
   isNewReadFailure,
   quoteReply,
   readFailureMessage,
-  type SaidReadFailure,
 } from './workItemDetailPresentation';
-import {
-  BranchPair,
-  DiffCounts,
-  WorkItemDetailContext,
-  type FixTarget,
-  type MessageAt,
-  type WorkItemDetailContextValue,
-} from './WorkItemDetailParts';
+import type { SaidReadFailure } from './workItemDetailPresentation';
+import { BranchPair, DiffCounts, WorkItemDetailContext } from './WorkItemDetailParts';
+import type { FixTarget, MessageAt, WorkItemDetailContextValue } from './WorkItemDetailParts';
 import { ConversationStream } from './WorkItemConversation';
 import { FilesChanged } from './WorkItemFiles';
 import type { MarkdownEditorHandle } from './WorkItemMarkdownEditor';

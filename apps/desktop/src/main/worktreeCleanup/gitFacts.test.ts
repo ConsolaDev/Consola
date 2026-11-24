@@ -3,11 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  DEFAULT_WORKTREE_CLEANUP_RULES,
-  type TreeVerdict,
-  type WorktreeCleanupRules,
-} from '../../shared/worktreeCleanup';
+import { DEFAULT_WORKTREE_CLEANUP_RULES } from '../../shared/worktreeCleanup';
+import type { TreeVerdict, WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 import { WorktreeService } from '../WorktreeService';
 import type { GatherOptions } from './FactGatherer';
 import { ignoredAtRisk } from './localFiles';

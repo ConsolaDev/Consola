@@ -1,7 +1,8 @@
 import type { SecretUse } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import type { SecretBinding } from './secretsPort';
-import { buildSecretsView, type SecretBindingView } from './secretsView';
+import { buildSecretsView } from './secretsView';
+import type { SecretBindingView } from './secretsView';
 
 const SLACK: SecretBinding = {
   kind: 'keychain',

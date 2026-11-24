@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import {
-  parseExpression,
-  type AgentStep,
-  type CommandStep,
-  type GateStep,
-  type OnExhausted,
-  type RepeatStep,
-  type Step,
-  type StepEntry,
-  type StepRun,
-  type StepRunStatus,
-  type UsesStep,
+import { parseExpression } from '@consola/factory-spec';
+import type {
+  AgentStep,
+  CommandStep,
+  GateStep,
+  OnExhausted,
+  RepeatStep,
+  Step,
+  StepEntry,
+  StepRun,
+  StepRunStatus,
+  UsesStep,
 } from '@consola/factory-spec';
 import {
   advanceSteps,
@@ -19,8 +19,8 @@ import {
   overBudgetError,
   runSummary,
   usdWords,
-  type Advance,
 } from './sequence';
+import type { Advance } from './sequence';
 import { stepRecordsOf, withGateAnswered, withGateAsked, withRound, withStep } from './stepRecords';
 
 const fresh: CommandStep = {

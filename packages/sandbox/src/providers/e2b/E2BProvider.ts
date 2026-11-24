@@ -8,7 +8,8 @@ import type {
 import { SandboxError } from '../../domain/errors';
 import type { Command, CreateSandboxOptions } from '../../domain/sandbox';
 import { commandLineOf } from './commandLine';
-import { type E2BApi, type E2BCommandHandle, type E2BSandbox, e2bApi } from './e2bApi';
+import { e2bApi } from './e2bApi';
+import type { E2BApi, E2BCommandHandle, E2BSandbox } from './e2bApi';
 import { exitCodeOf, hasStatus, translate } from './errors';
 
 export interface E2BProviderOptions {

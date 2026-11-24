@@ -1,7 +1,8 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { isInFront } from '../../sidePanel/layout';
 import { markDots } from '../../sidePanel/marks';
-import { shortcutActs, tabKind, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
+import { shortcutActs, tabKind } from '../../sidePanel/tabKinds';
+import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useTabMark } from '../SidePanel/tabMarks';
 

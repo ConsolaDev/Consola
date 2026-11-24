@@ -2,18 +2,16 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { runCloneGitDirFor } from '@consola/automation-engine';
 import type { Session } from '../../shared/workspace';
-import {
-  type CleanupTrigger,
-  keepRefFor,
-  type RemovedWorktree,
-  type TreeVerdict,
-} from '../../shared/worktreeCleanup';
+import { keepRefFor } from '../../shared/worktreeCleanup';
+import type { CleanupTrigger, RemovedWorktree, TreeVerdict } from '../../shared/worktreeCleanup';
 import { describeError } from '../describeError';
 import type { WorktreeInspection } from '../WorktreeService';
 import type { GatherOptions, Gathered } from './FactGatherer';
 import type { PathLock } from './PathLock';
-import { judge, type UserFacts } from './policy';
-import { ProcessCwdIndex, type ProcessSnapshot } from './ProcessCwdIndex';
+import { judge } from './policy';
+import type { UserFacts } from './policy';
+import { ProcessCwdIndex } from './ProcessCwdIndex';
+import type { ProcessSnapshot } from './ProcessCwdIndex';
 
 /** What one removal did. */
 export type Execution =

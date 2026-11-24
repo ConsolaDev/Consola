@@ -6,7 +6,8 @@ import type { AttentionLedger } from './AttentionLedger';
 import type { HookInputs } from './hookSignals';
 import type { AttentionSource } from './AttentionSource';
 import { deriveAttention, effectiveStatus } from './deriveAttention';
-import { TurnSettle, type SettledStatus } from './turnSettle';
+import { TurnSettle } from './turnSettle';
+import type { SettledStatus } from './turnSettle';
 
 export interface SessionSourceDeps {
   getWorkspaces(): Workspace[];

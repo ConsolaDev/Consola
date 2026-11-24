@@ -1,12 +1,7 @@
 import { Folder } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
-import {
-  type Factory,
-  type FactoryFile,
-  type FactoryRead,
-  fileGroups,
-  firstFile,
-} from '../domain/factories';
+import { fileGroups, firstFile } from '../domain/factories';
+import type { Factory, FactoryFile, FactoryRead } from '../domain/factories';
 import {
   EDITING_NEXT,
   FACTORY_GONE,

@@ -10,11 +10,12 @@ import {
   REFUSED_ENV_NAMES,
   REFUSED_ENV_PREFIXES,
   TRUSTED_ITEM_FIELDS,
-  type AutomationMode,
 } from '@consola/factory-spec';
+import type { AutomationMode } from '@consola/factory-spec';
 import { assignedReviewsEntry, reReviewEntry } from './factoryTemplates';
 import { OUTPUT_FILE_CAP_BYTES } from './steps/commandIO';
-import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
+import { connectionCatalog } from './connections';
+import type { ConnectionCatalogEntry } from './connections';
 
 /**
  * What automations can do in one workspace, said for an agent about to write

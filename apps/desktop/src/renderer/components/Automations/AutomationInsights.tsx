@@ -7,9 +7,8 @@ import {
   runsByDay,
   statusCounts,
   statusCountsInWords,
-  type RunDay,
-  type RunInsights,
 } from './presentation';
+import type { RunDay, RunInsights } from './presentation';
 
 /**
  * An automation's last 30 days as CircleCI's Insights sums up a pipeline:

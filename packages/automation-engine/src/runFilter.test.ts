@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
+import { filterRuns, NO_RUN_FILTER } from './runFilter';
+import type { RunListFilter } from './runFilter';
 import type { RunListEntry } from './views';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');

@@ -1,11 +1,5 @@
-import {
-  createContext,
-  useContext,
-  useState,
-  type ComponentProps,
-  type MouseEvent,
-  type ReactNode,
-} from 'react';
+import { createContext, useContext, useState } from 'react';
+import type { ComponentProps, MouseEvent, ReactNode } from 'react';
 import type { ViewedImage } from '../ImageViewer';
 
 /** Opens an image in the viewer; null where images are not zoomable. */

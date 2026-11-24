@@ -9,8 +9,8 @@ import {
   createDefaultActions,
   createDefaultSectionDefaults,
   defaultActionNameForType,
-  type WorkItemAction,
 } from './workItemActions';
+import type { WorkItemAction } from './workItemActions';
 import type { WorkItemRef } from './workItems';
 
 /**

@@ -2,13 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   automationVersion,
   factoryFilesOf,
-  type AgentDefinition,
   parseFactory,
   stepsResolvedBody,
-  type Automation,
-  type FactoryFiles,
-  type FactoryParseResult,
-  type FactorySpecIssue,
+} from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  Automation,
+  FactoryFiles,
+  FactoryParseResult,
+  FactorySpecIssue,
 } from '@consola/factory-spec';
 import type { AgentHarnessAnswer, CheckoutKind } from '../ports';
 import {

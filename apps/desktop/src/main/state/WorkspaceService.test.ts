@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { JsonStateFile } from './JsonStateFile';
-import { WorkspaceService, type WorkspaceStateFile } from './WorkspaceService';
+import { WorkspaceService } from './WorkspaceService';
+import type { WorkspaceStateFile } from './WorkspaceService';
 import type { Workspace } from '../../shared/workspace';
 import type { WorkItemAction } from '../../shared/workItemActions';
 

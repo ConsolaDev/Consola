@@ -1,15 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { parseEntryCheckout } from './flow';
 import { parseFactorySpec } from './parse';
-import { isStepsEntry, type StepsAutomation } from './schema';
-import {
-  flatSteps,
-  gateChoices,
-  leafSteps,
-  stepItemFields,
-  type CommandStep,
-  type GateStep,
-} from './steps';
+import { isStepsEntry } from './schema';
+import type { StepsAutomation } from './schema';
+import { flatSteps, gateChoices, leafSteps, stepItemFields } from './steps';
+import type { CommandStep, GateStep } from './steps';
 
 /*
  * Slice 3's control flow in the format: gates, `then: stop`, and (from the

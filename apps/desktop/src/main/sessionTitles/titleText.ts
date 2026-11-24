@@ -1,4 +1,5 @@
-import { NEW_SESSION_NAME, type Session } from '../../shared/workspace';
+import { NEW_SESSION_NAME } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 
 /** Longest stand-in shown while a session waits for its generated title. */
 export const STAND_IN_MAX = 50;

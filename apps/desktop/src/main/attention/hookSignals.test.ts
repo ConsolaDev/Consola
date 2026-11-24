@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import { HookSignals, type AttentionSignal } from './hookSignals';
+import { HookSignals } from './hookSignals';
+import type { AttentionSignal } from './hookSignals';
 
 const menu: AttentionSignal = { kind: 'needs-input', origin: 'menu' };
 const subagent: AttentionSignal = { kind: 'needs-input', origin: 'subagent' };

@@ -1,5 +1,6 @@
 import type { ConversationEntry, ConversationRecord } from '../../shared/conversation';
-import { switchOpening, type Session } from '../../shared/workspace';
+import { switchOpening } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import type { ConversationOpening } from '../TerminalService';
 
 /**

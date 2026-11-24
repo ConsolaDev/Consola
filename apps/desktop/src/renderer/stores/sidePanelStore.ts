@@ -3,8 +3,10 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import * as Layout from '../sidePanel/layout';
 import type { Edge, GroupId, SidePanelLayout, TabId } from '../sidePanel/layout';
 import { repairLayout } from '../sidePanel/repairLayout';
-import { isTabKindId, TAB_KIND_IDS, type TabKindId } from '../sidePanel/tabKinds';
-import { rankShortcutKinds, recordUse, sanitizeUsage, type UsageLog } from '../sidePanel/usage';
+import { isTabKindId, TAB_KIND_IDS } from '../sidePanel/tabKinds';
+import type { TabKindId } from '../sidePanel/tabKinds';
+import { rankShortcutKinds, recordUse, sanitizeUsage } from '../sidePanel/usage';
+import type { UsageLog } from '../sidePanel/usage';
 
 /**
  * The side panel's arrangement, how often the person opens each kind of tab,

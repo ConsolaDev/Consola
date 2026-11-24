@@ -13,17 +13,14 @@ import {
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import { defineTool, FakeToolRegistry } from './tools.test-helpers';
-import {
-  AutomationService,
-  INTERRUPTED_PROMPT,
-  TICK_MS,
-  type AutomationNotice,
-} from './AutomationService';
+import { AutomationService, INTERRUPTED_PROMPT, TICK_MS } from './AutomationService';
+import type { AutomationNotice } from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import { assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { RunFolder } from './node/runFolder';
 import type { AgentLaunchRequest, EngineToolContext, RunFolderPort } from './ports';
-import { RunStore, type AutomationStateFile } from './RunStore';
+import { RunStore } from './RunStore';
+import type { AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
 import { memoryAppliedStore } from './steps/steps.test-helpers';
 import { StartedByHandError } from './support';

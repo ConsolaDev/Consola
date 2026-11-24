@@ -1,11 +1,7 @@
 import type { WakeCause } from '../../shared/attention';
 import type { BatchResult, SnoozeBatchResult } from '../../shared/preferences';
-import {
-  describeWake,
-  pickSnoozePreset,
-  type ResolvedSnoozePreset,
-  type SnoozeWhen,
-} from '../../shared/snooze';
+import { describeWake, pickSnoozePreset } from '../../shared/snooze';
+import type { ResolvedSnoozePreset, SnoozeWhen } from '../../shared/snooze';
 import { attentionBridge } from '../services/attentionBridge';
 import { showToast } from '../stores/toastStore';
 

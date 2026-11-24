@@ -6,8 +6,8 @@ import {
   BearerConnectionRegistration,
   BearerConnectionTarget,
   EnvironmentRegistry,
-  type SupervisorConnectionState,
 } from '@t3tools/client-runtime/connection';
+import type { SupervisorConnectionState } from '@t3tools/client-runtime/connection';
 import { EnvironmentId, ThreadId } from '@t3tools/contracts';
 import {
   createMemoryHistory,
@@ -20,7 +20,8 @@ import * as Effect from 'effect/Effect';
 import * as Duration from 'effect/Duration';
 import * as Fiber from 'effect/Fiber';
 import * as Stream from 'effect/Stream';
-import { type JSX, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { JSX, RefObject } from 'react';
 import ChatView from '~/components/ChatView';
 import { getThemeSnapshot, setAppearanceMode } from '~/hooks/useTheme';
 import { connectionAtomRuntime } from '~/connection/runtime';

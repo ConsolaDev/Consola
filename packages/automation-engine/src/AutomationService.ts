@@ -27,40 +27,40 @@ import {
   stepItemFieldProblems,
   stepsResolvedBody,
   TERMINAL_RUN_STATUSES,
-  type AgentDefinition,
-  type AgentStep,
-  type Automation,
-  type AutomationMode,
-  type CronTrigger,
-  type ExprValue,
-  type FactoryFiles,
-  type FactoryNotice,
-  type FactoryParseResult,
-  type FactorySpecIssue,
-  type McpServerDefinition,
-  type PollTrigger,
-  type RepeatStep,
-  type RunItem,
-  type RunRecord,
-  type RunStatus,
-  type RunTrigger,
-  type SkillDefinition,
-  type EnvironmentDefinition,
-  type Step,
-  type StepEntry,
-  type StepRun,
-  type StepsAutomation,
-  type Trigger,
-  type UsesStep,
 } from '@consola/factory-spec';
-import { describeCapabilities, type AutomationCapabilities } from './capabilities';
-import {
-  resolveEventSource,
-  scheduledPrompt,
-  workItemSource,
-  type EventSource,
-} from './connections';
-import { advanceSeen, forgetFired, heldRevision, markFired, type OpenState } from './seenRecord';
+import type {
+  AgentDefinition,
+  AgentStep,
+  Automation,
+  AutomationMode,
+  CronTrigger,
+  ExprValue,
+  FactoryFiles,
+  FactoryNotice,
+  FactoryParseResult,
+  FactorySpecIssue,
+  McpServerDefinition,
+  PollTrigger,
+  RepeatStep,
+  RunItem,
+  RunRecord,
+  RunStatus,
+  RunTrigger,
+  SkillDefinition,
+  EnvironmentDefinition,
+  Step,
+  StepEntry,
+  StepRun,
+  StepsAutomation,
+  Trigger,
+  UsesStep,
+} from '@consola/factory-spec';
+import { describeCapabilities } from './capabilities';
+import type { AutomationCapabilities } from './capabilities';
+import { resolveEventSource, scheduledPrompt, workItemSource } from './connections';
+import type { EventSource } from './connections';
+import { advanceSeen, forgetFired, heldRevision, markFired } from './seenRecord';
+import type { OpenState } from './seenRecord';
 import {
   agentToolContext,
   CONSOLA_NAMESPACE,
@@ -99,8 +99,8 @@ import {
   decideApply,
   describeAppliedAt,
   standingMessage,
-  type ApplyDecision,
 } from './factory/apply';
+import type { ApplyDecision } from './factory/apply';
 import type {
   AgentHarnessAnswer,
   AgentHarnessQuery,
@@ -125,7 +125,8 @@ import type {
   RunningCommand,
   ToolsPort,
 } from './ports';
-import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
+import { filterRuns, NO_RUN_FILTER } from './runFilter';
+import type { RunListFilter } from './runFilter';
 import { SNAPSHOT_ENDED_RUNS } from './views';
 import type {
   ConversationTarget,
@@ -162,13 +163,15 @@ import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } fr
 import {
   actionTypeRefusal,
   agentStepLaunch,
-  type CheckoutMaterial,
   endedWithout,
   itemRefOf,
   stepCap,
 } from './steps/agentStep';
-import { MAX_CHECK_STDOUT_BYTES, readCheckResult, type PolledItem } from './sources/checkResult';
-import { runItemSource, type ItemSource, type SourceItem } from './sources/itemSource';
+import type { CheckoutMaterial } from './steps/agentStep';
+import { MAX_CHECK_STDOUT_BYTES, readCheckResult } from './sources/checkResult';
+import type { PolledItem } from './sources/checkResult';
+import { runItemSource } from './sources/itemSource';
+import type { ItemSource, SourceItem } from './sources/itemSource';
 import { polledSourceItem, pollSource } from './sources/pollSource';
 import { resolvePrevious } from './sources/previous';
 import {
@@ -179,8 +182,8 @@ import {
   latestResult,
   MAX_CONCURRENT_CHECKS,
   nextCheckAt,
-  type CheckState,
 } from './sources/pollRunner';
+import type { CheckState } from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
 import {
   initProblem,
@@ -199,10 +202,8 @@ import {
   entryReadsItems,
   prCheckoutProblem,
   runCheckoutKind,
-  type CheckoutPort,
-  type CheckoutRequest,
-  type PreparedCheckout,
 } from './steps/checkout';
+import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import {
   clipText,
   describeFailure,
@@ -243,23 +244,25 @@ import {
   readOutputFileMasked,
   withCommandIntent,
   writeCommandFile,
-  type PreparedCommand,
 } from './steps/commandStep';
+import type { PreparedCommand } from './steps/commandStep';
 import {
   agentRequirements,
   MAX_ARTIFACT_BYTES,
   skillMarkdown,
   withKnownTools,
-  type AgentRequirements,
-  type CallFile,
-  type CallResultFile,
-  type CallView,
-  type CommandFile,
-  type RenderedArgument,
-  type LogTail,
-  type RunDefinition,
-  type StepDetail,
-  type StepsRunPreview,
+} from './steps/definition';
+import type {
+  AgentRequirements,
+  CallFile,
+  CallResultFile,
+  CallView,
+  CommandFile,
+  RenderedArgument,
+  LogTail,
+  RunDefinition,
+  StepDetail,
+  StepsRunPreview,
 } from './steps/definition';
 import { INTERRUPTED_WRITE, isEngineRun, isStepsRun } from './steps/recover';
 import {
@@ -280,12 +283,12 @@ import {
   noWriteAgents,
   pathArtifactProblem,
   personsCommitMessage,
-  type RunCheckoutPort,
   sessionHoldsRetry,
   fullToolsHoldRetry,
-  type SettleResult,
 } from './steps/runCheckout';
-import { advanceSteps, type Advance, type Lane, type StepUpdate } from './steps/sequence';
+import type { RunCheckoutPort, SettleResult } from './steps/runCheckout';
+import { advanceSteps } from './steps/sequence';
+import type { Advance, Lane, StepUpdate } from './steps/sequence';
 import {
   closeSteps,
   holdsWhileWaiting,
@@ -318,18 +321,21 @@ import { NO_TURN_TO_STOP, stopAction, stoppedAfterRound, stoppedBefore } from '.
 import { StepIO } from './steps/stepTools';
 import { readSecrets } from './secrets/readSecrets';
 import { RunSecrets } from './secrets/runSecrets';
-import { PERSONAL_FACTORY, type SecretsPort } from './secrets/secretsPort';
-import { buildSecretsView, type SecretBindingView } from './secrets/secretsView';
+import { PERSONAL_FACTORY } from './secrets/secretsPort';
+import type { SecretsPort } from './secrets/secretsPort';
+import { buildSecretsView } from './secrets/secretsView';
+import type { SecretBindingView } from './secrets/secretsView';
 import { unboundOf } from './secrets/unbound';
 import {
   CHECK_STALE,
   checkNotUsed,
   checkServerVerdicts,
   checkUnderWay,
-  type ServerCheckView,
 } from './servers/checkServer';
+import type { ServerCheckView } from './servers/checkServer';
 import { serverFactsOf } from './servers/serverFacts';
-import { ServerGroupLedger, type ServerGroupsFile } from './servers/serverGroups';
+import { ServerGroupLedger } from './servers/serverGroups';
+import type { ServerGroupsFile } from './servers/serverGroups';
 
 /**
  * The runner for personal automations: one `factory.yml` per workspace, whose

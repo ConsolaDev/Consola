@@ -1,23 +1,26 @@
 // @effect-diagnostics nodeBuiltinImport:off - Each test makes its own pass keys with node:crypto.
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import {
   CommandId,
-  type ModelSelection,
   ORCHESTRATION_PROTOCOL_HEADER,
   ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
-  type OrchestrationV2Command,
-  type OrchestrationV2ShellStreamItem,
-  type OrchestrationV2SubscribeShellInput,
-  type OrchestrationV2ThreadStreamItem,
   ProviderInstanceId,
   RunId,
   serverProviderDeltas,
   ThreadId,
   TurnItemId,
   WS_METHODS,
+} from '@t3tools/contracts';
+import type {
+  ModelSelection,
+  OrchestrationV2Command,
+  OrchestrationV2ShellStreamItem,
+  OrchestrationV2SubscribeShellInput,
+  OrchestrationV2ThreadStreamItem,
 } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -70,8 +73,8 @@ import {
   connectT3Client,
   hostSocketUrl,
   issueHostTicket,
-  type T3Client,
 } from '../testing/t3Client.ts';
+import type { T3Client } from '../testing/t3Client.ts';
 import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
 import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';

@@ -1,5 +1,6 @@
 import { Pencil, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
-import { useHarnessStore, type Harness } from '../../stores/harnessStore';
+import { useHarnessStore } from '../../stores/harnessStore';
+import type { Harness } from '../../stores/harnessStore';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { describeHarnessStatus, HarnessStatusDot } from './HarnessStatusBadge';
 import { HarnessIcon } from '../HarnessIcon';

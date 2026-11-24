@@ -4,10 +4,10 @@ import type { WsRpcProtocolClient } from '@t3tools/client-runtime/rpc';
 import {
   ORCHESTRATION_PROTOCOL_QUERY_PARAM,
   ORCHESTRATION_PROTOCOL_VERSION,
-  type ServerConfig,
   WS_METHODS,
   WsRpcGroup,
 } from '@t3tools/contracts';
+import type { ServerConfig } from '@t3tools/contracts';
 import {
   joinSocketFrameParts,
   SOCKET_FRAME_PARTS_QUERY_PARAM,

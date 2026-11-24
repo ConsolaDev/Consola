@@ -12,7 +12,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import postcss, { type AtRule, type Node, type Rule } from 'postcss';
+import postcss from 'postcss';
+import type { AtRule, Node, Rule } from 'postcss';
 import {
   AS_DOCUMENT,
   ATTRIBUTE_STYLED,

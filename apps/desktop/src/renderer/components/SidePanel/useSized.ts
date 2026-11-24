@@ -1,4 +1,5 @@
-import { type RefObject, useLayoutEffect, useState } from 'react';
+import { useLayoutEffect, useState } from 'react';
+import type { RefObject } from 'react';
 
 /**
  * Whether `ref`'s element has been laid out at a size, from the first time it

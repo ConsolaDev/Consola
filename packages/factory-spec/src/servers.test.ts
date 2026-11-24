@@ -8,8 +8,8 @@ import {
   parseMcpServers,
   serverHash,
   unpinnedLauncher,
-  type McpServerDefinition,
 } from './servers';
+import type { McpServerDefinition } from './servers';
 
 type Issue = { message: string; path: Array<string | number> };
 

@@ -9,7 +9,8 @@
  *
  * Pure, with no stores, so the node test environment can import it.
  */
-import { type SidePanelLayout, visibleGroups } from './layout';
+import { visibleGroups } from './layout';
+import type { SidePanelLayout } from './layout';
 
 /** Which dot draws a mark: the accent one for an agent's use, the red one for something wrong. */
 export type MarkTone = 'agent' | 'alert';

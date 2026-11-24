@@ -1,4 +1,5 @@
-import { useEffect, useMemo, memo, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, memo } from 'react';
+import type { KeyboardEvent } from 'react';
 import { X, PanelLeftClose, PanelLeft, GitBranch } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';

@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 
 async function rowsOf<Row>(db: Database, query: ReturnType<typeof sql>): Promise<Row[]> {
   return ((await db.execute(query)) as unknown as { rows: Row[] }).rows;

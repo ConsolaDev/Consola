@@ -12,17 +12,12 @@
  *
  * No components and no stores, so the node test environment can import it.
  */
-import {
-  Diff,
-  FolderTree,
-  GitPullRequest,
-  Globe,
-  type LucideIcon,
-  TerminalSquare,
-} from 'lucide-react';
+import { Diff, FolderTree, GitPullRequest, Globe, TerminalSquare } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
-import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
+import { checkoutPathForSession } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import { BROWSER_SHORTCUT_LABEL, FILES_SHORTCUT_LABEL, isMac } from '../utils/platform';
 import { SHELL_SHORTCUT_LABEL } from '../utils/shellShortcut';
 

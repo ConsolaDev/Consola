@@ -1,8 +1,10 @@
 import { useMemo } from 'react';
-import { checkoutPathForSession, type Session, type Workspace } from '../../../shared/workspace';
+import { checkoutPathForSession } from '../../../shared/workspace';
+import type { Session, Workspace } from '../../../shared/workspace';
 import { useFoundPullRequest } from '../../stores/branchPullRequestStore';
 import { useCheckout } from '../../stores/checkoutStore';
-import { tabFactsFor, type TabFacts } from '../../sidePanel/tabKinds';
+import { tabFactsFor } from '../../sidePanel/tabKinds';
+import type { TabFacts } from '../../sidePanel/tabKinds';
 
 /**
  * What the tab kinds read about a session on screen: its checkout, once git

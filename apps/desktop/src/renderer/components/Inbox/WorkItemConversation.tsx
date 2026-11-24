@@ -1,4 +1,5 @@
-import { memo, useMemo, useState, type ReactNode, type Ref } from 'react';
+import { memo, useMemo, useState } from 'react';
+import type { ReactNode, Ref } from 'react';
 import {
   CircleCheck,
   CircleDot,
@@ -17,8 +18,8 @@ import {
   Upload,
   UserRound,
   Wrench,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type {
   WorkItemCommitItem,
   WorkItemPost,
@@ -32,11 +33,8 @@ import {
   checkLabel,
   commitRunSentence,
   reviewVerb,
-  type EventIcon,
-  type Segment,
-  type StreamEntry,
-  type StreamEvent,
 } from './workItemDetailPresentation';
+import type { EventIcon, Segment, StreamEntry, StreamEvent } from './workItemDetailPresentation';
 import {
   Avatar,
   CheckIcon,
@@ -48,7 +46,8 @@ import {
   TONE_ICONS,
   useWorkItemDetail,
 } from './WorkItemDetailParts';
-import { MarkdownEditor, type MarkdownEditorHandle } from './WorkItemMarkdownEditor';
+import { MarkdownEditor } from './WorkItemMarkdownEditor';
+import type { MarkdownEditorHandle } from './WorkItemMarkdownEditor';
 import { BodyEditor, PostBody, PostMenu, ReviewThread } from './WorkItemThread';
 import { MergeCard } from './WorkItemMergeCard';
 import { CommentBox } from './WorkItemCommentBox';

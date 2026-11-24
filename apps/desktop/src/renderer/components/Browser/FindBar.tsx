@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, X } from 'lucide-react';
-import { findResultText, type FindResult } from '../../../shared/browserTools';
+import { findResultText } from '../../../shared/browserTools';
+import type { FindResult } from '../../../shared/browserTools';
 import { browserBridge } from '../../services/browserBridge';
 import { useBrowserFindStore } from '../../stores/browserFindStore';
 

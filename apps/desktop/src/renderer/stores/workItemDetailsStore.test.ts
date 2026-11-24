@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkItemDetails } from '../../shared/workItemDetails';
-import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
+import { INBOX_REFRESH_INTERVAL_MS } from '../../shared/workItems';
+import type { WorkItemRef } from '../../shared/workItems';
 
 vi.mock('../services/inboxBridge', () => ({
   inboxBridge: { getDetails: vi.fn() },
@@ -11,10 +12,10 @@ import {
   DETAILS_REFRESH_MS,
   MAX_UNWATCHED_DETAILS,
   MERGE_STATE_POLL_MS,
-  type DetailsTarget,
   detailsKey,
   useWorkItemDetailsStore,
 } from './workItemDetailsStore';
+import type { DetailsTarget } from './workItemDetailsStore';
 
 const getDetails = vi.mocked(inboxBridge.getDetails);
 const MINUTE = 60_000;

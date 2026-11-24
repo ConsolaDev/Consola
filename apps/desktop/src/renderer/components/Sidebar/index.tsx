@@ -22,19 +22,23 @@ import { clearAllFilters, revealSessionScope } from '../../utils/sessionActions'
 import { useSettleOnChange } from '../../hooks/useSettleOnChange';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
-import { bucketize, type Bucket } from '../../sidebar/bucketize';
+import { bucketize } from '../../sidebar/bucketize';
+import type { Bucket } from '../../sidebar/bucketize';
 import { runEntries, sessionEntries, sessionKey, filterSelection } from '../../sidebar/entries';
 import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
-import { aggregateAttention, buildForest, type TreeNode } from '../../sidebar/forest';
+import { aggregateAttention, buildForest } from '../../sidebar/forest';
+import type { TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
-import { holdFor, pinHold, type Hold } from '../../sidebar/openRowHold';
+import { holdFor, pinHold } from '../../sidebar/openRowHold';
+import type { Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
 import { snoozeOffer } from '../../sidebar/snoozeRules';
 import { wakeWithUndo } from '../../utils/snoozeActions';
 import { droppedSnoozedSessionId, isSnoozedSessionDrag, leftDropTarget } from './sessionDrag';
 import { drawnOrder } from '../../sidebar/selection';
-import { SelectionContext, type SelectionFrame } from '../../sidebar/selectionContext';
+import { SelectionContext } from '../../sidebar/selectionContext';
+import type { SelectionFrame } from '../../sidebar/selectionContext';
 import { treeView } from '../../sidebar/treeView';
 import {
   clearSelection,

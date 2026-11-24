@@ -6,7 +6,8 @@ import { asc } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FIRST_TEAM_NAME } from '../../domain/team.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url));

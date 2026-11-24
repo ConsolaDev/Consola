@@ -1,6 +1,7 @@
 import type { HarnessDriverId, HarnessLaunchFields } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
-import { toHarnessConfig, type HarnessDriver } from './HarnessDriver';
+import { toHarnessConfig } from './HarnessDriver';
+import type { HarnessDriver } from './HarnessDriver';
 import { AntigravityDriver } from './AntigravityDriver';
 import { ClaudeDriver } from './ClaudeDriver';
 import { CodexDriver } from './CodexDriver';

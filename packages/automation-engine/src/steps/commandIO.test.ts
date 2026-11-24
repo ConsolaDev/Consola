@@ -2,12 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  isStepsEntry,
-  parseFactorySpec,
-  type OutputType,
-  type RunRecord,
-} from '@consola/factory-spec';
+import { isStepsEntry, parseFactorySpec } from '@consola/factory-spec';
+import type { OutputType, RunRecord } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import type { CommandResult } from '../ports';
 import {

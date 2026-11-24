@@ -1,5 +1,6 @@
 import type { RunActionInSessionResult } from '../../shared/types';
-import { actionConversation, type ActionConversation } from '../../shared/workItemActions';
+import { actionConversation } from '../../shared/workItemActions';
+import type { ActionConversation } from '../../shared/workItemActions';
 import { renderActionPrompt, substitutePlaceholders } from '../../shared/workItemPrompt';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { GitProviderId } from '../../shared/providers';

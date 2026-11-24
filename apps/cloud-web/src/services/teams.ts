@@ -1,14 +1,6 @@
+import { isTeamProblem } from '../domain/teams';
+import type { TeamChange, TeamsState, WorkspaceMember } from '../domain/teams';
 import {
-  isTeamProblem,
-  type TeamChange,
-  type TeamsState,
-  type WorkspaceMember,
-} from '../domain/teams';
-import {
-  type CellApi,
-  type CellDeps,
-  type CellRefusal,
-  type CellSession,
   codeOf,
   createCellSession,
   PENDING,
@@ -17,6 +9,7 @@ import {
   SWITCHED,
   UNAVAILABLE,
 } from './cell';
+import type { CellApi, CellDeps, CellRefusal, CellSession } from './cell';
 
 /*
  * A workspace's teams, from its regional cell (`cell.ts`: the token, the address, the states a

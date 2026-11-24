@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isTrustedSender, type IpcSenderEvent } from './ipcSenderGuard';
+import { isTrustedSender } from './ipcSenderGuard';
+import type { IpcSenderEvent } from './ipcSenderGuard';
 
 const mainFrame = { id: 'main' };
 

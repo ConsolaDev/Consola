@@ -5,11 +5,8 @@
 // pure module these menus read their vocabulary from.
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown } from 'lucide-react';
-import {
-  INBOX_UPDATED_FILTERS,
-  UPDATED_FILTER_LABELS,
-  type InboxUpdatedFilter,
-} from './inboxFilters';
+import { INBOX_UPDATED_FILTERS, UPDATED_FILTER_LABELS } from './inboxFilters';
+import type { InboxUpdatedFilter } from './inboxFilters';
 
 interface RepoFilterMenuProps {
   /** Every repo in the snapshot, sorted -- the only things worth offering. */

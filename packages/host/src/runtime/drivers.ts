@@ -2,18 +2,20 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   DEFAULT_TEXT_GENERATION_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
-  type ModelSelection,
   ProviderDriverKind,
 } from '@t3tools/contracts';
-import {
-  AcpRegistryDriver,
-  type AcpRegistryDriverEnv,
-} from '@t3tools/provider-acp-registry/server';
-import { ClaudeDriver, type ClaudeDriverEnv } from '@t3tools/provider-claude/server';
-import { CodexDriver, type CodexDriverEnv } from '@t3tools/provider-codex/server';
+import type { ModelSelection } from '@t3tools/contracts';
+import { AcpRegistryDriver } from '@t3tools/provider-acp-registry/server';
+import type { AcpRegistryDriverEnv } from '@t3tools/provider-acp-registry/server';
+import { ClaudeDriver } from '@t3tools/provider-claude/server';
+import type { ClaudeDriverEnv } from '@t3tools/provider-claude/server';
+import { CodexDriver } from '@t3tools/provider-codex/server';
+import type { CodexDriverEnv } from '@t3tools/provider-codex/server';
 import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
-import { OpenCodeDriver, type OpenCodeDriverEnv } from '@t3tools/provider-opencode/server';
-import { PiDriver, type PiDriverEnv } from '@t3tools/provider-pi/server';
+import { OpenCodeDriver } from '@t3tools/provider-opencode/server';
+import type { OpenCodeDriverEnv } from '@t3tools/provider-opencode/server';
+import { PiDriver } from '@t3tools/provider-pi/server';
+import type { PiDriverEnv } from '@t3tools/provider-pi/server';
 import type { SessionSpec } from '../core/sessionSpec.ts';
 import { withoutCliCredentialsDriver } from './credentials.ts';
 

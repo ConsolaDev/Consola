@@ -1,10 +1,6 @@
 import type { SandboxProvider } from '../application/ports';
-import {
-  requireCapability,
-  type Sandbox,
-  type Sandboxes,
-  sandboxesFrom,
-} from '../application/sandboxes';
+import { requireCapability, sandboxesFrom } from '../application/sandboxes';
+import type { Sandbox, Sandboxes } from '../application/sandboxes';
 import type { SandboxCapability } from '../domain/capabilities';
 import type { CreateSandboxOptions } from '../domain/sandbox';
 import { holds, rejectsWith, same } from './expect';

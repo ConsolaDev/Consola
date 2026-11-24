@@ -1,4 +1,5 @@
-import postcss, { type ChildNode } from 'postcss';
+import postcss from 'postcss';
+import type { ChildNode } from 'postcss';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   AS_DOCUMENT,

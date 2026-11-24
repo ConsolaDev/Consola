@@ -1,4 +1,5 @@
-import { membersOf, type TreeNode } from './forest';
+import { membersOf } from './forest';
+import type { TreeNode } from './forest';
 
 /** What a row offers about the Snoozed shelf. */
 export type SnoozeOffer =

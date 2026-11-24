@@ -3,12 +3,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import {
-  isStepsEntry,
-  parseFactorySpec,
-  type RunRecord,
-  type StepRun,
-} from '@consola/factory-spec';
+import { isStepsEntry, parseFactorySpec } from '@consola/factory-spec';
+import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import type { SessionView } from '../views';
 import type { RunDefinition } from './definition';

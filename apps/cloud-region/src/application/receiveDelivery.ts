@@ -1,4 +1,5 @@
-import { type OutboxMessage, type ReadResult, readOutboxMessage } from '@consola/cloud-contract';
+import { readOutboxMessage } from '@consola/cloud-contract';
+import type { OutboxMessage, ReadResult } from '@consola/cloud-contract';
 import type { Region } from '../domain/region.js';
 import { copyChangeOf, placeMessage } from '../domain/workspaceCopy.js';
 import type { DeliveryVerifier, WorkspaceCopies } from './ports.js';

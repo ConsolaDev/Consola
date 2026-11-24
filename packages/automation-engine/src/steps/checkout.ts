@@ -1,10 +1,5 @@
-import {
-  isItemCheckout,
-  isRunOwnedCheckout,
-  PR_ITEM_NEEDS_PRS,
-  type Automation,
-  type RunRecord,
-} from '@consola/factory-spec';
+import { isItemCheckout, isRunOwnedCheckout, PR_ITEM_NEEDS_PRS } from '@consola/factory-spec';
+import type { Automation, RunRecord } from '@consola/factory-spec';
 import type { ItemSource } from '../sources/itemSource';
 import type { CheckoutKind } from '../ports';
 import type { ItemRef } from '../views';

@@ -1,26 +1,14 @@
 import { useEffect, useState } from 'react';
-import {
-  CircleCheck,
-  CircleDashed,
-  CircleSlash,
-  CircleX,
-  LoaderCircle,
-  type LucideIcon,
-} from 'lucide-react';
+import { CircleCheck, CircleDashed, CircleSlash, CircleX, LoaderCircle } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { RunRecord } from '../../../shared/automations';
 import type { ConversationEntry, RunConversation } from '../../../shared/conversation';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { MarkdownRenderer } from '../Markdown';
 import { collapseSteps, finalAnswer, formatElapsed } from './presentation';
-import {
-  stepBar,
-  stepState,
-  stepTimeline,
-  toolCounts,
-  type StepState,
-  type Timeline,
-} from './runPage';
+import { stepBar, stepState, stepTimeline, toolCounts } from './runPage';
+import type { StepState, Timeline } from './runPage';
 
 /** How often a running run's transcript is read again. */
 const FOLLOW_INTERVAL_MS = 2000;

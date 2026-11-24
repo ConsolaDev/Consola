@@ -1,10 +1,10 @@
-import {
-  FACTORY_NAME_MAX,
-  type FactoriesState,
-  type FactoryChange,
-  type FactorySourceKind,
-  type NewFactoryProblem,
-  type SourceOption,
+import { FACTORY_NAME_MAX } from './factories';
+import type {
+  FactoriesState,
+  FactoryChange,
+  FactorySourceKind,
+  NewFactoryProblem,
+  SourceOption,
 } from './factories';
 import type { FactoryPageId } from './factoryNav';
 import { messageForTeamsState } from './teamMessages';

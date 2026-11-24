@@ -37,11 +37,14 @@ import * as Fiber from 'effect/Fiber';
 import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
-import { type SandboxProvider, sandboxesFrom } from '@consola/sandbox';
+import { sandboxesFrom } from '@consola/sandbox';
+import type { SandboxProvider } from '@consola/sandbox';
 import { makeCellSocket } from './adapters/cellSocket.ts';
-import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
+import { makeDevAccess } from './adapters/devPass.ts';
+import type { DevAccess } from './adapters/devPass.ts';
 import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
-import { type HostListening, listenHost } from './adapters/rpcServer.ts';
+import { listenHost } from './adapters/rpcServer.ts';
+import type { HostListening } from './adapters/rpcServer.ts';
 import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
 import { isLoopback } from './core/bind.ts';
@@ -50,12 +53,11 @@ import {
   cellUrlProblem,
   HARNESS_API_KEYS,
   harnessesFromEnv,
-  type RunnerOffer,
   readRepositories,
-  type SandboxSecrets,
   scrubSecrets,
   secretValuesOf,
 } from './core/runnerDecisions.ts';
+import type { RunnerOffer, SandboxSecrets } from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
 import * as ThreadRuntime from './runtime/threadRuntime.ts';
 

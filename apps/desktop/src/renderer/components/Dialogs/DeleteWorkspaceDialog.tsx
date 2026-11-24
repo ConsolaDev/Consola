@@ -1,4 +1,5 @@
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { ConfirmDialog } from './ConfirmDialog';
 
 interface DeleteWorkspaceDialogProps {

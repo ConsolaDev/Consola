@@ -1,14 +1,6 @@
 import { ChevronRight, CircleX, FileCode, ListTree, MessagesSquare } from 'lucide-react';
-import {
-  type KeyboardEvent,
-  type ReactNode,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { rangeWords } from '../domain/runFile';
 import { AGENT_CONVERSATION_LATER_WORDS, NO_STEPS_WORDS } from '../domain/runMessages';
 import type { RunDetail, StepSummary } from '../domain/runs';
@@ -39,9 +31,9 @@ import {
   stepSummary,
   stepTone,
   stepWorkedFor,
-  type StepTone,
   turnLine,
 } from '../domain/stepTrace';
+import type { StepTone } from '../domain/stepTrace';
 import { RunFileView } from './RunFileView';
 import { revealElement } from './reveal';
 import { StatusGlyph } from './RunStatusIcon';

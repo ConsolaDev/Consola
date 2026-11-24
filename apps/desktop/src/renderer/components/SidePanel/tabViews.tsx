@@ -1,7 +1,9 @@
-import { type ComponentType, useState } from 'react';
+import { useState } from 'react';
+import type { ComponentType } from 'react';
 import { isRevealTarget } from '../../infoPanel/pullRequestLines';
 import { isInFront } from '../../sidePanel/layout';
-import { sessionItemOf, type TabFacts, type TabKindId } from '../../sidePanel/tabKinds';
+import { sessionItemOf } from '../../sidePanel/tabKinds';
+import type { TabFacts, TabKindId } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { BrowserPanel } from '../Browser';
 import { GitReviewPanel } from '../GitReviewPanel';

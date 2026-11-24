@@ -3,14 +3,13 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { useInboxStore } from '../../stores/inboxStore';
-import {
-  useLinkSessionDialogStore,
-  type LinkSessionDialogMode,
-} from '../../stores/linkSessionDialogStore';
+import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
+import type { LinkSessionDialogMode } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { SearchableList } from '../SearchableList';
-import { itemRowsFor, sessionRowsFor, type LinkRow } from './linkSessionRows';
+import { itemRowsFor, sessionRowsFor } from './linkSessionRows';
+import type { LinkRow } from './linkSessionRows';
 import './styles.css';
 
 /** A key that changes whenever the dialog is opened for a different target. */

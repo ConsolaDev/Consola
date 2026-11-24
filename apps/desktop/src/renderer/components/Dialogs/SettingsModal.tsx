@@ -1,4 +1,5 @@
-import { useId, type ReactNode } from 'react';
+import { useId } from 'react';
+import type { ReactNode } from 'react';
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
@@ -26,14 +27,14 @@ import {
   Tag,
   Trash2,
   MessagesSquare,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
   TERMINAL_FONT_SIZE_MAX,
-  type ThemeMode,
 } from '../../stores/settingsStore';
+import type { ThemeMode } from '../../stores/settingsStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useTheme } from '../../hooks/useTheme';
 import {
@@ -58,13 +59,8 @@ import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
 import { SecretsPanel } from '../WorkspaceSettings/SecretsPanel';
 import { ActionsPanel } from '../WorkspaceSettings/ActionsPanel';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
-import {
-  APP_GROUP,
-  WORKSPACE_GROUP,
-  isWorkspaceSection,
-  type SettingsSection,
-  type WorkspaceSectionId,
-} from './settingsSections';
+import { APP_GROUP, WORKSPACE_GROUP, isWorkspaceSection } from './settingsSections';
+import type { SettingsSection, WorkspaceSectionId } from './settingsSections';
 import { SnoozeOptions } from '../Settings/SnoozeOptions';
 import { SessionRowsOption } from '../Settings/SessionRowsOption';
 import { RememberLayoutOption } from '../Settings/RememberLayoutOption';

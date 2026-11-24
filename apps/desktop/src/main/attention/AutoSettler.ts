@@ -1,4 +1,5 @@
-import { activityOf, type Attention } from '../../shared/attention';
+import { activityOf } from '../../shared/attention';
+import type { Attention } from '../../shared/attention';
 import type { Preferences } from '../../shared/preferences';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { AttentionLedger } from './AttentionLedger';

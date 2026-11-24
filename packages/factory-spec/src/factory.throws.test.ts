@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { parseFactory, type FactoryFiles } from './factory';
+import { parseFactory } from './factory';
+import type { FactoryFiles } from './factory';
 
 /*
  * `parseFactory` never throws: a file whose own parser throws, for any

@@ -1,10 +1,6 @@
 import * as path from 'node:path';
-import {
-  type McpClientPort,
-  nodeMcpClient,
-  type ServerGroupsFile,
-  type StateFile,
-} from '@consola/automation-engine';
+import { nodeMcpClient } from '@consola/automation-engine';
+import type { McpClientPort, ServerGroupsFile, StateFile } from '@consola/automation-engine';
 import { JsonStateFile } from '../state/JsonStateFile';
 
 /*

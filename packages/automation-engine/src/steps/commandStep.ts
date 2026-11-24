@@ -1,12 +1,5 @@
-import {
-  leafSteps,
-  parseTemplate,
-  renderTemplate,
-  type CommandStep,
-  type RunRecord,
-  type StepRun,
-  type TemplatePath,
-} from '@consola/factory-spec';
+import { leafSteps, parseTemplate, renderTemplate } from '@consola/factory-spec';
+import type { CommandStep, RunRecord, StepRun, TemplatePath } from '@consola/factory-spec';
 import type { CommandResult, CommandSpec, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
@@ -20,7 +13,8 @@ import {
   OUTPUT_FILE_CAP_BYTES,
   parseOutputFile,
 } from './commandIO';
-import { MAX_ARTIFACT_BYTES, type RunDefinition } from './definition';
+import { MAX_ARTIFACT_BYTES } from './definition';
+import type { RunDefinition } from './definition';
 import { CHECKOUT_FILES } from './runCheckout';
 import { withAttemptStarted, withStep } from './stepRecords';
 

@@ -1,10 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import type React from 'react';
-import {
-  detectOpenTrigger,
-  type OpenTypeahead,
-  type TypeaheadTriggerConfig,
-} from './detectOpenTrigger';
+import { detectOpenTrigger } from './detectOpenTrigger';
+import type { OpenTypeahead, TypeaheadTriggerConfig } from './detectOpenTrigger';
 
 export interface UseTypeaheadOptions<T> {
   /** The composer's current text. */

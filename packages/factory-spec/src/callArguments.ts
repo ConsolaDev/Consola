@@ -6,10 +6,13 @@
  * Imports `steps.ts` (its item kinds and trusted fields), which never imports
  * this file.
  */
-import { isStepsEntry, type Automation, type Trigger } from './schema';
-import { flatSteps, itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS, type StepEntry } from './steps';
+import { isStepsEntry } from './schema';
+import type { Automation, Trigger } from './schema';
+import { flatSteps, itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS } from './steps';
+import type { StepEntry } from './steps';
 import { templatePaths } from './template';
-import { usesTexts, type UsesStep } from './uses';
+import { usesTexts } from './uses';
+import type { UsesStep } from './uses';
 
 export type ArgumentTrust = 'literal' | 'trusted' | 'untrusted';
 

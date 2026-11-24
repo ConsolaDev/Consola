@@ -31,7 +31,8 @@ import { toggleInfoPanel } from '../../stores/infoPanelRoomStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { pickOpenIn } from '../../stores/openInStore';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
-import { TAB_KINDS, type TabKindId } from '../../sidePanel/tabKinds';
+import { TAB_KINDS } from '../../sidePanel/tabKinds';
+import type { TabKindId } from '../../sidePanel/tabKinds';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MAX,
@@ -41,7 +42,8 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
 import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browserActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
-import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
+import { workspaceStatusFor } from '../../utils/sessionStatus';
+import type { AttentionMap } from '../../utils/sessionStatus';
 import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
 import { OPEN_IN_SHORTCUT_LABEL } from '../../utils/openInShortcut';

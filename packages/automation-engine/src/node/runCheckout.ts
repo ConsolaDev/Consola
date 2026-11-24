@@ -3,13 +3,8 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { withoutGitHooks, withoutRepositoryOverrides } from '../gitEnv';
-import {
-  flaggedPaths,
-  RunCheckoutError,
-  type RunCheckoutStage,
-  type SettleRequest,
-  type SettleResult,
-} from '../steps/runCheckout';
+import { flaggedPaths, RunCheckoutError } from '../steps/runCheckout';
+import type { RunCheckoutStage, SettleRequest, SettleResult } from '../steps/runCheckout';
 
 /*
  * A run's own checkout against real git (slice 3-B, *The run-owned

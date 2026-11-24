@@ -1,7 +1,9 @@
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
-import { aDialog, PageTextError, type ToolDialogs } from './browserToolAccess';
-import { type BrowserToolContent, firstLine, untrusted, untrustedJson } from './browserToolResults';
+import { aDialog, PageTextError } from './browserToolAccess';
+import type { ToolDialogs } from './browserToolAccess';
+import { firstLine, untrusted, untrustedJson } from './browserToolResults';
+import type { BrowserToolContent } from './browserToolResults';
 import type { HeldDialog } from './PageDialogs';
 import type { PageDriver } from './PageDriver';
 import type { PersonInput } from './PersonInput';

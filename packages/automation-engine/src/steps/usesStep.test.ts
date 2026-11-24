@@ -1,10 +1,5 @@
-import {
-  callArguments,
-  type McpServerDefinition,
-  type RunRecord,
-  type StepRun,
-  type UsesStep,
-} from '@consola/factory-spec';
+import { callArguments } from '@consola/factory-spec';
+import type { McpServerDefinition, RunRecord, StepRun, UsesStep } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import type { McpCallOutcome, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';

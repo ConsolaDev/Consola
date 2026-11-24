@@ -1,4 +1,5 @@
-import { useRef, useEffect, useCallback, type RefObject } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
+import type { RefObject } from 'react';
 import { hasPlatformModifier } from '../utils/platform';
 
 /**

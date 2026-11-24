@@ -1,7 +1,8 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, CornerDownLeft, LoaderCircle, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
-import { actionConversation, type WorkItemAction } from '../../../shared/workItemActions';
+import { actionConversation } from '../../../shared/workItemActions';
+import type { WorkItemAction } from '../../../shared/workItemActions';
 import type { Session, Workspace } from '../../../shared/workspace';
 import { runActionInSession } from '../../utils/sessionActions';
 import { useSessionAttention } from '../../stores/attentionStore';

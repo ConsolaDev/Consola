@@ -6,7 +6,8 @@ import path from 'node:path';
 import { PERSON_INPUT_GUARD_MS } from '../../src/main/browser/PersonInput';
 import { hideBrowser, showBrowser, sidePanelToggle } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * Whose a tab is, end to end: a tab a page opens shows only when the

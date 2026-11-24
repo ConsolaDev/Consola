@@ -20,12 +20,8 @@
  * - A frame from the cell over `CELL_FRAME_LIMIT_BYTES` closes the socket (1009); one that is not
  *   a message `readCellMessage` reads is logged with the reader's reason and dropped.
  */
-import {
-  type CellMessage,
-  type RunnerHello,
-  readCellMessage,
-  type SessionUpdate,
-} from '@consola/runner-protocol';
+import { readCellMessage } from '@consola/runner-protocol';
+import type { CellMessage, RunnerHello, SessionUpdate } from '@consola/runner-protocol';
 import * as Clock from 'effect/Clock';
 import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
@@ -33,16 +29,16 @@ import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Queue from 'effect/Queue';
 import * as Random from 'effect/Random';
-import { type RawData, WebSocket } from 'ws';
+import { WebSocket } from 'ws';
+import type { RawData } from 'ws';
 import {
   EndedSessions,
   endOf,
   HEARTBEAT,
-  type HeartbeatTiming,
   Pings,
-  type RunnerOffer,
   reconnectDelayMs,
 } from '../core/runnerDecisions.ts';
+import type { HeartbeatTiming, RunnerOffer } from '../core/runnerDecisions.ts';
 import type { LiveSessions } from './sandboxSessions.ts';
 
 /** The cell's frame limit (`RUNNER_FRAME_LIMIT_BYTES`), which the runner keeps for what it reads too. */

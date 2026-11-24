@@ -4,13 +4,11 @@ import { serve } from '@hono/node-server';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { GITHUB_WEBHOOK_PATH } from './adapters/http/contract.js';
 import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
-import {
-  migrateDatabase,
-  type OpenDatabase,
-  openDatabase,
-} from './adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import type { OpenDatabase } from './adapters/persistence/database.js';
 import { composeApi } from './compose.js';
-import { type CloudConfig, ConfigError, loadConfig } from './config.js';
+import { ConfigError, loadConfig } from './config.js';
+import type { CloudConfig } from './config.js';
 import { describeStartupFailure } from './startupError.js';
 
 // Beside package.json, from both `src/main.ts` (tsx) and `dist/main.js` (node).

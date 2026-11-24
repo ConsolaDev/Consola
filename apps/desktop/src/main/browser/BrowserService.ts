@@ -1,16 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, WebContents } from 'electron';
-import {
-  isAllowedPageUrl,
-  isBlankPageUrl,
-  MAX_TABS_PER_SESSION,
-  type BrowserHistoryEntry,
-  type BrowserSessionSnapshot,
-  type BrowserSnapshotMessage,
-  type BrowserTab,
-  type BrowserTabError,
-  type BrowserTabLive,
-  type SessionBrowser,
+import { isAllowedPageUrl, isBlankPageUrl, MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserSessionSnapshot,
+  BrowserSnapshotMessage,
+  BrowserTab,
+  BrowserTabError,
+  BrowserTabLive,
+  SessionBrowser,
 } from '../../shared/browser';
 import type { ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';

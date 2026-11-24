@@ -1,4 +1,5 @@
-import { type CSSProperties, useMemo } from 'react';
+import { useMemo } from 'react';
+import type { CSSProperties } from 'react';
 import { regionName } from '../domain/workspace';
 import { DOT_REGIONS, WORLD_DOTS } from './worldDots';
 

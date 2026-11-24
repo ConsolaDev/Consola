@@ -1,13 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from 'react';
-import { browserPartitionFor, type BrowserTabSnapshot } from '../../../shared/browser';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
+import { browserPartitionFor } from '../../../shared/browser';
+import type { BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
 import {
   dropAuthRequest,
@@ -29,8 +23,8 @@ import {
   pagePresence,
   retryDelayMs,
   visibleTabId,
-  type PagePresence,
 } from './browserView';
+import type { PagePresence } from './browserView';
 import './styles.css';
 
 /**

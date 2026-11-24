@@ -1,4 +1,5 @@
-import { describeOutputType, type AgentStep, type OutputType } from '@consola/factory-spec';
+import { describeOutputType } from '@consola/factory-spec';
+import type { AgentStep, OutputType } from '@consola/factory-spec';
 import { NO_EARLIER_RUN, OF_EARLIER_RUN } from '../sources/previous';
 
 /**

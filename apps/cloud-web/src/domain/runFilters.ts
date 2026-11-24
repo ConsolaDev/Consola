@@ -1,13 +1,5 @@
-import {
-  BACKGROUND_TRIGGERS,
-  isPhase,
-  isRunTrigger,
-  PHASES,
-  type Phase,
-  RUN_TRIGGERS,
-  type RunFacets,
-  type RunTrigger,
-} from './runs';
+import { BACKGROUND_TRIGGERS, isPhase, isRunTrigger, PHASES, RUN_TRIGGERS } from './runs';
+import type { Phase, RunFacets, RunTrigger } from './runs';
 
 /**
  * What the Runs list is narrowed to. The address holds it (`#/runs?…`, `queryOfFilters`), so a

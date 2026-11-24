@@ -12,7 +12,8 @@ import { findSessionById, findSessionByInstanceId } from '../attention';
 import type { AttentionLedger, SnoozeTarget } from './AttentionLedger';
 import { isPersonKey, pressesEnter } from './personInput';
 import { settleable, treeRootOf, withDescendants } from './settling';
-import { type ArmedTimer, armAt } from './wakeTimer';
+import { armAt } from './wakeTimer';
+import type { ArmedTimer } from './wakeTimer';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

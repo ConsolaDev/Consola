@@ -3,8 +3,8 @@ import {
   parseFactorySpec,
   serverHash,
   stepsResolvedBody,
-  type McpServerDefinition,
 } from '@consola/factory-spec';
+import type { McpServerDefinition } from '@consola/factory-spec';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
@@ -14,15 +14,10 @@ import { maskFormsOf } from './secrets/values';
 import { CHECK_STALE } from './servers/checkServer';
 import { INTERRUPTED_CALL } from './steps/recover';
 import type { StepsRunPreview } from './steps/definition';
-import { defineTool, type TestTool } from './tools.test-helpers';
-import {
-  BIND_HINT,
-  stepsHarness,
-  WORKSPACE_ID,
-  type FakeServer,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { defineTool } from './tools.test-helpers';
+import type { TestTool } from './tools.test-helpers';
+import { BIND_HINT, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { FakeServer, StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * 5a-2: `uses:` steps, as the engine resolves, runs, recovers and checks

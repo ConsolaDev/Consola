@@ -1,7 +1,9 @@
 import { EventEmitter } from 'node:events';
 import type { BrowserWindow, WebContents } from 'electron';
-import { beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
-import { MAX_TABS_PER_SESSION, type BrowserSessionSnapshot } from '../../shared/browser';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
+import { MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type { BrowserSessionSnapshot } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { BrowserService, CRASH_RETRY_LIMIT, CRASH_RETRY_WINDOW_MS } from './BrowserService';
 import { BrowserStateStore, MAX_STORED_ADDRESS_CHARS } from './BrowserStateStore';

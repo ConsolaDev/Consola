@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Check,
@@ -20,9 +21,8 @@ import {
   mergeRows,
   sortChecks,
   summarizeChecks,
-  type MergeMethod,
-  type MergeRow,
 } from './workItemDetailPresentation';
+import type { MergeMethod, MergeRow } from './workItemDetailPresentation';
 import { CheckIcon, Messages, TONE_ICONS, useWorkItemDetail } from './WorkItemDetailParts';
 
 const METHOD_KEY = (workspaceId: string) => `consola.inbox.mergeMethod.${workspaceId}`;

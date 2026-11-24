@@ -5,9 +5,9 @@ import {
   iconsMatching,
   WORKSPACE_EMOJIS,
   WORKSPACE_SYMBOLS,
-  type WorkspaceIcon,
   workspaceInitial,
 } from './workspaceIcons';
+import type { WorkspaceIcon } from './workspaceIcons';
 
 type Listed = (typeof WORKSPACE_SYMBOLS)[number][0] | (typeof WORKSPACE_EMOJIS)[number][0];
 

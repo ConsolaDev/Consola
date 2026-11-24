@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { MutableRefObject } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   AlarmClockOff,

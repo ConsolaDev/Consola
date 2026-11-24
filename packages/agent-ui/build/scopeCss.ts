@@ -1,4 +1,5 @@
-import postcss, { type AtRule, type Node, type PluginCreator, type Root, type Rule } from 'postcss';
+import postcss from 'postcss';
+import type { AtRule, Node, PluginCreator, Root, Rule } from 'postcss';
 
 /** The element `AgentChat` renders: t3's CSS applies only inside it. */
 export const SCOPE_CLASS = 'consola-agent-ui';

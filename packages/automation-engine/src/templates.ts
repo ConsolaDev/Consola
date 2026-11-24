@@ -17,12 +17,8 @@ import type {
   TemplateView,
   WorkspaceView,
 } from './views';
-import {
-  isStepsEntry,
-  nextCronOccurrence,
-  parseAutomationEntry,
-  type Automation,
-} from '@consola/factory-spec';
+import { isStepsEntry, nextCronOccurrence, parseAutomationEntry } from '@consola/factory-spec';
+import type { Automation } from '@consola/factory-spec';
 import { resolveEventSource } from './connections';
 
 /**

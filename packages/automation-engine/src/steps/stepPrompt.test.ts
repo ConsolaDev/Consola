@@ -1,12 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentStep, RunItem } from '@consola/factory-spec';
 import { resolveEventSource } from '../connections';
-import {
-  REMINDER_PREFIX,
-  renderStepPrompt,
-  reminderPrompt,
-  type StepPromptInput,
-} from './stepPrompt';
+import { REMINDER_PREFIX, renderStepPrompt, reminderPrompt } from './stepPrompt';
+import type { StepPromptInput } from './stepPrompt';
 
 const resolved = resolveEventSource({
   kind: 'event',

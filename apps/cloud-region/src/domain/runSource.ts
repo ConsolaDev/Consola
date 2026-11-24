@@ -1,4 +1,5 @@
-import { type Automation, type AutomationMode, automationLines } from '@consola/factory-spec';
+import { automationLines } from '@consola/factory-spec';
+import type { Automation, AutomationMode } from '@consola/factory-spec';
 import type { FactoryFile } from './factory.js';
 import type { ItemKind, LineRange, RunTrigger } from './run.js';
 

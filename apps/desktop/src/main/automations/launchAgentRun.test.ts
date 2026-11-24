@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
+import { StartedByHandError } from '@consola/automation-engine';
+import type { AgentLaunchRequest } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { Session, Workspace } from '../../shared/workspace';
-import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
+import { getDriver, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import { compileClaudeAgent } from '../drivers/claudeAgent';
 import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
@@ -16,8 +18,8 @@ import {
   launchedWithFullTools,
   prepareItemWorktree,
   worktreeHeld,
-  type AgentLaunchDeps,
 } from './launchAgentRun';
+import type { AgentLaunchDeps } from './launchAgentRun';
 
 let root: string;
 beforeEach(() => {

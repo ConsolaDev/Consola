@@ -1,4 +1,5 @@
-import { type CollisionDetection, pointerWithin } from '@dnd-kit/core';
+import { pointerWithin } from '@dnd-kit/core';
+import type { CollisionDetection } from '@dnd-kit/core';
 
 interface Point {
   x: number;

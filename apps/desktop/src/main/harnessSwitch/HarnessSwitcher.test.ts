@@ -3,14 +3,11 @@ import * as os from 'os';
 import type { ConversationRecord } from '../../shared/conversation';
 import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
-import {
-  switchedSession,
-  type HarnessSwitchChange,
-  type Session,
-  type Workspace,
-} from '../../shared/workspace';
+import { switchedSession } from '../../shared/workspace';
+import type { HarnessSwitchChange, Session, Workspace } from '../../shared/workspace';
 import type { HarnessDriver } from '../drivers';
-import { HarnessSwitcher, type HarnessSwitcherDeps } from './HarnessSwitcher';
+import { HarnessSwitcher } from './HarnessSwitcher';
+import type { HarnessSwitcherDeps } from './HarnessSwitcher';
 
 vi.mock('../LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: process.env.PATH }) }));
 

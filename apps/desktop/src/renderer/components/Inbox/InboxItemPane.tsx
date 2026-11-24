@@ -1,5 +1,6 @@
 import { WorkItemDetailPanel } from './WorkItemDetailPanel';
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -11,8 +12,8 @@ import {
   Play,
   TriangleAlert,
   X,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { activityOf } from '../../../shared/attention';
 import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';

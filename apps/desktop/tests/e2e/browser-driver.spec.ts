@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { showBrowser, sidePanelToggle } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * How an agent's call reaches a page (`AgentPages`, `PageDriver`), driven
