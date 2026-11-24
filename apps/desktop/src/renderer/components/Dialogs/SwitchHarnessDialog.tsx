@@ -52,7 +52,7 @@ export function SwitchHarnessDialog({ workspaceId, session, onClose }: SwitchHar
           )?.harnessId,
         );
       })
-      .catch((reason) => {
+      .catch((reason: unknown) => {
         if (live) setError(ipcErrorMessage(reason));
       });
     return () => {

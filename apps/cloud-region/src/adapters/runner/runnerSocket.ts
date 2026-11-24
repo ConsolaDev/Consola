@@ -287,7 +287,7 @@ export function createRunnerSocket(deps: {
               ? hello(connection, message, settings)
               : update(connection, message, settings),
           )
-          .catch((error) => {
+          .catch((error: unknown) => {
             try {
               report(`The cell could not handle a runner's message: ${describe(error)}`);
             } catch {

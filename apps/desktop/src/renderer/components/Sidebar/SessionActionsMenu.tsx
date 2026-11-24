@@ -127,16 +127,18 @@ export function SessionActionsMenu({
   // it does: nothing anywhere can set the field, so a detached session cannot
   // be re-parented by hand.
   const handleDetach = () => {
-    void updateSession(workspaceId, session.id, { parentSessionId: undefined }).catch((error) => {
-      // The row visibly staying under its conductor is the signal.
-      console.error('Failed to detach session', error);
-    });
+    void updateSession(workspaceId, session.id, { parentSessionId: undefined }).catch(
+      (error: unknown) => {
+        // The row visibly staying under its conductor is the signal.
+        console.error('Failed to detach session', error);
+      },
+    );
   };
 
   const handleUnlink = () => {
     // Presence semantics: the key is sent, and undefined, which is what
     // main reads as "clear the link" — exactly as leaving a group works.
-    void updateSession(workspaceId, session.id, { workItem: undefined }).catch((error) => {
+    void updateSession(workspaceId, session.id, { workItem: undefined }).catch((error: unknown) => {
       // The row visibly staying linked is the signal.
       console.error('Failed to unlink session', error);
     });
@@ -240,7 +242,7 @@ export function SessionActionsMenu({
                       onSelect={(event) => {
                         event.preventDefault();
                         const write = on ? unassignLabel : assignLabel;
-                        void write(workspaceId, session.id, label.id).catch((error) => {
+                        void write(workspaceId, session.id, label.id).catch((error: unknown) => {
                           console.error('Failed to change session label', error);
                         });
                       }}
@@ -348,7 +350,7 @@ export function SessionActionsMenu({
             onCheckedChange={(keep) => {
               void updateSession(workspaceId, session.id, {
                 autoSettle: keep ? 'never' : undefined,
-              }).catch((error) => {
+              }).catch((error: unknown) => {
                 console.error('Failed to change auto-settle', error);
               });
             }}
@@ -367,7 +369,7 @@ export function SessionActionsMenu({
               onCheckedChange={(keep) => {
                 void updateSession(workspaceId, session.id, {
                   autoRemoveWorktree: keep ? 'never' : undefined,
-                }).catch((error) => {
+                }).catch((error: unknown) => {
                   console.error('Failed to change worktree cleanup', error);
                 });
               }}

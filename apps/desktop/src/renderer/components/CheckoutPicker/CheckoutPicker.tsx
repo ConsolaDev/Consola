@@ -42,7 +42,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
       .then((result) => {
         if (!cancelled) setContext(result);
       })
-      .catch((reason) => {
+      .catch((reason: unknown) => {
         if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {

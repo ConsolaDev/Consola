@@ -69,6 +69,11 @@ export default defineConfig({
       },
     },
     {
+      // JavaScript has no type annotation to give a catch callback's value.
+      files: ['**/*.{js,jsx,mjs,cjs}'],
+      rules: { 'typescript/use-unknown-in-catch-callback-variable': 'off' },
+    },
+    {
       // No React here: a callback these files name `use` is not React's hook.
       files: ['packages/host/**', 'packages/sandbox/**', 'apps/desktop/tests/fixtures/**'],
       rules: { 'react/rules-of-hooks': 'off' },
@@ -120,7 +125,6 @@ export default defineConfig({
         'typescript/only-throw-error': 'off', // 12
         'typescript/require-array-sort-compare': 'off', // 11
         'typescript/unbound-method': 'off', // 69
-        'typescript/use-unknown-in-catch-callback-variable': 'off', // 39
         'unicorn/catch-error-name': 'off', // 73
         'unicorn/consistent-function-scoping': 'off', // 763
         'unicorn/no-hex-escape': 'off', // 313

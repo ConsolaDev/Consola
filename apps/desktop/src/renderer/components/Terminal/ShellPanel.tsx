@@ -147,7 +147,7 @@ export function ShellPanel({
         // A restart is the person's click on New shell or Retry, here.
         if (generation > 0 || focusOnAttachRef.current()) terminal.focus();
       })
-      .catch((reason) => {
+      .catch((reason: unknown) => {
         if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
       });
     const observer = new ResizeObserver(() => settled.request());

@@ -1453,7 +1453,9 @@ export function setupIpcHandlers(): boolean {
     swept: () =>
       void emptySessions
         .sweep()
-        .catch((error) => console.error('Could not remove empty settled sessions:', error)),
+        .catch((error: unknown) =>
+          console.error('Could not remove empty settled sessions:', error),
+        ),
   });
   autoSettler = settler;
 
@@ -2492,7 +2494,9 @@ export function setupIpcHandlers(): boolean {
     },
   });
   automationService = automations;
-  void automations.start().catch((error) => console.error('Automations failed to start.', error));
+  void automations
+    .start()
+    .catch((error: unknown) => console.error('Automations failed to start.', error));
   // A workspace's file is read from when it appears, and let go when it is deleted.
   workspaces.onChange(() => void automations.syncWorkspaces());
   // An edited harness re-resolves the entries that run on it.

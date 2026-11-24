@@ -685,7 +685,9 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
       "the step changed this checkout's git folder",
     );
     expect(
-      await runCloneShowAt(dir, base, 'README.md', 1024).catch((error: Error) => error.message),
+      await runCloneShowAt(dir, base, 'README.md', 1024).catch(
+        (error: unknown) => (error as Error).message,
+      ),
     ).toContain("the step changed this checkout's git folder");
     expect(fs.existsSync(marker)).toBe(false);
   });

@@ -399,7 +399,7 @@ describe.each([
           });
           throw new Error('rolled back');
         })
-        .catch((error: Error) => error.message);
+        .catch((error: unknown) => (error as Error).message);
       const roleChange = write(
         {
           workspaceId: acme,

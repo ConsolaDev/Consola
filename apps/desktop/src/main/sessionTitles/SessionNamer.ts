@@ -423,7 +423,7 @@ export class SessionNamer {
   /** Keeps background work visible to `idle()`; a failure is logged, never thrown. */
   private track(work: Promise<void>): void {
     const tracked: Promise<void> = work
-      .catch((error) => console.error('Session naming failed.', error))
+      .catch((error: unknown) => console.error('Session naming failed.', error))
       .finally(() => this.pending.delete(tracked));
     this.pending.add(tracked);
   }

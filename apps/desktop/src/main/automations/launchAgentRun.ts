@@ -307,7 +307,7 @@ export async function prepareItemWorktree(
       // Best effort: a refresh that fails leaves the review on what is there.
       await deps
         .refreshWorktree(dir, workItem, env)
-        .catch((error) =>
+        .catch((error: unknown) =>
           console.error(`Could not bring ${dir} up to date; reviewing it as it is.`, error),
         );
     }

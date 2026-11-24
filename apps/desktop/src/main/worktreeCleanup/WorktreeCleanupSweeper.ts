@@ -89,7 +89,7 @@ export class WorktreeCleanupSweeper {
 
   private run(refreshPullRequests: boolean): void {
     if (!this.deps.anyRuleOn()) return;
-    this.deps.sweep({ refreshPullRequests }).catch((error) => {
+    this.deps.sweep({ refreshPullRequests }).catch((error: unknown) => {
       console.error('Worktree cleanup sweep failed:', error);
     });
   }

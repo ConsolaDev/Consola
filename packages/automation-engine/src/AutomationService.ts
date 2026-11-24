@@ -1747,7 +1747,7 @@ export class AutomationService {
           kind: 'cron',
           at: due.toISOString(),
           ...(catchUp ? { catchUp } : {}),
-        }).catch((error) =>
+        }).catch((error: unknown) =>
           console.error(`Automation ${entry.automation.name} could not start.`, error),
         );
       }

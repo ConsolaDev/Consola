@@ -28,7 +28,7 @@ export function releaseRemovedWorktreeWith(
       return;
     void deps
       .deleteKeepRef(removed.mainRepo, removed.keepRef)
-      .catch((error) => console.error(`Could not delete ${removed.keepRef}:`, error));
+      .catch((error: unknown) => console.error(`Could not delete ${removed.keepRef}:`, error));
   };
 }
 
@@ -107,7 +107,7 @@ export class SessionRemover {
       console.error(`Could not close the browser tabs of session ${session.id}:`, error);
     }
     try {
-      this.deps.removeCaptures(session.id).catch((error) => {
+      this.deps.removeCaptures(session.id).catch((error: unknown) => {
         console.error(`Could not delete the browser captures of session ${session.id}:`, error);
       });
     } catch (error) {
@@ -118,7 +118,7 @@ export class SessionRemover {
     } catch (error) {
       console.error(`Could not release the removed worktree of session ${session.id}:`, error);
     }
-    this.deps.removeHandoffs(session.id).catch((error) => {
+    this.deps.removeHandoffs(session.id).catch((error: unknown) => {
       console.error(`Could not delete the handoff documents of session ${session.id}:`, error);
     });
   }

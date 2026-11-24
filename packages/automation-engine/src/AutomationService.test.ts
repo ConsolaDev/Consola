@@ -2358,7 +2358,7 @@ describe('saving an entry', () => {
     for (const [yaml, reason] of cases) {
       const error = await t.service.saveEntry('ws-1', yaml, { replace: false }).then(
         () => null,
-        (failure: Error) => failure,
+        (failure: unknown) => failure as Error,
       );
       expect(error?.message, yaml).toMatch(/^Not saved: /);
       expect(error?.message, yaml).toMatch(reason);

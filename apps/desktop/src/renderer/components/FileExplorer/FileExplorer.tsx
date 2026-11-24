@@ -46,7 +46,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
     fileBridge
       .listDirectory(rootPath)
       .then(setRootChildren)
-      .catch((err) => setError(err.message))
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
       .finally(() => setIsLoading(false));
 
     // Refresh git status when root path changes
