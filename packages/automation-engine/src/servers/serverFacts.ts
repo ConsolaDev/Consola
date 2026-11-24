@@ -49,14 +49,14 @@ export interface ServerFacts {
 }
 
 /** Programs that fetch a package and run it. */
-const LAUNCHERS = ['npx', 'uvx', 'bunx'];
-const DLX_LAUNCHERS = ['pnpm', 'yarn'];
+const LAUNCHERS = new Set(['npx', 'uvx', 'bunx']);
+const DLX_LAUNCHERS = new Set(['pnpm', 'yarn']);
 
 /** Whether a stdio server runs through a launcher that fetches its package: `npx`, `uvx`, `bunx`, `pnpm dlx`, `yarn dlx`. */
 function isLauncher(command: string, args: readonly string[]): boolean {
   const program = command.split('/').pop() ?? command;
-  if (LAUNCHERS.includes(program)) return true;
-  return DLX_LAUNCHERS.includes(program) && args.find((arg) => !arg.startsWith('-')) === 'dlx';
+  if (LAUNCHERS.has(program)) return true;
+  return DLX_LAUNCHERS.has(program) && args.find((arg) => !arg.startsWith('-')) === 'dlx';
 }
 
 /** The names `${NAME}` references in a header value, in order, once each, among `secrets`. */

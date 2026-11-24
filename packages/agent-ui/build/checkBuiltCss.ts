@@ -310,15 +310,15 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
       }
     }
     rule.walkDecls((decl) => {
-      const selectors = rule.selectors.map(compact);
-      if (decl.prop === '--background' && selectors.includes(compact(AS_DOCUMENT))) theme = true;
+      const selectors = new Set(rule.selectors.map(compact));
+      if (decl.prop === '--background' && selectors.has(compact(AS_DOCUMENT))) theme = true;
       if (decl.prop === '--background' && decl.value === 'var(--consola-agent-ui-bg)') {
         mapping = true;
       }
       if (
         decl.prop === 'display' &&
         decl.value === 'flex' &&
-        selectors.includes(compact(`${INSIDE} .flex`))
+        selectors.has(compact(`${INSIDE} .flex`))
       ) {
         utility = true;
       }

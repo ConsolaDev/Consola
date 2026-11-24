@@ -60,7 +60,12 @@ export function stepMayRetry(input: {
 }
 
 /** An earlier attempt's line that never ran anything: it did not start, or only a dry run reported it. */
-const NEVER_STARTED: readonly StepRunStatus[] = ['not-run', 'skipped', 'pending', 'reported'];
+const NEVER_STARTED: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>([
+  'not-run',
+  'skipped',
+  'pending',
+  'reported',
+]);
 
 /**
  * Whether a row's step may have acted in any attempt: its own (a command's
@@ -78,7 +83,7 @@ function started(record: StepRun): boolean {
         : record.kind === 'gate'
           ? record.gate?.decision !== undefined
           : record.startedAt !== undefined;
-  return own || (record.previous ?? []).some((line) => !NEVER_STARTED.includes(line.status));
+  return own || (record.previous ?? []).some((line) => !NEVER_STARTED.has(line.status));
 }
 
 /**

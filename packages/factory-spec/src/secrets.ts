@@ -43,12 +43,12 @@ export function secretTemplateReason(name?: string): string {
  * are unset (a workspace with no bound account), so those are refused too
  * (review M2); `GH_ENTERPRISE_TOKEN` already is, by `env:`'s `GH_` prefix.
  */
-const GH_IDENTITY_NAMES: readonly string[] = [
+const GH_IDENTITY_NAMES: ReadonlySet<string> = new Set<string>([
   'GH_TOKEN',
   'GH_HOST',
   'GITHUB_TOKEN',
   'GITHUB_ENTERPRISE_TOKEN',
-];
+]);
 const GH_IDENTITY =
   "Commands act as the workspace's bound GitHub account, whose token Consola puts in `GH_TOKEN` (decision 37). To act as another account, bind it to the workspace.";
 
@@ -70,7 +70,7 @@ export function secretNameProblem(name: string, place: SecretPlace = 'command'):
   if (!ENV_NAME_PATTERN.test(name)) return PATTERN;
   if (name.length > MAX_SECRET_NAME_LENGTH)
     return `A secret's name is at most ${MAX_SECRET_NAME_LENGTH} characters.`;
-  if (place === 'command' && GH_IDENTITY_NAMES.includes(name)) return GH_IDENTITY;
+  if (place === 'command' && GH_IDENTITY_NAMES.has(name)) return GH_IDENTITY;
   if (name === 'CLAUDE_CONFIG_DIR')
     return "`CLAUDE_CONFIG_DIR` is the harness's own; a secret can't set it.";
   if (isRefusedEnvName(name))

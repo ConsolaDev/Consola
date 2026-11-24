@@ -186,14 +186,14 @@ describe('tab-scoped handlers', () => {
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-mine', 'https://a.com')).toBe(true);
   });
 
-  const moving: readonly string[] = [
+  const moving: ReadonlySet<string> = new Set<string>([
     IPC_CHANNELS.BROWSER_NAVIGATE,
     IPC_CHANNELS.BROWSER_BACK,
     IPC_CHANNELS.BROWSER_FORWARD,
     IPC_CHANNELS.BROWSER_RELOAD,
     IPC_CHANNELS.BROWSER_HARD_RELOAD,
-  ];
-  const toolbarMoves = tabCalls.filter(([channel]) => moving.includes(channel));
+  ]);
+  const toolbarMoves = tabCalls.filter(([channel]) => moving.has(channel));
 
   it.each(toolbarMoves)(
     "%s is the person's input on the tab, heard before the tab moves",
@@ -226,8 +226,7 @@ describe('tab-scoped handlers', () => {
 
   it('nothing but a move from the toolbar or a certificate continue counts as the person navigating', () => {
     for (const [channel, , extra] of tabCalls) {
-      if (moving.includes(channel) || channel === IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE)
-        continue;
+      if (moving.has(channel) || channel === IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE) continue;
       call(channel, 't-mine', ...extra);
     }
     expect(personNavigated).not.toHaveBeenCalled();

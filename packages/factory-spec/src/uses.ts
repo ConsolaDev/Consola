@@ -63,7 +63,17 @@ export interface StepReaders {
   refusedKey(key: string): string | undefined;
 }
 
-const KEYS = ['id', 'if', 'uses', 'with', 'outputs', 'timeout', 'dry_run', 'then', 'on_failure'];
+const KEYS = new Set([
+  'id',
+  'if',
+  'uses',
+  'with',
+  'outputs',
+  'timeout',
+  'dry_run',
+  'then',
+  'on_failure',
+]);
 const NO_AGENT = 'A tool call runs no agent and no shell.';
 const READS_NOTHING = 'A tool reads nothing from the run: pass what it needs in `with:`.';
 const REFERENCE =
@@ -170,7 +180,7 @@ export function parseUsesStep(
 
   // Keys: what may not sit beside `uses:`, later slices', then strangers.
   for (const key of Object.keys(raw)) {
-    if (KEYS.includes(key)) continue;
+    if (KEYS.has(key)) continue;
     bad(
       companionProblem(key, named) ??
         readers.refusedKey(key) ??

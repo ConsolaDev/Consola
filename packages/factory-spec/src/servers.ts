@@ -68,16 +68,25 @@ const REFUSED_KEYS: Readonly<Record<string, string>> = {
   auth: SIGN_IN,
   timeout: 'Set `timeout:` on the step that calls it.',
 };
-const KEYS = ['command', 'args', 'env', 'url', 'headers', 'secrets', 'description', 'type'];
+const KEYS = new Set([
+  'command',
+  'args',
+  'env',
+  'url',
+  'headers',
+  'secrets',
+  'description',
+  'type',
+]);
 
 /** A header name: an HTTP token. */
 const HEADER_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 /** Headers that carry a credential whatever else they hold. */
-const CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie'];
+const CREDENTIAL_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie']);
 /** An `env:` name that reads as a credential's (slice 3's list). */
 const CREDENTIAL_ENV_NAME = /TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
 /** The hosts a plain `http://` URL may name: this machine's own. */
-const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -128,7 +137,7 @@ function parseServer(
   }
   for (const key of Object.keys(raw)) {
     if (own(REFUSED_KEYS, key)) bad(REFUSED_KEYS[key], [key]);
-    else if (!KEYS.includes(key)) bad(`Unrecognized key in a server: \`${key}\`.`, [key]);
+    else if (!KEYS.has(key)) bad(`Unrecognized key in a server: \`${key}\`.`, [key]);
   }
   let type: 'stdio' | 'http' | undefined;
   if ('type' in raw) {
@@ -302,8 +311,7 @@ function readUrl(
     return null;
   }
   const allowed =
-    url.protocol === 'https:' ||
-    (url.protocol === 'http:' && LOOPBACK_HOSTS.includes(url.hostname));
+    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname));
   if (!allowed) {
     bad(words, ['url']);
     return null;
@@ -373,7 +381,7 @@ function secretRefsOf(value: string): string[] {
 
 function isCredentialHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return CREDENTIAL_HEADERS.includes(lower) || lower.endsWith('-api-key');
+  return CREDENTIAL_HEADERS.has(lower) || lower.endsWith('-api-key');
 }
 
 /** `sha256(stableStringify(definition))`, its first 16 hex: what the version of an entry using it holds (M9). */

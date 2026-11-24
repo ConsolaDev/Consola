@@ -36,7 +36,7 @@ export interface CallArgument {
 }
 
 /** Output types whose values cannot carry instructions: what a call may take as trusted. */
-const TRUSTED_OUTPUT_TYPES = ['enum', 'integer', 'number', 'boolean'];
+const TRUSTED_OUTPUT_TYPES = new Set(['enum', 'integer', 'number', 'boolean']);
 
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -73,7 +73,7 @@ export function callArguments(
               kind: 'output',
               step: ref.step,
               name: ref.name,
-              trusted: TRUSTED_OUTPUT_TYPES.includes(outputs[ref.name].type),
+              trusted: TRUSTED_OUTPUT_TYPES.has(outputs[ref.name].type),
             });
           else sources.push({ kind: 'artifact', step: ref.step, name: ref.name });
         }

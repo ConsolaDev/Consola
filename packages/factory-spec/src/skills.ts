@@ -36,7 +36,7 @@ export interface SkillDefinition {
 
 const NO_FRONTMATTER =
   'SKILL.md starts with its frontmatter between two `---` lines, holding `name` and `description`.';
-const SKILL_KEYS = ['name', 'description', 'license', 'compatibility', 'metadata'];
+const SKILL_KEYS = new Set(['name', 'description', 'license', 'compatibility', 'metadata']);
 const REFUSED_SKILL_KEYS: Readonly<Record<string, string>> = {
   hooks:
     "A skill's hooks run even in a read-only session: skills here are instructions and files only.",
@@ -291,7 +291,7 @@ export function parseSkill(
       for (const key of Object.keys(front)) {
         if (Object.prototype.hasOwnProperty.call(REFUSED_SKILL_KEYS, key)) {
           frontIssue(REFUSED_SKILL_KEYS[key], key, lineOf(key));
-        } else if (!SKILL_KEYS.includes(key)) {
+        } else if (!SKILL_KEYS.has(key)) {
           frontIssue(
             `Unrecognized key in a skill: \`${key}\`; skills here are instructions and files only.`,
             key,

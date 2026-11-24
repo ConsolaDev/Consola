@@ -38,7 +38,7 @@ export interface EnvironmentDefinition {
 /** The most hosts `network` and names `env` may list. */
 export const MAX_ENVIRONMENT_ENTRIES = 50;
 
-const KEYS = ['isolation', 'network', 'env', 'description'];
+const KEYS = new Set(['isolation', 'network', 'env', 'description']);
 
 /** Keys a later slice owns, refused with what each arrives with. */
 const LATER: Readonly<Record<string, string>> = {
@@ -163,7 +163,7 @@ export function parseEnvironmentFile(
 
   for (const key of Object.keys(fields)) {
     if (Object.prototype.hasOwnProperty.call(LATER, key)) issue(LATER[key], [key]);
-    else if (!KEYS.includes(key)) issue(`Unrecognized key in an environment: \`${key}\`.`, [key]);
+    else if (!KEYS.has(key)) issue(`Unrecognized key in an environment: \`${key}\`.`, [key]);
   }
 
   const { isolation } = fields;

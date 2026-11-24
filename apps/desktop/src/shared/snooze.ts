@@ -55,7 +55,7 @@ export const DEFAULT_SNOOZE_PRESETS: readonly SnoozePresetSetting[] = [
   { kind: 'at', day: 'monday', time: '09:00' },
 ];
 
-const PRESET_DAYS: readonly string[] = [
+const PRESET_DAYS: ReadonlySet<string> = new Set<string>([
   'today',
   'tomorrow',
   'monday',
@@ -65,7 +65,7 @@ const PRESET_DAYS: readonly string[] = [
   'friday',
   'saturday',
   'sunday',
-];
+]);
 
 const WEEKDAY_INDEX: Record<Weekday, number> = {
   sunday: 0,
@@ -96,7 +96,7 @@ export function isSnoozePresetSetting(value: unknown): value is SnoozePresetSett
   if (candidate.kind === 'at') {
     return (
       typeof candidate.day === 'string' &&
-      PRESET_DAYS.includes(candidate.day) &&
+      PRESET_DAYS.has(candidate.day) &&
       typeof candidate.time === 'string' &&
       TIME_PATTERN.test(candidate.time)
     );

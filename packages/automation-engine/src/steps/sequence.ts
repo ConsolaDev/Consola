@@ -220,7 +220,7 @@ function untypedItemSkip(
 }
 
 /** Work under way: a leaf's row in line or running (a loop's own `running` row is not). */
-const ACTIVE: readonly StepRunStatus[] = ['queued', 'running'];
+const ACTIVE: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>(['queued', 'running']);
 
 /**
  * The run's next move, over its entries in record order (`flatSteps`).
@@ -257,7 +257,7 @@ export function advanceSteps(input: {
   if (
     input.records.some(
       (record) =>
-        (ACTIVE.includes(record.status) && record.kind !== 'repeat') || record.status === 'waiting',
+        (ACTIVE.has(record.status) && record.kind !== 'repeat') || record.status === 'waiting',
     )
   )
     return { kind: 'wait' };
@@ -505,7 +505,7 @@ export function advanceSteps(input: {
 }
 
 /** What a run had not reached: not started, or waiting for a slot. */
-const OPEN: readonly StepRunStatus[] = ['pending', 'queued'];
+const OPEN: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>(['pending', 'queued']);
 
 /**
  * `then: stop`: the first completed step that says it, with a row after it
@@ -525,7 +525,7 @@ function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance |
     const note = `the run stopped after \`${step.id}\``;
     const later = flat
       .slice(index + 1)
-      .filter(({ step: after }) => OPEN.includes(byId.get(after.id)?.status as StepRunStatus))
+      .filter(({ step: after }) => OPEN.has(byId.get(after.id)?.status as StepRunStatus))
       .map(({ step: after }): StepUpdate => ({ id: after.id, status: 'not-run', note }));
     const loopRow = block && byId.get(block.id);
     const inRound = block !== undefined && loopRow?.status === 'running';
@@ -561,7 +561,7 @@ export function notRunAfter(
   return flat
     .slice(from + 1)
     .filter(({ step }) =>
-      OPEN.includes(records.find((record) => record.id === step.id)?.status as StepRunStatus),
+      OPEN.has(records.find((record) => record.id === step.id)?.status as StepRunStatus),
     )
     .map(({ step }) => ({ id: step.id, status: 'not-run' as const }));
 }

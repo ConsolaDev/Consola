@@ -224,10 +224,10 @@ const CHECKOUT_CHANGES_NEEDS_A_RUN_CHECKOUT =
 /** The longest path a path artifact may name. */
 export const MAX_ARTIFACT_PATH = 200;
 /** What a path artifact's path may name of the item; `cleanBranchPart` cleans each, as a branch's. */
-const PATH_PLACEHOLDERS = ['item.key', 'item.number'];
+const PATH_PLACEHOLDERS = new Set(['item.key', 'item.number']);
 const PATH_PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
 /** Folders and files a path artifact never names, at any depth, compared case aside. */
-const PATH_REFUSED_PARTS = ['.git', '.claude', '.mcp.json'];
+const PATH_REFUSED_PARTS = new Set(['.git', '.claude', '.mcp.json']);
 
 /**
  * Why `path` is not a file a path artifact may name in a run's checkout, in
@@ -239,12 +239,12 @@ const PATH_REFUSED_PARTS = ['.git', '.claude', '.mcp.json'];
 export function artifactPathProblem(path: string): string | null {
   const words = `\`${path}\` is not a path in the checkout: no leading \`/\`, no \`..\`, nothing under \`.git/\` or \`.claude/\`, not \`.mcp.json\`, at most ${MAX_ARTIFACT_PATH} characters.`;
   if (path.length > MAX_ARTIFACT_PATH || /[\\\u0000-\u001f\u007f]/.test(path)) return words;
-  if (branchPlaceholderNames(path).some((name) => !PATH_PLACEHOLDERS.includes(name))) return words;
+  if (branchPlaceholderNames(path).some((name) => !PATH_PLACEHOLDERS.has(name))) return words;
   if (/[{}]/.test(path.replace(PATH_PLACEHOLDER, 'x'))) return words;
   // An empty part is an empty path, a leading or trailing `/`, or `//`.
   for (const part of path.split('/')) {
     if (part === '' || part === '.' || part === '..') return words;
-    if (PATH_REFUSED_PARTS.includes(part.toLowerCase())) return words;
+    if (PATH_REFUSED_PARTS.has(part.toLowerCase())) return words;
   }
   return null;
 }
@@ -273,7 +273,7 @@ const STEP_SKILLS_AND_SERVERS =
   'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on this step.';
 
 /** Outputs and artifacts share a namespace; these two names are taken before either is declared. */
-const RESERVED_OUTPUT_NAMES = ['handover', 'output'];
+const RESERVED_OUTPUT_NAMES = new Set(['handover', 'output']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -415,7 +415,7 @@ function parseOutputs(raw: unknown, fail: Fail): Record<string, OutputType> | nu
   const outputs: Record<string, OutputType> = {};
   let ok = true;
   for (const name of names) {
-    if (RESERVED_OUTPUT_NAMES.includes(name)) {
+    if (RESERVED_OUTPUT_NAMES.has(name)) {
       fail(
         `\`${name}\` is reserved: a step's handover and its \`output\` are artifacts, read as \`steps.<id>.${name}\`.`,
         ['outputs', name],
@@ -531,7 +531,7 @@ function parseIdAndIf(
 }
 
 /** A gate takes these keys and no other: it asks a person and runs nothing. */
-const GATE_STEP_KEYS = ['id', 'if', 'then', 'gate'];
+const GATE_STEP_KEYS = new Set(['id', 'if', 'then', 'gate']);
 
 /**
  * One leaf step, its issues at `[index, …]`. `position` is its place in
@@ -570,8 +570,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 
   // A gate: every key it does not take is one it would run.
   if ('gate' in raw) {
-    for (const key of Object.keys(raw))
-      if (!GATE_STEP_KEYS.includes(key)) bad(gateHasNo(key), [key]);
+    for (const key of Object.keys(raw)) if (!GATE_STEP_KEYS.has(key)) bad(gateHasNo(key), [key]);
     const { id, named, condition } = parseIdAndIf(raw, position, bad);
     const body = parseGateBody(raw.gate, bad);
     const stop = 'then' in raw ? parseThen(raw.then, bad) : undefined;
@@ -890,7 +889,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 }
 
 /** A loop takes these keys; `then` and `on_failure` are refused with why, anything else by name. */
-const BLOCK_KEYS = ['id', 'if', 'repeat', 'steps', 'on_exhausted'];
+const BLOCK_KEYS = new Set(['id', 'if', 'repeat', 'steps', 'on_exhausted']);
 
 /**
  * One `repeat:` block at `index`, its place in record order `position`: its
@@ -909,7 +908,7 @@ function parseBlock(
     fail(message, [index, ...path]);
   };
   for (const key of Object.keys(raw)) {
-    if (BLOCK_KEYS.includes(key)) continue;
+    if (BLOCK_KEYS.has(key)) continue;
     if (key === 'then')
       bad('`then:` goes on a step; a loop ends by its `until` or its `on_exhausted`.', [key]);
     else if (key === 'on_failure')

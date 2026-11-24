@@ -62,14 +62,14 @@ export interface ParsedAgent {
 
 /** An agent file's `tools:`. */
 export type AgentTools = 'read-only' | 'edit' | 'write';
-const AGENT_TOOLS: readonly AgentTools[] = ['read-only', 'edit', 'write'];
+const AGENT_TOOLS: ReadonlySet<AgentTools> = new Set<AgentTools>(['read-only', 'edit', 'write']);
 
 export interface AgentDefinition extends ParsedAgent {
   /** `agentHash` of it, with the hashes of the skills it names. */
   hash: string;
 }
 
-const AGENT_KEYS = [
+const AGENT_KEYS = new Set([
   'description',
   'harness',
   'model',
@@ -78,7 +78,7 @@ const AGENT_KEYS = [
   'mcpServers',
   'skills',
   'max_turns',
-];
+]);
 const COMPILED =
   "Consola compiles an agent's permissions from `tools`, `mcpServers` and `skills`; it takes no others.";
 const REFUSED_AGENT_KEYS: Readonly<Record<string, string>> = {
@@ -252,13 +252,13 @@ export function parseAgentFile(
 
   for (const key of Object.keys(front)) {
     if (own(REFUSED_AGENT_KEYS, key)) issue(REFUSED_AGENT_KEYS[key], key, lineOf(key));
-    else if (!AGENT_KEYS.includes(key))
+    else if (!AGENT_KEYS.has(key))
       issue(`Unrecognized key in an agent file: \`${key}\`.`, key, lineOf(key));
   }
 
   let tools: AgentTools = 'read-only';
   if (has('tools')) {
-    if (AGENT_TOOLS.includes(front.tools as AgentTools)) tools = front.tools as AgentTools;
+    if (AGENT_TOOLS.has(front.tools as AgentTools)) tools = front.tools as AgentTools;
     else issue(MESSAGES.tools, 'tools', lineOf('tools'));
   }
 

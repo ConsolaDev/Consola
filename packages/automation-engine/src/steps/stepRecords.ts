@@ -349,10 +349,10 @@ export function retrySteps(
 }
 
 /** What a run had not reached when it ended: not started, or waiting for a slot. */
-const NOT_REACHED: readonly StepRunStatus[] = ['pending', 'queued'];
+const NOT_REACHED: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>(['pending', 'queued']);
 
 /** What a loop's row is while its run goes on: in a round, or at its exhaustion gate. */
-const LOOP_OPEN: readonly StepRunStatus[] = ['running', 'waiting'];
+const LOOP_OPEN: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>(['running', 'waiting']);
 
 /**
  * A run's steps as it ends: `updates` applied, then every step it had not
@@ -369,8 +369,8 @@ export function closeSteps(
 ): StepRun[] {
   const updated = updates.reduce((current, update) => withUpdate(current, update, nowIso), records);
   return updated.map((record) => {
-    if (NOT_REACHED.includes(record.status)) return { ...record, status: 'not-run' };
-    if (isLoopRow(record) && LOOP_OPEN.includes(record.status))
+    if (NOT_REACHED.has(record.status)) return { ...record, status: 'not-run' };
+    if (isLoopRow(record) && LOOP_OPEN.has(record.status))
       return {
         ...record,
         status: ending === 'failed' ? 'failed' : 'completed',

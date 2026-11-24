@@ -29,7 +29,7 @@ const DEV_DEPENDENCIES = Object.keys(packageJson.devDependencies ?? {});
  * Dependencies only the Node adapters may load, tests there included: the MCP
  * SDK speaks to processes and sockets, so the core never imports it (review M3).
  */
-const NODE_ONLY_DEPENDENCIES = ['@modelcontextprotocol/sdk'];
+const NODE_ONLY_DEPENDENCIES = new Set(['@modelcontextprotocol/sdk']);
 
 const BUILTINS = new Set(builtinModules);
 const IO_MODULES = new Set([
@@ -227,7 +227,7 @@ function boundaryProblems(file: string, specifiers: string[]): string[] {
 
     if (!allowed.includes(packageName(specifier))) {
       problems.push(`${file}: '${specifier}' is not a dependency of this package`);
-    } else if (!inNode && NODE_ONLY_DEPENDENCIES.includes(packageName(specifier))) {
+    } else if (!inNode && NODE_ONLY_DEPENDENCIES.has(packageName(specifier))) {
       problems.push(`${file}: '${specifier}' may be imported only under src/node/`);
     }
   }

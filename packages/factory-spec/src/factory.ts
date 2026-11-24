@@ -37,7 +37,7 @@ export const LATER_FOLDERS: Readonly<Record<string, string>> = {
 /** What editors and the OS leave beside a file, by suffix: a backup (`x.md~`, `x.bak`), a merge's or a patch's (`x.orig`, `x.rej`). */
 const LEFTOVER_SUFFIXES = ['~', '.bak', '.orig', '.rej'];
 /** Files an OS writes into any folder it shows (Windows's; macOS's `.DS_Store` is a dotfile). */
-const OS_FILES = ['Thumbs.db', 'desktop.ini'];
+const OS_FILES = new Set(['Thumbs.db', 'desktop.ini']);
 
 /**
  * A name a folder's reader passes over, so it is neither a file of the
@@ -48,7 +48,7 @@ const OS_FILES = ['Thumbs.db', 'desktop.ini'];
  * does. Every runner's adapter passes over the same names.
  */
 export function isIgnoredFileName(name: string): boolean {
-  if (name.startsWith('.') || OS_FILES.includes(name)) return true;
+  if (name.startsWith('.') || OS_FILES.has(name)) return true;
   if (name.length > 1 && name.startsWith('#') && name.endsWith('#')) return true;
   const lower = name.toLowerCase();
   return LEFTOVER_SUFFIXES.some((suffix) => lower.endsWith(suffix));
@@ -407,13 +407,13 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   });
 
   // Two namespaces: an agent's servers are its harness's, whatever factory.yml defines.
-  const factoryServerNames = [...Object.keys(servers), ...brokenServers];
+  const factoryServerNames = new Set([...Object.keys(servers), ...brokenServers]);
   for (const name of sortedKeys(agents)) {
     const agent = agents[name];
     // An agent that names servers always names its harness (`parseAgentFile`).
     if (agent.harness === undefined) continue;
     for (const server of agent.mcpServers) {
-      if (!factoryServerNames.includes(server.name)) continue;
+      if (!factoryServerNames.has(server.name)) continue;
       notices.push({
         message: `\`${server.name}\` is also a server in factory.yml; this agent gets \`${agent.harness}\`'s \`${server.name}\`, because agents use their harness's servers.`,
         file: `agents/${name}.md`,

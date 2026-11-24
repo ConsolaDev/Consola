@@ -139,7 +139,7 @@ const RUNNER_PROTOCOL = '@consola/runner-protocol';
 const FACTORY_SPEC = '@consola/factory-spec';
 
 /** The workspace packages any file may import, from any layer, by their entry point alone. */
-const SHARED_PACKAGES = [CLOUD_CONTRACT, RUNNER_PROTOCOL, FACTORY_SPEC];
+const SHARED_PACKAGES = new Set([CLOUD_CONTRACT, RUNNER_PROTOCOL, FACTORY_SPEC]);
 
 /**
  * What every file, tests included, may never import: another app or a workspace package but the
@@ -317,7 +317,7 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
-    if (SHARED_PACKAGES.includes(specifier)) return false;
+    if (SHARED_PACKAGES.has(specifier)) return false;
     if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
@@ -517,7 +517,7 @@ describe('the dependency rule', () => {
     // The ring refuses no package of its own and tests are exempt from the layer rules, so only
     // NEVER stands between them and a workspace package.
     for (const file of ['compose.ts', 'adapters/http/x.ts', 'domain/x.ts', 'x.test.ts']) {
-      for (const name of packages.filter((p) => !SHARED_PACKAGES.includes(p))) {
+      for (const name of packages.filter((p) => !SHARED_PACKAGES.has(p))) {
         expect(violationsOf(file, `import x from '${name}';`)).toEqual([`${file} imports ${name}`]);
       }
     }
