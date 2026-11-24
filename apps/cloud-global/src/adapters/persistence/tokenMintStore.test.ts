@@ -100,7 +100,7 @@ describe('the token mint store', () => {
   it('keeps no token: no column could hold one', async () => {
     const columns = (await db.execute(
       sql`select column_name from information_schema.columns where table_name = 'github_token_mint'`,
-    )) as { rows: { column_name: string }[] };
+    )) as { rows: Array<{ column_name: string }> };
     expect(columns.rows.map((row) => row.column_name).sort()).toEqual([
       'expires_at',
       'id',

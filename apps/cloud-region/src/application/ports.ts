@@ -263,7 +263,7 @@ export type RunStore = {
   automations(
     workspaceId: string,
     factoryIds: readonly string[],
-  ): Promise<{ factoryId: string; name: string }[]>;
+  ): Promise<Array<{ factoryId: string; name: string }>>;
   /** One run, or null when the workspace has none with that id. */
   get(workspaceId: string, runId: string): Promise<RunFound | null>;
   /** The answer given to a run's request to be approved at `version`, or null while none was. */

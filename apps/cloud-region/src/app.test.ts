@@ -576,7 +576,7 @@ describe("a workspace's rows", () => {
     notes.get('/', async (c) => {
       const result = (await db.execute(
         sql`select body from note where workspace_id = ${c.var.caller.workspaceId}`,
-      )) as unknown as { rows: { body: string }[] };
+      )) as unknown as { rows: Array<{ body: string }> };
       return c.json(result.rows.map((row) => row.body));
     });
     app.route('/api/notes', notes);
@@ -1319,7 +1319,7 @@ describe('factories', () => {
     expect(answer.status).toBe(400);
     const { error, issues } = answer.body as {
       error: string;
-      issues: { file?: string; line?: number; message: string }[];
+      issues: Array<{ file?: string; line?: number; message: string }>;
     };
     expect(error).toBe('invalid_files');
     expect(issues).toContainEqual(
@@ -2163,10 +2163,14 @@ async function recordRuns(...runs: RunWrite[]) {
 }
 
 type RunListBody = {
-  runs: { id: string; phase: string; children: unknown; title: string }[];
+  runs: Array<{ id: string; phase: string; children: unknown; title: string }>;
   nextCursor: string | null;
   counts: Record<string, number>;
-  facets: { factories: { id: string }[]; teams: { id: string }[]; automations: unknown[] };
+  facets: {
+    factories: Array<{ id: string }>;
+    teams: Array<{ id: string }>;
+    automations: unknown[];
+  };
 };
 
 async function runsSeenBy(who: Partial<CellTokenGrant>, search = '') {

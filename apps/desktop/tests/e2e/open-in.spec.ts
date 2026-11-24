@@ -313,7 +313,7 @@ test.describe('open in', () => {
     await app.close();
     const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
-      workspaces: { name: string; sessions: Record<string, unknown>[] }[];
+      workspaces: Array<{ name: string; sessions: Array<Record<string, unknown>> }>;
     };
     const workspace = saved.workspaces.find((candidate) => candidate.name === 'Sprocket')!;
     const sibling = workspace.sessions.find((session) => session.name === 'Review notes')!;

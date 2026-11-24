@@ -35,6 +35,7 @@ export default defineConfig({
     // `typeof import('x')` types vitest's mocked originals and lets
     // shared/types.ts name an API without importing its module.
     'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+    'typescript/array-type': ['error', { default: 'array-simple' }],
   },
   overrides: [
     {
@@ -80,7 +81,6 @@ export default defineConfig({
         'react/refs': 'off', // 80
         'react/rules-of-hooks': 'off', // 3
         'react/set-state-in-effect': 'off', // 42
-        'typescript/array-type': 'off', // 3537
         'typescript/await-thenable': 'off', // 4
         'typescript/no-duplicate-type-constituents': 'off', // 1
         'typescript/no-explicit-any': 'warn', // 12

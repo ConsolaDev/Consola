@@ -83,7 +83,7 @@ async function typeAddress(page: Page, text: string): Promise<void> {
 }
 
 /** Main's tab list for the session, as the host window receives it. */
-async function tabsOf(page: Page, sessionId: string): Promise<{ id: string; url: string }[]> {
+async function tabsOf(page: Page, sessionId: string): Promise<Array<{ id: string; url: string }>> {
   const snapshot = await page.evaluate((id) => window.browserAPI.get(id), sessionId);
   return snapshot.tabs.map(({ id, url }) => ({ id, url }));
 }

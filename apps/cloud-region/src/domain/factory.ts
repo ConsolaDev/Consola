@@ -179,8 +179,8 @@ const SKILL_FILE = /^skills\/([^/]+)\/(.+)$/;
  */
 function folderOf(files: readonly FactoryFile[]): FactoryFiles {
   let factoryYml: string | null = null;
-  const automations: [string, string][] = [];
-  const agents: [string, string][] = [];
+  const automations: Array<[string, string]> = [];
+  const agents: Array<[string, string]> = [];
   const skills = new Map<string, SkillFileEntry[]>();
   const laterFolders = new Set<string>();
   const stray: string[] = [];

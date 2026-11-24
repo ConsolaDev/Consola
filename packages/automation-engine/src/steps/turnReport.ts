@@ -104,7 +104,7 @@ export function reportedFailure(
 export function reminderCap(missing: {
   outputs: string[];
   artifacts: string[];
-  files?: ReadonlyArray<unknown>;
+  files?: readonly unknown[];
 }): number {
   return (
     1 +

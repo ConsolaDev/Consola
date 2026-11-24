@@ -46,7 +46,7 @@ export function skillsLine(skills: readonly string[]): string | null {
 export const ITEM_TEXT_LINE = 'This agent reads text other people wrote, with these tools at hand.';
 
 /** `claude.ai Coralogix · grafana (query_logs)`: the step detail's servers; null for none. */
-export function serversFact(servers: ReadonlyArray<Server>): string | null {
+export function serversFact(servers: readonly Server[]): string | null {
   if (servers.length === 0) return null;
   return servers
     .map((server) =>
@@ -62,7 +62,7 @@ export function skillsFact(skills: readonly string[]): string | null {
 
 /** The node's third line (review S3): its servers, then `skills: …`, joined by ` · `; null for neither. */
 export function nodeGrantsLine(step: {
-  servers?: ReadonlyArray<Server>;
+  servers?: readonly Server[];
   skills?: readonly string[];
 }): string | null {
   const parts = [serversFact(step.servers ?? [])];

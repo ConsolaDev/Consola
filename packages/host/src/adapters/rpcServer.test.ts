@@ -295,7 +295,7 @@ const recordingTracer = () => {
 };
 
 /** The spans' names, attributes and events, as one text to search. */
-function describeSpans(spans: ReadonlyArray<Tracer.NativeSpan>): string {
+function describeSpans(spans: readonly Tracer.NativeSpan[]): string {
   return JSON.stringify(
     spans.map((span) => ({
       name: span.name,

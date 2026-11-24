@@ -46,8 +46,8 @@ function step(entry: Extract<ConversationEntry, { kind: 'step' }>): string {
  */
 function blocks(
   entries: ConversationEntry[],
-): { block: string; kind: ConversationEntry['kind'] }[] {
-  const out: { block: string; kind: ConversationEntry['kind'] }[] = [];
+): Array<{ block: string; kind: ConversationEntry['kind'] }> {
+  const out: Array<{ block: string; kind: ConversationEntry['kind'] }> = [];
   for (const entry of entries) {
     const last = out[out.length - 1];
     if (entry.kind === 'step' && last?.kind === 'step') last.block += `\n${step(entry)}`;

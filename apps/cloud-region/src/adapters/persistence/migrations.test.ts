@@ -12,7 +12,7 @@ import { teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url));
 
-type Journal = { entries: { tag: string }[] };
+type Journal = { entries: Array<{ tag: string }> };
 
 /** A migrations folder holding only the migrations up to and including `lastTag`. */
 function migrationsUpTo(lastTag: string): string {
@@ -30,7 +30,7 @@ function migrationsUpTo(lastTag: string): string {
   return folder;
 }
 
-const cleanups: (() => void | Promise<void>)[] = [];
+const cleanups: Array<() => void | Promise<void>> = [];
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();

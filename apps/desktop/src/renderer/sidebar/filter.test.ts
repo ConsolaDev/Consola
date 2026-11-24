@@ -6,7 +6,7 @@ import { RUN_FACET_DOMAIN } from './entry';
 import type { Entry } from './entry';
 import { entry, ids, keyOf } from './entryFixtures';
 
-const keys = (list: { key: string }[]) => list.map((e) => e.key.replace('session:', ''));
+const keys = (list: Array<{ key: string }>) => list.map((e) => e.key.replace('session:', ''));
 
 describe('applyFilter', () => {
   const entries = [
@@ -139,7 +139,7 @@ describe('applyFilter', () => {
 
   describe('against bucketing', () => {
     const bucketsOf = (
-      list: ReturnType<typeof entry>[],
+      list: Array<ReturnType<typeof entry>>,
       selection: Parameters<typeof applyFilter>[1],
     ) => {
       const result = applyFilter(list, selection);

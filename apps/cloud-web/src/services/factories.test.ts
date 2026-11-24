@@ -223,7 +223,7 @@ describe('loadFactory', () => {
   });
 
   it("answers in the page's terms for each refusal", async () => {
-    const cases: [Answer, unknown][] = [
+    const cases: Array<[Answer, unknown]> = [
       [{ status: 404, body: { error: 'factory_not_found' } }, { kind: 'not-found' }],
       [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'pending' }],
       [{ status: 503, body: { error: 'token_check_unavailable' } }, { kind: 'unavailable' }],
@@ -290,7 +290,7 @@ describe('changing factories', () => {
     expect(new URL(toCell()[0]?.url ?? '').pathname).toBe('/cell/eu/api/factories/a%2Fb');
   });
 
-  const REFUSALS: [Answer, unknown][] = [
+  const REFUSALS: Array<[Answer, unknown]> = [
     [
       { status: 400, body: { error: 'invalid_factory', problems: ['name_too_long', 'what'] } },
       { kind: 'invalid', problems: ['name_too_long'] },

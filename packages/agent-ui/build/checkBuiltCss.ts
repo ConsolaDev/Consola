@@ -185,14 +185,14 @@ const isScoped = (selector: string): boolean => {
 
 export interface BuiltCssReport {
   /** What is wrong; empty when the stylesheet passes. */
-  readonly problems: ReadonlyArray<string>;
+  readonly problems: readonly string[];
   /** What the stylesheet declares for the whole page (AGENTS.md lists these kinds). */
   readonly pageGlobal: {
-    readonly keyframes: ReadonlyArray<string>;
-    readonly properties: ReadonlyArray<string>;
-    readonly fontFamilies: ReadonlyArray<string>;
+    readonly keyframes: readonly string[];
+    readonly properties: readonly string[];
+    readonly fontFamilies: readonly string[];
     /** The layer names a page shares the cascade with: the chat's own, its sublayers inside it. */
-    readonly layers: ReadonlyArray<string>;
+    readonly layers: readonly string[];
   };
 }
 
@@ -325,7 +325,7 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
     });
   });
 
-  const rollsBack = (rules: ReadonlyArray<Rule> | undefined, prop: string) =>
+  const rollsBack = (rules: readonly Rule[] | undefined, prop: string) =>
     (rules ?? []).some((rule) => rule.some((node) => node.type === 'decl' && node.prop === prop));
   /** What is missing from the guard or the floor, which roll back from `prefix` with `value`. */
   const incomplete = (rules: Map<string, Rule[]>, prefix: string, value: string, what: string) => {

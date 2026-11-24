@@ -25,7 +25,7 @@ export function repairLayout(raw: unknown, knownKinds: readonly string[]): SideP
   // Kinds are deduplicated before empty groups go, and empty groups go before
   // the cap, so a group emptied by the repair does not cost a later one its place.
   const opened = new Set<string>();
-  const kept: { stored: Stored; tabs: TabId[] }[] = [];
+  const kept: Array<{ stored: Stored; tabs: TabId[] }> = [];
   for (const stored of storedGroups(raw.root)) {
     const tabs = keptTabs(stored.tabs, known, opened);
     if (tabs.length > 0) kept.push({ stored, tabs });

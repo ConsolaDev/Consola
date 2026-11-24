@@ -34,7 +34,7 @@ export const WORKSPACE_SYMBOLS = [
   ['leaf', 'Leaf'],
   ['sun', 'Sun'],
   ['moon', 'Moon'],
-] as const satisfies readonly (readonly [WorkspaceIcon, string])[];
+] as const satisfies ReadonlyArray<readonly [WorkspaceIcon, string]>;
 
 export const WORKSPACE_EMOJIS = [
   ['emoji-rocket', 'Rocket', '🚀'],
@@ -69,7 +69,7 @@ export const WORKSPACE_EMOJIS = [
   ['emoji-dog', 'Dog', '🐶'],
   ['emoji-fox', 'Fox', '🦊'],
   ['emoji-unicorn', 'Unicorn', '🦄'],
-] as const satisfies readonly (readonly [WorkspaceIcon, string, string])[];
+] as const satisfies ReadonlyArray<readonly [WorkspaceIcon, string, string]>;
 
 export type WorkspaceSymbol = (typeof WORKSPACE_SYMBOLS)[number][0];
 

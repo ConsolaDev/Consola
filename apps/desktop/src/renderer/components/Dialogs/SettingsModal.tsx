@@ -96,7 +96,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   danger: { label: 'Danger zone', icon: Trash2, danger: true },
 };
 
-const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+const themeOptions: Array<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
   { value: 'system', label: 'System', icon: Monitor },

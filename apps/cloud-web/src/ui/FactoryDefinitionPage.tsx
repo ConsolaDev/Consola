@@ -126,7 +126,7 @@ function FileGroup({
   onChoose,
 }: {
   folder: string | null;
-  files: { path: string; name: string }[];
+  files: Array<{ path: string; name: string }>;
   chosen: string | null;
   onChoose: (path: string) => void;
 }) {

@@ -114,7 +114,7 @@ export function createTeamStore(db: Database): TeamStore {
       // The first team is never deleted, whoever asks: the condition holds that, not a read
       // before the write that another request could slip between. A team that owns a factory
       // stays too, which the factory's foreign key holds.
-      let deleted: { id: string }[];
+      let deleted: Array<{ id: string }>;
       try {
         deleted = await db
           .delete(teams)

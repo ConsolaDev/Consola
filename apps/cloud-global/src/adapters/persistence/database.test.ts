@@ -11,7 +11,7 @@ import { schema } from './schema.js';
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url));
 
-type Journal = { entries: { idx: number; tag: string }[] };
+type Journal = { entries: Array<{ idx: number; tag: string }> };
 
 /** Applies the migrations up to and including `lastTag`, as a database made back then had. */
 async function migrateUpTo(db: Database, lastTag: string): Promise<void> {
@@ -37,7 +37,7 @@ async function migrateUpTo(db: Database, lastTag: string): Promise<void> {
 async function tableNames(db: ReturnType<typeof openDatabase>['db']): Promise<string[]> {
   const result = (await db.execute(
     sql`select table_name from information_schema.tables where table_schema = 'public'`,
-  )) as { rows: { table_name: string }[] };
+  )) as { rows: Array<{ table_name: string }> };
   return result.rows.map((row) => String(row.table_name));
 }
 

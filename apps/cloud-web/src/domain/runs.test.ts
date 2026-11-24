@@ -81,7 +81,7 @@ describe('isLive', () => {
 
 describe('stepHasEnded', () => {
   it('reads the status as the cell counts progress, not the finish time', () => {
-    const statuses: Schemas['StepStatus'][] = [
+    const statuses: Array<Schemas['StepStatus']> = [
       'pending',
       'queued',
       'running',

@@ -28,7 +28,7 @@ let held: Set<string>;
 let shown: Set<string>;
 let changed: number;
 /** Windows that have said what they are showing; the sweeper waits for the first. */
-let reporters: (() => void)[];
+let reporters: Array<() => void>;
 const reportFromAWindow = () => {
   for (const listener of [...reporters]) listener();
 };
@@ -44,7 +44,7 @@ const old = (id: string, extra = {}) =>
     ...extra,
   });
 
-function settler(sessions: ReturnType<typeof old>[], extra: Partial<AutoSettlerDeps> = {}) {
+function settler(sessions: Array<ReturnType<typeof old>>, extra: Partial<AutoSettlerDeps> = {}) {
   const workspace = makeWorkspace({ id: 'w1', sessions });
   return new AutoSettler({
     getWorkspaces: () => [workspace],
@@ -173,7 +173,7 @@ describe('AutoSettler eligibility', () => {
 
   it('says it swept after every sweep, moved or not, once the settle is written', () => {
     attention.set('a', 'ready');
-    const settledWhenTold: (number | undefined)[] = [];
+    const settledWhenTold: Array<number | undefined> = [];
     const sweeper = settler([old('a')], {
       swept: () => settledWhenTold.push(ledger.get('a')?.settledAt),
     });

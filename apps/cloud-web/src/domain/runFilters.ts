@@ -195,10 +195,10 @@ export function automationsOffered(
  * The factories the picker offers, under the team that owns each, the teams by name; a factory
  * whose team the person does not see sits in a group of its own (`team: null`) at the end.
  */
-export function factoriesByTeam(facets: RunFacets): {
+export function factoriesByTeam(facets: RunFacets): Array<{
   team: { id: string; name: string } | null;
   factories: RunFacets['factories'];
-}[] {
+}> {
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
   const teams = [...facets.teams].sort(byName);
   const groups = teams

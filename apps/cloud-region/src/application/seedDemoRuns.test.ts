@@ -55,7 +55,7 @@ const MEMBERS = [
 
 /** Acme with four members in General, and a Platform team only Fay is in. */
 async function acme() {
-  const changes: Parameters<WorkspaceCopies['applyAfter']>[0]['change'][] = [
+  const changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']> = [
     { kind: 'open-workspace' },
     ...MEMBERS.map(([personId, role]) => ({ kind: 'put-member' as const, personId, role })),
   ];

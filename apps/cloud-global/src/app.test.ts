@@ -904,10 +904,10 @@ describe('GitHub as a connection', () => {
   let withGitHub: CloudConfig;
 
   /** Who GitHub says can reach which installations, by the code their redirect carries. */
-  let reachable: Record<string, { id: number; login: string; type: string }[]>;
+  let reachable: Record<string, Array<{ id: number; login: string; type: string }>>;
   /** The codes of people who are only members of the organisations they reach; others own them. */
   let membersOnly: Set<string>;
-  let seen: { method: string; url: string; body: string }[];
+  let seen: Array<{ method: string; url: string; body: string }>;
 
   beforeAll(async () => {
     keyFolder = await mkdtemp(join(tmpdir(), 'consola-github-app-'));
@@ -1462,7 +1462,7 @@ describe('GitHub tokens for a cell', () => {
   });
 
   /** What each installation covers on GitHub: Acme's 41, Bolt's 42 and Sprocket's 52. */
-  const COVERED: Record<number, { id: number; full_name: string }[]> = {
+  const COVERED: Record<number, Array<{ id: number; full_name: string }>> = {
     41: [
       { id: 410, full_name: 'acme/catalog-portal' },
       { id: 411, full_name: 'acme/api' },

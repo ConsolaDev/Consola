@@ -47,7 +47,7 @@ const REPLAY_FIXTURE = ['simple', 'full-access'];
  * its temporary files are, and nothing else. The runner's process holds its secret and every key;
  * a sandbox gets only what the runner gives it (`sandboxEnvFor`), over these.
  */
-export const MACHINE_VARIABLES: ReadonlyArray<string> = [
+export const MACHINE_VARIABLES: readonly string[] = [
   'PATH',
   'HOME',
   'USERPROFILE',

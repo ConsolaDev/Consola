@@ -168,7 +168,7 @@ const FOLDER_ORDER = ['automations', 'agents', 'skills'];
 /** A factory's files under one folder (null for the folder's own top), each named inside it. */
 export type FileGroup = {
   folder: string | null;
-  files: { path: string; name: string }[];
+  files: Array<{ path: string; name: string }>;
 };
 
 /**
@@ -176,8 +176,8 @@ export type FileGroup = {
  * first, then `automations/`, `agents/` and `skills/`, then any other folder by name. Each file
  * is named by its path inside its folder (`release/SKILL.md` under `skills`), and listed by it.
  */
-export function fileGroups(files: readonly { path: string }[]): FileGroup[] {
-  const byFolder = new Map<string | null, { path: string; name: string }[]>();
+export function fileGroups(files: ReadonlyArray<{ path: string }>): FileGroup[] {
+  const byFolder = new Map<string | null, Array<{ path: string; name: string }>>();
   for (const { path } of files) {
     const slash = path.indexOf('/');
     const folder = slash > 0 ? path.slice(0, slash) : null;

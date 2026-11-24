@@ -33,7 +33,7 @@ const driver = () => getDriver('antigravity' as HarnessDriverId);
 const config = () => ({ binaryPath, configDir, extraArgs: [] as string[] });
 const launch = (resume = false) => ({ sessionId, resume, cwd: configDir });
 
-function writeTranscript(conversationId: string, lines: Record<string, unknown>[]): void {
+function writeTranscript(conversationId: string, lines: Array<Record<string, unknown>>): void {
   const dir = path.join(configDir, 'brain', conversationId, '.system_generated', 'logs');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(

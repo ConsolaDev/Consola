@@ -100,7 +100,7 @@ function world(specs: Spec[]) {
   return { ledger, workspace, treeOnShelf, rowOnShelf, throughTheFold, atTheTop, offerFor };
 }
 
-const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }[] = [
+const SCENARIOS: Array<{ name: string; specs: Spec[]; target: string; lands: boolean }> = [
   { name: 'an idle root', specs: [{ id: 'a', terminal: 'ready' }], target: 'a', lands: true },
   {
     name: 'a finished root the person has not opened (done)',

@@ -54,7 +54,7 @@ const signer: GitHubEventSigner = {
 
 /** Cells in each region named, each answering `answer`, keeping what they were passed. */
 function cells(answer: CellEventAnswer = { kind: 'recorded' }, regions: Region[] = ['eu', 'us']) {
-  const passed: { region: Region; event: GitHubEventMessage }[] = [];
+  const passed: Array<{ region: Region; event: GitHubEventMessage }> = [];
   const events: CellEvents = {
     reaches: (region) => regions.includes(region),
     pass: async (region, signed) => {

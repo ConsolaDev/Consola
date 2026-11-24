@@ -221,7 +221,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
     // A default pointing at a deleted action would dangle; clear it in the
     // same write so main never sees the inconsistent pair.
     const nextDefaults: SectionDefaults = {};
-    for (const [section, actionId] of Object.entries(defaults) as [InboxSection, string][]) {
+    for (const [section, actionId] of Object.entries(defaults) as Array<[InboxSection, string]>) {
       if (actionId !== id) nextDefaults[section] = actionId;
     }
     const ok = await commit(

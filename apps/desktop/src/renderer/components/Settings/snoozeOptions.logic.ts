@@ -124,7 +124,7 @@ export function nextCandidate(presets: readonly SnoozePresetSetting[]): SnoozePr
 }
 
 /** The days an `at` choice can name, in the order a person reads a week. */
-export const PRESET_DAYS: { value: SnoozePresetDay; label: string }[] = [
+export const PRESET_DAYS: Array<{ value: SnoozePresetDay; label: string }> = [
   { value: 'today', label: 'Today' },
   { value: 'tomorrow', label: 'Tomorrow' },
   { value: 'monday', label: 'Monday' },

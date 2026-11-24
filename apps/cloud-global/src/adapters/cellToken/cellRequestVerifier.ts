@@ -18,7 +18,7 @@ export async function createCellRequestVerifier(
   keys: Partial<Record<Region, Ed25519PublicJwk>>,
 ): Promise<CellRequestVerifier> {
   const byKid = new Map<string, { region: Region; key: KeyObject }>();
-  for (const [region, jwk] of Object.entries(keys) as [Region, Ed25519PublicJwk][]) {
+  for (const [region, jwk] of Object.entries(keys) as Array<[Region, Ed25519PublicJwk]>) {
     const { kty, crv, x } = jwk;
     const kid = await calculateJwkThumbprint({ kty, crv, x });
     byKid.set(kid, { region, key: createPublicKey({ key: { kty, crv, x }, format: 'jwk' }) });

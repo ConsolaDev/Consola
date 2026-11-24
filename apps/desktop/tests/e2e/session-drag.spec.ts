@@ -34,7 +34,7 @@ import { SESSION_DRAG_TYPE } from '../../src/renderer/components/Sidebar/session
 async function dropEffectWrites(
   page: Page,
   selector: string,
-  entries: [string, string][],
+  entries: Array<[string, string]>,
 ): Promise<string[]> {
   return page.evaluate(
     ([target, types]) => {
@@ -45,7 +45,7 @@ async function dropEffectWrites(
       const from = row.firstElementChild ?? row;
 
       const transfer = new DataTransfer();
-      for (const [type, value] of types as [string, string][]) {
+      for (const [type, value] of types as Array<[string, string]>) {
         transfer.setData(type, value);
       }
       transfer.effectAllowed = 'move';

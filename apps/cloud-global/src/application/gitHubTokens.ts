@@ -13,7 +13,7 @@ export type TokenRequestOutcome =
       kind: 'minted';
       token: string;
       expiresAt: number;
-      repositories: { id: number; fullName: string }[];
+      repositories: Array<{ id: number; fullName: string }>;
       permissions: GrantedPermissions;
     }
   /** No cell's key checks the request. */

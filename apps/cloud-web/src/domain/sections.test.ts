@@ -35,7 +35,7 @@ describe('sectionIdOfHash', () => {
 });
 
 describe('chooseSection', () => {
-  const sections: readonly [{ id: string }, ...{ id: string }[]] = [
+  const sections: readonly [{ id: string }, ...Array<{ id: string }>] = [
     { id: 'overview' },
     { id: 'teams' },
   ];

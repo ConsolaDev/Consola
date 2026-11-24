@@ -32,7 +32,7 @@ function writeFixture(settings: FixtureSettings): void {
 }
 
 /** Every title call the fixture answered, oldest first. */
-function readTitleCalls(): { argv: string[]; stdin: string; cwd: string }[] {
+function readTitleCalls(): Array<{ argv: string[]; stdin: string; cwd: string }> {
   const file = path.join(claudeProfile, 'title-calls.jsonl');
   if (!fs.existsSync(file)) return [];
   return fs

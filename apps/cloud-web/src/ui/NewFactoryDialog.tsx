@@ -100,7 +100,7 @@ export function NewFactoryDialog({
 
   // A team the cell no longer lists for the person (the list was read again) is none chosen.
   const teamId = teams.some((team) => team.id === draft.teamId) ? draft.teamId : null;
-  const described = (...ids: (string | false)[]) => ids.filter(Boolean).join(' ') || undefined;
+  const described = (...ids: Array<string | false>) => ids.filter(Boolean).join(' ') || undefined;
 
   return (
     <dialog

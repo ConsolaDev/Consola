@@ -119,7 +119,7 @@ export function StepTrace({
     else showStep(selected);
   }, []);
 
-  const tabs: { view: TraceView; label: string; icon: ReactNode }[] = [
+  const tabs: Array<{ view: TraceView; label: string; icon: ReactNode }> = [
     { view: 'steps', label: 'Steps', icon: <ListTree size={13} aria-hidden="true" /> },
     { view: 'file', label: 'File', icon: <FileCode size={13} aria-hidden="true" /> },
   ];

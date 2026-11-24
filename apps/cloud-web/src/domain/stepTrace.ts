@@ -235,7 +235,7 @@ export function skippedCondition(reason: string | null): string | null {
 /** Why a step the run never reached did not run, from how the run ended. */
 export function notRunReason(
   status: RunStatus,
-  steps: readonly Pick<StepSummary, 'id' | 'status'>[],
+  steps: ReadonlyArray<Pick<StepSummary, 'id' | 'status'>>,
 ): string {
   if (status === 'rejected') return 'The run was turned down before it started.';
   const failed = steps.find((candidate) => candidate.status === 'failed');
@@ -279,7 +279,11 @@ export function lastLine(text: string, max = 160): string | null {
  */
 export function stepSummary(
   step: StepSummary,
-  run: { status: RunStatus; phase: Phase; steps: readonly Pick<StepSummary, 'id' | 'status'>[] },
+  run: {
+    status: RunStatus;
+    phase: Phase;
+    steps: ReadonlyArray<Pick<StepSummary, 'id' | 'status'>>;
+  },
 ): string | null {
   const tone = stepTone(step.status, runIsOver(run.phase));
   switch (tone) {
@@ -367,7 +371,7 @@ export function failureIsExit(error: string | null): boolean {
 
 /** How the run's steps went, counted for the trace's heading: `6 steps · 5 completed · 1 skipped`. */
 export function stepCounts(
-  steps: readonly Pick<StepSummary, 'status'>[],
+  steps: ReadonlyArray<Pick<StepSummary, 'status'>>,
   runOver: boolean,
 ): string {
   const counts = new Map<StepTone, number>();
@@ -375,7 +379,7 @@ export function stepCounts(
     const tone = stepTone(step.status, runOver);
     counts.set(tone, (counts.get(tone) ?? 0) + 1);
   }
-  const words: [StepTone, string][] = [
+  const words: Array<[StepTone, string]> = [
     ['passed', 'completed'],
     ['failed', 'failed'],
     ['running', 'running'],

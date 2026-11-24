@@ -83,7 +83,9 @@ export function pollIntervalMs(status: CloudSessionStatus): number | null {
 export const LIST_POLL_QUIET_MS = 30_000;
 
 /** How long the list waits before reading again: as often as its liveliest session asks. */
-export function listPollIntervalMs(sessions: readonly { status: CloudSessionStatus }[]): number {
+export function listPollIntervalMs(
+  sessions: ReadonlyArray<{ status: CloudSessionStatus }>,
+): number {
   const delays = sessions
     .map((session) => pollIntervalMs(session.status))
     .filter((delay) => delay !== null);

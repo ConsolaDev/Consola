@@ -285,7 +285,7 @@ export function FilterBar({
                 {needle && !shown.length && (
                   <p className="sidebar-scope-menu-empty">No scope matches “{query.trim()}”.</p>
                 )}
-                {(Object.keys(FACET_TITLES) as (keyof typeof FACET_TITLES)[]).map(
+                {(Object.keys(FACET_TITLES) as Array<keyof typeof FACET_TITLES>).map(
                   (key) =>
                     facets[key].length > 0 && (
                       <div key={key}>

@@ -20,7 +20,7 @@ export type MarkTone = 'agent' | 'alert';
  * A shortcut or a tab holds one kind, so at most one; the side panel toggle
  * can carry both.
  */
-export function markDots(marks: readonly { tone: MarkTone }[]): {
+export function markDots(marks: ReadonlyArray<{ tone: MarkTone }>): {
   'data-agent-dot'?: true;
   'data-alert-dot'?: true;
 } {

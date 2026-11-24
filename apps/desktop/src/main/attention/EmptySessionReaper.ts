@@ -21,7 +21,7 @@ export interface EmptySessionReaperDeps {
    * The session's browser tabs, as main holds them. Null when they cannot be
    * read, which keeps the session.
    */
-  browserTabs(session: Session): readonly { url: string }[] | null;
+  browserTabs(session: Session): ReadonlyArray<{ url: string }> | null;
 }
 
 /**
@@ -48,7 +48,7 @@ export function mayBeEmpty(session: Session): boolean {
  * holds nothing to come back to. Tabs that cannot be read (null) count as
  * used, so nothing is thrown away unseen.
  */
-export function browsedIn(tabs: readonly { url: string }[] | null): boolean {
+export function browsedIn(tabs: ReadonlyArray<{ url: string }> | null): boolean {
   return tabs === null || tabs.some((tab) => !isBlankPageUrl(tab.url));
 }
 

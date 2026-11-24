@@ -81,9 +81,9 @@ export type RunsQuery = {
 
 /** What the filters offer: what the caller sees, whatever the query's filters. */
 export type RunFacets = {
-  factories: { id: string; name: string; teamId: string; latestVersion: number }[];
-  teams: { id: string; name: string }[];
-  automations: { factoryId: string; name: string }[];
+  factories: Array<{ id: string; name: string; teamId: string; latestVersion: number }>;
+  teams: Array<{ id: string; name: string }>;
+  automations: Array<{ factoryId: string; name: string }>;
 };
 
 export type RunsListing =

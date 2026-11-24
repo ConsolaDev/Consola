@@ -13,7 +13,7 @@ let close: () => Promise<void>;
 let teams: TeamStore;
 
 /** Opens `workspaceId` in the copy, with `members`, the way the outbox does. */
-async function workspace(workspaceId: string, members: [string, WorkspaceRole][] = []) {
+async function workspace(workspaceId: string, members: Array<[string, WorkspaceRole]> = []) {
   const copies = createWorkspaceCopies(db);
   await copies.applyAfter({
     workspaceId,

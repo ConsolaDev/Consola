@@ -74,7 +74,7 @@ type Exited = { readonly code: number | null; readonly signal: NodeJS.Signals | 
 
 /** A bundle a test started: its stdout lines as they arrive, its stderr, and how it ended. */
 type Started = {
-  readonly printed: ReadonlyArray<string>;
+  readonly printed: readonly string[];
   readonly next: () => Promise<string>;
   readonly stderr: () => string;
   readonly exited: Promise<Exited>;
@@ -92,7 +92,7 @@ const sandboxedEnv = (): NodeJS.ProcessEnv => {
 };
 
 /** Starts `node <script> <args>` with the test machine's environment. */
-const startNode = (script: string, args: ReadonlyArray<string>): Started => {
+const startNode = (script: string, args: readonly string[]): Started => {
   // The machine's PATH holds only fake CLIs and /usr/bin:/bin, so node is named by its path.
   const child = spawn(process.execPath, [script, ...args], {
     env: sandboxedEnv(),
@@ -145,7 +145,7 @@ const startNode = (script: string, args: ReadonlyArray<string>): Started => {
 };
 
 /** Every line is one JSON object the runner reads as a `HostLine`. */
-const expectOnlyHostLines = (printed: ReadonlyArray<string>) => {
+const expectOnlyHostLines = (printed: readonly string[]) => {
   for (const each of printed) {
     const line = readHostLine(JSON.parse(each));
     expect(line, each).not.toBeNull();
@@ -582,7 +582,7 @@ describe('consola-session-start', () => {
     return found.stdout.trim();
   };
 
-  const writeScript = (dir: string, name: string, lines: ReadonlyArray<string>) => {
+  const writeScript = (dir: string, name: string, lines: readonly string[]) => {
     const file = join(dir, name);
     writeFileSync(file, ['#!/bin/sh', ...lines, ''].join('\n'));
     chmodSync(file, 0o755);

@@ -90,7 +90,7 @@ export const subscribeHostShell = (
   runtime: ThreadHandle,
   input: OrchestrationV2SubscribeShellInput,
 ): Stream.Stream<OrchestrationV2ShellStreamItem, OrchestrationV2GetShellSnapshotError> => {
-  const threadItems = (events: ReadonlyArray<ShellApplicationEvent>) =>
+  const threadItems = (events: readonly ShellApplicationEvent[]) =>
     Effect.forEach(coalesceShellApplicationEvents(events), (stored) =>
       'aggregateKind' in stored
         ? Effect.succeed([])

@@ -296,7 +296,7 @@ export const hostEnvironment = (
  * t3's `withoutWorkspaceSnapshots` (`ws.ts:484-502`), less its on-demand machine-catalog branches:
  * for a client that fetches each folder's snapshot itself.
  */
-const withoutWorkspaceSnapshots = (providers: ReadonlyArray<ServerProvider>): ServerProvider[] =>
+const withoutWorkspaceSnapshots = (providers: readonly ServerProvider[]): ServerProvider[] =>
   providers.map(({ workspaceSnapshots: _workspaceSnapshots, ...provider }) => provider);
 
 /**
@@ -304,7 +304,7 @@ const withoutWorkspaceSnapshots = (providers: ReadonlyArray<ServerProvider>): Se
  * the list this client last received.
  */
 export const withProviderStatusDeltas =
-  (sent: ReadonlyArray<ServerProvider>) =>
+  (sent: readonly ServerProvider[]) =>
   <E, R>(updates: Stream.Stream<ServerConfigStreamEvent, E, R>) =>
     updates.pipe(
       Stream.mapAccum(
@@ -312,7 +312,7 @@ export const withProviderStatusDeltas =
         (
           previous,
           event,
-        ): readonly [ReadonlyArray<ServerProvider>, ReadonlyArray<ServerConfigStreamEvent>] => {
+        ): readonly [readonly ServerProvider[], readonly ServerConfigStreamEvent[]] => {
           if (event.type === 'snapshot') return [event.config.providers, [event]];
           if (event.type !== 'providerStatuses') return [previous, [event]];
           const { providers } = event.payload;

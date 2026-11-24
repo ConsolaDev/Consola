@@ -56,7 +56,7 @@ interface Expected {
 }
 
 type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
-type JsonPath = (string | number)[];
+type JsonPath = Array<string | number>;
 
 function read(driverId: string, file: string): string {
   return fs.readFileSync(path.join(FIXTURES, driverId, file), 'utf8');
@@ -68,7 +68,7 @@ function readJson<T = Json>(driverId: string, file: string): T {
 
 /** Every path in `value`, parents before children. */
 function pathsIn(value: Json, prefix: JsonPath = []): JsonPath[] {
-  const children: [string | number, Json][] = Array.isArray(value)
+  const children: Array<[string | number, Json]> = Array.isArray(value)
     ? value.map((child, index) => [index, child])
     : value !== null && typeof value === 'object'
       ? Object.entries(value)

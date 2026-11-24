@@ -128,7 +128,7 @@ export type StepRecord = {
   /** The latest execution's validated outputs. */
   readonly outputs: Record<string, OutputValue> | null;
   /** The documents it wrote, by name, and their size. */
-  readonly artifacts: { readonly name: string; readonly bytes: number }[];
+  readonly artifacts: Array<{ readonly name: string; readonly bytes: number }>;
   /** An agent step's turns over its latest attempt: how many, its cap, the tools refused. */
   readonly turn: {
     readonly turns: number | null;
@@ -200,10 +200,10 @@ export type StepDefinition = {
   readonly agent: string | null;
   /** The command, as written. */
   readonly run: string | null;
-  readonly env: { readonly name: string; readonly value: string }[];
+  readonly env: Array<{ readonly name: string; readonly value: string }>;
   readonly if: string | null;
   /** Its declared outputs, each type in words (`describeOutputType`). */
-  readonly outputs: { readonly name: string; readonly type: string }[];
+  readonly outputs: Array<{ readonly name: string; readonly type: string }>;
   readonly artifacts: string[];
   readonly maxTurns: number | null;
   readonly timeoutMs: number | null;
@@ -527,7 +527,11 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
 const utf8 = new TextEncoder();
 
 /** Every string anywhere in `value`, its keys included, with where it is. */
-function stringsIn(value: unknown, at: string, found: [string, string][]): [string, string][] {
+function stringsIn(
+  value: unknown,
+  at: string,
+  found: Array<[string, string]>,
+): Array<[string, string]> {
   if (typeof value === 'string') found.push([at, value]);
   else if (Array.isArray(value))
     value.forEach((entry, i) => stringsIn(entry, `${at}[${i}]`, found));

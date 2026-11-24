@@ -52,9 +52,9 @@ type Harnessed = {
   /** The next update the sessions sent the cell; dies when none comes in time. */
   readonly next: Effect.Effect<SessionUpdate>;
   /** Every update sent so far. */
-  readonly sent: ReadonlyArray<SessionUpdate>;
+  readonly sent: readonly SessionUpdate[];
   /** Every line logged so far. */
-  readonly logged: ReadonlyArray<string>;
+  readonly logged: readonly string[];
   /**
    * Waits for the session's own path to finish (its "ended" log, which comes once its end is
    * said and its sandbox stopped); dies when it does not in time. Never `stopAll`, which would
@@ -183,7 +183,7 @@ const expectNoSecret = (h: Harnessed) => {
   for (const secret of SECRET_VALUES) expect(said).not.toContain(secret);
 };
 
-const finalsOf = (sent: ReadonlyArray<SessionUpdate>, sessionId: string) =>
+const finalsOf = (sent: readonly SessionUpdate[], sessionId: string) =>
   sent.filter(
     (update) =>
       update.sessionId === sessionId && (update.status === 'stopped' || update.status === 'failed'),

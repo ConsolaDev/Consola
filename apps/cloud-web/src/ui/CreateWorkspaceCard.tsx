@@ -71,7 +71,7 @@ export function CreateWorkspaceCard({
     setPending(false);
   }
 
-  const described = (...ids: (string | false)[]) => ids.filter(Boolean).join(' ') || undefined;
+  const described = (...ids: Array<string | false>) => ids.filter(Boolean).join(' ') || undefined;
 
   return (
     <section className="card">

@@ -430,7 +430,7 @@ export class GitHubDriver implements GitProviderDriver {
     env: NodeJS.ProcessEnv,
   ): Promise<void> {
     const mutation = workItemMutationSchema.parse(input);
-    const prOnly: WorkItemMutation['kind'][] = [
+    const prOnly: Array<WorkItemMutation['kind']> = [
       'review',
       'merge',
       'ready',

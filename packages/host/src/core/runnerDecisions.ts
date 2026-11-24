@@ -20,7 +20,7 @@ import type { HostLine } from './hostLine.ts';
 export const SESSION_TEMPLATE = 'consola-session';
 
 /** The command a session's sandbox runs: the template's start script, which runs the host. */
-export const SESSION_START_ARGV: ReadonlyArray<string> = ['consola-session-start'];
+export const SESSION_START_ARGV: readonly string[] = ['consola-session-start'];
 
 /** The variable holding the API key each harness signs in with, and only that one. */
 export const HARNESS_API_KEYS: Readonly<Record<Harness, string>> = {
@@ -35,7 +35,7 @@ export const HARNESS_API_KEYS: Readonly<Record<Harness, string>> = {
  * and never logs any of them. A new secret the runner reads joins it (`bin.test.ts` checks the
  * host's source for one missing).
  */
-export const RUNNER_SECRET_VARIABLES: ReadonlyArray<string> = [
+export const RUNNER_SECRET_VARIABLES: readonly string[] = [
   'CONSOLA_RUNNER_SECRET',
   'GIT_TOKEN',
   ...Object.values(HARNESS_API_KEYS),
@@ -267,7 +267,7 @@ export const REDACTED = '[redacted]';
 export const SECRET_FRAGMENT_MIN = 4;
 
 /** Every form of the secrets that is looked for: each as it is and URL-encoded, longest first. */
-const secretForms = (secrets: ReadonlyArray<string>): string[] => {
+const secretForms = (secrets: readonly string[]): string[] => {
   const forms = new Set<string>();
   for (const secret of secrets) {
     if (secret === '') continue;
@@ -277,7 +277,7 @@ const secretForms = (secrets: ReadonlyArray<string>): string[] => {
   return [...forms].sort((a, b) => b.length - a.length);
 };
 
-const replaceForms = (text: string, forms: ReadonlyArray<string>): string => {
+const replaceForms = (text: string, forms: readonly string[]): string => {
   let scrubbed = text;
   for (const form of forms) scrubbed = scrubbed.split(form).join(REDACTED);
   return scrubbed;
@@ -288,12 +288,12 @@ const replaceForms = (text: string, forms: ReadonlyArray<string>): string => {
  * the longest first. Empty secrets are ignored. Scrub whole text, before it is cut: a cut can
  * leave a piece of a secret that no longer matches it.
  */
-export function scrubSecrets(text: string, secrets: ReadonlyArray<string>): string {
+export function scrubSecrets(text: string, secrets: readonly string[]): string {
   return replaceForms(text, secretForms(secrets));
 }
 
 /** `text` with the start of a secret it ends in (`SECRET_FRAGMENT_MIN` or more) redacted. */
-const withoutTrailingSecretStart = (text: string, forms: ReadonlyArray<string>): string => {
+const withoutTrailingSecretStart = (text: string, forms: readonly string[]): string => {
   let longest = 0;
   for (const form of forms) {
     for (let length = Math.min(form.length - 1, text.length); length > longest; length -= 1) {
@@ -317,7 +317,7 @@ export const STDERR_TAIL_LENGTH = 8 * 1024;
  * Output that ends part-way through a secret has that start redacted too.
  */
 export class StderrTail {
-  private readonly forms: ReadonlyArray<string>;
+  private readonly forms: readonly string[];
   /** How many characters at the end may still be the start of a secret. */
   private readonly holdBack: number;
   /** Scrubbed, at most `STDERR_TAIL_LENGTH`. */
@@ -325,7 +325,7 @@ export class StderrTail {
   /** Unscrubbed: fewer characters than the longest secret, or a whole one at its end. */
   private held = '';
 
-  constructor(secrets: ReadonlyArray<string> = []) {
+  constructor(secrets: readonly string[] = []) {
     this.forms = secretForms(secrets);
     this.holdBack = Math.max(0, ...this.forms.map((form) => form.length - 1));
   }
@@ -381,7 +381,7 @@ const bounded = (text: string): string =>
  * address for a port, checked as an origin before it is sent, and the status is one of three
  * words, so neither carries the sandbox's text.
  */
-export function scrubUpdate(update: SessionUpdate, secrets: ReadonlyArray<string>): SessionUpdate {
+export function scrubUpdate(update: SessionUpdate, secrets: readonly string[]): SessionUpdate {
   const forms = secretForms(secrets);
   const scrubbed: SessionUpdate = { ...update };
   if (update.error !== undefined) {
@@ -403,8 +403,8 @@ export function endOf(update: SessionUpdate): EndedSession | null {
 
 /** What a runner offers: the repositories and harnesses its `hello` names. */
 export type RunnerOffer = {
-  readonly repositories: ReadonlyArray<Repository>;
-  readonly harnesses: ReadonlyArray<Harness>;
+  readonly repositories: readonly Repository[];
+  readonly harnesses: readonly Harness[];
 };
 
 /**
@@ -550,7 +550,7 @@ export class EndedSessions {
   }
 
   /** The ends of `sessionIds` went out on `connection`, and its ping `ping` after them. */
-  sent(sessionIds: ReadonlyArray<string>, connection: number, ping: number): void {
+  sent(sessionIds: readonly string[], connection: number, ping: number): void {
     for (const each of this.held) {
       if (sessionIds.includes(each.end.sessionId)) {
         each.sentOn = connection;

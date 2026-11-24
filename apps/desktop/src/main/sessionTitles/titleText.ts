@@ -11,7 +11,7 @@ export const TITLE_INPUT_MAX = 8_000;
 const ELLIPSIS = '…';
 
 // Wrapping pairs stripped from a title, repeatedly, so `"'Name'"` also works.
-const QUOTE_PAIRS: readonly (readonly [string, string])[] = [
+const QUOTE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['"', '"'],
   ["'", "'"],
   ['`', '`'],

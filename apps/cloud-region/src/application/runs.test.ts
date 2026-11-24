@@ -48,7 +48,7 @@ const gus = () => caller('person-gus', 'member');
 /** Applies `changes` to a workspace's copy in order, the way the outbox does. */
 async function apply(
   workspaceId: string,
-  changes: Parameters<WorkspaceCopies['applyAfter']>[0]['change'][],
+  changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']>,
 ) {
   for (const [index, change] of changes.entries()) {
     const sequence = index + 1;

@@ -79,7 +79,7 @@ const makeMachine = (): Machine => {
 const startNode = (
   machine: Machine,
   script: string,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   onLine: (line: string) => void,
 ) => {
   // The machine's PATH holds only fake CLIs and /usr/bin:/bin, so node is named by its path.

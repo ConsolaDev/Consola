@@ -377,7 +377,7 @@ export class Snoozer {
 
   /** Write snoozes for these trees, every member at its root's time. */
   private write(
-    trees: { tree: Tree; until: number }[],
+    trees: Array<{ tree: Tree; until: number }>,
     now: number,
     reason: SnoozeReason | undefined,
   ): SettleMemento {

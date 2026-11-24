@@ -18,12 +18,12 @@ type NameUpdates = Pick<SessionUpdates, 'name' | 'nameIsUserSet'>;
 interface FakeDriver extends HarnessDriver {
   firstPrompt: string | null;
   /** Answers used first, one per read, before falling back to `firstPrompt`. */
-  firstPromptQueue: (string | null)[];
+  firstPromptQueue: Array<string | null>;
   /** Holds every first-prompt read until it resolves. */
   firstPromptGate?: Promise<void>;
   firstPromptCalls: number;
   firstPromptConfigs: HarnessConfig[];
-  cliNames: (CliNameRead | null)[];
+  cliNames: Array<CliNameRead | null>;
   cliConfigs: HarnessConfig[];
   cliFrom: number[];
   cliConversations: string[];
@@ -34,7 +34,7 @@ interface FakeDriver extends HarnessDriver {
   generated: TextGenerationRequest[];
   generatedConfigs: HarnessConfig[];
   conversation: ConversationRecord | null;
-  conversationReads: { config: HarnessConfig; conversationId: string }[];
+  conversationReads: Array<{ config: HarnessConfig; conversationId: string }>;
 }
 
 function makeDriver(): FakeDriver {
@@ -170,9 +170,9 @@ describe('SessionNamer', () => {
   let updates: NameUpdates[];
   let delays: number[];
   let modelInfo: HarnessModel | undefined;
-  let modelInfoCalls: [string, string][];
+  let modelInfoCalls: Array<[string, string]>;
   let failWrites: boolean;
-  let driverIds: (string | undefined)[];
+  let driverIds: Array<string | undefined>;
   let driver: FakeDriver;
   let namer: SessionNamer;
 

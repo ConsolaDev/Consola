@@ -180,7 +180,7 @@ describe('sessionScreen', () => {
     ['runner_restarted', 'The runner restarted.'],
     ['runner_unreachable', 'The runner couldn’t be reached to start this session.'],
     ['runner_failed', 'The runner stopped this session without saying why.'],
-  ] satisfies [CellFailureCode, string][])(
+  ] satisfies Array<[CellFailureCode, string]>)(
     'words the cell’s code %s, never the code itself',
     (errorCode, words) => {
       expect(sessionScreen({ ...session, status: 'failed', errorCode })).toEqual({

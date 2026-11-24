@@ -9,7 +9,7 @@ import type { TreeNode } from './forest';
  * cannot see.
  */
 export function drawnOrder(
-  sections: readonly (readonly TreeNode[])[],
+  sections: ReadonlyArray<readonly TreeNode[]>,
   childrenShown: (node: TreeNode) => readonly TreeNode[],
 ): EntryKey[] {
   const keys: EntryKey[] = [];

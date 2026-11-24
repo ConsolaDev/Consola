@@ -33,7 +33,7 @@ const workItem = { ...itemRef, provider: 'github' as const };
 const CLONE = '/code/catalog-portal';
 const CHECKOUT = '/worktrees/catalog-portal-pr-51-automation';
 
-function workspace(sessions: Partial<Session>[] = []): Workspace {
+function workspace(sessions: Array<Partial<Session>> = []): Workspace {
   return {
     id: 'ws-1',
     name: 'Sprocket',
@@ -129,7 +129,7 @@ describe('automationCheckoutPort', () => {
 
   it('a session started by hand since refuses with StartedByHandError', async () => {
     const since = new Date(1_000).toISOString();
-    const sessions: Partial<Session>[] = [
+    const sessions: Array<Partial<Session>> = [
       // The automation's own session, and one the person started before, do not count.
       {
         id: 'auto',

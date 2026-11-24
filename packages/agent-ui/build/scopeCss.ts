@@ -164,7 +164,7 @@ export const SVG_PRESENTATION_ATTRIBUTES = [
  * code block (`<ol start="3">`) too. Obsolete attributes t3 never renders are left out
  * (AGENTS.md, "The page's CSS").
  */
-export const ATTRIBUTE_STYLED: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
+export const ATTRIBUTE_STYLED: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['[hidden]', ['display', 'content-visibility']],
   ['[dir]', ['direction', 'unicode-bidi']],
   ['[lang]', ['-webkit-locale']],
@@ -291,7 +291,7 @@ const completeRollback = (
   rule: Rule,
   prefix: string,
   value: string,
-  registered: ReadonlyArray<string>,
+  registered: readonly string[],
 ): Rule => {
   const own = rule.nodes.filter((node) => node.type === 'decl').map((decl) => decl.clone());
   for (const name of registered) rule.append({ prop: name, value });
@@ -317,7 +317,7 @@ const completeRollback = (
  * (`completeRollback`), then a rule for each attribute that styles the element carrying it
  * (`ATTRIBUTE_STYLED`), which lets those properties fall through to the attribute's style.
  */
-const completeFloor = (reset: AtRule, registered: ReadonlyArray<string>) => {
+const completeFloor = (reset: AtRule, registered: readonly string[]) => {
   const floor = reset.nodes?.find(
     (node): node is Rule => node.type === 'rule' && compact(node.selector) === compact(FLOOR),
   );

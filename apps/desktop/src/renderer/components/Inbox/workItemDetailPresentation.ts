@@ -296,7 +296,7 @@ export function parsePatch(patch: string): DiffRow[] {
 }
 
 /** GitHub's five-square diffstat: the split between added and removed lines. */
-export function diffBlocks(additions: number, deletions: number): ('add' | 'del' | 'none')[] {
+export function diffBlocks(additions: number, deletions: number): Array<'add' | 'del' | 'none'> {
   const total = additions + deletions;
   if (total === 0) return Array(5).fill('none');
   let added = Math.round((5 * additions) / total);
@@ -531,7 +531,7 @@ const isLabelEvent = (
 
 /** "added frontend catalog and removed bug": one line for one person's labelling, as GitHub folds it. */
 function labelSentence(
-  events: Extract<WorkItemEvent, { kind: 'labeled' | 'unlabeled' }>[],
+  events: Array<Extract<WorkItemEvent, { kind: 'labeled' | 'unlabeled' }>>,
 ): Segment[] {
   const added = events
     .filter((event) => event.kind === 'labeled')

@@ -61,7 +61,7 @@ type Replay = {
   /** t3's own checks of this replay, from the fixture's `claude_output.ts`. */
   readonly assertT3Output: Effect.Effect<void, ThreadRuntime.ThreadRuntimeError>;
   /** Each thread title t3 asked the replayed Claude instance for (`replayClaudeDriver`). */
-  readonly titleRequests: ReadonlyArray<ModelSelection>;
+  readonly titleRequests: readonly ModelSelection[];
 };
 
 /**

@@ -87,10 +87,7 @@ const withReportedReplay = <A, E>(
   }).pipe(Effect.scoped, Effect.runPromise);
 
 /** Waits until the lines written so far satisfy `done`. */
-const waitForLines = (
-  lines: ReadonlyArray<HostLine>,
-  done: (lines: ReadonlyArray<HostLine>) => boolean,
-) =>
+const waitForLines = (lines: readonly HostLine[], done: (lines: readonly HostLine[]) => boolean) =>
   Effect.gen(function* () {
     while (!done(lines)) yield* Effect.sleep(Duration.millis(10));
   }).pipe(
@@ -100,9 +97,9 @@ const waitForLines = (
     }),
   );
 
-const statusLines = (lines: ReadonlyArray<HostLine>) =>
+const statusLines = (lines: readonly HostLine[]) =>
   lines.flatMap((line) => (line.type === 'status' ? [line.status] : []));
-const titleLines = (lines: ReadonlyArray<HostLine>) =>
+const titleLines = (lines: readonly HostLine[]) =>
   lines.flatMap((line) => (line.type === 'title' ? [line.title] : []));
 
 describe('the host lines', () => {

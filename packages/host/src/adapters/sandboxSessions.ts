@@ -88,7 +88,7 @@ export type SandboxSessionsOptions = {
   /** What a sandbox is given: the git token and its harness's API key. */
   readonly secrets: SandboxSecrets;
   /** Every secret the runner holds, taken out of whatever it reports or logs. */
-  readonly secretValues: ReadonlyArray<string>;
+  readonly secretValues: readonly string[];
   /** The host's idle minutes (`CONSOLA_SESSION_IDLE_MINUTES`). */
   readonly idleMinutes: number;
   /**
@@ -115,9 +115,9 @@ export type SandboxSessionsOptions = {
 /** The sessions a runner holds now, for `hello` and what follows it. */
 export type LiveSessions = {
   /** Every session not yet ended: its sandbox is being made, or runs. */
-  readonly sessionIds: ReadonlyArray<string>;
+  readonly sessionIds: readonly string[];
   /** What the cell should know of each now: `running` and its address once ready, its title. */
-  readonly states: ReadonlyArray<SessionUpdate>;
+  readonly states: readonly SessionUpdate[];
 };
 
 export type SandboxSessions = {

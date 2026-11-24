@@ -175,8 +175,14 @@ export interface WorkItemDetails {
   threads: WorkItemThread[];
   /** The viewer's review still being written, if any: one per person, as GitHub allows. */
   pendingReview?: { id: string; commentCount: number };
-  checks: { name: string; state: string; url: string }[];
-  files: { path: string; status: string; additions: number; deletions: number; patch?: string }[];
+  checks: Array<{ name: string; state: string; url: string }>;
+  files: Array<{
+    path: string;
+    status: string;
+    additions: number;
+    deletions: number;
+    patch?: string;
+  }>;
   additions?: number;
   deletions?: number;
   headOid?: string;

@@ -46,7 +46,7 @@ async function seed(page: Page, root: string): Promise<Seeded> {
         accentColor: '#555555',
       });
       const addSession = async (
-        workspace: { id: string; scopes: { id: string }[] },
+        workspace: { id: string; scopes: Array<{ id: string }> },
         name: string,
         instanceId: string,
       ) => {

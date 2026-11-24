@@ -26,7 +26,7 @@ let transcripts: Map<string, boolean | null>;
 let removed: string[];
 let reads: string[];
 /** Each session's browser tabs; a `null` entry cannot be read. No entry: no tabs. */
-let tabs: Map<string, { url: string; openedBy: 'person' | 'agent' }[] | null>;
+let tabs: Map<string, Array<{ url: string; openedBy: 'person' | 'agent' }> | null>;
 
 function reaper(overrides: Partial<ConstructorParameters<typeof EmptySessionReaper>[0]> = {}) {
   return new EmptySessionReaper({

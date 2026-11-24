@@ -89,7 +89,7 @@ type Exited = { readonly code: number | null; readonly signal: NodeJS.Signals | 
 type Host = {
   readonly pid: number;
   /** Every stdout line, as printed. */
-  readonly printed: ReadonlyArray<string>;
+  readonly printed: readonly string[];
   /** The next stdout line, parsed; dies when the host ends first or prints none in time. */
   readonly next: Effect.Effect<Line>;
   readonly stderr: () => string;
@@ -115,7 +115,7 @@ const parseLine = (printed: string): Line => JSON.parse(printed) as Line;
 /** Starts `node <script> <args>` with the test machine's environment (and `env` over it). */
 const startHost = Effect.fn('startHost')(function* (
   script: string,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   env: NodeJS.ProcessEnv = {},
 ) {
   const lines = yield* Queue.unbounded<string, Cause.Done>();
@@ -172,7 +172,7 @@ const startHost = Effect.fn('startHost')(function* (
 });
 
 /** Every line the host printed is one JSON object of a type the runner reads. */
-const expectOnlyHostLines = (printed: ReadonlyArray<string>) => {
+const expectOnlyHostLines = (printed: readonly string[]) => {
   for (const each of printed) {
     const parsed = parseLine(each);
     expect(parsed).toMatchObject({ type: expect.any(String) });
@@ -180,7 +180,7 @@ const expectOnlyHostLines = (printed: ReadonlyArray<string>) => {
   }
 };
 
-const typesOf = (printed: ReadonlyArray<string>) => printed.map((each) => parseLine(each).type);
+const typesOf = (printed: readonly string[]) => printed.map((each) => parseLine(each).type);
 
 /** A folder for the test, removed with its scope. */
 const tempFolder = (prefix: string) =>
@@ -746,9 +746,8 @@ describe('temporaryStateDir', () => {
 });
 
 describe('parseSessionArgs', () => {
-  const parse = (argv: ReadonlyArray<string>) => Effect.runSync(parseSessionArgs(argv));
-  const refusal = (argv: ReadonlyArray<string>) =>
-    Effect.runSync(Effect.flip(parseSessionArgs(argv)));
+  const parse = (argv: readonly string[]) => Effect.runSync(parseSessionArgs(argv));
+  const refusal = (argv: readonly string[]) => Effect.runSync(Effect.flip(parseSessionArgs(argv)));
   const required = [
     'session',
     '--session-id',
@@ -1198,9 +1197,9 @@ describe('parseRunnerArgs', () => {
     '--runner-id',
     'r-1',
   ];
-  const parse = (argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = RUNNER_ENV) =>
+  const parse = (argv: readonly string[], env: NodeJS.ProcessEnv = RUNNER_ENV) =>
     Effect.runSync(parseRunnerArgs(argv, env));
-  const refusal = (argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = RUNNER_ENV) =>
+  const refusal = (argv: readonly string[], env: NodeJS.ProcessEnv = RUNNER_ENV) =>
     Effect.runSync(Effect.flip(parseRunnerArgs(argv, env)));
 
   it('reads its flags and environment, with ten idle minutes and an eight-hour cap by default', () => {

@@ -80,7 +80,7 @@ function fakeGitHub(
   }) => MintAnswer | undefined = () => undefined,
   listing: Awaited<ReturnType<GitHubApp['repositoriesOf']>> | null = null,
 ) {
-  const asked: { installationId: number; scope: unknown }[] = [];
+  const asked: Array<{ installationId: number; scope: unknown }> = [];
   const revoked: string[] = [];
   let count = 0;
   const github: Pick<GitHubApp, 'repositoriesOf'> & GitHubTokenMinter = {

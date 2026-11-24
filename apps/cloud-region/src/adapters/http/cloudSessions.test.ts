@@ -208,7 +208,7 @@ describe('listing and reading', () => {
     const listed = (await answerOf(
       listCloudSessions,
       await app.request('/api/cloud-sessions'),
-    )) as { id: string }[];
+    )) as Array<{ id: string }>;
     expect(listed.map((s) => s.id)).toEqual(['session-1']);
   });
 

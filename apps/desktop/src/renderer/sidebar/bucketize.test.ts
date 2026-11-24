@@ -14,8 +14,8 @@ function observation({
   workingSince = [],
 }: {
   lingering?: string[];
-  returnedAt?: [string, number][];
-  workingSince?: [string, number][];
+  returnedAt?: Array<[string, number]>;
+  workingSince?: Array<[string, number]>;
 }): WorkingObservation {
   return {
     lingering: new Set(lingering.map(keyOf)),
@@ -38,7 +38,7 @@ const EXPECTED: Record<Attention, Bucket> = {
 };
 
 describe('bucketize', () => {
-  it.each(Object.entries(EXPECTED) as [Attention, Bucket][])(
+  it.each(Object.entries(EXPECTED) as Array<[Attention, Bucket]>)(
     'puts a %s row in %s',
     (attention, bucket) => {
       const result = bucketize([node(entry('a', attention))]);

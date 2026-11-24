@@ -208,7 +208,7 @@ describe('changing teams', () => {
   });
 
   it("answers in the page's terms for each refusal the cell gives", async () => {
-    const cases: [Answer, unknown][] = [
+    const cases: Array<[Answer, unknown]> = [
       [
         { status: 400, body: { error: 'invalid_team', problems: ['name_missing', 'what'] } },
         { kind: 'invalid', problems: ['name_missing'] },

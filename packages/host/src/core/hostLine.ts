@@ -31,13 +31,13 @@ export const HOST_LINE_TYPES: ReadonlyArray<HostLine['type']> = [
   'exit',
 ];
 
-const SESSION_STATUSES: ReadonlyArray<SessionStatus> = ['working', 'waiting', 'idle'];
+const SESSION_STATUSES: readonly SessionStatus[] = ['working', 'waiting', 'idle'];
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
 /** Whether `value` has exactly the fields named, no more. */
-const hasExactly = (value: Record<string, unknown>, fields: ReadonlyArray<string>): boolean => {
+const hasExactly = (value: Record<string, unknown>, fields: readonly string[]): boolean => {
   const keys = Object.keys(value);
   return keys.length === fields.length && keys.every((key) => fields.includes(key));
 };

@@ -1036,7 +1036,10 @@ test.describe('the Working section', () => {
    * A workspace whose sessions run `script`, made in the order given, so the
    * last is the newest. Returns once the workspace is on screen.
    */
-  async function sessionsRunning(script: string, sessions: [name: string, instanceId: string][]) {
+  async function sessionsRunning(
+    script: string,
+    sessions: Array<[name: string, instanceId: string]>,
+  ) {
     const stub = path.join(root, 'agent.sh');
     fs.writeFileSync(stub, script, { mode: 0o755 });
     await page.evaluate(

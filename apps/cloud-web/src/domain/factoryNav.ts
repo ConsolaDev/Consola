@@ -28,7 +28,7 @@ export type FactoryRoute =
 const FACTORIES_HASH = /^#\/factories(?:\/([^/?]*))?(?:\/([^/?]*))?(?:[/?].*)?$/s;
 
 function isFactoryPage(value: string | undefined): value is FactoryPageId {
-  return (FACTORY_PAGES as readonly (string | undefined)[]).includes(value);
+  return (FACTORY_PAGES as ReadonlyArray<string | undefined>).includes(value);
 }
 
 /**

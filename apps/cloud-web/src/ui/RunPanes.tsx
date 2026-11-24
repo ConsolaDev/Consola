@@ -49,7 +49,7 @@ export function RequestPane({
   const ids = useId();
   const view: RequestView = place.view === 'automations' ? 'automations' : 'conversation';
   const count = detail.children.length;
-  const tabs: { view: RequestView; label: string; icon: ReactNode }[] = [
+  const tabs: Array<{ view: RequestView; label: string; icon: ReactNode }> = [
     {
       view: 'conversation',
       label: 'Conversation',

@@ -37,8 +37,8 @@ export type RunAnswer = {
 
 /** What approving lets run: each command, and each agent step, as the definition writes them. */
 export type WillRun = {
-  commands: { step: string; command: string }[];
-  agents: { step: string; agent: string | null; prompt: string | null }[];
+  commands: Array<{ step: string; command: string }>;
+  agents: Array<{ step: string; agent: string | null; prompt: string | null }>;
 };
 
 /** A run's request to be approved, as its page shows it. */

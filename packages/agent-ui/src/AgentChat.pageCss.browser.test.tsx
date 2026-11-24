@@ -157,7 +157,7 @@ const differences = (bare: Record<string, Styles>, embedded: Record<string, Styl
   return { count: found.length, first: found.slice(0, 40) };
 };
 
-const styleElements = (sheets: ReadonlyArray<string>) =>
+const styleElements = (sheets: readonly string[]) =>
   sheets.map((css) => {
     const style = document.createElement('style');
     style.textContent = css;
