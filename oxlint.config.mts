@@ -25,24 +25,12 @@ export default defineConfig({
     'apps/cloud-web/src/domain/cellApiContract.ts',
   ],
   rules: {
-    // Terminal code matches escape and control characters on purpose.
-    'no-control-regex': 'off',
-    // Its fix, Object.hasOwn, needs the ES2022 lib; the code already uses the
-    // safe Object.prototype.hasOwnProperty.call form.
-    'prefer-object-has-own': 'off',
-    // Off in Biome too (style.noNonNullAssertion).
-    'typescript/no-non-null-assertion': 'off',
-    // It reports every member written in method syntax that is read off its
-    // object: store actions, injected dependencies, option callbacks. None
-    // of them uses `this`, and making each a property type changes nothing.
-    'typescript/unbound-method': 'off',
-    // Every finding is an apostrophe in JSX text, which renders as written.
-    // Oxlint's rule takes no list of characters to keep, so it is off rather
-    // than every apostrophe in the copy written as &apos;.
-    'react/no-unescaped-entities': 'off',
+    // ---- Rules of the preset, with this repository's options ----
+
     // `typeof import('x')` types vitest's mocked originals and lets
     // shared/types.ts name an API without importing its module.
     'typescript/consistent-type-imports': ['error', { disallowTypeAnnotations: false }],
+    // The code writes T[] for a simple type and Array<...> for a compound one.
     'typescript/array-type': ['error', { default: 'array-simple' }],
     // `x != null` is the code's one test for null or undefined (as in nkzw's
     // base config and Biome's noDoubleEquals).
@@ -76,6 +64,95 @@ export default defineConfig({
         ],
       },
     ],
+
+    // ---- Off in Biome too (biome.jsonc), for the same reasons ----
+
+    // Terminal code matches escape and control characters on purpose.
+    'no-control-regex': 'off',
+    // Its fix, Object.hasOwn, needs the ES2022 lib; the code already uses the
+    // safe Object.prototype.hasOwnProperty.call form.
+    'prefer-object-has-own': 'off',
+    // style.noNonNullAssertion.
+    'typescript/no-non-null-assertion': 'off',
+
+    // ---- Rules of the preset that stay off here, each with its reason ----
+
+    // It reports every member written in method syntax that is read off its
+    // object: store actions, injected dependencies, option callbacks. None
+    // of them uses `this`, and making each a property type changes nothing.
+    'typescript/unbound-method': 'off',
+    // Every finding is an apostrophe in JSX text, which renders as written.
+    // Oxlint's rule takes no list of characters to keep, so it is off rather
+    // than every apostrophe in the copy written as &apos;.
+    'react/no-unescaped-entities': 'off',
+    // Biome formats every file, so an unbraced body cannot hide behind
+    // misleading indentation, which is what curly guards against; the code
+    // writes one-line guards (`if (!x) return;`) by choice.
+    curly: 'off',
+    // `import * as path from 'node:path'` is how the code imports Node's
+    // modules and zod; named imports would collide with locals such as `path`.
+    'import/no-namespace': 'off',
+    // The main process, the servers and the scripts log with console; there
+    // is no logger to send it to instead.
+    'no-console': 'off',
+    // Every finding is a one-line arrow executor, `(resolve) =>
+    // setTimeout(resolve, ms)`, whose value Promise ignores.
+    'no-promise-executor-return': 'off',
+    // Custom error classes and DOM elements are narrowed with instanceof,
+    // and nothing else narrows them as precisely.
+    '@nkzw/no-instanceof': 'off',
+    // Biome's correctness.useExhaustiveDependencies warns on the same hooks
+    // while each is reviewed: adding a dependency can loop an effect.
+    'react/exhaustive-deps': 'warn',
+    // React Compiler's rules hold components to what the compiler can
+    // memoize; the apps do not run the compiler, and read refs and the clock
+    // during render on purpose.
+    'react/immutability': 'off',
+    'react/purity': 'off',
+    'react/refs': 'off',
+    'react/set-state-in-effect': 'off',
+    // Each finding needs a parse, not a mechanical edit (CON-115: "Parse
+    // instead of asserting", https://linear.app/consola/issue/CON-115).
+    'quality/no-chained-type-assertions': 'off',
+    'typescript/no-unsafe-type-assertion': 'off',
+    // `...(x ? { x } : {})` is how the code leaves a key out of a record it
+    // writes to a file or sends over IPC, rather than writing it undefined.
+    'quality/no-conditional-empty-object-spread': 'off',
+    // A declared return type is the function's contract, and the code keeps
+    // it even where inference would say more.
+    'quality/no-known-value-widening': 'off',
+    // Record<string, unknown> is how the code holds parsed JSON while it
+    // narrows it.
+    'quality/no-unsafe-dictionary-type': 'off',
+    // A JSON transform (compact, redact) takes and gives unknown by nature.
+    'quality/no-unknown-returns': 'off',
+    // `object` is right for helpers that take any non-null value
+    // (hasOwnProperty checks, JSON-RPC params).
+    'quality/no-object-parameters': 'off',
+    // .filter().map() reads plainer than flatMap or iterator helpers, which
+    // the ES2020 packages do not have.
+    'quality/no-array-filter-map': 'off',
+    // Its fix renames to `error_` wherever `error` is taken, and the code
+    // names a caught value for what it is (`thrown`, `caught`, `failure`).
+    'unicorn/catch-error-name': 'off',
+    // Helpers sit beside their one caller, most of them in a test's describe
+    // block.
+    'unicorn/consistent-function-scoping': 'off',
+    // Terminal code writes escape sequences as \x1b, as every terminal
+    // reference does.
+    'unicorn/no-hex-escape': 'off',
+    // Each copy snapshots a Map or Set that the loop body changes (deletes
+    // from, unsubscribes); iterating the live one would skip entries.
+    'unicorn/no-useless-spread': 'off',
+    // Separate pushes keep each palette row, and the comment above it, apart.
+    'unicorn/prefer-single-call': 'off',
+    // A JSON round trip is meant: it drops undefined and turns Dates into
+    // strings, as writing the value to a file does, and structuredClone
+    // does not.
+    'unicorn/prefer-structured-clone': 'off',
+    // CommonJS (the desktop's main process, the .cjs scripts) has no
+    // top-level await, and the renderer builds for ES2020.
+    'unicorn/prefer-top-level-await': 'off',
   },
   overrides: [
     {
@@ -112,7 +189,7 @@ export default defineConfig({
       },
     },
     {
-      // Its migrations read workspace files older builds wrote, typed \`any\`
+      // Its migrations read workspace files older builds wrote, typed `any`
       // on purpose (each marked), and shape them into today's records.
       files: ['apps/desktop/src/shared/workspace.ts'],
       rules: {
@@ -124,21 +201,17 @@ export default defineConfig({
       },
     },
     {
-      // Test helpers are tests' code: the preset's test relaxations apply.
+      // Test helpers are tests' code, so the preset's test relaxations,
+      // which name only *.test.* files, apply to them too.
       files: ['**/*.test-helpers.{ts,tsx}'],
       rules: {
         'typescript/no-explicit-any': 'off',
-        'typescript/no-non-null-assertion': 'off',
-        'typescript/no-unsafe-argument': 'off',
-        'typescript/no-unsafe-assignment': 'off',
-        'typescript/no-unsafe-member-access': 'off',
         'typescript/only-throw-error': 'off',
-        'typescript/unbound-method': 'off',
       },
     },
     {
       // JavaScript has no type annotation to give a catch callback's value,
-      // and its loosely inferred types read string arrays as \`any\` and
+      // and its loosely inferred types read string arrays as `any` and
       // arrays as strings.
       files: ['**/*.{js,jsx,mjs,cjs}'],
       rules: {
@@ -158,42 +231,6 @@ export default defineConfig({
       // Playwright requires the fixtures argument to be destructured.
       files: ['**/tests/e2e/**'],
       rules: { 'no-empty-pattern': 'off' },
-    },
-    {
-      // TEMPORARY: the rules that failed when the preset was adopted, with
-      // their counts then. Each is either fixed and removed from this list,
-      // or moved to `rules` above with the reason it stays off. An override,
-      // so it also beats the preset's own overrides that turn rules back on.
-      // A rule that existing eslint-disable comments name warns instead, so
-      // those comments still count as used.
-      files: ['**/*'],
-      rules: {
-        '@nkzw/no-instanceof': 'off', // 72
-        curly: 'off', // 8161
-        'import/no-namespace': 'off', // 855
-        'no-console': 'off', // 211
-        'no-promise-executor-return': 'off', // 186
-        'quality/no-array-filter-map': 'off', // 33
-        'quality/no-chained-type-assertions': 'off', // 302
-        'quality/no-conditional-empty-object-spread': 'off', // 716
-        'quality/no-known-value-widening': 'off', // 402
-        'quality/no-object-parameters': 'off', // 31
-        'quality/no-unknown-returns': 'off', // 70
-        'quality/no-unsafe-dictionary-type': 'off', // 300
-        'react/exhaustive-deps': 'warn', // 17
-        'react/immutability': 'off', // 4
-        'react/purity': 'off', // 7
-        'react/refs': 'off', // 80
-        'react/set-state-in-effect': 'off', // 42
-        'typescript/no-unsafe-type-assertion': 'off', // 1157
-        'unicorn/catch-error-name': 'off', // 73
-        'unicorn/consistent-function-scoping': 'off', // 763
-        'unicorn/no-hex-escape': 'off', // 313
-        'unicorn/no-useless-spread': 'off', // 52
-        'unicorn/prefer-single-call': 'off', // 16
-        'unicorn/prefer-structured-clone': 'off', // 22
-        'unicorn/prefer-top-level-await': 'off', // 11
-      },
     },
   ],
 });
