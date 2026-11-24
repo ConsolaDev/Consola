@@ -1,0 +1,10 @@
+{
+  // As `@consola/host` checks itself: the test loads the host's own test modules, and through them
+  // t3's server, by path.
+  "extends": "../../vendor/t3code/tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["node"],
+    "lib": ["ESNext", "esnext.disposable"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

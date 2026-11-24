@@ -1,7 +1,8 @@
 /**
  * `consola-host runner`, for tests only: the same command (`runnerCommand`, `runHostProcess` from
  * `../bin.ts`), its sandboxes local processes that run the session command over a replay
- * (`localProvider.ts`) instead of a provider's. `bin.test.ts` starts it with node:
+ * (`localProvider.ts`) instead of a provider's. `bin.test.ts` and `@consola/cloud-session-e2e`
+ * start it with node:
  *
  *   node src/testing/replayRunner.ts runner --cell-url ws://127.0.0.1:<port>/api/runner --runner-id <id>
  *

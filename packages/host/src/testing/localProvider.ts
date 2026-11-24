@@ -10,8 +10,9 @@
  * the template's start script does, and listens on a free port of loopback, which `exposePort`
  * answers as `http://127.0.0.1:<port>`.
  *
- * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and the cloud session's end-to-end test (CON-96) is to reuse it.
- * It need not pass the whole sandbox contract; `sandboxesFrom` takes its answers.
+ * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and so does `@consola/cloud-session-e2e`,
+ * against the built cell. It need not pass the whole sandbox contract; `sandboxesFrom` takes its
+ * answers.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
