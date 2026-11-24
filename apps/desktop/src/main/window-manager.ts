@@ -162,10 +162,10 @@ export function createWindow(
   });
 
   if (isDev) {
-    window.loadURL(DEV_SERVER_ORIGIN);
+    void window.loadURL(DEV_SERVER_ORIGIN);
     window.webContents.openDevTools();
   } else {
-    window.loadFile(path.join(__dirname, '../../../dist/renderer/index.html'));
+    void window.loadFile(path.join(__dirname, '../../../dist/renderer/index.html'));
   }
 
   window.on('closed', () => {

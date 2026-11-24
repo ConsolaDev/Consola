@@ -87,7 +87,7 @@ export function EditHarnessDialog({
               type="button"
               className="dialog-button-primary"
               disabled={!activeDraft?.name.trim()}
-              onClick={save}
+              onClick={() => void save()}
             >
               Save changes
             </button>

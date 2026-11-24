@@ -75,11 +75,12 @@ async function openChanges() {
   useSidePanelStore.getState().openKind('changes');
   await useGitStatusStore.getState().refresh('/demo/acme/platform');
 }
-document.addEventListener('demo:changes', async (event) => {
+async function showChanges(event: Event): Promise<void> {
   await useGitStatusStore.getState().refresh((event as CustomEvent<string>).detail);
   useSidePanelStore.getState().openKind('changes');
-});
-window.addEventListener('message', async (event) => {
+}
+document.addEventListener('demo:changes', (event) => void showChanges(event));
+async function runDemoCommand(event: MessageEvent): Promise<void> {
   if (
     event.origin !== location.origin ||
     event.source !== window.parent ||
@@ -99,7 +100,8 @@ window.addEventListener('message', async (event) => {
   }
   if (event.data.command === 'changes') await openChanges();
   if (event.data.command === 'reset') location.reload();
-});
+}
+window.addEventListener('message', (event) => void runDemoCommand(event));
 // As the desktop's own bootstrap does: the browser panel shows only what is
 // pushed, so the subscription comes before anything can open a tab.
 subscribeToBrowser();

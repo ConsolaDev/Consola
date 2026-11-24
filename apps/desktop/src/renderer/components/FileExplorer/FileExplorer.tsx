@@ -50,7 +50,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
       .finally(() => setIsLoading(false));
 
     // Refresh git status when root path changes
-    refreshGitStatus(rootPath);
+    void refreshGitStatus(rootPath);
   }, [rootPath, refreshGitStatus, clearGitStatus]);
 
   if (!rootPath) {

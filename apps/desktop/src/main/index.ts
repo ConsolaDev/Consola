@@ -85,7 +85,7 @@ if (isTest) {
   exposeToTests('launches', testLaunches);
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   // Handlers are registered once for the process, not once per window: they
   // are ipcMain-global, and a second registration throws.
   //

@@ -168,7 +168,7 @@ export function useGitStatusAutoRefresh(rootPath: string | null) {
     const now = Date.now();
     if (now - lastRefreshTime.current > 2000) {
       lastRefreshTime.current = now;
-      refresh(rootPath);
+      void refresh(rootPath);
     }
   }, [rootPath, isLoading, refresh]);
 

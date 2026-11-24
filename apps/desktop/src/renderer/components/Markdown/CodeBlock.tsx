@@ -110,7 +110,7 @@ export function CodeBlock({
         <Button
           size="1"
           variant="ghost"
-          onClick={handleCopy}
+          onClick={() => void handleCopy()}
           aria-label={copied ? 'Copied!' : 'Copy code'}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}

@@ -603,10 +603,9 @@ function LoadFailed({ onRetry }: { onRetry: () => Promise<void> }) {
             type="button"
             className="settings-button"
             disabled={pending}
-            onClick={async () => {
+            onClick={() => {
               setPending(true);
-              await onRetry();
-              setPending(false);
+              void onRetry().then(() => setPending(false));
             }}
           >
             <RotateCw

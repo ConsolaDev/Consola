@@ -180,7 +180,7 @@ export function AddHarnessWizard({
                 Next
               </button>
             ) : (
-              <button type="button" className="dialog-button-primary" onClick={submit}>
+              <button type="button" className="dialog-button-primary" onClick={() => void submit()}>
                 Add harness
               </button>
             )}

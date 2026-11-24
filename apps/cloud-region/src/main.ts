@@ -69,8 +69,8 @@ function stop() {
   stopping = true;
   // The server waits for every open socket, a runner's included, before it closes.
   cell.closeRunnerSockets();
-  server.close(async () => {
-    await database.close();
+  server.close(() => {
+    void database.close();
   });
 }
 

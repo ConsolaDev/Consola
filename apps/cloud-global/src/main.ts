@@ -77,9 +77,8 @@ function stop() {
   stopping = true;
   // The worker ends its pass before the database it records in closes.
   const outboxStopped = outbox.stop();
-  server.close(async () => {
-    await outboxStopped;
-    await database.close();
+  server.close(() => {
+    void outboxStopped.then(() => database.close());
   });
 }
 

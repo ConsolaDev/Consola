@@ -937,6 +937,6 @@ function control() {
       writes = writes.then(() => writeOut(process.stdout, text));
     })
     .on('close', () => {
-      writes.then(() => process.exit(0));
+      void writes.then(() => process.exit(0));
     });
 }

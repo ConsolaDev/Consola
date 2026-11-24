@@ -42,6 +42,15 @@ export default defineConfig({
     // A timer or session declared before the closure that clears it, and
     // assigned once after, has to stay `let`.
     'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
+    // node:test's test() and describe() return a promise the runner awaits.
+    'typescript/no-floating-promises': [
+      'error',
+      {
+        allowForKnownSafeCalls: [
+          { from: 'package', name: ['describe', 'it', 'suite', 'test'], package: 'node:test' },
+        ],
+      },
+    ],
   },
   overrides: [
     {
@@ -100,8 +109,6 @@ export default defineConfig({
         'react/refs': 'off', // 80
         'react/set-state-in-effect': 'off', // 42
         'typescript/no-explicit-any': 'warn', // 12
-        'typescript/no-floating-promises': 'off', // 58
-        'typescript/no-misused-promises': 'off', // 13
         'typescript/no-misused-spread': 'off', // 15
         'typescript/no-require-imports': 'off', // 35
         'typescript/no-unsafe-argument': 'off', // 12

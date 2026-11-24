@@ -177,7 +177,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
 
   const handleCopyPath = (e: React.MouseEvent) => {
     e.stopPropagation();
-    navigator.clipboard.writeText(filePath);
+    void navigator.clipboard.writeText(filePath);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -384,7 +384,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
         <div className="git-review-file-header-actions">
           <button
             className={`git-review-file-action-btn ${status === 'staged' ? 'staged' : ''}`}
-            onClick={handleApproveToggle}
+            onClick={(e) => void handleApproveToggle(e)}
           >
             {status === 'staged' ? 'Approved' : 'Approve'}
           </button>

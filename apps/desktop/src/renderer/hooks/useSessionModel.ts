@@ -25,7 +25,7 @@ export function useSessionModel(session: Session, enabled: boolean): string | un
       } catch {
         // Keep the last known model while the transcript is unavailable.
       } finally {
-        if (!cancelled) timer = setTimeout(refresh, 5000);
+        if (!cancelled) timer = setTimeout(() => void refresh(), 5000);
       }
     };
     void refresh();

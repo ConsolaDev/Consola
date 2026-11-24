@@ -48,7 +48,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   // Refresh git status when panel opens
   useEffect(() => {
     if (rootPath) {
-      refresh(rootPath);
+      void refresh(rootPath);
     }
   }, [rootPath, refresh]);
 
