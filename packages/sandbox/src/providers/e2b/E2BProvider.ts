@@ -58,7 +58,7 @@ export class E2BProvider implements SandboxProvider {
   }
 
   async create(options: CreateSandboxOptions): Promise<ProviderSandbox> {
-    const { template, env, lifetimeSeconds } = options;
+    const { template, env, lifetimeSeconds, publicPorts } = options;
     let inner: E2BSandbox;
     try {
       inner = await this.api.create(template, {
@@ -66,6 +66,9 @@ export class E2BProvider implements SandboxProvider {
         ...(lifetimeSeconds !== undefined && { timeoutMs: lifetimeSeconds * 1_000 }),
         // E2B kills on timeout today; saying so keeps it that way if its default changes.
         lifecycle: { onTimeout: 'kill' },
+        // Locked unless asked: E2B then asks every request to a port for its traffic token in a
+        // header. Said either way, so a change of E2B's default changes nothing here.
+        network: { allowPublicTraffic: publicPorts === true },
       });
     } catch (error) {
       throw this.fail(error);

@@ -4,9 +4,11 @@
  * the repository and runs `consola-host session` (`AGENTS.md`, "The `runner` command"). What the
  * session's host prints on stdout becomes the cell's `session.update`s (`runnerDecisions.ts`);
  * how its command ends becomes the session's end, said once. Every sandbox is stopped: on the
- * cell's stop, after the host's `exit` line and a grace, at the lifetime cap, when the command
- * ends, as soon as the session's end is said while its command runs on (a failed clone), and when
- * the runner stops (`stopAll`).
+ * cell's stop, after the host's `exit` line and a grace, at the lifetime cap (a stop's length
+ * before it), when the command ends, as soon as the session's end is said while its command runs
+ * on (a failed clone), and when the runner stops (`stopAll`). And its provider stops it should
+ * the runner not: each sandbox is leased for `SANDBOX_LEASE_SECONDS` and renewed while the runner
+ * holds it, never past the cap.
  */
 import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
@@ -22,14 +24,18 @@ import * as Stream from 'effect/Stream';
 import {
   endOf,
   HostLineBuffer,
+  lifetimeStopAfterMs,
   offerRefusal,
   type RunnerOffer,
   readSessionLine,
+  SANDBOX_LEASE_RENEW_SECONDS,
+  SANDBOX_LEASE_SECONDS,
   SESSION_START_ARGV,
   SESSION_TEMPLATE,
   StderrTail,
   type SandboxSecrets,
   sandboxEnvFor,
+  sandboxLifetimeSeconds,
   scrubSecrets,
   scrubUpdate,
   updateForExit,
@@ -57,7 +63,9 @@ export const SANDBOX_CALL_TIMEOUT = Duration.seconds(60);
 
 /**
  * How long a sandbox's `stop` may take before the runner goes on without it, so that a provider
- * that hangs never keeps a session's end from being said.
+ * that hangs never keeps a session's end from being said. The runner's stop for the lifetime cap
+ * begins this long before it, so it comes before the provider's own and is over by the cap
+ * (`lifetimeStopAfterMs`).
  */
 export const SANDBOX_STOP_TIMEOUT = Duration.seconds(30);
 
@@ -83,16 +91,21 @@ export type SandboxSessionsOptions = {
   readonly secretValues: ReadonlyArray<string>;
   /** The host's idle minutes (`CONSOLA_SESSION_IDLE_MINUTES`). */
   readonly idleMinutes: number;
-  /** The longest a session's sandbox runs: the runner stops it then, whatever it is doing. */
+  /**
+   * The longest a session's sandbox runs. Its provider stops it then; the runner stops it first,
+   * whatever it is doing, a stop's length before (`lifetimeStopAfterMs`).
+   */
   readonly maxLifetime: Duration.Input;
   /** `EXIT_LINE_GRACE` unless a test shortens it. */
   readonly exitLineGrace?: Duration.Input;
-  /** `SANDBOX_STOP_TIMEOUT` unless a test shortens it. */
+  /** `SANDBOX_STOP_TIMEOUT` unless a test shortens it; the lead of the lifetime stop too. */
   readonly stopTimeout?: Duration.Input;
   /** `SHUTDOWN_STOP_TIMEOUT` unless a test shortens it. */
   readonly shutdownStopTimeout?: Duration.Input;
   /** `SANDBOX_CALL_TIMEOUT` unless a test shortens it. */
   readonly callTimeout?: Duration.Input;
+  /** `SANDBOX_LEASE_RENEW_SECONDS` unless a test shortens it. */
+  readonly leaseRenewEvery?: Duration.Input;
   /** Where every update goes: the cell's socket. Each is scrubbed of the secrets first. */
   readonly report: (update: SessionUpdate) => Effect.Effect<void>;
   /** A line for the runner's own log. Scrubbed of the secrets, and never the environment. */
@@ -180,6 +193,11 @@ export const makeSandboxSessions = (
     const stopTimeout = options.stopTimeout ?? SANDBOX_STOP_TIMEOUT;
     const shutdownStopTimeout = options.shutdownStopTimeout ?? SHUTDOWN_STOP_TIMEOUT;
     const callTimeout = options.callTimeout ?? SANDBOX_CALL_TIMEOUT;
+    const leaseRenewEvery =
+      options.leaseRenewEvery ?? Duration.seconds(SANDBOX_LEASE_RENEW_SECONDS);
+    /** A provider that renews a lifetime leases its sandboxes; any other gets the whole cap. */
+    const keepAlive = options.sandboxes.keepAlive;
+    const leaseSeconds = keepAlive === undefined ? null : SANDBOX_LEASE_SECONDS;
     const log = (message: string) => options.log(scrubSecrets(message, options.secretValues));
 
     /** Returns at the shutdown's deadline, once the runner began stopping; never before. */
@@ -373,20 +391,65 @@ export const makeSandboxSessions = (
         );
       });
 
+    /**
+     * Renews the lease of the session's sandbox every `leaseRenewEvery` (never past the cap,
+     * `capAtMs`) until the runner asks it to stop. Each renewal is a fiber of its own, so one
+     * that hangs (up to `callTimeout`) never holds back the next: they are asked at a fixed
+     * rate, and the lease runs out only after three in a row fail. A renewal that fails is logged.
+     */
+    const renewLease = (session: Held, sandbox: Sandbox, capAtMs: number): Effect.Effect<void> =>
+      Effect.gen(function* () {
+        if (keepAlive === undefined) return;
+        const { sessionId } = session.start;
+        while (true) {
+          yield* Effect.sleep(leaseRenewEvery);
+          if (session.stopAsked || (yield* Deferred.isDone(session.stopSignal))) return;
+          const nowMs = yield* Clock.currentTimeMillis;
+          const seconds = sandboxLifetimeSeconds(capAtMs - nowMs, leaseSeconds);
+          yield* withinCallTimeout(
+            () => keepAlive.renew(sandbox, seconds),
+            `it did not answer ${withinCallTimeoutText}`,
+          ).pipe(
+            Effect.catchTag('SandboxCallFailed', (error) =>
+              log(`session ${sessionId}: its sandbox's lease was not renewed: ${error.problem}`),
+            ),
+            Effect.forkChild,
+          );
+        }
+      });
+
     const runSession = (session: Held): Effect.Effect<void> => {
       const { sessionId } = session.start;
       return Effect.gen(function* () {
         const refusal = offerRefusal(options.offer, session.start);
         if (refusal !== null) return yield* failedWith(session, refusal);
-        yield* Effect.sleep(options.maxLifetime).pipe(
+        const maxLifetimeMs = Duration.toMillis(options.maxLifetime);
+        const capAtMs = (yield* Clock.currentTimeMillis) + maxLifetimeMs;
+        // The runner's own stop comes first, so the session ends `stopped`, never as a sandbox
+        // its provider ended at the cap.
+        yield* Effect.sleep(
+          Duration.millis(lifetimeStopAfterMs(maxLifetimeMs, Duration.toMillis(stopTimeout))),
+        ).pipe(
           Effect.andThen(Deferred.succeed(session.stopSignal, { kind: 'lifetime' })),
           Effect.forkChild,
+        );
+        // Its provider's own stop: the lease, renewed below, never past the cap.
+        const lifetimeSeconds = sandboxLifetimeSeconds(
+          capAtMs - (yield* Clock.currentTimeMillis),
+          leaseSeconds,
         );
         const sandbox = yield* withinCallTimeout(
           () =>
             options.sandboxes.create({
               template: SESSION_TEMPLATE,
               env: sandboxEnvFor(session.start, options.secrets, options.idleMinutes),
+              lifetimeSeconds,
+              // The browser reaches the host at the exposed address, and a browser's WebSocket
+              // cannot carry a provider's credential: the host guards its port with a pass, then
+              // a ticket. This opens every port in the sandbox, until a gateway stands in front
+              // (Linear: "10.5 A session gateway: sandboxes stay private, the browser reaches the
+              // host through Consola", https://linear.app/consola/issue/CON-105).
+              publicPorts: true,
             }),
           `The sandbox was not made ${withinCallTimeoutText}.`,
           // Made after all: nothing will use it, and nothing else would stop it.
@@ -402,6 +465,7 @@ export const makeSandboxSessions = (
         );
         session.sandbox = sandbox;
         yield* log(`session ${sessionId}: sandbox ${sandbox.id} created`);
+        yield* renewLease(session, sandbox, capAtMs).pipe(Effect.forkChild);
 
         // A stop that came while the sandbox was being made: nothing is started in it.
         if (yield* Deferred.isDone(session.stopSignal)) {

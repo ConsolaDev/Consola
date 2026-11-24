@@ -17,6 +17,14 @@ export interface CreateSandboxOptions {
    * for others (the fake's).
    */
   readonly lifetimeSeconds?: number;
+  /**
+   * Whether every port `exposePort` exposes is reached with no credential of the provider's, by
+   * anyone who has its address (a browser's WebSocket included). Off when absent: a provider
+   * that can lock its ports keeps them locked, and only a client holding the provider's own
+   * credential reaches them. Ask for it only for a sandbox whose listeners guard themselves, and
+   * know that it opens every port the sandbox listens on, not only the one exposed.
+   */
+  readonly publicPorts?: boolean;
 }
 
 /** A program to run in a sandbox. */

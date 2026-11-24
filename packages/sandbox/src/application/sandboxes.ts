@@ -137,10 +137,15 @@ export function sandboxesFrom(provider: SandboxProvider): Sandboxes {
 
   const create = async (options: CreateSandboxOptions): Promise<Sandbox> => {
     refuseIf(createOptionsProblem(options));
-    const { template, lifetimeSeconds } = options;
+    const { template, lifetimeSeconds, publicPorts } = options;
     const env = options.env === undefined ? undefined : { ...options.env };
     const inner = await fromProvider(() =>
-      provider.create({ template, env, ...(lifetimeSeconds !== undefined && { lifetimeSeconds }) }),
+      provider.create({
+        template,
+        env,
+        ...(lifetimeSeconds !== undefined && { lifetimeSeconds }),
+        ...(publicPorts !== undefined && { publicPorts }),
+      }),
     );
     return guard(inner, idProblem(inner));
   };

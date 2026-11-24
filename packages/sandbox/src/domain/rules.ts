@@ -54,7 +54,11 @@ export function createOptionsProblem(options: CreateSandboxOptions): string | nu
   }
   const lifetime =
     options.lifetimeSeconds === undefined ? null : lifetimeProblem(options.lifetimeSeconds);
-  return templateProblem(options.template) ?? envProblem(options.env) ?? lifetime;
+  const publicPorts =
+    options.publicPorts === undefined || typeof options.publicPorts === 'boolean'
+      ? null
+      : `${quoted(options.publicPorts)} is not a choice of public ports: it is true or false.`;
+  return templateProblem(options.template) ?? envProblem(options.env) ?? lifetime ?? publicPorts;
 }
 
 /** The id of a sandbox a request names. `doing` is what needs it: "Attaching", say. */

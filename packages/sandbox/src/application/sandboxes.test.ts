@@ -40,7 +40,7 @@ function spy(
     sandboxes: sandboxesFrom({
       create: async (options) => {
         calls.push(
-          `create ${options.template}${options.lifetimeSeconds ? ` for ${options.lifetimeSeconds}s` : ''}`,
+          `create ${options.template}${options.lifetimeSeconds ? ` for ${options.lifetimeSeconds}s` : ''}${options.publicPorts === undefined ? '' : ` publicPorts ${options.publicPorts}`}`,
         );
         return sandbox;
       },
@@ -519,6 +519,21 @@ describe('a sandbox by its id', () => {
       );
     }
     expect(calls).toEqual(['create base for 900s']);
+  });
+
+  it('is created with its ports public or locked only as asked, and refused a malformed choice', async () => {
+    const { calls, sandboxes } = spy();
+    await sandboxes.create({ template: 'base', publicPorts: true });
+    await sandboxes.create({ template: 'base', publicPorts: false });
+    await sandboxes.create({ template: 'base' });
+    await expect(sandboxes.create({ template: 'base', publicPorts: 1 as never })).rejects.toEqual(
+      coded('invalid', /public ports/),
+    );
+    expect(calls).toEqual([
+      'create base publicPorts true',
+      'create base publicPorts false',
+      'create base',
+    ]);
   });
 
   it('is attached to, and stopped, through the provider', async () => {

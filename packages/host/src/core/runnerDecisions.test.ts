@@ -5,6 +5,7 @@ import {
   EndedSessions,
   HostLineBuffer,
   harnessesFromEnv,
+  lifetimeStopAfterMs,
   MAX_ENDED_SESSIONS,
   MAX_ERROR_LENGTH,
   MAX_LINE_LENGTH,
@@ -13,11 +14,14 @@ import {
   RECONNECT_CAP_MS,
   readRepositories,
   reconnectDelayMs,
+  SANDBOX_LEASE_RENEW_SECONDS,
+  SANDBOX_LEASE_SECONDS,
   SESSION_START_ARGV,
   SESSION_TEMPLATE,
   STDERR_TAIL_LENGTH,
   StderrTail,
   sandboxEnvFor,
+  sandboxLifetimeSeconds,
   scrubSecrets,
   scrubUpdate,
   type SandboxEnd,
@@ -500,6 +504,55 @@ describe('sandboxEnvFor', () => {
   it('names the session template and its start command', () => {
     expect(SESSION_TEMPLATE).toBe('consola-session');
     expect(SESSION_START_ARGV).toEqual(['consola-session-start']);
+  });
+});
+
+describe('sandboxLifetimeSeconds', () => {
+  it('leases a sandbox for ten minutes at a time, renewed every three', () => {
+    expect(SANDBOX_LEASE_SECONDS).toBe(600);
+    expect(SANDBOX_LEASE_RENEW_SECONDS).toBe(180);
+    expect(sandboxLifetimeSeconds(8 * 3_600_000, SANDBOX_LEASE_SECONDS)).toBe(600);
+  });
+
+  it('never runs past the cap: what is left of it, in whole seconds, once that is shorter', () => {
+    expect(sandboxLifetimeSeconds(599_999, 600)).toBe(599);
+    expect(sandboxLifetimeSeconds(90_500, 600)).toBe(90);
+    expect(sandboxLifetimeSeconds(1_000, 600)).toBe(1);
+  });
+
+  it('is the whole of what is left of the cap without a lease', () => {
+    expect(sandboxLifetimeSeconds(8 * 3_600_000, null)).toBe(28_800);
+    expect(sandboxLifetimeSeconds(28_800_999, null)).toBe(28_800);
+  });
+
+  it('is a second at least, the grain a provider takes, when the cap is less than one away', () => {
+    expect(sandboxLifetimeSeconds(300, 600)).toBe(1);
+    expect(sandboxLifetimeSeconds(0, null)).toBe(1);
+    expect(sandboxLifetimeSeconds(-5_000, 600)).toBe(1);
+  });
+});
+
+describe('lifetimeStopAfterMs', () => {
+  const STOP_TIMEOUT_MS = 30_000;
+
+  it("stops a sandbox a stop's length before its cap, where its provider stops it", () => {
+    expect(lifetimeStopAfterMs(8 * 3_600_000, STOP_TIMEOUT_MS)).toBe(8 * 3_600_000 - 30_000);
+    expect(lifetimeStopAfterMs(10 * 60_000, STOP_TIMEOUT_MS)).toBe(570_000);
+  });
+
+  it('stops it halfway to a cap under twice that', () => {
+    expect(lifetimeStopAfterMs(40_000, STOP_TIMEOUT_MS)).toBe(20_000);
+    expect(lifetimeStopAfterMs(300, STOP_TIMEOUT_MS)).toBe(150);
+  });
+
+  it('always comes before its provider may stop it: the cap less the second a lifetime is counted in, a second at least', () => {
+    for (const capMs of [300, 1_500, 2_500, 45_000, 60_500, 61_000, 8 * 3_600_000]) {
+      const providerEarliestMs = Math.max(1_000, capMs - 1_000);
+      expect(lifetimeStopAfterMs(capMs, STOP_TIMEOUT_MS), `${capMs}`).toBeLessThan(
+        providerEarliestMs,
+      );
+      expect(lifetimeStopAfterMs(capMs, STOP_TIMEOUT_MS), `${capMs}`).toBeGreaterThan(0);
+    }
   });
 });
 

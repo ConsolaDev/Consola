@@ -90,6 +90,8 @@ export interface FakeSandboxRecord {
   readonly state: 'running' | 'paused' | 'stopped';
   /** The lifetime it was created with, in seconds, or null for none (no limit). */
   readonly lifetimeSeconds: number | null;
+  /** Whether it was created with its ports public (`publicPorts`); false when not asked. */
+  readonly publicPorts: boolean;
   /**
    * The seconds left before its lifetime runs out on the fake's clock, as created or as last
    * renewed: null for no limit, 0 once it has run out.
@@ -232,6 +234,7 @@ export class FakeProvider implements SandboxProvider {
       { ...options.env },
       template.copy(),
       options.lifetimeSeconds ?? null,
+      options.publicPorts === true,
       () => this.clock,
     );
     this.records.push(sandbox);
@@ -413,6 +416,7 @@ class FakeSandbox implements FakeSandboxRecord {
     readonly env: Readonly<Record<string, string>>,
     readonly store: FileStore,
     readonly lifetimeSeconds: number | null,
+    readonly publicPorts: boolean,
     private readonly clock: () => number,
   ) {
     this.files = store.at(FAKE_DEFAULT_CWD);

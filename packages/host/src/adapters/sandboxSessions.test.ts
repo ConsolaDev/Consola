@@ -81,6 +81,38 @@ const byId = (fake: FakeProvider): Pick<SandboxProvider, 'attach' | 'stop'> => (
   stop: (sandboxId) => fake.stop(sandboxId),
 });
 
+/**
+ * The fake, but each sandbox ends in real time when its lifetime runs out, as E2B ends one: its
+ * commands are killed (`wait` answers null) and it is gone. A renewal gives it a lifetime from
+ * now. Its sandboxes renew (`keepAlive`), as E2B's do.
+ */
+const endingAtTheirLifetime = (fake: FakeProvider): SandboxProvider => {
+  const ends = new Map<string, Fiber.Fiber<void>>();
+  const endIn = (sandboxId: string, lifetimeSeconds: number | undefined) => {
+    const before = ends.get(sandboxId);
+    if (before !== undefined) Effect.runFork(Fiber.interrupt(before));
+    if (lifetimeSeconds === undefined) return;
+    const end = Effect.sleep(Duration.seconds(lifetimeSeconds)).pipe(
+      Effect.andThen(Effect.promise(() => fake.stop(sandboxId))),
+    );
+    ends.set(sandboxId, Effect.runFork(end));
+  };
+  return {
+    ...byId(fake),
+    create: async (options) => {
+      const sandbox = await fake.create(options);
+      endIn(sandbox.id, options.lifetimeSeconds);
+      return sandbox;
+    },
+    keepAlive: {
+      renew: async (sandboxId, lifetimeSeconds) => {
+        await fake.keepAlive?.renew(sandboxId, lifetimeSeconds);
+        endIn(sandboxId, lifetimeSeconds);
+      },
+    },
+  };
+};
+
 /** Sessions over a fake provider with `programs`, reporting into a queue a test reads. */
 const harness = Effect.fn('harness')(function* (
   options: {
@@ -91,6 +123,7 @@ const harness = Effect.fn('harness')(function* (
     readonly stopTimeout?: Duration.Input;
     readonly shutdownStopTimeout?: Duration.Input;
     readonly callTimeout?: Duration.Input;
+    readonly leaseRenewEvery?: Duration.Input;
     readonly offer?: { readonly repositories: string[]; readonly harnesses: Harness[] };
   } = {},
 ) {
@@ -111,6 +144,7 @@ const harness = Effect.fn('harness')(function* (
       ? {}
       : { shutdownStopTimeout: options.shutdownStopTimeout }),
     ...(options.callTimeout === undefined ? {} : { callTimeout: options.callTimeout }),
+    ...(options.leaseRenewEvery === undefined ? {} : { leaseRenewEvery: options.leaseRenewEvery }),
     report: (update) =>
       Effect.sync(() => {
         sent.push(update);
@@ -161,7 +195,7 @@ const finalsOf = (sent: ReadonlyArray<SessionUpdate>, sessionId: string) =>
   );
 
 describe('makeSandboxSessions', () => {
-  it("creates the sandbox from the session template with the session's variables and its harness's key alone", () =>
+  it("creates the sandbox from the session template with the session's variables, its harness's key alone, and its ports public", () =>
     run(
       Effect.gen(function* () {
         const h = yield* harness({
@@ -171,6 +205,7 @@ describe('makeSandboxSessions', () => {
         expect(yield* h.next).toMatchObject({ status: 'running' });
         const [sandbox] = h.fake.sandboxes;
         expect(sandbox?.template).toBe('consola-session');
+        expect(sandbox?.publicPorts).toBe(true);
         expect(sandbox?.env).toEqual({
           CONSOLA_SESSION_ID: 'session-acme-1',
           CONSOLA_HARNESS: 'claude',
@@ -882,6 +917,244 @@ describe('makeSandboxSessions', () => {
           status: 'stopped',
         });
         expect(h.fake.sandboxes[0]?.state).toBe('stopped');
+      }),
+    ));
+
+  it('gives a sandbox the whole lifetime cap where its provider cannot renew one', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+        });
+        yield* h.sessions.start(startOf('session-acme-cap'));
+        yield* h.next;
+        // Eight hours, less the moment it took to make: the provider stops it by the cap.
+        const lifetime = h.fake.sandboxes[0]?.lifetimeSeconds ?? 0;
+        expect(lifetime).toBeLessThanOrEqual(8 * 3_600);
+        expect(lifetime).toBeGreaterThan(8 * 3_600 - 60);
+        yield* h.sessions.stopAll;
+      }),
+    ));
+
+  it('leases a sandbox for ten minutes and renews the lease while it holds the session, then no more', () =>
+    run(
+      Effect.gen(function* () {
+        const renewals: number[] = [];
+        const h = yield* harness({
+          fake: {
+            capabilities: ['keepAlive'],
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+          leaseRenewEvery: Duration.millis(50),
+          provider: (fake) => ({
+            ...byId(fake),
+            create: (options) => fake.create(options),
+            keepAlive: {
+              renew: (sandboxId, lifetimeSeconds) => {
+                renewals.push(lifetimeSeconds);
+                return fake.keepAlive?.renew(sandboxId, lifetimeSeconds) ?? Promise.resolve();
+              },
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-lease'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        expect(h.fake.sandboxes[0]?.lifetimeSeconds).toBe(600);
+        while (renewals.length < 3) yield* Effect.sleep(Duration.millis(10));
+        expect(renewals.slice(0, 3)).toEqual([600, 600, 600]);
+        expect(h.fake.sandboxes[0]?.remainingSeconds).toBe(600);
+
+        yield* h.sessions.stop('session-acme-lease');
+        const renewed = renewals.length;
+        yield* Effect.sleep(Duration.millis(200));
+        expect(renewals).toHaveLength(renewed);
+      }),
+    ));
+
+  it('never renews a lease past the lifetime cap', () =>
+    run(
+      Effect.gen(function* () {
+        const renewals: number[] = [];
+        const h = yield* harness({
+          maxLifetime: Duration.millis(2_500),
+          fake: {
+            capabilities: ['keepAlive'],
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+          leaseRenewEvery: Duration.millis(400),
+          provider: (fake) => ({
+            ...byId(fake),
+            create: (options) => fake.create(options),
+            keepAlive: {
+              renew: (sandboxId, lifetimeSeconds) => {
+                renewals.push(lifetimeSeconds);
+                return fake.keepAlive?.renew(sandboxId, lifetimeSeconds) ?? Promise.resolve();
+              },
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-lease-cap'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        // Two whole seconds are left of the cap as it is made, under the ten-minute lease.
+        expect(h.fake.sandboxes[0]?.lifetimeSeconds).toBe(2);
+        expect(yield* h.next).toMatchObject({ status: 'stopped' });
+        expect(renewals.length).toBeGreaterThan(0);
+        for (const seconds of renewals) {
+          expect(seconds).toBeGreaterThanOrEqual(1);
+          expect(seconds).toBeLessThanOrEqual(2);
+        }
+      }),
+    ));
+
+  it('logs a lease that was not renewed, without a secret, and keeps renewing', () =>
+    run(
+      Effect.gen(function* () {
+        let asked = 0;
+        const h = yield* harness({
+          fake: {
+            capabilities: ['keepAlive'],
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+          leaseRenewEvery: Duration.millis(50),
+          provider: (fake) => ({
+            ...byId(fake),
+            create: (options) => fake.create(options),
+            keepAlive: {
+              renew: async () => {
+                asked += 1;
+                throw new SandboxError('provider', `E2B: rate limited (token ${GIT_TOKEN})`);
+              },
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-lease-fails'));
+        yield* h.next;
+        while (asked < 2) yield* Effect.sleep(Duration.millis(10));
+        expect(h.logged).toContain(
+          "session session-acme-lease-fails: its sandbox's lease was not renewed: E2B: rate limited (token [redacted])",
+        );
+        yield* h.sessions.stopAll;
+        expectNoSecret(h);
+      }),
+    ));
+
+  it('ends a session at its lifetime cap as stopped, before its provider ends the sandbox there', () =>
+    run(
+      Effect.gen(function* () {
+        // The cap is 2.5 s, the stop's own bound 1 s. The sandbox is made with the cap's two
+        // whole seconds, and renewed at 1.2 s with its one: its provider ends it at about 2.2 s,
+        // before the cap, as E2B's deadline lands up to a second before it. The runner's own
+        // stop comes first (1.5 s), so the session is stopped, not failed as a sandbox that
+        // ended by itself.
+        const h = yield* harness({
+          maxLifetime: Duration.millis(2_500),
+          stopTimeout: Duration.seconds(1),
+          leaseRenewEvery: Duration.millis(1_200),
+          fake: {
+            capabilities: ['keepAlive'],
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+          provider: endingAtTheirLifetime,
+        });
+        yield* h.sessions.start(startOf('session-acme-cap-race'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        expect(h.fake.sandboxes[0]?.lifetimeSeconds).toBe(2);
+        expect(yield* h.next).toEqual({
+          type: 'session.update',
+          sessionId: 'session-acme-cap-race',
+          status: 'stopped',
+        });
+        expect(h.logged).toContain(
+          'session session-acme-cap-race: stopping its sandbox (lifetime)',
+        );
+        expect(h.fake.sandboxes[0]?.state).toBe('stopped');
+      }),
+    ));
+
+  it('asks each renewal on time, however long the one before it takes', () =>
+    run(
+      Effect.gen(function* () {
+        let asked = 0;
+        const h = yield* harness({
+          fake: {
+            capabilities: ['keepAlive'],
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+          leaseRenewEvery: Duration.millis(100),
+          // A renewal that never answers holds its call for the whole call timeout, 60 s.
+          provider: (fake) => ({
+            ...byId(fake),
+            create: (options) => fake.create(options),
+            keepAlive: {
+              renew: () => {
+                asked += 1;
+                return new Promise<void>(() => undefined);
+              },
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-lease-hangs'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        yield* Effect.gen(function* () {
+          while (asked < 3) yield* Effect.sleep(Duration.millis(10));
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: Duration.seconds(3),
+            orElse: () => Effect.die(new Error(`${asked} renewal(s) asked in 3 s, not 3`)),
+          }),
+        );
+        yield* h.sessions.stopAll;
+      }),
+    ));
+
+  it('leaves a sandbox whose stop failed to its lease, which ends it ten minutes after its last renewal', () =>
+    run(
+      Effect.gen(function* () {
+        let renewals = 0;
+        const h = yield* harness({
+          fake: {
+            capabilities: ['keepAlive'],
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+          leaseRenewEvery: Duration.millis(50),
+          // The runner cannot stop it: as a runner that is gone, it renews it no more.
+          provider: (fake) => ({
+            ...byId(fake),
+            create: async (options) => {
+              const sandbox = await fake.create(options);
+              return {
+                ...sandbox,
+                stop: async () => {
+                  throw new SandboxError('provider', 'E2B: kill failed');
+                },
+              };
+            },
+            keepAlive: {
+              renew: (sandboxId, lifetimeSeconds) => {
+                renewals += 1;
+                return fake.keepAlive?.renew(sandboxId, lifetimeSeconds) ?? Promise.resolve();
+              },
+            },
+          }),
+        });
+        yield* h.sessions.start(startOf('session-acme-lease-ends'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        while (renewals < 1) yield* Effect.sleep(Duration.millis(10));
+        yield* h.sessions.stop('session-acme-lease-ends');
+        expect(finalsOf(h.sent, 'session-acme-lease-ends')).toEqual([
+          { type: 'session.update', sessionId: 'session-acme-lease-ends', status: 'stopped' },
+        ]);
+        const renewed = renewals;
+        yield* Effect.sleep(Duration.millis(200));
+        expect(renewals).toBe(renewed);
+
+        const sandbox = h.fake.sandboxes[0];
+        expect(sandbox?.state).toBe('running');
+        expect(sandbox?.remainingSeconds).toBe(600);
+        h.fake.elapse(599);
+        expect(sandbox?.state).toBe('running');
+        h.fake.elapse(1);
+        expect(sandbox?.state).toBe('stopped');
       }),
     ));
 

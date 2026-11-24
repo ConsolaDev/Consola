@@ -63,7 +63,7 @@ const CURSOR_PLATFORM_BINARY =
  */
 export const NOT_SHIPPED = {
   '@anthropic-ai/claude-agent-sdk':
-    "Anthropic's own terms (SEE LICENSE IN README.md). Installed by the copied `@t3tools/provider-claude` and the lifted t3 server, which `@consola/host` runs. Nothing that bundles it is published or released until its licence is settled (CON-21), and the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
+    "Anthropic's own terms (SEE LICENSE IN README.md). Installed by the copied `@t3tools/provider-claude` and the lifted t3 server, which `@consola/host` runs. Nothing that bundles it is published or released until its licence is settled (CON-21): the host's bundle (`packages/host/dist/consola-host.mjs`) holds it, so that bundle stays out of every release and lives only in the private `consola-session` sandbox template on Consola's own E2B account (`packages/host/sandbox-template/`), and the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
   '@cursor/sdk':
     "Cursor's own licence (SEE LICENSE IN LICENSE.md). Installed by the copied `@t3tools/provider-cursor`, and never bundled into anything Consola builds: the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
   '@cursor/sdk-darwin-arm64': CURSOR_PLATFORM_BINARY,

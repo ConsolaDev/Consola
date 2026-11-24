@@ -49,6 +49,9 @@ an in-memory fake provider for other packages' tests, and the E2B provider
   for long sets a short one and renews it (`keepAlive.renew`) well before it
   runs out, for as long as the runner is alive. Without one the provider's
   default applies: five minutes on E2B, no limit in the fake.
+- A sandbox's exposed ports need the provider's own credential, unless
+  `create` asks for `publicPorts`, which opens every port it listens on to
+  anyone with the address. Ask for it only where what listens guards itself.
 - A runner that restarted reaches what it left by id: `attach(id)` for a
   handle (`not-found` once it stopped), `stop(id)` to end it (stopping one
   that is gone does nothing). Keep the ids somewhere that survives the
@@ -70,7 +73,8 @@ an in-memory fake provider for other packages' tests, and the E2B provider
   command's folder (folders are only the paths of files), where a real
   provider fails a command whose folder is not there. `fake.sandboxes` says
   what was asked of it: each sandbox's template, variables, state, lifetime
-  and `remainingSeconds`, commands and exposed ports, and its files.
+  and `remainingSeconds`, `publicPorts`, commands and exposed ports, and its
+  files.
   `POSIX_PROGRAMS` holds stand-ins for the few POSIX tools the contract runs.
 
 ## The layers
@@ -165,7 +169,11 @@ its top (`LAYERS`), so a new folder is added there first.
      `provider` error with the provider's own words. Never put a key or a
      token in a message;
    - `exposePort` returns an http or https address: the same one each time
-     for a port, a different one for each port and each sandbox.
+     for a port, a different one for each port and each sandbox. A sandbox
+     created with `publicPorts` has every port reached there with no
+     credential of the provider's (a browser's WebSocket included), and
+     whatever listens guards itself; without it, a provider that can lock
+     its ports keeps them locked.
    - a lifetime is a hard maximum: the provider stops the sandbox once it
      runs out, and `attach` never lengthens it (an SDK whose "connect"
      extends a timeout, as E2B's does, needs telling not to);
@@ -211,6 +219,18 @@ reruns the live contract.
   `getInfo` first (a paused sandbox is refused, never resumed), then
   connects with a one-second timeout: E2B's connect only ever lengthens a
   timeout, and without one it applies its five-minute default.
+- **Ports.** Locked unless `publicPorts` asks otherwise: `create` always
+  passes `network: { allowPublicTraffic }`, false by default, so E2B asks
+  every request to an exposed port for the sandbox's traffic token in a
+  header (`e2b-traffic-access-token`, else `403`), which a browser cannot
+  add to a WebSocket. With `publicPorts`, anyone with the address reaches
+  every port the sandbox listens on (E2B's setting is per sandbox, not per
+  port). E2B's own control channel keeps its own token either way. Only the
+  runner's session sandboxes ask for it, and only until a gateway stands in
+  front of them (Linear: "10.5 A session gateway: sandboxes stay private,
+  the browser reaches the host through Consola",
+  https://linear.app/consola/issue/CON-105). The interface does not hand out
+  the traffic token yet; the gateway will need it.
 - **Errors.** A missing file or template is `not-found`; a sandbox E2B says
   is gone is `not-running` to a handle and `not-found` to `attach`; an id
   E2B calls invalid (400) is `not-found` to `attach` and nothing to stop.
@@ -231,7 +251,14 @@ reruns the live contract.
   `pnpm --filter @consola/sandbox template:build <name>` builds one on the
   account under its folder's name, which `create` then takes as `template`.
   `consola-base` holds git, gh and Node 26; the agent CLIs join it once the
-  runner's spec (21.3) lists them.
+  runner's spec (21.3) lists them. E2B's `e2bdev/base` has a Node 20 of its
+  own in `/usr/local`, which the default `PATH` finds before `/usr/bin`, so a
+  template on it removes that Node before installing its own
+  (`templates.test.ts`). One template lives elsewhere: the
+  runner's `consola-session`, which holds the host's bundle, is in
+  `packages/host/sandbox-template/`, staged and built with `buildE2BTemplate`
+  by `pnpm --filter @consola/host template:build`. E2B keeps an `ARG` as a
+  variable of every command a sandbox runs, not only of the build.
 
 ## Adding a capability
 

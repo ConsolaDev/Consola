@@ -74,6 +74,12 @@ const MACHINE_GLOBALS = [
 const RUNNER_PROTOCOL = '@consola/runner-protocol';
 /** The sandbox interface (`sandboxesFrom`) and its fake: the outer rings run sandboxes with it. */
 const SANDBOX = '@consola/sandbox';
+/**
+ * The E2B provider, an entry point of its own so nothing else loads E2B's SDK: only the wiring
+ * builds it, from the runner's key (`productionProvider`), and loads it only then (a dynamic
+ * `import()`), so a session's host, which runs the same file, never loads E2B's SDK.
+ */
+const SANDBOX_E2B = '@consola/sandbox/e2b';
 
 const LAYERS: Layer[] = [
   {
@@ -122,13 +128,13 @@ const LAYERS: Layer[] = [
     noGlobals: [],
     consola: [],
   },
-  // The one wiring file, where everything meets.
+  // The one wiring file, where everything meets, and the one place a real provider is made.
   {
     at: 'bin',
     reaches: ['core', 'runtime', 'adapters'],
     refuses: [TEST_KITS],
     noGlobals: [],
-    consola: [RUNNER_PROTOCOL, SANDBOX],
+    consola: [RUNNER_PROTOCOL, SANDBOX, SANDBOX_E2B],
   },
 ];
 
@@ -229,6 +235,30 @@ function importsOf(source: string, fileName = 'x.ts'): string[] {
   };
   visit(tree);
   return specifiers;
+}
+
+/**
+ * The module specifiers a source file loads as it loads: each `import` and `export … from` but one
+ * of types alone (`import type`, `export type`), which compiling drops. A dynamic `import()` loads
+ * only once it runs, and a `require()` (which the host's ESM does not use) is not looked for.
+ */
+function loadedWithModuleOf(source: string, fileName = 'x.ts'): string[] {
+  const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  return tree.statements.flatMap((statement) => {
+    if (ts.isImportDeclaration(statement)) {
+      if (statement.importClause?.isTypeOnly) return [];
+      return ts.isStringLiteralLike(statement.moduleSpecifier)
+        ? [statement.moduleSpecifier.text]
+        : [NON_LITERAL];
+    }
+    if (ts.isExportDeclaration(statement) && statement.moduleSpecifier !== undefined) {
+      if (statement.isTypeOnly) return [];
+      return ts.isStringLiteralLike(statement.moduleSpecifier)
+        ? [statement.moduleSpecifier.text]
+        : [NON_LITERAL];
+    }
+    return [];
+  });
 }
 
 /** Objects whose members are globals, so `globalThis.fetch` refers to `fetch`. */
@@ -527,6 +557,15 @@ describe('the dependency rule', () => {
     ['bin.test.ts', '@consola/sandbox', true],
     ['core/x.test.ts', '@consola/sandbox', false],
     ['x.test.ts', '@consola/runner-protocol', false],
+    // E2B's provider is made in the wiring alone.
+    ['bin.ts', '@consola/sandbox/e2b', true],
+    ['bin.test.ts', '@consola/sandbox/e2b', true],
+    ['core/x.ts', '@consola/sandbox/e2b', false],
+    ['runtime/x.ts', '@consola/sandbox/e2b', false],
+    ['adapters/x.ts', '@consola/sandbox/e2b', false],
+    ['testing/x.ts', '@consola/sandbox/e2b', false],
+    ['adapters/x.test.ts', '@consola/sandbox/e2b', false],
+    ['main.ts', '@consola/sandbox/e2b', false],
     ...[
       'core/x.ts',
       'runtime/x.ts',
@@ -642,5 +681,26 @@ describe('the dependency rule', () => {
     expect(violationsOf('core/x.ts', 'const m = await import(name);')).toEqual([
       'core/x.ts imports <non-literal specifier>',
     ]);
+  });
+
+  it("bin.ts loads E2B's provider only when a runner asks for it, so a session's host never loads E2B's SDK", () => {
+    const bin = readFileSync(join(SRC, 'bin.ts'), 'utf8');
+    expect(importsOf(bin, 'bin.ts')).toContain(SANDBOX_E2B);
+    expect(loadedWithModuleOf(bin, 'bin.ts')).not.toContain(SANDBOX_E2B);
+  });
+
+  it('the checker tells what loads with a module from what loads once it runs', () => {
+    expect(loadedWithModuleOf(`import { E2BProvider } from '${SANDBOX_E2B}';`)).toEqual([
+      SANDBOX_E2B,
+    ]);
+    expect(loadedWithModuleOf(`export { E2BProvider } from '${SANDBOX_E2B}';`)).toEqual([
+      SANDBOX_E2B,
+    ]);
+    expect(loadedWithModuleOf(`import '${SANDBOX_E2B}';`)).toEqual([SANDBOX_E2B]);
+    expect(loadedWithModuleOf(`import type { E2BProvider } from '${SANDBOX_E2B}';`)).toEqual([]);
+    expect(loadedWithModuleOf(`export type { E2BProvider } from '${SANDBOX_E2B}';`)).toEqual([]);
+    expect(
+      loadedWithModuleOf(`const load = async () => (await import('${SANDBOX_E2B}')).E2BProvider;`),
+    ).toEqual([]);
   });
 });

@@ -284,8 +284,10 @@ them. A change that cannot be avoided, every file copied and every re-sync are r
 `vendor/t3code/UPSTREAM.md`, in the same commit. Two Consola packages build on it:
 `packages/host` (`@consola/host`, AGPL), which runs t3's orchestration for one session and
 serves t3's RPC behind a session pass, and in its runner role (`consola-host runner`) starts
-sessions in sandboxes through `@consola/sandbox`, speaking `@consola/runner-protocol` to its
-cell (the only two Consola packages it imports), and `packages/agent-ui` (`@consola/agent-ui`, MIT),
+sessions in sandboxes through `@consola/sandbox` (on E2B, from the `consola-session` template in
+`packages/host/sandbox-template/`, which runs the host from a bundle that is never published),
+speaking `@consola/runner-protocol` to its cell (the only two Consola packages it imports), and
+`packages/agent-ui` (`@consola/agent-ui`, MIT),
 t3's chat view behind `AgentChat`. Read each one's `AGENTS.md` before changing it. The
 copied packages' own checks are not part of `pnpm test` or `pnpm typecheck`: run
 `pnpm run test:vendor` and `pnpm run typecheck:vendor` (CI's `vendor` job, on Linux, where a

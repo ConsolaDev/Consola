@@ -73,10 +73,18 @@ its own name and never a path inside it (`@consola/sandbox/dist/index.js` is
 refused): `@consola/runner-protocol` (MIT), what a runner and its cell say to
 each other, which does no I/O, so every ring may name it; and
 `@consola/sandbox`, the interface the runner starts sandboxes through, in
-`adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. A test file
-takes the list of the module it sits beside (`adapters/x.test.ts`
+`adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. One entry
+point of `@consola/sandbox` is named on its own: `@consola/sandbox/e2b`, the E2B
+provider, which `bin.ts` alone makes (`productionProvider`, "The `runner`
+command"), and loads only as a runner starts, with a dynamic `import()`: the
+session host runs the same `bin.ts` (and the bundle holds E2B's SDK, "The
+bundle and the session template"), but never loads it (`boundary.test.ts`). A
+test file takes the list of the module it sits beside (`adapters/x.test.ts`
 `adapters`'s, `bin.test.ts` `bin`'s). Each is its layer's `consola` list in
-`LAYERS`, with a case in the table for every ring.
+`LAYERS`, with a case in the table for every ring. `scripts/`, outside `src/`
+and the rings, holds the two build scripts ("The bundle and the session
+template"); `scripts/build-template.ts` imports `@consola/sandbox/e2b` to build
+the session template.
 
 ## Vendored t3 code is imported, never copied
 
@@ -667,11 +675,11 @@ orchestration does (a transitive import walk finds 19 files that import it):
   (for `layerIdAllocator`) → the same modules; `standIns.ts` →
   `terminal/Manager.ts` → the same.
 
-`drivers.ts` and `credentials.ts` reach none of it. Nothing here is bundled:
-the host runs from source, and nothing it runs calls the Cursor SDK (no Cursor
-driver is hydrated). The host bundle (Track B, CON-93) must keep `@cursor/sdk`
-out, by marking it external or stubbing `@t3tools/provider-cursor/server*`, and
-must check the output (no `@cursor/sdk` in the bundle) before it ships.
+`drivers.ts` and `credentials.ts` reach none of it. Nothing the host runs
+calls the Cursor SDK (no Cursor driver is hydrated). The host's bundle keeps it
+out ("The bundle and the session template"): it stubs
+`@t3tools/provider-cursor/server*`, and its build fails on any `@cursor/sdk` in
+what it writes.
 
 ### Tests
 
@@ -717,7 +725,8 @@ refuses them anywhere else.
 ## The `session` command
 
 `src/main.ts` is the package's `consola-host` bin (it loads `src/bin.ts`), run by
-Node 26 straight from source (type stripping; no build step):
+Node 26 straight from source (type stripping; no build step), or from its bundle
+in the session template ("The bundle and the session template"):
 
 ```
 consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> --cwd <dir>
@@ -776,8 +785,9 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   when its event loop next turns: while loading, nothing has started and the
   process exits 0; after, the program's handlers have it, as above
   (`bin.test.ts` signals a host 400 ms after spawning it, before `ready`, and
-  sees exit 0). The host's bundle for the session template (CON-93) keeps
-  this entry.
+  sees exit 0). The bundle keeps this entry, its program loaded lazily behind
+  it: its listeners are there once Node has parsed the file (a few hundred
+  milliseconds for its 23 MB), not once the program has loaded.
 - **A stale thread ends the session.** Should the thread's event stream end
   (`ThreadHandle.ended`), the host stops as from a failure: its scope closes
   under the grace, and it exits 1 with `consola-host: Session <id> stopped:
@@ -846,18 +856,22 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `CONSOLA_RUNNER_REPOSITORIES` (the repositories it offers, `owner/name`,
   comma-separated), `GIT_TOKEN` (optional, for the clone), and the API keys,
   each offering its harness (`harnessesFromEnv`): `ANTHROPIC_API_KEY` claude,
-  `OPENAI_API_KEY` codex. Wiring E2B (`@consola/sandbox/e2b`, CON-93) adds
-  `E2B_API_KEY`, to `RUNNER_SECRET_VARIABLES` too (below).
+  `OPENAI_API_KEY` codex, and `E2B_API_KEY`, the key of the E2B account its
+  sandboxes run on ("The provider").
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
   not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
   a query or a fragment (it is logged; `cellUrlProblem`), no secret, a
   repository `isRepository` refuses, no API key (no harness to offer), and no
-  sandbox provider. No message quotes a secret.
+  sandbox provider (no `E2B_API_KEY`). No message quotes a secret.
 - **The provider.** `runnerCommand(argv, env, providerFor)` takes the provider
   from a factory of the environment (`ProviderFor`). Production's
-  (`productionProvider`) has none yet, so the shipped runner fails at start
-  until it wires E2B (`@consola/sandbox/e2b`, CON-93); it never falls back to a fake. Tests run
+  (`productionProvider`) is E2B's (`new E2BProvider({ apiKey })`, from
+  `@consola/sandbox/e2b`), on the account where the `consola-session` template
+  is built, with `E2B_API_KEY`. The host's source reads the key and hands it
+  over, never leaving E2B's SDK to find it in the process's environment, so it
+  is one of `RUNNER_SECRET_VARIABLES`. With no key there is no provider, and
+  the runner fails at start; it never falls back to a fake. Tests run
   `testing/replayRunner.ts`, the same command on `testing/localProvider.ts`,
   whose sandboxes' processes get the sandbox's variables over only
   `MACHINE_VARIABLES` of the test machine (`PATH`, the home and XDG folders,
@@ -871,9 +885,34 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   `CONSOLA_REPOSITORY`, `CONSOLA_PASS_PUBLIC_KEY`,
   `CONSOLA_SESSION_IDLE_MINUTES`, `GIT_TOKEN` and the API key of that harness
   alone (`sandboxEnvFor`), and runs `consola-session-start`, its output only
-  listened to (`keepOutput: false`). A second start for a session held is
+  listened to (`keepOutput: false`). It is created with `publicPorts`: the
+  browser reaches the host at the exposed address, and a browser's WebSocket
+  cannot carry the provider's credential, so the host guards its port itself
+  (a pass, then a ticket). That opens every port the sandbox listens on, a dev
+  server the person approves included, until a gateway stands in front
+  (Linear: "10.5 A session gateway: sandboxes stay private, the browser
+  reaches the host through Consola",
+  https://linear.app/consola/issue/CON-105). A second start for a session held is
   ignored; a start once the runner is stopping is `failed`, with no sandbox,
   since nothing would stop it.
+- **A sandbox's own lifetime** (`sandboxLifetimeSeconds`). Its provider stops
+  it when its lifetime runs out (`@consola/sandbox`, a hard maximum), which is
+  what stops a sandbox whose runner died, and what stops it at the cap should
+  the runner's own stop then fail (a stop is asked once). Where the provider
+  renews lifetimes (`keepAlive`, as E2B does), a sandbox is leased for
+  `SANDBOX_LEASE_SECONDS` (ten minutes) and renewed every
+  `SANDBOX_LEASE_RENEW_SECONDS` (three) while the runner holds the session, at
+  a fixed rate: each renewal is a fiber of its own, so one that hangs (up to
+  `SANDBOX_CALL_TIMEOUT`) never holds back the next, a failed one is logged,
+  and the lease runs out only after the three asked within it fail in a row.
+  It is never given past the lifetime cap, measured from the session's start
+  (what is left of it, in whole seconds, once that is shorter than the lease;
+  one second at least). With a provider that cannot renew, the sandbox is made
+  with all that is left of the cap. So a sandbox outlives a dead runner by ten
+  minutes at most, and its cap by no more than the second a lifetime is
+  counted in and the time its provider takes to answer. The provider may also
+  stop it up to that second before the cap, so the runner's own stop at the
+  cap comes first (`lifetimeStopAfterMs`, "Backstops").
 - **What a line becomes** (`readSessionLine`, `updateForLine`; stdout arrives in
   chunks, `HostLineBuffer` makes them lines). `ready` exposes the port it names
   (never a fixed 7420) and says `{ status: 'running', hostUrl }` with the
@@ -900,7 +939,14 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   over the host's 15 s shutdown grace) after the host's `exit` line, at the
   lifetime cap (`--max-session-minutes`), and on SIGTERM or SIGINT, when it says
   each session's end while the socket is still open, then stops every sandbox,
-  then closes the socket (1001) and exits 0. A sandbox's stop is asked once per
+  then closes the socket (1001) and exits 0. Its stop for the cap comes
+  `SANDBOX_STOP_TIMEOUT` (30 s) before it (halfway to a cap under a minute;
+  `lifetimeStopAfterMs`): the provider stops the sandbox at the cap, or up to a
+  second before it, and were it first the session's command would end before
+  the runner's stop, and read as a sandbox that ended by itself (`failed`). So
+  the runner's stop is asked first, and over by the cap, and the session is
+  `stopped` (`sandboxSessions.test.ts`, a provider whose sandboxes end in real
+  time at their lifetime). A sandbox's stop is asked once per
   session, and a stop that fails is asked again (`STOP_ATTEMPTS`, 3, after
   0.5 s then 1 s), each failure logged with its reason; all of it within
   `SANDBOX_STOP_TIMEOUT` (30 s) while running. Once the runner begins to stop,
@@ -951,9 +997,9 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   takes to notice. The cell answers pings as `ws` does by default.
 - **Secrets.** It never logs its environment. Its secret variables are one
   list, `RUNNER_SECRET_VARIABLES` (`core/runnerDecisions.ts`): the runner
-  secret, the git token and each harness's API key; wiring E2B adds `E2B_API_KEY`
-  there, and `bin.test.ts` fails on a secret-named variable the host's source
-  reads that the list lacks. Its log lines (stderr, `consola-host runner: …`)
+  secret, the git token, each harness's API key and `E2B_API_KEY`, and
+  `bin.test.ts` fails on a secret-named variable the host's source reads that
+  the list lacks. Its log lines (stderr, `consola-host runner: …`)
   and every update are scrubbed of those variables' values (`secretValuesOf`,
   `scrubSecrets`, as they are and URL-encoded), errors and
   titles before they are bounded to 1000 characters (`scrubUpdate`), and a
@@ -974,12 +1020,107 @@ the grace, saying the runner did not stop in time.
 It runs the real bin for each start failure. `sandboxSessions.test.ts` drives the sessions over the fake
 provider, and `cellSocket.test.ts` the socket against a `ws` server.
 
+## The bundle and the session template
+
+A cloud session's host runs in a sandbox made from the `consola-session`
+template (`sandbox-template/`, whose `README.md` lists what it holds, how to
+build it and its id), from a bundle rather than from source.
+
+- **The bundle.** `pnpm --filter @consola/host bundle` (`scripts/bundle.ts`,
+  esbuild: platform `node`, format `esm`, target `node26`) writes
+  `dist/consola-host.mjs`, one ESM file from the bin (`src/main.ts`), and
+  `dist/claude-history-worker.mjs` from t3's `claude-history-worker.ts`: t3's
+  Claude adapter runs that worker as a process of its own, from beside the file
+  it runs in (`./claude-history-worker.mjs`, as t3's own build lays it out), to
+  read a Claude conversation it resumes. It also writes esbuild's metafile,
+  `dist/consola-host.meta.json`. Each file holds everything it runs but Node's
+  own modules (and `ws`'s optional `bufferutil` and `utf-8-validate`, required
+  inside a `try`), with these exceptions:
+  - **External:** `@ff-labs/fff-node` (t3's workspace file search) and
+    `ffi-rs` (the native bridge it loads). t3 requires both at run time with
+    `createRequire(import.meta.url)`, so from beside the bundle:
+    `WorkspaceSearchIndex.ts` loads fff-node as the host starts, and
+    `CheckoutCloner.ts`, `ManagedPolicy.ts` and `antigravityUsageLimits.ts`
+    load ffi-rs on demand. The template installs both under
+    `/opt/consola/node_modules`, at the workspace's versions, with their
+    `linux-x64-gnu` builds and pnpm's patch to fff-node
+    (`patches/@ff-labs__fff-node@0.11.0.patch`, which points its CommonJS entry
+    at the async search methods t3 calls).
+  - **Absent on purpose:** `@napi-rs/keyring`, which t3's Antigravity driver
+    requires the same way (`antigravityUsageLimits.ts`) to read Antigravity's
+    sign-in from the system keyring. The host never hydrates that driver (a
+    sandbox runs claude or codex), so nothing reaches the require, and the
+    template does not install it. `bundle.test.ts` lists every package the
+    bundle requires as it runs (its `createRequire` calls, which the metafile
+    does not show, and its `__require`s) and fails on any it does not name.
+  - **Stubbed:** `@t3tools/provider-cursor/server*` (`CURSOR_STUBS`), so the
+    Cursor SDK is never in it ("The Cursor SDK is in the runtime's module
+    graph"). Each stub has the exports its importers read as they load, and
+    throws if Cursor is ever used; a path with no stub fails the build, and so
+    does any `@cursor/sdk` left in what it writes.
+  - **Bundled: the Claude Agent SDK.** It goes in at the version and with the
+    peers the lockfile resolves (0.3.321, `@anthropic-ai/sdk` 0.93.0), with no
+    native CLI of its own (the workspace's overrides drop those, and the host
+    always passes `pathToClaudeCodeExecutable`), where an install in the
+    template would resolve its peers again and fetch a native CLI nothing runs.
+    So the bundle, like the template, is never published or released
+    ("Licensing"); `bundle.test.ts` asserts the SDK is in it, so undoing this is
+    a decision, not an accident.
+  - A banner gives the CommonJS modules in it `require`, `__filename` and
+    `__dirname` for the bundle's own file, and names are kept (`keepNames`).
+- **The template**, `sandbox-template/`: a `Dockerfile` in the format
+  `@consola/sandbox/e2b` builds (one stage; `packages/sandbox/AGENTS.md`,
+  "Templates") holding Node 26.13.1, git, `gh`, the Claude Code and Codex CLIs at
+  pinned versions, the two bundled files in `/opt/consola`, and
+  `consola-session-start`. No version goes in an `ARG`, which E2B keeps as a
+  variable of every command the sandbox runs, and it writes no t3 settings: a
+  `launchArgs` there would override the host's approval mode ("The host never
+  starts a CLI in full access"). `pnpm --filter @consola/host template:build`
+  (`scripts/build-template.ts`) bundles, stages the folder with the bundled
+  files and the fff-node patch in `dist/sandbox-template/`, and builds it on
+  E2B with `buildE2BTemplate` under `SESSION_TEMPLATE`, with `E2B_API_KEY` from
+  the environment or `packages/sandbox/.env`.
+- **The start script**, `consola-session-start` (POSIX `sh`), run by the runner
+  in each sandbox: it clones `https://github.com/$CONSOLA_REPOSITORY.git` into
+  `/workspace/repo` (the whole URL, so an owner starting with `-` is no option)
+  with a credential helper for github.com that answers with `$GIT_TOKEN` as the
+  environment holds it, so the token is never in a URL, on a command line, in
+  `.git/config` or in git's error text; the repository keeps that helper (an
+  empty one first, so no helper of the machine's is asked or stores the token),
+  `user.name` `Consola session` and `user.email` `session@consola.invalid`. A
+  failed clone prints one `clone-failed` line (`StartScriptLine`), git's words
+  with the token, as it is and URL-encoded, taken out by `node -e`, and exits 1.
+  It writes `$CONSOLA_PASS_PUBLIC_KEY` to `/workspace/.consola/pass-public-key.pem`,
+  signs Codex in for a Codex session (`codex login --with-api-key`, the key on
+  stdin: Codex reads no API key from its environment, where Claude Code reads
+  `ANTHROPIC_API_KEY`), and then `exec`s `node /opt/consola/consola-host.mjs
+  session … --cwd /workspace/repo --bind 0.0.0.0 --port 7420 --pass-public-key
+  … --idle-minutes ${CONSOLA_SESSION_IDLE_MINUTES:-10}`. Bound past loopback,
+  the host's descriptor names no platform or version ("Before the socket").
+  Stdout is the runner's: nothing else is printed there.
+- **Tests** (`src/bundle.test.ts`) build the bundle, read its metafile (only
+  Node's modules imported, no Cursor provider module or SDK, Claude's SDK in),
+  and run it from a temporary folder holding the two files and the run-time
+  packages (the workspace's own), with `NODE_PATH` taken out of its
+  environment: pnpm sets it for the test runner, and with it a bundle finds
+  packages in the workspace's store that no sandbox has. There a claude and a
+  codex session each run to `ready` and `dev-pass` against fake CLIs and exit
+  0 on SIGTERM, it fails to start without the run-time packages, and its
+  history worker reads a Claude conversation. They list what the bundle
+  requires as it runs (above), check the Dockerfile's instructions, versions
+  and patch against the workspace's (Node unpacked whole, once the base
+  image's own Node is gone; Claude Code's postinstall allowed; and a Claude Code
+  no older than the one the bundled SDK names, `sandbox-template/README.md`), and
+  run the start script under `sh` with stand-ins for `git`, `node` and
+  `codex`.
+
 ## Running it
 
 ```bash
 pnpm --filter @consola/host test        # vp test run (Vite+), config in vite.config.ts
 pnpm --filter @consola/host typecheck   # effect-tsgo, hoisted by publicHoistPattern
 node packages/host/src/main.ts session --dev --harness claude --cwd <folder>   # from the repo root
+pnpm --filter @consola/host bundle      # dist/consola-host.mjs ("The bundle and the session template")
 ```
 
 The host loads its two Consola dependencies, `@consola/runner-protocol` and `@consola/sandbox`,
@@ -1029,6 +1170,8 @@ t3's MIT licence (`vendor/t3code/LICENSE`).
   never the SDK's bundled copy.
 - The Cursor SDK (`@cursor/sdk`) is never bundled into anything the host builds.
 - Nothing that bundles `@anthropic-ai/claude-agent-sdk` is published or released
-  (Linear CON-21). Local builds are fine.
+  (Linear CON-21). Local builds are fine. The host's bundle holds it ("The
+  bundle and the session template"), so the bundle and the `consola-session`
+  template stay in Consola's own E2B account.
 - Fixtures and examples use Acme, Sprocket and the `sprocket` org, never real
   names.

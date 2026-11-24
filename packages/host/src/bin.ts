@@ -92,7 +92,8 @@ const USAGE = `Usage:
     [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--max-session-minutes <n, default ${DEFAULT_MAX_SESSION_MINUTES}>]
 
   It reads CONSOLA_RUNNER_SECRET, CONSOLA_RUNNER_REPOSITORIES (owner/name, comma-separated),
-  GIT_TOKEN, ANTHROPIC_API_KEY (offers claude) and OPENAI_API_KEY (offers codex).`;
+  GIT_TOKEN, ANTHROPIC_API_KEY (offers claude), OPENAI_API_KEY (offers codex) and E2B_API_KEY
+  (its sandboxes' provider).`;
 
 /** The command line did not say what to run. `problem` names what is wrong, never a secret. */
 export class UsageError extends Schema.TaggedError<UsageError>()('UsageError', {
@@ -524,14 +525,25 @@ export class RunnerReplaced extends Schema.TaggedError<RunnerReplaced>()('Runner
 
 /**
  * The sandbox provider a runner starts its sessions on, from its environment, or null when none
- * is configured. Production has none yet: the runner does not wire E2B (`@consola/sandbox/e2b`, from
- * `E2B_API_KEY`) until the session template lands (CON-93). A runner with none fails at start, and
- * never falls back to a fake.
+ * is configured. A runner with none fails at start, and never falls back to a fake.
  */
-export type ProviderFor = (env: RunnerEnv) => SandboxProvider | null;
+export type ProviderFor = (env: RunnerEnv) => Promise<SandboxProvider | null>;
 
-/** Production's providers: none yet (E2B, from `E2B_API_KEY`, is wired with CON-93). */
-export const productionProvider: ProviderFor = () => null;
+/**
+ * Production's provider: E2B (`@consola/sandbox/e2b`), on Consola's account, where the
+ * `consola-session` template is built (`sandbox-template/README.md`), with `E2B_API_KEY`. The key
+ * is read here and handed to the provider, never left for E2B's SDK to find in the process's
+ * environment, so it is one of `RUNNER_SECRET_VARIABLES`: scrubbed from everything the runner
+ * says, and never given to a sandbox. Without it, none. E2B's provider is loaded here, as a
+ * runner starts: a session's host, the same file, never loads E2B's SDK (`boundary.test.ts`).
+ */
+export const productionProvider: ProviderFor = async (env) => {
+  // As it is, so the value the runner scrubs is the one E2B is given.
+  const apiKey = env.E2B_API_KEY ?? '';
+  if (apiKey.trim() === '') return null;
+  const { E2BProvider } = await import('@consola/sandbox/e2b');
+  return new E2BProvider({ apiKey });
+};
 
 /**
  * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`) and its socket to the
@@ -606,11 +618,11 @@ export const runnerCommand = (
 ): Effect.Effect<void, UsageError | StartFailed | RunnerReplaced> =>
   Effect.gen(function* () {
     const args = yield* parseRunnerArgs(argv, env);
-    const provider = providerFor(env);
+    const provider = yield* Effect.promise(() => providerFor(env));
     if (provider === null) {
       return yield* new StartFailed({
         problem:
-          'No sandbox provider is configured, so the runner has nowhere to start sessions (this runner does not wire E2B yet).',
+          'No sandbox provider is configured, so the runner has nowhere to start sessions: set E2B_API_KEY to the key of the E2B account the consola-session template is built on.',
       });
     }
     return yield* runRunner(args, provider);
