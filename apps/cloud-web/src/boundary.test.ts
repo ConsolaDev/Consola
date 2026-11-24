@@ -30,6 +30,8 @@ type Layer = {
   refuses: string[];
   /** Globals it may not refer to: the browser's I/O. */
   noGlobals: string[];
+  /** Workspace packages it may import all the same, each an exception to `NEVER`. */
+  allows?: string[];
 };
 
 const ENTRY = ['main', 'env.d'];
@@ -64,9 +66,12 @@ const LAYERS: Layer[] = [
     noGlobals: ['fetch', 'XMLHttpRequest'],
   },
   {
+    // `@consola/agent-ui` is allowed here: the chat a session's page mounts, with its stylesheet.
+    // It is MIT and imports nothing of the apps'; no other workspace package reaches the app.
     at: 'ui',
     reaches: ['domain', 'services', 'ui'],
     refuses: ['better-auth', '@better-auth/*', NODE_BUILTINS],
+    allows: ['@consola/agent-ui'],
     noGlobals: [
       'fetch',
       'history',
@@ -86,7 +91,10 @@ const LAYERS: Layer[] = [
   })),
 ];
 
-/** What every file, tests included, may never import: another app or a workspace package. */
+/**
+ * What every file, tests included, may never import: another app or a workspace package, but for
+ * those a layer `allows` in its own files (never in a test's).
+ */
 const NEVER = ['@consola/*'];
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
@@ -258,7 +266,9 @@ function violationsOf(file: string, source: string): string[] {
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
-    if (NEVER.some((pattern) => matches(pattern, specifier))) return true;
+    if (NEVER.some((pattern) => matches(pattern, specifier))) {
+      return test || !own?.allows?.some((pattern) => matches(pattern, specifier));
+    }
     if (test) return false;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
   };
@@ -373,6 +383,17 @@ describe('the dependency rule', () => {
     ['main.tsx', './ui/App', true],
     ['main.tsx', '@radix-ui/themes', true],
     ['main.tsx', '@consola/factory-spec', false],
+    // `ui` mounts the chat, `@consola/agent-ui`, and its stylesheet: the one workspace package
+    // the app imports. Nothing else may, a test included.
+    ['ui/x.tsx', '@consola/agent-ui', true],
+    ['ui/x.tsx', '@consola/agent-ui/styles.css', true],
+    ['ui/x.tsx', '@consola/host', false],
+    ['ui/x.tsx', '@consola/runner-protocol', false],
+    ['services/x.ts', '@consola/agent-ui', false],
+    ['domain/x.ts', '@consola/agent-ui', false],
+    ['main.tsx', '@consola/agent-ui', false],
+    ['x.test.ts', '@consola/agent-ui', false],
+    ['ui/x.test.tsx', '@consola/agent-ui', false],
     ['domain/x.ts', '../../../desktop/src/x', false],
     ['domain/x.ts', './y.test', false],
     ['domain/x.test.ts', '../services/api', true],

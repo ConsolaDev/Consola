@@ -1,9 +1,11 @@
-import { LayoutGrid, type LucideIcon, Zap } from 'lucide-react';
+import { LayoutGrid, type LucideIcon, MessagesSquare, Zap } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Me } from '../domain/me';
+import { SESSIONS_SECTION_ID } from '../domain/sessionsRoute';
 import type { MyWorkspace } from '../domain/workspace';
 import { OverviewPage } from './OverviewPage';
 import { RunsSection } from './RunsSection';
+import { SessionsSection } from './SessionsSection';
 
 /**
  * What every section is shown with: the person, the workspace open (never null), and what to
@@ -43,4 +45,11 @@ export type Section = {
 export const SECTIONS: readonly [Section, ...Section[]] = [
   { id: 'overview', label: 'Overview', icon: LayoutGrid, View: OverviewPage },
   { id: 'runs', label: 'Runs', icon: Zap, View: RunsSection, layout: 'wide' },
+  {
+    id: SESSIONS_SECTION_ID,
+    label: 'Sessions',
+    icon: MessagesSquare,
+    View: SessionsSection,
+    layout: 'wide',
+  },
 ];

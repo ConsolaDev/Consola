@@ -32,6 +32,10 @@ export const SESSION_STATUS_WORDS: Readonly<Record<CloudSessionStatus, string>> 
 /** The cell's `no_runner`: no runner is configured or connected for the workspace. */
 export const NO_RUNNER_WORDS = 'No runner is connected for this workspace.';
 
+/** A runner connected, with no repository or no harness to offer. */
+export const NOTHING_OFFERED_WORDS =
+  'This workspace’s runner offers no repository or harness to start a session with.';
+
 /** What the New session form says above Start: the one thing starting trusts. */
 export const START_NOTE =
   'Starting a session runs this repository’s own settings and hooks inside a sandbox for this session.';
@@ -43,6 +47,12 @@ export const UNPUSHED_CHANGES_WARNING =
   'Changes not pushed to a branch are lost when this session stops.';
 
 export const STOPPED_WORDS = 'This session has stopped.';
+
+/** A running session whose chat is on its way: a pass asked for, or the chat's code loading. */
+export const CONNECTING_WORDS = 'Connecting to the session…';
+
+/** The chat's code did not arrive (a new version of the app was deployed meanwhile, say). */
+export const CHAT_NOT_LOADED_WORDS = 'The chat couldn’t be loaded. Reload the page to try again.';
 
 /** A failure the cell decided itself, by its code. */
 const FAILURE_CODE_WORDS: Readonly<Record<CellFailureCode, string>> = {
