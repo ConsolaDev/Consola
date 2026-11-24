@@ -212,6 +212,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
       {snapshot?.error && (
         <div className="inbox-setup-recovery">
           <button
+            type="button"
             className="inbox-pane-secondary"
             aria-expanded={showSetup}
             onClick={() => setShowSetup(!showSetup)}
@@ -224,7 +225,11 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                 workspace={workspace}
                 onConnected={() => void refresh(workspace.id)}
               />
-              <button className="inbox-pane-secondary" onClick={() => void refresh(workspace.id)}>
+              <button
+                type="button"
+                className="inbox-pane-secondary"
+                onClick={() => void refresh(workspace.id)}
+              >
                 Retry Inbox
               </button>
             </section>

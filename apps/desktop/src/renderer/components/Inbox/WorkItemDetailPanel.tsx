@@ -312,6 +312,7 @@ export function WorkItemDetailPanel({
           <CircleAlert size={15} aria-hidden="true" />
           <p>{error}</p>
           <button
+            type="button"
             className="inbox-detail-icon-btn"
             aria-label="Dismiss error"
             onClick={() => setError('')}
@@ -339,6 +340,7 @@ export function WorkItemDetailPanel({
         {details?.headBranch && <BranchPair head={details.headBranch} base={details.baseBranch} />}
         <div className="inbox-detail-toolbar-tail">
           <button
+            type="button"
             className="inbox-detail-icon-btn"
             aria-label="Refresh details"
             title="Refresh details"
@@ -355,6 +357,7 @@ export function WorkItemDetailPanel({
             <DropdownMenu.Root>
               <DropdownMenu.Trigger asChild disabled={disabled}>
                 <button
+                  type="button"
                   className="inbox-detail-icon-btn"
                   aria-label="More actions"
                   title="More actions"

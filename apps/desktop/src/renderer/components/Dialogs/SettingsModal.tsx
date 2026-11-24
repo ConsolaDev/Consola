@@ -204,7 +204,7 @@ export function SettingsModal({
           </div>
 
           <Dialog.Close asChild>
-            <button className="dialog-close" aria-label="Close">
+            <button type="button" className="dialog-close" aria-label="Close">
               <X size={16} />
             </button>
           </Dialog.Close>
@@ -296,6 +296,7 @@ function AppearanceSection({
         <div className="settings-modal-theme-selector">
           {themeOptions.map(({ value, label, icon: Icon }) => (
             <button
+              type="button"
               key={value}
               className={`settings-modal-theme-button ${theme === value ? 'active' : ''}`}
               onClick={() => setTheme(value)}
@@ -316,6 +317,7 @@ function AppearanceSection({
         </div>
         <div className="settings-modal-stepper">
           <button
+            type="button"
             className="settings-modal-stepper-button"
             onClick={() => setTerminalFontSize(terminalFontSize - 1)}
             disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
@@ -325,6 +327,7 @@ function AppearanceSection({
           </button>
           <span className="settings-modal-stepper-value">{terminalFontSize}px</span>
           <button
+            type="button"
             className="settings-modal-stepper-button"
             onClick={() => setTerminalFontSize(terminalFontSize + 1)}
             disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}

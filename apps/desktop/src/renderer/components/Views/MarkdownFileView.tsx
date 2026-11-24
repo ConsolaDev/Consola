@@ -97,6 +97,7 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
       <div className="markdown-view-toggle-bar">
         <div className="markdown-view-toggle">
           <button
+            type="button"
             className={`markdown-view-toggle-btn ${viewMode === 'preview' ? 'active' : ''}`}
             onClick={() => setViewMode('preview')}
             aria-pressed={viewMode === 'preview'}
@@ -105,6 +106,7 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
             <span>Preview</span>
           </button>
           <button
+            type="button"
             className={`markdown-view-toggle-btn ${viewMode === 'source' ? 'active' : ''}`}
             onClick={() => setViewMode('source')}
             aria-pressed={viewMode === 'source'}

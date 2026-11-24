@@ -178,6 +178,7 @@ export function PromptComposer({
           <div className="prompt-composer-toolbar">
             {controls && <div className="prompt-composer-controls">{controls}</div>}
             <button
+              type="button"
               className="prompt-composer-submit"
               onClick={onSubmit}
               disabled={!value.trim() || disabled}

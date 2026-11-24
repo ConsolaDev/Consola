@@ -292,6 +292,7 @@ function DescriptionEditor({ onClose }: { onClose: () => void }) {
           Cancel edit
         </button>
         <button
+          type="submit"
           className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
           disabled={busy || !title.trim()}
         >

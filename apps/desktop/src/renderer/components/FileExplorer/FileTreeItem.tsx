@@ -78,6 +78,7 @@ export function FileTreeItem({ node, depth, selectedPath, onSelectFile }: FileTr
 
   return (
     <button
+      type="button"
       className={`file-tree-item file-tree-file ${isSelected ? 'selected' : ''}`}
       style={{ paddingLeft: indent + 18 }}
       onClick={() => onSelectFile(node.path)}

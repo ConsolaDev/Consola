@@ -208,7 +208,12 @@ function SessionOptions({
             {unavailable && (
               <p className="session-options-notice" role="status">
                 Models unavailable. You can use the agent’s default.{' '}
-                <button className="first-session-link" disabled={submitting} onClick={retry}>
+                <button
+                  type="button"
+                  className="first-session-link"
+                  disabled={submitting}
+                  onClick={retry}
+                >
                   Retry
                 </button>
               </p>
@@ -239,10 +244,16 @@ function SessionOptions({
             )}
           </div>
           <div className="dialog-actions session-options-actions">
-            <button className="dialog-button-secondary" disabled={submitting} onClick={onClose}>
+            <button
+              type="button"
+              className="dialog-button-secondary"
+              disabled={submitting}
+              onClick={onClose}
+            >
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               disabled={submitting || !scope || !harness}
               onClick={() => void create()}

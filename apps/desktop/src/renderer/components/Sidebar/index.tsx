@@ -347,6 +347,7 @@ export function Sidebar() {
         </SidebarSearch>
         <nav className="app-navigation" aria-label="Main navigation">
           <button
+            type="button"
             className={`app-navigation-item ${!isInbox ? 'active' : ''}`}
             aria-label="Home"
             title="Home"
@@ -358,6 +359,7 @@ export function Sidebar() {
           </button>
           {workspace && (
             <button
+              type="button"
               className={`app-navigation-item ${isInbox ? 'active' : ''}`}
               aria-label="Inbox"
               title="Inbox"
@@ -380,6 +382,7 @@ export function Sidebar() {
                   <span className="sidebar-section-title">Integrations</span>
                 </div>
                 <button
+                  type="button"
                   className="sidebar-inbox-row active"
                   aria-current="page"
                   onClick={() => useNavigationStore.getState().openInbox()}

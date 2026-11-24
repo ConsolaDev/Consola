@@ -45,6 +45,7 @@ export function ViewTabs({ active, counts, onSelect, panelId }: ViewTabsProps) {
     <div className="inbox-view-tabs" role="tablist" aria-label="Inbox views">
       {INBOX_VIEWS.map(({ id, label }, index) => (
         <button
+          type="button"
           key={id}
           ref={(element) => {
             tabRefs.current[id] = element;

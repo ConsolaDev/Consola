@@ -6,7 +6,7 @@ export function SidebarToggle() {
   const { isSidebarHidden, toggleSidebar } = useNavigationStore();
 
   const button = (
-    <button className="sidebar-toggle" onClick={toggleSidebar}>
+    <button type="button" className="sidebar-toggle" onClick={toggleSidebar}>
       {isSidebarHidden ? <PanelLeft size={16} /> : <PanelLeftClose size={16} />}
     </button>
   );

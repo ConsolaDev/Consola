@@ -87,10 +87,11 @@ export function NewLabelDialog({ workspaceId, onClose, onCreated }: NewLabelDial
             </div>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>
+            <button type="button" className="dialog-button-secondary" onClick={onClose}>
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => void create()}
               disabled={!name.trim() || submitting}

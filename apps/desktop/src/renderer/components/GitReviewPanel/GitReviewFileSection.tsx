@@ -362,6 +362,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
         <span className="git-review-file-header-name-group">
           <span className="git-review-file-header-name">{filePath}</span>
           <button
+            type="button"
             className="git-review-file-copy-btn"
             onClick={handleCopyPath}
             title="Copy file path"
@@ -383,6 +384,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
 
         <div className="git-review-file-header-actions">
           <button
+            type="button"
             className={`git-review-file-action-btn ${status === 'staged' ? 'staged' : ''}`}
             onClick={(e) => void handleApproveToggle(e)}
           >
@@ -391,6 +393,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
 
           <div className="git-review-file-toggle-group">
             <button
+              type="button"
               className={`git-review-file-toggle-btn ${currentViewMode === 'diff' ? 'active' : ''}`}
               onClick={(e) => handleViewModeChange(e, 'diff')}
               title="View diff"
@@ -398,6 +401,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
               <Code size={14} />
             </button>
             <button
+              type="button"
               className={`git-review-file-toggle-btn ${currentViewMode === 'file' ? 'active' : ''}`}
               onClick={(e) => handleViewModeChange(e, 'file')}
               title="View file"

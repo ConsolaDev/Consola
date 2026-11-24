@@ -134,6 +134,7 @@ export function WorkspaceRail() {
               ))}
             </SortableContext>
             <button
+              type="button"
               className="workspace-rail-add"
               aria-label="Add workspace"
               title="Add workspace"
@@ -143,6 +144,7 @@ export function WorkspaceRail() {
             </button>
           </div>
           <button
+            type="button"
             className="workspace-rail-settings"
             aria-label="Settings"
             title="Settings"
@@ -166,7 +168,11 @@ export function WorkspaceRail() {
         createPortal(
           <div className="workspace-reorder-error" role="alert">
             <span>{error}</span>
-            <button aria-label="Dismiss workspace order error" onClick={() => setError(null)}>
+            <button
+              type="button"
+              aria-label="Dismiss workspace order error"
+              onClick={() => setError(null)}
+            >
               <X size={14} />
             </button>
           </div>,
@@ -207,6 +213,7 @@ function SortableWorkspace({
     <Tooltip.Root open={!reordering && tooltipOpen} onOpenChange={setTooltipOpen}>
       <Tooltip.Trigger asChild>
         <button
+          type="button"
           ref={setNodeRef}
           {...attributes}
           {...listeners}

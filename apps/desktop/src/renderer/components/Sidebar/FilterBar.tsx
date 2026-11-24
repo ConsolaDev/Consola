@@ -196,6 +196,7 @@ export function FilterBar({
           >
             <DropdownMenu.Trigger asChild>
               <button
+                type="button"
                 className="sidebar-scope-filter-trigger"
                 aria-label="Filter sessions"
                 title={scope ? tildePath(scope.path) : undefined}
@@ -385,6 +386,7 @@ export function FilterBar({
           </DropdownMenu.Root>
           {narrowed && (
             <button
+              type="button"
               className="sidebar-scope-filter-clear"
               aria-label="Clear filters"
               title="Clear filters"

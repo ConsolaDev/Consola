@@ -140,7 +140,6 @@ export default defineConfig({
         'quality/no-object-parameters': 'off', // 31
         'quality/no-unknown-returns': 'off', // 70
         'quality/no-unsafe-dictionary-type': 'off', // 300
-        'react/button-has-type': 'off', // 96
         'react/exhaustive-deps': 'warn', // 17
         'react/immutability': 'off', // 4
         'react/no-unescaped-entities': 'off', // 11

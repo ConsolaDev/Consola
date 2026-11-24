@@ -123,10 +123,16 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
           />
           {error && <span className="dialog-error">{error}</span>}
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose} disabled={submitting}>
+            <button
+              type="button"
+              className="dialog-button-secondary"
+              onClick={onClose}
+              disabled={submitting}
+            >
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => active && void submit(active)}
               disabled={!active || submitting}

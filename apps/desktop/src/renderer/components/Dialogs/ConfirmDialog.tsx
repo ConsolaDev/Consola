@@ -91,6 +91,7 @@ export function ConfirmDialog({
           <div className="dialog-actions">
             {/* Without a text field, initial focus lands on Cancel. */}
             <button
+              type="button"
               className="dialog-button-secondary"
               onClick={() => handleOpenChange(false)}
               disabled={isConfirming}
@@ -98,6 +99,7 @@ export function ConfirmDialog({
               {cancelLabel}
             </button>
             <button
+              type="button"
               className={destructive ? 'dialog-button-danger' : 'dialog-button-primary'}
               onClick={() => void handleConfirm()}
               disabled={isConfirming || !canConfirm}

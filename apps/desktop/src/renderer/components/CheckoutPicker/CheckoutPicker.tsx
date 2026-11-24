@@ -95,6 +95,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
         <DropdownMenu.Root modal={false}>
           <DropdownMenu.Trigger asChild>
             <button
+              type="button"
               className="composer-control checkout-mode"
               disabled={disabled || !scope.isGitRepo}
               aria-label="Checkout mode"
@@ -169,6 +170,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
           >
             <Popover.Trigger asChild>
               <button
+                type="button"
                 className="composer-control checkout-ref"
                 aria-label={value.mode === 'new' ? 'Base branch' : 'Choose branch or worktree'}
                 disabled={disabled}
@@ -212,6 +214,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
                     }}
                   />
                   <button
+                    type="button"
                     aria-label="Refresh branches and worktrees"
                     className="composer-control"
                     onClick={() => setRevision((n) => n + 1)}
@@ -221,10 +224,14 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
                   </button>
                 </div>
                 <div className="checkout-tabs">
-                  <button aria-pressed={!showTrees} onClick={() => setShowTrees(false)}>
+                  <button
+                    type="button"
+                    aria-pressed={!showTrees}
+                    onClick={() => setShowTrees(false)}
+                  >
                     Branches
                   </button>
-                  <button aria-pressed={showTrees} onClick={() => setShowTrees(true)}>
+                  <button type="button" aria-pressed={showTrees} onClick={() => setShowTrees(true)}>
                     Worktrees <span>{context?.worktrees.length ?? 0}</span>
                   </button>
                 </div>
@@ -262,6 +269,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
                       {showTrees
                         ? trees.map((item) => (
                             <button
+                              type="button"
                               key={item.path}
                               className="checkout-result"
                               disabled={item.unavailable}
@@ -294,6 +302,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
                             );
                             return (
                               <button
+                                type="button"
                                 key={ref}
                                 className="checkout-result"
                                 onClick={() => chooseRef(ref)}

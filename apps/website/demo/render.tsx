@@ -30,7 +30,9 @@ class DemoBoundary extends Component<{ children: ReactNode }, { failed: boolean 
       <div className="demo-error">
         <h1>Let’s start fresh.</h1>
         <p>The demo hit an unexpected state.</p>
-        <button onClick={() => location.reload()}>Reset demo</button>
+        <button type="button" onClick={() => location.reload()}>
+          Reset demo
+        </button>
       </div>
     ) : (
       this.props.children
@@ -61,7 +63,7 @@ function Root() {
       {notice && (
         <div className="demo-notice" role="status">
           {notice}
-          <button aria-label="Dismiss demo notice" onClick={() => setNotice('')}>
+          <button type="button" aria-label="Dismiss demo notice" onClick={() => setNotice('')}>
             ×
           </button>
         </div>

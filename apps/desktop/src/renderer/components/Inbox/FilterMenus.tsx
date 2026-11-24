@@ -37,6 +37,7 @@ export function RepoFilterMenu({ repos, selected, onChange }: RepoFilterMenuProp
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
+          type="button"
           className={`inbox-filter-trigger inbox-repo-filter-trigger ${
             selected.length > 0 ? 'active' : ''
           }`}
@@ -96,7 +97,7 @@ export function UpdatedFilterMenu({ value, onChange }: UpdatedFilterMenuProps) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="inbox-filter-trigger inbox-updated-filter-trigger">
+        <button type="button" className="inbox-filter-trigger inbox-updated-filter-trigger">
           <span className="inbox-filter-trigger-label">
             Updated: {UPDATED_FILTER_LABELS[value]}
           </span>

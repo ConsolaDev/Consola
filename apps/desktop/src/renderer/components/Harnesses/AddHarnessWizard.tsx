@@ -187,7 +187,7 @@ export function AddHarnessWizard({
           </div>
 
           <Dialog.Close asChild>
-            <button className="dialog-close" aria-label="Close">
+            <button type="button" className="dialog-close" aria-label="Close">
               <X size={16} />
             </button>
           </Dialog.Close>

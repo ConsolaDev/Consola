@@ -119,6 +119,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
             <div className="git-review-section-content">
               {staged.map(({ path, status }) => (
                 <button
+                  type="button"
                   key={path}
                   className="git-review-file-item"
                   onClick={() => handleFileClick(path)}
@@ -158,6 +159,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
             <div className="git-review-section-content">
               {changes.map(({ path, status }) => (
                 <button
+                  type="button"
                   key={path}
                   className="git-review-file-item"
                   onClick={() => handleFileClick(path)}

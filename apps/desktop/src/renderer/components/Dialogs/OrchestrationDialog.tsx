@@ -141,10 +141,11 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
             {error && <div className="orchestration-error">{error}</div>}
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>
+            <button type="button" className="dialog-button-secondary" onClick={onClose}>
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => void submit()}
               disabled={!canSubmit}
