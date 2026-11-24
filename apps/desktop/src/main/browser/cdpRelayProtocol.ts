@@ -54,7 +54,7 @@ const BROWSER_CONTEXT_ID = 'consola-browser-context';
  */
 export const MAX_COMMANDS_IN_FLIGHT = 10_000;
 /** JSON-RPC's "server error", the code Chromium itself uses for a refused command. */
-const CDP_ERROR = -32000;
+const CDP_ERROR = -32_000;
 
 /** The page as the debugger describes it. */
 export interface PageTarget {

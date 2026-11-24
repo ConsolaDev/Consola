@@ -168,7 +168,7 @@ describe("AttentionEndpoint, for a write step's session (slice 3-B Task 18, Call
   });
 
   it('answers within its bound even when the record never finishes, and once on a body it cannot read', async () => {
-    expect(BEFORE_ANSWER_LIMIT_MS).toBe(3_000);
+    expect(BEFORE_ANSWER_LIMIT_MS).toBe(3000);
     endpoint = new AttentionEndpoint(() => {}, 100);
     const url = (await endpoint.urlFor(
       'inst-w',

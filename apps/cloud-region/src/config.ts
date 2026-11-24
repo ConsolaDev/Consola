@@ -125,7 +125,7 @@ const rawEnv = z.object({
     .number({ error: 'must be a whole number' })
     .int('must be a whole number')
     .min(1, 'must be between 1 and 65535')
-    .max(65535, 'must be between 1 and 65535')
+    .max(65_535, 'must be between 1 and 65535')
     .optional(),
   CLOUD_GLOBAL_URL: z
     .string()

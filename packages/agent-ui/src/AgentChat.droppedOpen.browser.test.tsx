@@ -50,6 +50,6 @@ it('stays quiet when its first socket drops before the thread arrives, and shows
   await mountChat({ hostUrl, pass, sessionId });
   await expect.element(answerOf(assistantText)).toBeVisible();
   expect(drops.done).toBe(1);
-  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  await new Promise((resolve) => setTimeout(resolve, 2000));
   expect(await commands.takePageNoise()).toEqual([]);
 });

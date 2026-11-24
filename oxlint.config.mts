@@ -105,7 +105,6 @@ export default defineConfig({
         'unicorn/no-hex-escape': 'off', // 313
         'unicorn/no-useless-promise-resolve-reject': 'off', // 12
         'unicorn/no-useless-spread': 'off', // 52
-        'unicorn/numeric-separators-style': 'off', // 335
         'unicorn/prefer-array-some': 'off', // 1
         'unicorn/prefer-at': 'off', // 48
         'unicorn/prefer-dom-node-append': 'off', // 2

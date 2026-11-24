@@ -176,7 +176,7 @@ describe('SessionDownloads', () => {
     const { download, press, wait } = world();
     press('t1');
     download('t1').item.saved();
-    wait(1_000);
+    wait(1000);
     // Still within the guard, but the input is spent.
     const second = download('t1');
     expect(second.decision).toBe('allow');

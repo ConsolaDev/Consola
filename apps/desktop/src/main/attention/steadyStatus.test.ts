@@ -76,11 +76,11 @@ describe('SteadyStatus', () => {
       const { seen, turn, say } = setup();
       say('ready');
       turn.now = 'over';
-      for (const burst of [500, 1_000, 500]) {
+      for (const burst of [500, 1000, 500]) {
         say('working');
         vi.advanceTimersByTime(burst);
         say('ready');
-        vi.advanceTimersByTime(3_500);
+        vi.advanceTimersByTime(3500);
       }
       expect(seen).toEqual(['ready']);
     });
@@ -119,7 +119,7 @@ describe('SteadyStatus', () => {
       say('working');
       say('needs-attention');
       say('ready');
-      vi.advanceTimersByTime(1_200);
+      vi.advanceTimersByTime(1200);
       say('working');
       vi.advanceTimersByTime(DROP_HOLD_MS * 2);
       expect(seen).toEqual(['working', 'needs-attention', 'working']);
@@ -180,8 +180,8 @@ describe('a recorded session with a background agent', () => {
   });
   const subagentCall: AttentionSignal = { kind: 'resumed', tool: 'Bash:{}', agent: true };
   const recording: Array<[number, TerminalStatus | AttentionSignal]> = [
-    [8_814, { kind: 'resumed' }],
-    [9_689, 'working'],
+    [8814, { kind: 'resumed' }],
+    [9689, 'working'],
     [11_701, { kind: 'resumed', tool: 'Agent:{}' }],
     [12_361, stop(1, 1)],
     [13_644, 'ready'],
@@ -250,7 +250,7 @@ describe('a recorded session with a background agent', () => {
 
     expect(attention).toEqual([
       [0, 'ready'],
-      [9_689, 'working'],
+      [9689, 'working'],
       [36_786, 'ready'],
       [81_281, 'working'],
       [82_623, 'ready'],

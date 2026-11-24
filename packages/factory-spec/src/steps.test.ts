@@ -398,7 +398,7 @@ describe('a command', () => {
       run: 'echo hi',
       env: {},
       outputs: {},
-      timeoutMs: 600000,
+      timeoutMs: 600_000,
       dryRun: 'report',
     });
   });
@@ -560,7 +560,7 @@ describe('a command', () => {
   });
 
   it('reads a timeout', () => {
-    expect(firstStep<CommandStep>(command('  timeout: 30s')).timeoutMs).toBe(30000);
+    expect(firstStep<CommandStep>(command('  timeout: 30s')).timeoutMs).toBe(30_000);
     expect(firstStep<CommandStep>(command('  timeout: 1h')).timeoutMs).toBe(3_600_000);
     expect(only(command('  timeout: 2h')).message).toMatch(/at most 1h/);
     expect(only(command('  timeout: 90')).message).toMatch(/`<n>s`, `<n>m` or `<n>h`/);

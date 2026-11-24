@@ -361,7 +361,7 @@ describe('the desktop’s run-owned checkout port (slice 3-B Task 18)', () => {
     expect(git(dir, 'rev-parse', 'HEAD')).toBe(base);
     process.kill(-left.pid!, 'SIGKILL');
     await vi.waitFor(async () => expect((await port.settle(settle)).ok).toBe(true), {
-      timeout: 5_000,
+      timeout: 5000,
     });
   });
 });

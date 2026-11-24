@@ -635,7 +635,7 @@ describe('consola-host session', () => {
         yield* Effect.scoped(
           Effect.gen(function* () {
             yield* connectHost(ready.port as number, pass);
-            yield* Effect.sleep(Duration.millis(idleMinutes * 60_000 + 3_000));
+            yield* Effect.sleep(Duration.millis(idleMinutes * 60_000 + 3000));
             expect(typesOf(host.printed)).toEqual(['ready']);
           }),
         );
@@ -644,7 +644,7 @@ describe('consola-host session', () => {
         const leftAt = yield* Clock.currentTimeMillis;
         expect(yield* host.next).toEqual({ type: 'exit', reason: 'idle' });
         const exitedAt = yield* Clock.currentTimeMillis;
-        expect(exitedAt - leftAt).toBeGreaterThanOrEqual(idleMinutes * 60_000 - 1_000);
+        expect(exitedAt - leftAt).toBeGreaterThanOrEqual(idleMinutes * 60_000 - 1000);
         expect(yield* host.exited).toEqual({ code: 0, signal: null });
         expect(typesOf(host.printed)).toEqual(['ready', 'exit']);
         expectOnlyHostLines(host.printed);

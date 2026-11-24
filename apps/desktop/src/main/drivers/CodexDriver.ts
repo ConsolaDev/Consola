@@ -406,7 +406,7 @@ export class CodexDriver implements HarnessDriver {
           {
             cwd: os.homedir(),
             env: this.composeEnv(config, getLoginEnv()),
-            timeout: 10000,
+            timeout: 10_000,
             maxBuffer: 1024 * 1024,
           },
           (error, stdout, stderr) =>

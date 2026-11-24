@@ -77,7 +77,7 @@ const SESSION_STAYS: ReadonlySet<CleanupTrigger> = new Set([
 ]);
 
 /** How long a stopped session's processes get to leave the folder. */
-const PROCESS_EXIT_WAIT_MS = 3_000;
+const PROCESS_EXIT_WAIT_MS = 3000;
 const PROCESS_POLL_MS = 250;
 
 /**

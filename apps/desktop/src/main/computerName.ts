@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 /** scutil answers at once; a hung one hands over to the host name. */
-const SCUTIL_TIMEOUT_MS = 2_000;
+const SCUTIL_TIMEOUT_MS = 2000;
 
 /** Where macOS keeps scutil, so finding it never depends on the PATH main inherited. */
 const SCUTIL = '/usr/sbin/scutil';

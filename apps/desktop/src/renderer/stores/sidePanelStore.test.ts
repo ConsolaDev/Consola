@@ -103,7 +103,7 @@ describe('mergeSidePanelState', () => {
 
   it('sanitizes the uses', () => {
     const uses = {
-      changes: [NOW - 2 * DAY_MS, 'yesterday', NOW + 1_000, NOW - 40 * DAY_MS, NOW - DAY_MS],
+      changes: [NOW - 2 * DAY_MS, 'yesterday', NOW + 1000, NOW - 40 * DAY_MS, NOW - DAY_MS],
       artifacts: [NOW],
     };
     const merged = mergeSidePanelState({ uses, rememberLayout: true }, current(), NOW);

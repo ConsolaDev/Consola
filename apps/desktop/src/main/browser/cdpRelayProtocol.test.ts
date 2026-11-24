@@ -162,7 +162,7 @@ describe('the browser-level commands the relay answers itself', () => {
     refused.forEach((method, index) => {
       expect(reply(index + 1)).toEqual({
         id: index + 1,
-        error: { code: -32000, message: expect.stringContaining(method) },
+        error: { code: -32_000, message: expect.stringContaining(method) },
       });
     });
     expect(send).not.toHaveBeenCalled();
@@ -243,7 +243,7 @@ describe('page commands', () => {
     await settle();
     expect(reply(5)).toEqual({
       id: 5,
-      error: { code: -32000, message: 'No node with given id found' },
+      error: { code: -32_000, message: 'No node with given id found' },
       sessionId: PAGE_SESSION_ID,
     });
   });
@@ -282,7 +282,7 @@ describe('what the page’s own sessions may not do', () => {
     ] as const) {
       expect(reply(id)).toEqual({
         id,
-        error: { code: -32000, message: expect.stringContaining(method) },
+        error: { code: -32_000, message: expect.stringContaining(method) },
         sessionId,
       });
     }
@@ -672,7 +672,7 @@ describe('the page’s iframes and workers', () => {
     await settle();
     expect(reply(5)).toEqual({
       id: 5,
-      error: { code: -32000, message: 'No such session.' },
+      error: { code: -32_000, message: 'No such session.' },
       sessionId: 'NESTED',
     });
     expect(reply(6)).toEqual({ id: 6, result: {}, sessionId: 'NESTED' });

@@ -2483,7 +2483,7 @@ describe('the snapshot and history by page', () => {
     const h = await stepsHarness({ yaml: DAILY });
     const template = (await h.service.trigger(WORKSPACE_ID, NAME))!;
     h.service.dismiss(template.id);
-    const base = h.now().getTime() - 3600_000;
+    const base = h.now().getTime() - 3_600_000;
     const oldest = new Date(base - (count + 1) * 60_000).toISOString();
     h.store.update(template.id, { createdAt: oldest, updatedAt: oldest, finishedAt: oldest });
     for (let index = 1; index < count; index++) {

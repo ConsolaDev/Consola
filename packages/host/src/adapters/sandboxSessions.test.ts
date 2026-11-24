@@ -925,8 +925,8 @@ describe('makeSandboxSessions', () => {
         yield* h.next;
         // Eight hours, less the moment it took to make: the provider stops it by the cap.
         const lifetime = h.fake.sandboxes[0]?.lifetimeSeconds ?? 0;
-        expect(lifetime).toBeLessThanOrEqual(8 * 3_600);
-        expect(lifetime).toBeGreaterThan(8 * 3_600 - 60);
+        expect(lifetime).toBeLessThanOrEqual(8 * 3600);
+        expect(lifetime).toBeGreaterThan(8 * 3600 - 60);
         yield* h.sessions.stopAll;
       }),
     ));
@@ -971,7 +971,7 @@ describe('makeSandboxSessions', () => {
       Effect.gen(function* () {
         const renewals: number[] = [];
         const h = yield* harness({
-          maxLifetime: Duration.millis(2_500),
+          maxLifetime: Duration.millis(2500),
           fake: {
             capabilities: ['keepAlive'],
             programs: { 'consola-session-start': readyUntilStopped() },
@@ -1042,9 +1042,9 @@ describe('makeSandboxSessions', () => {
         // stop comes first (1.5 s), so the session is stopped, not failed as a sandbox that
         // ended by itself.
         const h = yield* harness({
-          maxLifetime: Duration.millis(2_500),
+          maxLifetime: Duration.millis(2500),
           stopTimeout: Duration.seconds(1),
-          leaseRenewEvery: Duration.millis(1_200),
+          leaseRenewEvery: Duration.millis(1200),
           fake: {
             capabilities: ['keepAlive'],
             programs: { 'consola-session-start': readyUntilStopped() },

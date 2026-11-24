@@ -123,10 +123,10 @@ export type FactoryHue = (typeof FACTORY_HUES)[number];
 /** A factory's tile colour, the same for its id every time. */
 export function factoryHue(factoryId: string): FactoryHue {
   // FNV-1a over the id's code units: small, stable and spread enough for a handful of colours.
-  let hash = 0x811c9dc5;
+  let hash = 0x81_1c_9d_c5;
   for (let index = 0; index < factoryId.length; index++) {
     hash ^= factoryId.charCodeAt(index);
-    hash = Math.imul(hash, 0x01000193);
+    hash = Math.imul(hash, 0x01_00_01_93);
   }
   return FACTORY_HUES[(hash >>> 0) % FACTORY_HUES.length] ?? FACTORY_HUES[0];
 }

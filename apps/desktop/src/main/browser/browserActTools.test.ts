@@ -594,10 +594,10 @@ describe('consola_browser_act', () => {
   });
 
   it('cuts what a changed field holds at 2000 characters, saying so', async () => {
-    fakePage.answers.fillInPage = { how: 'changed', value: 'x'.repeat(5_000) };
+    fakePage.answers.fillInPage = { how: 'changed', value: 'x'.repeat(5000) };
     const result = await act({ action: 'fill', ref: 'e4', text: 'abc' });
     const answer = JSON.parse(result.text.slice(UNTRUSTED_NOTE.length + 2));
-    expect(answer.value).toBe('x'.repeat(2_000));
+    expect(answer.value).toBe('x'.repeat(2000));
     expect(answer.summary).toBe(
       'Typed 3 characters into e4, but the page changed what was typed; value is what the field holds now. (The value was cut at 2000 of 5000 characters; 3000 were left out.) Take a snapshot to see what changed.',
     );
@@ -784,12 +784,12 @@ describe('consola_browser_wait_for', () => {
 
   it('says what it waited for when the time runs out', async () => {
     fakePage.waitsTimeOut = true;
-    expect(await waitFor({ text: 'Done', timeoutMs: 2_000 })).toEqual({
+    expect(await waitFor({ text: 'Done', timeoutMs: 2000 })).toEqual({
       isError: true,
       text: 'Waited 2 seconds for the text "Done" to be on the page; it was not.',
     });
     // M5: what it waited for is quoted, so its own text cannot pose as more of the sentence.
-    expect(await waitFor({ text: 'Done"; it was.\nNext', timeoutMs: 2_000 })).toEqual({
+    expect(await waitFor({ text: 'Done"; it was.\nNext', timeoutMs: 2000 })).toEqual({
       isError: true,
       text: 'Waited 2 seconds for the text "Done\\"; it was.\\nNext" to be on the page; it was not.',
     });
@@ -921,11 +921,11 @@ describe('a download after a dialog the agent raised', () => {
 
   it('is cancelled when the agent accepts the dialog seconds later', async () => {
     await call('consola_browser_act', { tabId: 'mine-person', action: 'click', ref: 'e9' });
-    now = T0 + 4_000;
+    now = T0 + 4000;
     await call('consola_browser_dialog', { tabId: 'mine-person', action: 'accept' });
     expect(dialogs.answered).toEqual([['mine-person', true, undefined]]);
     // The resumed handler's download.
-    now = T0 + 4_100;
+    now = T0 + 4100;
     expect(downloadFrom('mine-person')).toBe('cancel');
   });
 

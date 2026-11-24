@@ -287,7 +287,7 @@ describe('Snoozer waking early', () => {
     snoozer.snooze('w1', ['x'], T0 + DAY, { by: 'person' });
     status('inst-x', 'working');
     status('inst-x', 'ready');
-    vi.advanceTimersByTime(5_000);
+    vi.advanceTimersByTime(5000);
     expect(attention('x')).toBe('snoozed');
   });
 

@@ -69,7 +69,7 @@ const execFileAsync = promisify(execFile);
  */
 
 const BINARY_NAME = 'gh';
-const RUN_TIMEOUT_MS = 10000;
+const RUN_TIMEOUT_MS = 10_000;
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 const WEB_HOST = 'github.com';
 /** Parallel `gh api` calls per lookup batch: quick for a handful, polite for dozens. */

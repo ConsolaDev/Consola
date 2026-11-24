@@ -191,16 +191,16 @@ describe('the outbox worker', () => {
 
     worker.start();
     await passEnded(hand);
-    expect(hand.waiting()).toEqual([1_000]);
+    expect(hand.waiting()).toEqual([1000]);
     expect(lines).toEqual([
       `warn Outbox: could not deliver message 1 of workspace ${acme} (status 503 (unavailable)); attempt 1, next in 1 s.`,
     ]);
 
-    clock = new Date(clock.getTime() + 1_000);
+    clock = new Date(clock.getTime() + 1000);
     hand.fire();
     await passEnded(hand);
     expect(sent).toHaveLength(2);
-    expect(hand.waiting()).toEqual([2_000]);
+    expect(hand.waiting()).toEqual([2000]);
     expect(lines.at(-1)).toContain('attempt 2, next in 2 s.');
   });
 
@@ -289,7 +289,7 @@ describe('the outbox worker', () => {
     await makeAcme();
     worker.start();
     await passEnded(hand);
-    clock = new Date(clock.getTime() + 1_000);
+    clock = new Date(clock.getTime() + 1000);
     hand.fire();
     await passEnded(hand);
 

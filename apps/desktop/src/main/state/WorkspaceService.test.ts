@@ -918,7 +918,7 @@ describe('WorkspaceService', () => {
       harnessId: 'claude-personal',
       claudeSessionId: session.claudeSessionId,
       continuedAs: 'new-id',
-      endedAt: 1_000,
+      endedAt: 1000,
       carried: 'native' as const,
     };
     const switched = service.switchHarness(workspace.id, session.id, {

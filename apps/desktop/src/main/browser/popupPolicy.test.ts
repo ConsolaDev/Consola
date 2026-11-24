@@ -179,7 +179,7 @@ describe('placePopupTab', () => {
 
 describe('PersonInputClock', () => {
   it('lets one gesture pay for one popup', () => {
-    let now = 1_000;
+    let now = 1000;
     const clock = new PersonInputClock(() => now);
     clock.touch();
     now += 10;
@@ -189,7 +189,7 @@ describe('PersonInputClock', () => {
   });
 
   it('expires after PERSON_INPUT_MS', () => {
-    let now = 1_000;
+    let now = 1000;
     const clock = new PersonInputClock(() => now);
     clock.touch();
     now += PERSON_INPUT_MS + 1;

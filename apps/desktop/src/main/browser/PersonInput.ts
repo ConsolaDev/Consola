@@ -14,7 +14,7 @@ import { isolated } from './isolated';
  * and a margin for the time between main hearing the press and the page
  * taking it.
  */
-export const PERSON_INPUT_GUARD_MS = 6_000;
+export const PERSON_INPUT_GUARD_MS = 6000;
 
 /** What `act` answers within `PERSON_INPUT_GUARD_MS` of the person's input on the tab. */
 export const PERSON_USING_TAB_MESSAGE = 'The person is using this tab.';

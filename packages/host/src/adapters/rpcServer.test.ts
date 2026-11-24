@@ -708,7 +708,7 @@ describe('serveHost', () => {
             expect(closed).toMatchObject({ code: 4401, reason: 'The session pass has expired.' });
             // Not refused at the door: open for a while, closed no later than the pass's exp.
             expect(closed.closedAt - closed.openedAt).toBeGreaterThan(500);
-            expect(closed.closedAt - closed.openedAt).toBeLessThan(6_000);
+            expect(closed.closedAt - closed.openedAt).toBeLessThan(6000);
           }
           yield* Effect.gen(function* () {
             while (connectedClients() !== 0) yield* Effect.sleep(Duration.millis(10));
@@ -1145,7 +1145,7 @@ describe("the shell and a cold thread: what t3's client reads once connected", (
           // Rows held at a cursor the socket can resume from are kept; one past the thread's
           // last event (another host's) is answered with the shell.
           expect(yield* load(pass, answer.snapshotSequence)).toEqual({ resumable: true });
-          expect(yield* load(pass, answer.snapshotSequence + 1_000)).toMatchObject({
+          expect(yield* load(pass, answer.snapshotSequence + 1000)).toMatchObject({
             threads: [expect.objectContaining({ id: spec.sessionId })],
           });
 
@@ -1238,7 +1238,7 @@ describe("the shell and a cold thread: what t3's client reads once connected", (
           expect(yield* takeShell(behind)).toEqual({ kind: 'synchronized' });
           // A cursor past it (another host's): `snapshot-required` for a client that loads the
           // shell over HTTP instead, else the snapshot.
-          const past = { afterSequence: highWater + 1_000, requestCompletionMarker: true } as const;
+          const past = { afterSequence: highWater + 1000, requestCompletionMarker: true } as const;
           const fallback = yield* subscribeShell(t3, { ...past, httpSnapshotFallback: true });
           expect(yield* takeShell(fallback)).toEqual({ kind: 'snapshot-required' });
           const resent = yield* subscribeShell(t3, past);

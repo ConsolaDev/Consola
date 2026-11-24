@@ -691,10 +691,10 @@ test('A call that may have landed: a timed-out call is never repeated by itself,
       .toEqual(['list', 'call', 'start', 'work-done']);
     const [, call, start, done] = calls.events();
     expect(call.tool).toBe('slow_post');
-    expect(done.at - start.at).toBeGreaterThanOrEqual(3_500);
-    expect(done.at).toBeGreaterThan(Date.parse(post?.call?.intentAt ?? '') + 2_000);
+    expect(done.at - start.at).toBeGreaterThanOrEqual(3500);
+    expect(done.at).toBeGreaterThan(Date.parse(post?.call?.intentAt ?? '') + 2000);
     // Nothing calls it again by itself.
-    await calls.page.waitForTimeout(2 * TICK_MS + 1_000);
+    await calls.page.waitForTimeout(2 * TICK_MS + 1000);
     expect(calls.calls()).toHaveLength(1);
 
     // The run page: no line saying something it started was still running; Retry warns first.
@@ -718,7 +718,7 @@ test('A call that may have landed: a timed-out call is never repeated by itself,
       )
       .toBe(2);
     await runsAre(calls, ['failed']);
-    await calls.page.waitForTimeout(2 * TICK_MS + 1_000);
+    await calls.page.waitForTimeout(2 * TICK_MS + 1000);
     expect(calls.calls()).toHaveLength(2);
   } finally {
     await calls.close();

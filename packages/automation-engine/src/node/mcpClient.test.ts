@@ -483,9 +483,9 @@ describe('calls', () => {
         .filter((event) => event.event === 'asked')
         .map((event) => [event.method, event.code]),
     ).toEqual([
-      ['sampling/createMessage', -32601],
-      ['elicitation/create', -32601],
-      ['roots/list', -32601],
+      ['sampling/createMessage', -32_601],
+      ['elicitation/create', -32_601],
+      ['roots/list', -32_601],
     ]);
   });
 });
@@ -929,7 +929,7 @@ describe('Streamable HTTP', () => {
           { timeoutMs: 10_000, signal: new AbortController().signal },
         ),
       ).toMatchObject({ kind: 'unanswered', why: 'closed' });
-      expect(Date.now() - asked).toBeLessThan(9_000);
+      expect(Date.now() - asked).toBeLessThan(9000);
       expect(rpcs(server, 'tools/call')).toBe(1);
       expect(worked(server)).toBe(1);
     },
@@ -998,7 +998,7 @@ describe('Streamable HTTP', () => {
         await session.call('huge', {}, { timeoutMs: 10_000, signal: new AbortController().signal }),
       ).toMatchObject({ kind: 'unanswered', why: 'too-large' });
       // At once, not at the call's timeout: the connection closes once the count passes the cap.
-      expect(Date.now() - asked).toBeLessThan(9_000);
+      expect(Date.now() - asked).toBeLessThan(9000);
     },
     SLOW,
   );

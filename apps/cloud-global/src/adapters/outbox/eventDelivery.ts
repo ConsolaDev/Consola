@@ -11,7 +11,7 @@ import { connectionFailure } from './cellDelivery.js';
  * How long a cell has to answer an event. GitHub waits ten seconds for the webhook's answer, and
  * this one waits on the cell's, so the cell gets less, and GitHub still hears why it failed.
  */
-export const EVENT_DELIVERY_TIMEOUT_MS = 8_000;
+export const EVENT_DELIVERY_TIMEOUT_MS = 8000;
 
 /** Each answer the contract names, by its status, for the words a failure is told in. */
 const ANSWER_NAMES = new Map<number, string>(

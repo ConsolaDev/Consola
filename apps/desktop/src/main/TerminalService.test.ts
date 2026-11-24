@@ -798,7 +798,7 @@ describe('TerminalService harness switch', () => {
     const pty = installFakePty();
     const service = await buildService();
     await vi.advanceTimersByTimeAsync(0);
-    await animate(pty, 1_500);
+    await animate(pty, 1500);
     expect(service.busy()).toBe(true);
     expect(service.switchRefusal()).toMatch(/middle of a turn/);
     expect(() =>
@@ -839,7 +839,7 @@ describe('TerminalService status event', () => {
     const statuses: string[] = [];
     service.on('status', (status: string) => statuses.push(status));
 
-    await animate(pty, 1_500); // a turn: output keeps coming
+    await animate(pty, 1500); // a turn: output keeps coming
     await vi.advanceTimersByTimeAsync(SETTLE_MS); // settles, no menu
     pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
     await vi.advanceTimersByTimeAsync(SETTLE_MS); // settles on a menu
@@ -870,7 +870,7 @@ describe('TerminalService status event', () => {
 
     service.write('\r');
     pty.feed('\x1b[2J\x1b[3J\x1b[H✻ Working…');
-    await animate(pty, 3_000);
+    await animate(pty, 3000);
 
     expect(statuses).toEqual(['needs-attention', 'ready', 'working']);
     service.destroy();
@@ -1012,11 +1012,11 @@ describe('TerminalService turn detection', () => {
     await showComposer(pty);
 
     service.write('\r');
-    await animate(pty, 1_200);
+    await animate(pty, 1200);
     expect(statuses).toEqual(['working']);
     expect(service.busy()).toBe(true);
 
-    await animate(pty, 3_000);
+    await animate(pty, 3000);
     await vi.advanceTimersByTimeAsync(SETTLE_MS);
     expect(statuses).toEqual(['working', 'ready']);
     service.destroy();
@@ -1027,7 +1027,7 @@ describe('TerminalService turn detection', () => {
     await showComposer(pty);
 
     // A background task finishing wakes the agent on its own.
-    await animate(pty, 1_200);
+    await animate(pty, 1200);
 
     expect(statuses).toEqual(['working']);
     service.destroy();
@@ -1764,7 +1764,7 @@ describe('TerminalService a reporting turn', () => {
     await vi.advanceTimersByTimeAsync(0);
     for (let second = 0; second < 60; second++) {
       fake.feed('{"type":"stream_event"}\r\n');
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1000);
       expect(service.busy()).toBe(true);
     }
     expect(statuses.at(-1)).toBe('working');
@@ -2246,7 +2246,7 @@ describe('TerminalService relaunch', () => {
 
 describe('TerminalService working directory', () => {
   /** How often a working CLI is asked; one poll is unambiguous past it. */
-  const POLL_MS = 2_000;
+  const POLL_MS = 2000;
 
   it('reports where the CLI says it works, once per change, as soon as it moves mid-turn', async () => {
     const pty = installFakePty();

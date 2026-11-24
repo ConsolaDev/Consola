@@ -34,7 +34,7 @@ export function listCodexModels(
   cwd: string,
   env: NodeJS.ProcessEnv,
   extraArgs: string[] = [],
-  timeoutMs = 15000,
+  timeoutMs = 15_000,
 ): Promise<HarnessModel[]> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['app-server', ...codexModelConfigArgs(extraArgs)], {

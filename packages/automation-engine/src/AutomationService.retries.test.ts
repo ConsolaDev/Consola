@@ -106,7 +106,7 @@ describe("a step's declared retry", () => {
     h.advance(59_000);
     await h.tick();
     expect(h.world.launches).toHaveLength(1);
-    h.advance(1_000);
+    h.advance(1000);
     await h.tick();
     expect(rowOf(h, run.id, 'look')).toMatchObject({
       status: 'running',

@@ -82,7 +82,7 @@ describe('sessionLabel', () => {
 describe('pollIntervalMs', () => {
   it('reads a starting session every 2 s, a running one every 10 s, and an ended one never', () => {
     expect(pollIntervalMs('starting')).toBe(2000);
-    expect(pollIntervalMs('running')).toBe(10000);
+    expect(pollIntervalMs('running')).toBe(10_000);
     expect(pollIntervalMs('stopped')).toBeNull();
     expect(pollIntervalMs('failed')).toBeNull();
   });
@@ -93,12 +93,12 @@ describe('listPollIntervalMs', () => {
     expect(
       listPollIntervalMs([{ status: 'running' }, { status: 'starting' }, { status: 'stopped' }]),
     ).toBe(2000);
-    expect(listPollIntervalMs([{ status: 'running' }, { status: 'failed' }])).toBe(10000);
+    expect(listPollIntervalMs([{ status: 'running' }, { status: 'failed' }])).toBe(10_000);
   });
 
   it('reads it now and then once no session shown can change, for one started elsewhere', () => {
-    expect(listPollIntervalMs([{ status: 'stopped' }, { status: 'failed' }])).toBe(30000);
-    expect(listPollIntervalMs([])).toBe(30000);
+    expect(listPollIntervalMs([{ status: 'stopped' }, { status: 'failed' }])).toBe(30_000);
+    expect(listPollIntervalMs([])).toBe(30_000);
   });
 });
 
@@ -135,7 +135,7 @@ describe('the chat and its pass', () => {
       poll: pollIntervalMs(status),
     }));
     expect(seen).toEqual([
-      { mounted: true, renew: true, poll: 10000 },
+      { mounted: true, renew: true, poll: 10_000 },
       { mounted: false, renew: false, poll: null },
     ]);
   });

@@ -9,7 +9,7 @@ import { ipcErrorMessage } from '../utils/ipcErrorMessage';
 /** How long a read stays fresh: the Inbox's own interval, so the two agree on what is current. */
 export const DETAILS_REFRESH_MS = INBOX_REFRESH_INTERVAL_MS;
 /** GitHub works mergeability out lazily; UNKNOWN means "ask again shortly". */
-export const MERGE_STATE_POLL_MS = 3_000;
+export const MERGE_STATE_POLL_MS = 3000;
 export const MERGE_STATE_POLLS = 5;
 /**
  * How many items no viewer watches keep their details. Details carry every

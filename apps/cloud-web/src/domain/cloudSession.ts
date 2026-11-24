@@ -65,7 +65,7 @@ export function startedAt(session: Pick<CloudSession, 'createdAt'>): string {
 }
 
 const POLL_MS: Readonly<Record<CloudSessionStatus, number | null>> = {
-  starting: 2_000,
+  starting: 2000,
   running: 10_000,
   stopped: null,
   failed: null,

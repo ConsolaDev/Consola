@@ -335,7 +335,7 @@ async function openPaneFor51(page: Page): Promise<Locator> {
 async function startAction(pane: Locator, actionId: string): Promise<void> {
   await pane.locator(`[data-action-id="${actionId}"]`).click();
   const confirm = pane.getByRole('button', { name: /Start anyway/ });
-  const asked = await confirm.waitFor({ state: 'visible', timeout: 1_500 }).then(
+  const asked = await confirm.waitFor({ state: 'visible', timeout: 1500 }).then(
     () => true,
     () => false,
   );

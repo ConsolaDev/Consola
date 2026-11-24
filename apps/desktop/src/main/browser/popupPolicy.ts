@@ -154,7 +154,7 @@ export function placePopupTab(facts: PopupTabFacts): PopupTabPlacement {
 }
 
 /** A click or key counts as "behind" a popup for this long. */
-export const PERSON_INPUT_MS = 1_500;
+export const PERSON_INPUT_MS = 1500;
 
 /**
  * Remembers when the person last pressed something in a page. Electron does

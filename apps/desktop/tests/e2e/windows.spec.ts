@@ -146,7 +146,7 @@ test('closing a window leaves its session running', async () => {
         );
         return snapshot.replay.length;
       },
-      { timeout: 15000 },
+      { timeout: 15_000 },
     )
     .toBeGreaterThan(0);
 

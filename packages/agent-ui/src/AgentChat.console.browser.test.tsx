@@ -24,6 +24,6 @@ it('connects and shows the thread, titled as the thread is, with nothing said an
   await expect.element(page.getByText(threadTitle, { exact: true })).toBeVisible();
   // Once connected, t3's client reads the session's scopes, its shell and its thread; a refused
   // shell is retried with a backoff, so a few seconds show whether anything is asked again.
-  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  await new Promise((resolve) => setTimeout(resolve, 2000));
   expect(await commands.takePageNoise()).toEqual([]);
 });

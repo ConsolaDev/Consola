@@ -129,10 +129,10 @@ export function mergeRefresh(
 }
 
 /** How often the list is read again: often while anything shown can still change. */
-export const LIST_POLL_LIVE_MS = 5_000;
+export const LIST_POLL_LIVE_MS = 5000;
 export const LIST_POLL_QUIET_MS = 30_000;
 /** How often a run's page is read again: while it runs, and, more slowly, while it waits on someone. */
-export const RUN_POLL_ACTIVE_MS = 3_000;
+export const RUN_POLL_ACTIVE_MS = 3000;
 export const RUN_POLL_WAITING_MS = 15_000;
 
 /** When the list is read again, given every run it shows, the expanded requests' automations included. */

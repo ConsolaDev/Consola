@@ -839,7 +839,7 @@ describe('the outbox', () => {
       slug: 'sprocket',
       region: 'us',
     });
-    await vi.waitFor(() => expect(deliveries).toHaveLength(2), { timeout: 5_000 });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(2), { timeout: 5000 });
 
     expect(deliveries.map((delivery) => delivery.url)).toEqual([
       `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,

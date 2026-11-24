@@ -82,7 +82,7 @@ test('adds a Codex harness in settings, launches a configured session, and resum
     await page.locator('.terminal-surface .xterm-screen').hover();
     await page.mouse.wheel(0, -600);
     await expect.poll(sliderTop).toBeLessThan(bottom);
-    await page.mouse.wheel(0, 10000);
+    await page.mouse.wheel(0, 10_000);
     await expect.poll(sliderTop).toBe(bottom);
 
     // A tab can change conversations without restarting its PTY.

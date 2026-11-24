@@ -208,7 +208,7 @@ export function MarkdownEditor({
             }
             placeholder={placeholder}
             value={value}
-            maxLength={65536}
+            maxLength={65_536}
             disabled={disabled}
             rows={rows}
             autoFocus={autoFocus}

@@ -115,8 +115,8 @@ describe('ignoredAtRisk', () => {
       tree,
       clone,
       {
-        deadlineMs: 8_000,
-        listedPaths: 5_000,
+        deadlineMs: 8000,
+        listedPaths: 5000,
         visitedEntries: 3,
         comparedBytes: 1024,
         comparedFileBytes: 1024,

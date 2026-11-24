@@ -710,7 +710,7 @@ describe('a call given up on', () => {
   });
 
   it('fails with its own deadline, while a call it cut short is told it was another call’s', async () => {
-    const own = driver.withPage('tab1', never, { deadlineMs: 5_000 });
+    const own = driver.withPage('tab1', never, { deadlineMs: 5000 });
     // Cut short when the connection closes, as Playwright's steps are.
     const other = driver.withPage('tab1', (_page, control) => {
       return new Promise<never>((_resolve, reject) => {
@@ -720,8 +720,8 @@ describe('a call given up on', () => {
       });
     });
     await vi.waitFor(() => expect(timers.pending).toHaveLength(2));
-    timers.pending.find((timer) => timer.ms === 5_000)?.fire();
-    await expect(own).rejects.toThrow(pastDeadlineMessage(5_000));
+    timers.pending.find((timer) => timer.ms === 5000)?.fire();
+    await expect(own).rejects.toThrow(pastDeadlineMessage(5000));
     await expect(other).rejects.toThrow(ANOTHER_CALL_PAST_DEADLINE_MESSAGE);
   });
 });

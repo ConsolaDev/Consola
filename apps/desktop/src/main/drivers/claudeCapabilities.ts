@@ -42,7 +42,7 @@ const HANDSHAKE_ARGS = [
  * SessionStart hooks first, and those are arbitrary shell commands. The
  * timeout is a backstop against a hung child rather than a tight deadline.
  */
-const HANDSHAKE_TIMEOUT_MS = 15000;
+const HANDSHAKE_TIMEOUT_MS = 15_000;
 
 export const INITIALIZE: ControlRequest = {
   requestId: 'consola-initialize',
@@ -372,7 +372,7 @@ export async function requestUsage(
   binary: string,
   cwd: string,
   env: NodeJS.ProcessEnv,
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<unknown> {
   const [, usage] = await requestControl(
     binary,

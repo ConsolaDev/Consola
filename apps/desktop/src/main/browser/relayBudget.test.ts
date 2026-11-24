@@ -9,7 +9,7 @@ import {
 
 const MB = 1024 * 1024;
 
-function clock(start = 1_000) {
+function clock(start = 1000) {
   let now = start;
   return {
     now: () => now,
@@ -49,7 +49,7 @@ describe('EventBudget', () => {
       for (let i = 0; i < EVENT_BUDGET.perSecond / 2; i++) {
         expect(budget.spend({ method: 'Network.dataReceived' })).toBeNull();
       }
-      time.advance(1_000);
+      time.advance(1000);
     }
   });
 
@@ -62,7 +62,7 @@ describe('EventBudget', () => {
     const time = clock();
     const budget = new EventBudget(time.now);
     let refusal: string | null = null;
-    for (let tick = 0; tick < 1_000 && !refusal; tick++) {
+    for (let tick = 0; tick < 1000 && !refusal; tick++) {
       for (let i = 0; i < EVENT_BUDGET.perSecond / 5; i++) refusal ??= budget.spend({});
       time.advance(100);
     }

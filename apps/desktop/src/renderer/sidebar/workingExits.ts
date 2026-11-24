@@ -9,7 +9,7 @@ import type { TreeNode } from './forest';
  * and a row that leaves Working and comes straight back has moved twice for
  * nothing.
  */
-export const EXIT_GRACE_MS = 2_000;
+export const EXIT_GRACE_MS = 2000;
 
 /** What the list has seen trees do in Working, by root key. */
 export interface WorkingObservation {

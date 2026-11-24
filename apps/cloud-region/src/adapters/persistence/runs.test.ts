@@ -383,7 +383,7 @@ describe('the run store', () => {
         exitCode: 1,
         signal: null,
         stdoutBytes: 17_002,
-        stderrBytes: 1_032,
+        stderrBytes: 1032,
         truncated: false,
       },
       previous: [

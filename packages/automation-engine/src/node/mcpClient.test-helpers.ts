@@ -476,7 +476,7 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
         const id = (body as { id: unknown }).id;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
-          JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32001, message: 'warming up' } }),
+          JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32_001, message: 'warming up' } }),
         );
         return;
       }

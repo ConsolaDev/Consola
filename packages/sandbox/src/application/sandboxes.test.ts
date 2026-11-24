@@ -88,7 +88,7 @@ describe('sandboxesFrom refuses a malformed request before the provider sees it'
     ['writing a relative path', (sandbox) => sandbox.writeFile('notes.txt', 'x')],
     ['writing a number', (sandbox) => sandbox.writeFile('/tmp/n', 7 as never)],
     ['exposing port 0', (sandbox) => sandbox.exposePort(0)],
-    ['exposing port 65536', (sandbox) => sandbox.exposePort(65536)],
+    ['exposing port 65536', (sandbox) => sandbox.exposePort(65_536)],
     ['exposing port 80.5', (sandbox) => sandbox.exposePort(80.5)],
   ])('%s', async (_name, attempt) => {
     const { calls, sandboxes } = spy();

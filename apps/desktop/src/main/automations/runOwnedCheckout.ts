@@ -66,7 +66,7 @@ export interface RunOwnedCheckoutDeps {
 }
 
 /** How long a step's own processes get to end after SIGTERM (Call 8). */
-export const STEP_PROCESS_GRACE_MS = 2_000;
+export const STEP_PROCESS_GRACE_MS = 2000;
 
 /** Words for a run whose repository is not cloned here (slice 1's, for a repository rather than an item). */
 export function notClonedMessage(repo: string): string {

@@ -81,7 +81,7 @@ describe('renderHandoff', () => {
     ];
     const markdown = renderHandoff({ entries, truncated: false }, context);
 
-    expect(markdown.length).toBeLessThan(MAX_HANDOFF_CHARS + 2_000);
+    expect(markdown.length).toBeLessThan(MAX_HANDOFF_CHARS + 2000);
     expect(markdown).toContain('The goal');
     expect(markdown).toContain(`5${big}`);
     expect(markdown).not.toContain(`0${big}`);

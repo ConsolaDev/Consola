@@ -12,7 +12,7 @@ export function createCodexThread(
   cwd: string,
   env: NodeJS.ProcessEnv,
   name: string,
-  timeoutMs = 15000,
+  timeoutMs = 15_000,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['app-server'], { cwd, env, stdio: 'pipe' });
@@ -112,7 +112,7 @@ export function readCodexRateLimits(
   cwd: string,
   env: NodeJS.ProcessEnv,
   configArgs: string[] = [],
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<CodexUsageAnswer> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['app-server', ...configArgs], { cwd, env, stdio: 'pipe' });

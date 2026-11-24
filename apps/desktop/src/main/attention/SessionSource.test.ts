@@ -125,7 +125,7 @@ describe('SessionSource', () => {
     vi.advanceTimersByTime(SETTLE_MS);
     expect(ledger.get('a')?.lastActiveAt).toBe(ledger.get('a')?.finishedAt); // seeded from the finish, never advanced
     ledger.touch('a', 'w1', 9999);
-    clock = 20000;
+    clock = 20_000;
     status('working');
     status('ready');
     vi.advanceTimersByTime(SETTLE_MS);

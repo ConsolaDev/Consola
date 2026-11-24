@@ -6,7 +6,7 @@ export const STAND_IN_MAX = 50;
 /** Longest title kept, generated or adopted from the CLI. */
 export const TITLE_MAX = 120;
 /** Longest first message sent to the title model. */
-export const TITLE_INPUT_MAX = 8_000;
+export const TITLE_INPUT_MAX = 8000;
 
 const ELLIPSIS = '…';
 

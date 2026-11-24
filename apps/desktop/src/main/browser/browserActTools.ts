@@ -262,7 +262,7 @@ interface ActDone {
 }
 
 /** How much of what a field holds an answer carries; plenty for a field. */
-const MAX_FIELD_VALUE_CHARS = 2_000;
+const MAX_FIELD_VALUE_CHARS = 2000;
 
 /** What a field holds, as an answer carries it: cut, with a sentence saying so. */
 function heldValue(summary: string, value: string): ActDone {

@@ -20,7 +20,7 @@
 import { cutCopy } from './ownCopy';
 
 /** What one entry may hold, in characters: a page decides how much it logs. */
-export const MAX_ENTRY_CHARS = 2_000;
+export const MAX_ENTRY_CHARS = 2000;
 
 export interface ConsoleError {
   text: string;

@@ -165,7 +165,7 @@ describe('CdpRelay as Playwright’s transport', () => {
     const { fake, call } = open();
     expect(await call(1, 'Target.createTarget', { url: 'about:blank' })).toEqual({
       id: 1,
-      error: { code: -32000, message: expect.stringContaining('Target.createTarget') },
+      error: { code: -32_000, message: expect.stringContaining('Target.createTarget') },
     });
     expect(await call(2, 'Storage.getCookies', {})).toHaveProperty('error');
     expect(fake.commands).toEqual([]);

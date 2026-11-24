@@ -928,7 +928,7 @@ test.describe('Home scopes and groups', () => {
     await expect(settledHeader).toHaveText(/1/);
     await expect(topList(page)).not.toContainText('Fix flaky test');
     await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(1500);
     await expect(settledHeader).toHaveText(/1/);
     await settledHeader.click();
     await expect(shelved).toHaveCount(1);
@@ -1138,7 +1138,7 @@ test.describe('the Working section', () => {
     await expect
       .poll(topOfList, { timeout: 10_000, intervals: [50] })
       .toEqual(['Session A', 'Session C', 'Session B']);
-    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1_000);
+    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1000);
     await expect(working).toHaveCount(0);
   });
 
@@ -1165,7 +1165,7 @@ test.describe('the Working section', () => {
     expect(await topOfList()).toEqual(order);
 
     await expect.poll(() => statusOf('still-b'), { timeout: 15_000 }).toBe('ready');
-    await page.waitForTimeout(2_500);
+    await page.waitForTimeout(2500);
     expect(await topOfList()).toEqual(order);
   });
 

@@ -549,7 +549,7 @@ describe('the stub claude speaks the control protocol', { timeout: 30_000 }, () 
       { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: scratch(), ...env },
       requests,
       // Far short of the 15 s default: "at once" means the stub answered.
-      { timeoutMs: 8_000, extraArgs },
+      { timeoutMs: 8000, extraArgs },
     );
 
   it('without either knob, refuses the protocol as before and logs nothing', () => {

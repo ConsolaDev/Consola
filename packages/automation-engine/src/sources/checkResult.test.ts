@@ -23,8 +23,8 @@ const workItems = {
 const pollTrigger = (extra: Partial<PollTrigger>): PollTrigger => ({
   kind: 'poll',
   run: 'x',
-  everyMs: 60000,
-  timeoutMs: 60000,
+  everyMs: 60_000,
+  timeoutMs: 60_000,
   ...extra,
 });
 const withItem = pollTrigger({ item: { connection: 'github', path: '.url' } });

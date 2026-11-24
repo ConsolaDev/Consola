@@ -699,7 +699,7 @@ test.describe('info panel', () => {
     await standInClipboard();
     await folderRow('Worktree').click();
     // The click closes the card; it opens again to say so, for 1.5 s.
-    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1000 });
     expect(await copiedPaths()).toEqual([docs]);
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
 
@@ -1041,7 +1041,7 @@ test.describe('info panel', () => {
     );
     await expect(cardFolder).toHaveText(src);
     await folderRow('Main checkout').click();
-    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1000 });
     expect(await copiedPaths()).toEqual([src]);
   });
 

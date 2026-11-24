@@ -24,7 +24,7 @@ describe('cutCopy', () => {
 
   it('keeps only its own copy, never the whole string it was cut from', () => {
     // The control: a plain slice keeps every source alive.
-    expect(retainedBy((text) => text.slice(0, 2_000))).toBeGreaterThan(80 * MB);
-    expect(retainedBy((text) => cutCopy(text, 2_000))).toBeLessThan(10 * MB);
+    expect(retainedBy((text) => text.slice(0, 2000))).toBeGreaterThan(80 * MB);
+    expect(retainedBy((text) => cutCopy(text, 2000))).toBeLessThan(10 * MB);
   });
 });

@@ -13,12 +13,12 @@ let installations: InstallationStore;
 
 const sprocketOrg: GitHubInstallation = {
   id: 4_100_001,
-  account: { id: 9_001, login: 'sprocket', type: 'Organization' },
+  account: { id: 9001, login: 'sprocket', type: 'Organization' },
   repositorySelection: 'selected',
 };
 const danaOwn: GitHubInstallation = {
   id: 4_100_002,
-  account: { id: 9_002, login: 'dana-ortiz', type: 'User' },
+  account: { id: 9002, login: 'dana-ortiz', type: 'User' },
   repositorySelection: 'all',
 };
 

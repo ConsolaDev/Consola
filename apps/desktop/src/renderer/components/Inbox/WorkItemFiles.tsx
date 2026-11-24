@@ -610,7 +610,7 @@ function SubmitReview({
             placeholder="Leave a summary (optional). Markdown supported."
             value={body}
             rows={4}
-            maxLength={65536}
+            maxLength={65_536}
             disabled={busy}
             onChange={(change) => setBody(change.target.value)}
             onKeyDown={(key) => {

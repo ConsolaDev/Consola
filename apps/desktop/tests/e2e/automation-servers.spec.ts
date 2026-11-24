@@ -1146,7 +1146,7 @@ test('a probe that fails, a sign-in, or a server that did not load: the step fai
     writeFactoryFile(steps, QUERIES_FILE, QUERIES_2);
     await expect
       .poll(() => fs.readFileSync(path.join(folderOf(steps), QUERIES_FILE), 'utf8'), {
-        timeout: 5_000,
+        timeout: 5000,
       })
       .toBe(QUERIES_2);
     const runPage = await openRun(steps);

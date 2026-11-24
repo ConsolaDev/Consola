@@ -22,7 +22,7 @@ export const WRITE_DEBOUNCE_MS = 1000;
  * long addresses would freeze every session's terminal at each write, and
  * after every relaunch. Real addresses are far shorter than this.
  */
-export const MAX_STORED_ADDRESS_CHARS = 8_192;
+export const MAX_STORED_ADDRESS_CHARS = 8192;
 
 /**
  * An address as the file keeps it: as it is up to the cap, else only its

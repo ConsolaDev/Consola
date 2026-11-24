@@ -194,8 +194,8 @@ export interface WorkItemDetails {
   canUpdateBranch?: boolean;
 }
 
-const body = z.string().trim().min(1).max(65536);
-const optionalBody = z.string().trim().max(65536).optional();
+const body = z.string().trim().min(1).max(65_536);
+const optionalBody = z.string().trim().max(65_536).optional();
 /** A provider's opaque id for a comment, thread or review. */
 const nodeId = z
   .string()
@@ -212,7 +212,7 @@ export const workItemMutationSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('review'),
     event: z.enum(['approve', 'request-changes', 'comment']),
-    body: z.string().trim().max(65536),
+    body: z.string().trim().max(65_536),
     pendingReviewId: nodeId.optional(),
   }),
   /** `comment` is posted as the item closes; `reason` is for issues. */
@@ -232,7 +232,7 @@ export const workItemMutationSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('edit'),
     title: z.string().trim().min(1).max(256),
-    body: z.string().max(65536),
+    body: z.string().max(65_536),
   }),
   /** Merges the base branch into the head branch. */
   z.object({ kind: z.literal('update-branch') }),

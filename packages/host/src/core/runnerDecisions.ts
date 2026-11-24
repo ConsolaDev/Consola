@@ -369,7 +369,7 @@ export class StderrTail {
 }
 
 /** The longest error, and title, the runner sends the cell, so a frame stays within the cell's limit. */
-export const MAX_ERROR_LENGTH = 1_000;
+export const MAX_ERROR_LENGTH = 1000;
 
 const bounded = (text: string): string =>
   text.length <= MAX_ERROR_LENGTH ? text : `${text.slice(0, MAX_ERROR_LENGTH - 1)}…`;
@@ -474,7 +474,7 @@ export const SANDBOX_LEASE_RENEW_SECONDS = 3 * 60;
  * when the cap is under one away and its own stop is due.
  */
 export function sandboxLifetimeSeconds(remainingMs: number, leaseSeconds: number | null): number {
-  const remaining = Math.floor(remainingMs / 1_000);
+  const remaining = Math.floor(remainingMs / 1000);
   return Math.max(1, leaseSeconds === null ? remaining : Math.min(leaseSeconds, remaining));
 }
 

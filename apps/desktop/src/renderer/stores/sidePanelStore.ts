@@ -63,7 +63,7 @@ import type { UsageLog } from '../sidePanel/usage';
 
 export const SIDE_PANEL_STORAGE_KEY = 'consola-side-panel';
 /** How long a focus request waits for its view to mount and take it. */
-export const FOCUS_REQUEST_TTL_MS = 5_000;
+export const FOCUS_REQUEST_TTL_MS = 5000;
 
 /** What a focus request names: a kind, or the placeholder, whose "+" list takes the keyboard. */
 export type FocusTarget = TabKindId | typeof Layout.NEW_TAB;

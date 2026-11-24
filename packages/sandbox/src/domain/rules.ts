@@ -109,7 +109,7 @@ export function commandProblem(command: Command): string | null {
 }
 
 export function portProblem(port: unknown): string | null {
-  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65_535) {
     return `${quoted(port)} is not a port: ports are whole numbers from 1 to 65535.`;
   }
   return null;

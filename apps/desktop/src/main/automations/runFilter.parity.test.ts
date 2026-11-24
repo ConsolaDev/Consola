@@ -11,7 +11,7 @@ import { filterRuns as rendererFilterRuns } from '../../renderer/components/Auto
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
 const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
-const HOUR = 3600_000;
+const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 
 function run(overrides: Partial<RunListEntry> = {}): RunListEntry {

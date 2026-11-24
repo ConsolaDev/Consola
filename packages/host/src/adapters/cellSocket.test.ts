@@ -273,7 +273,7 @@ describe('makeCellSocket', () => {
           yield* runner.socket.send(stopped);
           expect(yield* first.next).toEqual(stopped);
           // A socket that died without a close stays open for minutes: no time open means heard.
-          yield* Effect.sleep(Duration.millis(5_500));
+          yield* Effect.sleep(Duration.millis(5500));
           first.socket.terminate();
           const second = yield* cell.next;
           expect(yield* second.next).toMatchObject({
@@ -359,7 +359,7 @@ describe('makeCellSocket', () => {
             type: 'session.update',
             sessionId: `session-acme-long-${each}`,
             status: 'failed',
-            error: '€'.repeat(1_000),
+            error: '€'.repeat(1000),
           });
         }
         const connection = yield* cell.next;

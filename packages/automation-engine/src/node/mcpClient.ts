@@ -39,7 +39,7 @@ import { clipText, formatDuration, maskSecrets } from '../steps/commandIO';
 import { Masker } from './runCommand';
 
 /** How long a server's group has between SIGTERM and SIGKILL. */
-export const SERVER_KILL_GRACE_MS = 5_000;
+export const SERVER_KILL_GRACE_MS = 5000;
 /** The largest message a server may send (spike V11: the SDK buffers any size). */
 export const MAX_MESSAGE_BYTES = 8 * 1024 * 1024;
 /** The most of a server's stderr its `server.log` keeps. */
@@ -52,17 +52,17 @@ const REASON_LINE_CHARS = 300;
 /** How much of each stdout line is kept to quote one that is not JSON-RPC. */
 const LINE_HEAD_BYTES = 1024;
 /** `ps` gets this long. */
-const PS_TIMEOUT_MS = 5_000;
+const PS_TIMEOUT_MS = 5000;
 /** How long after SIGKILL what is left is counted as having survived. */
 const SURVIVOR_CHECK_MS = 200;
 /** How often, during the grace, a group is checked for anything left in it. */
 const GROUP_POLL_MS = 50;
 /** How long a refused connect waits for a server that exited to close its pipes, for its last stderr line. */
-const EXIT_SETTLE_MS = 1_000;
+const EXIT_SETTLE_MS = 1000;
 /** The most `tools/list` pages read. */
 const MAX_TOOL_PAGES = 10;
 /** How long an HTTP session's close waits for a notification still going out (a stop's cancel). */
-const NOTIFICATION_SETTLE_MS = 2_000;
+const NOTIFICATION_SETTLE_MS = 2000;
 const LOG_CUT_LINE = Buffer.from('\n…\n');
 const EMPTY = Buffer.alloc(0);
 /** What a connect stopped part-way says; the engine words it its own way. */
@@ -1030,8 +1030,8 @@ async function connectHttp(
     // A stream that breaks is never resumed, so nothing is asked of the server again (spike E9b).
     reconnectionOptions: {
       maxRetries: 0,
-      initialReconnectionDelay: 1_000,
-      maxReconnectionDelay: 1_000,
+      initialReconnectionDelay: 1000,
+      maxReconnectionDelay: 1000,
       reconnectionDelayGrowFactor: 1,
     },
   });

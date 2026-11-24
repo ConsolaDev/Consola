@@ -1,7 +1,7 @@
 import type { TerminalStatus } from '../../shared/terminalStatus';
 
 /** How long a session must stay quiet before it counts as finished. */
-export const SETTLE_MS = 4_000;
+export const SETTLE_MS = 4000;
 
 export type SettledStatus = Exclude<TerminalStatus, 'working'>;
 

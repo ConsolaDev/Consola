@@ -18,7 +18,7 @@
 const MB = 1024 * 1024;
 
 /** Events: a busy page sends a few hundred a second, a page's load a few thousand at once. */
-export const EVENT_BUDGET = { burst: 20_000, perSecond: 5_000 } as const;
+export const EVENT_BUDGET = { burst: 20_000, perSecond: 5000 } as const;
 /** Their size, in characters: a page's load, or a busy feed, stays well inside it. */
 export const BYTE_BUDGET = { burst: 64 * MB, perSecond: 16 * MB } as const;
 

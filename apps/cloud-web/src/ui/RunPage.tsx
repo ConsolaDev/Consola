@@ -58,7 +58,7 @@ export function RunPage({
   const [prefs, setPrefs] = useState<RunPagePrefs>(readRunPagePrefs);
   const detail = view.kind === 'shown' ? view.detail : null;
   const live = detail ? runPollDelay(detail) !== null : false;
-  const now = useNow(live ? 1_000 : 30_000);
+  const now = useNow(live ? 1000 : 30_000);
   // The file's own answer says the latest version; a run without one asks the list's facets.
   const askedLatest = useLatestVersion(
     workspace.id,

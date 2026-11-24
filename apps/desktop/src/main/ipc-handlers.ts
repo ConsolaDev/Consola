@@ -2283,7 +2283,7 @@ export function setupIpcHandlers(): boolean {
       try {
         const said = execFileSync('ps', ['-o', 'pgid=,lstart=', '-p', String(pid)], {
           encoding: 'utf8',
-          timeout: 5_000,
+          timeout: 5000,
         });
         const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(said);
         return match ? { pgid: Number(match[1]), started: match[2] } : null;

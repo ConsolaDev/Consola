@@ -107,7 +107,7 @@ export function locateInFolder(
 /** A file's text, decoded as UTF-8 with a leading byte-order mark removed. */
 function decode(bytes: Uint8Array): string {
   const text = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString('utf8');
-  return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  return text.charCodeAt(0) === 0xfe_ff ? text.slice(1) : text;
 }
 
 /** The names in a folder that is there, dotfiles and leftovers left out, sorted; [] when it is not there. */

@@ -178,7 +178,7 @@ function handle(message) {
     case 'ping':
       return send({ id, result: {} });
     default:
-      return send({ id, error: { code: -32601, message: `Method not found: ${method}` } });
+      return send({ id, error: { code: -32_601, message: `Method not found: ${method}` } });
   }
 }
 

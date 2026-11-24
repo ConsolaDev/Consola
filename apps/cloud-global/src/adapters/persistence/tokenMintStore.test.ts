@@ -34,7 +34,7 @@ beforeEach(async () => {
     {
       installationId: 41,
       organizationId: 'acme',
-      accountId: 9_001,
+      accountId: 9001,
       accountLogin: 'acme',
       accountType: 'Organization',
       connectedAt: at('2026-11-22T09:00:00Z'),
@@ -42,7 +42,7 @@ beforeEach(async () => {
     {
       installationId: 52,
       organizationId: 'sprocket',
-      accountId: 9_002,
+      accountId: 9002,
       accountLogin: 'sprocket',
       accountType: 'Organization',
       connectedAt: at('2026-11-22T09:00:00Z'),

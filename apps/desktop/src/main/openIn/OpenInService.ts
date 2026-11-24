@@ -5,7 +5,7 @@ import type { Launcher } from './launchers';
 import type { DetectedTarget } from './targets';
 
 /** How long the list waits for an app's icon before it lists the app without one. */
-export const ICON_READ_TIMEOUT_MS = 2_000;
+export const ICON_READ_TIMEOUT_MS = 2000;
 
 export interface OpenInServiceDeps {
   /** The apps on this computer, the file manager last (`detectTargets`). */

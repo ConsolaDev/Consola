@@ -199,12 +199,12 @@ describe('launchAgentRun', () => {
         automation: { name: 'review-requests', runId: 'run-0' },
         workItem,
         workItemAction: 'Review',
-        createdAt: 2_000,
+        createdAt: 2000,
       },
       { id: 'old', name: 'Mine, before', workItem, workItemAction: 'Review', createdAt: 500 },
     ] as unknown as Session[];
     const d = deps({ getWorkspace: () => ws });
-    const since = new Date(1_000).toISOString();
+    const since = new Date(1000).toISOString();
     const request = { ...itemRun, item: { ...itemRun.item, startedByHandSince: since } };
     await launchAgentRun(d, request);
     expect(d.launchSession).toHaveBeenCalledTimes(1);
@@ -214,7 +214,7 @@ describe('launchAgentRun', () => {
       name: 'My review',
       workItem,
       workItemAction: 'Review',
-      createdAt: 3_000,
+      createdAt: 3000,
     } as unknown as Session);
     const refused = launchAgentRun(d, request);
     await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
@@ -325,7 +325,7 @@ describe('launchAgentRun', () => {
   it('a step launch looks for a review started by hand only when the engine asks it to', async () => {
     const ws = workspace();
     ws.sessions = [
-      { id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3_000 },
+      { id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3000 },
     ] as unknown as Session[];
     const d = deps({ getWorkspace: () => ws });
     const step = {
@@ -342,7 +342,7 @@ describe('launchAgentRun', () => {
     expect(d.launchSession).toHaveBeenCalledTimes(1);
 
     // The run's first agent step, an action: checked under the Inbox's lock, after the checkout was prepared.
-    const since = new Date(1_000).toISOString();
+    const since = new Date(1000).toISOString();
     const refused = launchAgentRun(d, {
       ...itemRun,
       item: { ...itemRun.item, startedByHandSince: since },

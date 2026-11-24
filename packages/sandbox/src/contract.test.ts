@@ -65,7 +65,7 @@ const PROVIDERS: readonly ProviderUnderTest[] = [
     subject: () => ({
       provider: new E2BProvider({ apiKey: E2B_API_KEY }),
       template: 'base',
-      elapse: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1_000)),
+      elapse: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
     }),
     skipped:
       E2B_API_KEY === ''

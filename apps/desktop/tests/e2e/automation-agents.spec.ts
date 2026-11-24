@@ -906,7 +906,7 @@ test('while the folder does not apply, the Allow card shows the agent as the ver
     writeFactoryFile(steps, REVIEWER_FILE, reviewer('REVIEWER-BODY-2'));
     await expect
       .poll(() => fs.readFileSync(path.join(folderOf(steps), REVIEWER_FILE), 'utf8'), {
-        timeout: 5_000,
+        timeout: 5000,
       })
       .toContain('REVIEWER-BODY-2');
     await steps.page.waitForTimeout(5000);

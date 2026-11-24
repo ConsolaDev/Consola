@@ -474,7 +474,7 @@ describe('the shared safety rules', () => {
     rig.activity.set(sessions.recent.id, Date.now() - 60_000);
     rig.processes = {
       kind: 'ok',
-      entries: [{ pid: 99999, command: 'vite', cwd: running.dir }],
+      entries: [{ pid: 99_999, command: 'vite', cwd: running.dir }],
     };
 
     const result = await rig.service().cleanupStale(ALL, { prStates: ['merged'] });

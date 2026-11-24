@@ -128,7 +128,7 @@ describe('automationCheckoutPort', () => {
   });
 
   it('a session started by hand since refuses with StartedByHandError', async () => {
-    const since = new Date(1_000).toISOString();
+    const since = new Date(1000).toISOString();
     const sessions: Array<Partial<Session>> = [
       // The automation's own session, and one the person started before, do not count.
       {
@@ -137,7 +137,7 @@ describe('automationCheckoutPort', () => {
         automation: { name: 'review-assigned-prs', runId: 'run-0' },
         workItem,
         workItemAction: 'Review',
-        createdAt: 2_000,
+        createdAt: 2000,
       },
       { id: 'old', name: 'Before', workItem, workItemAction: 'Review', createdAt: 500 },
     ];
@@ -152,7 +152,7 @@ describe('automationCheckoutPort', () => {
       name: 'My review',
       workItem,
       workItemAction: 'Review',
-      createdAt: 3_000,
+      createdAt: 3000,
     });
     const refused = automationCheckoutPort(d).prepare(byHand);
     await expect(refused).rejects.toBeInstanceOf(StartedByHandError);

@@ -43,7 +43,7 @@ const IDLE_DEBOUNCE_MS = 500;
  * follows the view's own input. A turn is the CLI painting its spinner, on
  * its own, for as long as the turn runs.
  */
-const TURN_MIN_MS = 1_000;
+const TURN_MIN_MS = 1000;
 
 /**
  * How long after the person types into a menu the screen is read again.
@@ -57,7 +57,7 @@ const TURN_MIN_MS = 1_000;
 const ANSWER_RECHECK_MS = 300;
 
 /** How often a working CLI is asked where it works. Never while it is idle. */
-const WORKING_DIRECTORY_POLL_MS = 2_000;
+const WORKING_DIRECTORY_POLL_MS = 2000;
 
 /**
  * How long an unattended turn may run before Consola stops it. A print-mode
@@ -108,7 +108,7 @@ export function listProcessesByPs(): Promise<string> {
     execFile(
       'ps',
       ['-A', '-o', 'pid=,ppid=,pgid=,lstart='],
-      { maxBuffer: 16 * 1024 * 1024, timeout: 5_000 },
+      { maxBuffer: 16 * 1024 * 1024, timeout: 5000 },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
   });

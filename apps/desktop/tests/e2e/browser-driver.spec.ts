@@ -263,7 +263,7 @@ async function startWaitingCall(app: ElectronApplication, tabId: string): Promis
     void main.__consolaTest.browserAgent.driver
       .withPage(id, (page) => {
         waiting.started = true;
-        return page.waitForFunction('false', undefined, { timeout: 9_000 });
+        return page.waitForFunction('false', undefined, { timeout: 9000 });
       })
       .then(
         () => {
@@ -398,7 +398,7 @@ test.describe('an agent call on a page', () => {
     expect(centre.filter((channel) => channel < 80)).toHaveLength(2);
     expect(centre[1]).toBeLessThan(80);
     // Well inside its bound: the page had loaded, so nothing waited out a timeout.
-    expect(seen.ms).toBeLessThan(5_000);
+    expect(seen.ms).toBeLessThan(5000);
 
     // Nothing took focus, and the agent is marked on the tab while it works.
     expect(await hostFocus(page)).toBe(focusBefore);

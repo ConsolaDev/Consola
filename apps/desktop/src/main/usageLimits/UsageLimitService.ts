@@ -314,7 +314,7 @@ export class UsageLimitService {
       targets.map(async (target) => {
         const known = await this.deps.cache.fresh(target.driver, target.config, {
           maxAgeMs: 60_000,
-          waitMs: 3_000,
+          waitMs: 3000,
         });
         if (known) this.noteHarness(target.harnessId, known.limits, this.now());
       }),

@@ -6,7 +6,7 @@ import { readCodexRateLimits } from './codexAppServer';
 import { codexPlanApplies, mapCodexUsage, showsCodexLimitNotice } from './codexUsage';
 
 const CHECKED_AT = Date.parse('2026-11-19T14:00:00Z');
-const RESET_SECONDS = 1795715672;
+const RESET_SECONDS = 1_795_715_672;
 
 /** A ChatGPT reading whose `codex` snapshot is `snapshot`, in 0.169.0's shape. */
 function reading(snapshot: Record<string, unknown>, extra: Record<string, unknown> = {}) {
@@ -39,7 +39,7 @@ describe('mapCodexUsage', () => {
       windowsOf(
         reading({
           primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: RESET_SECONDS },
-          secondary: { usedPercent: 12, windowDurationMins: 10080, resetsAt: RESET_SECONDS + 60 },
+          secondary: { usedPercent: 12, windowDurationMins: 10_080, resetsAt: RESET_SECONDS + 60 },
         }),
       ),
     ).toEqual([
@@ -48,10 +48,10 @@ describe('mapCodexUsage', () => {
     ]);
     // Prolite reports its weekly allowance as `primary`.
     expect(
-      windowsOf(reading({ primary: { usedPercent: 0, windowDurationMins: 10080 } }))[0].kind,
+      windowsOf(reading({ primary: { usedPercent: 0, windowDurationMins: 10_080 } }))[0].kind,
     ).toBe('weekly');
     expect(
-      windowsOf(reading({ primary: { usedPercent: 0, windowDurationMins: 43200 } }))[0].kind,
+      windowsOf(reading({ primary: { usedPercent: 0, windowDurationMins: 43_200 } }))[0].kind,
     ).toBe('monthly');
   });
 
@@ -200,7 +200,7 @@ describe('readCodexRateLimits', () => {
     return shim;
   }
 
-  const SNAPSHOT = { limitId: 'codex', primary: { usedPercent: 3, windowDurationMins: 10080 } };
+  const SNAPSHOT = { limitId: 'codex', primary: { usedPercent: 3, windowDurationMins: 10_080 } };
 
   it('asks for rate limits after the account, and passes on only the snapshots', async () => {
     const binary = fakeAppServer('chatgpt', {
@@ -235,7 +235,7 @@ describe('readCodexRateLimits', () => {
     const binary = fakeAppServer('apikey', {
       'account/read': { result: { account: { type: 'apiKey' }, requiresOpenaiAuth: true } },
       'account/rateLimits/read': {
-        error: { code: -32600, message: 'chatgpt authentication required to read rate limits' },
+        error: { code: -32_600, message: 'chatgpt authentication required to read rate limits' },
       },
     });
 
@@ -249,7 +249,7 @@ describe('readCodexRateLimits', () => {
     const binary = fakeAppServer('error', {
       'account/read': { result: { account: { type: 'chatgpt' }, requiresOpenaiAuth: true } },
       'account/rateLimits/read': {
-        error: { code: -32603, message: 'failed to fetch codex rate limits' },
+        error: { code: -32_603, message: 'failed to fetch codex rate limits' },
       },
     });
 

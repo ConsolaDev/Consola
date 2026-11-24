@@ -52,8 +52,8 @@ import type {
  * redirects a whole profile, and the shape of the account file it writes.
  */
 
-const VERSION_TIMEOUT_MS = 10000;
-const HEADLESS_TIMEOUT_MS = 60000;
+const VERSION_TIMEOUT_MS = 10_000;
+const HEADLESS_TIMEOUT_MS = 60_000;
 
 // Locations `claude` commonly installs to, checked when the PATH search fails.
 const FALLBACK_BINARY_PATHS = [

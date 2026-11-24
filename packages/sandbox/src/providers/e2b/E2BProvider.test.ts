@@ -331,7 +331,7 @@ describe('E2BProvider', () => {
     const attached = await provider.attach('sbx-sprocket-7');
     expect(attached.id).toBe('sbx-sprocket-7');
     expect(api.getInfo).toHaveBeenCalledWith('sbx-sprocket-7');
-    expect(api.connect.mock.calls).toEqual([['sbx-sprocket-7', { timeoutMs: 1_000 }]]);
+    expect(api.connect.mock.calls).toEqual([['sbx-sprocket-7', { timeoutMs: 1000 }]]);
   });
 
   it('refuses to attach to a paused sandbox, and never resumes it', async () => {
