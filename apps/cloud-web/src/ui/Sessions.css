@@ -1,0 +1,446 @@
+/* The Sessions section, drawn as Runs is: the list a column of 44px rows one hairline apart under
+   a title and its action, the form a group as Connections draws one, and a session's page the
+   run page's header ("Sessions / name", a status chip, its controls at the end) over the chat,
+   which fills the rest of the window. A status is a dot: the accent while the session lives,
+   hollow while it starts, quiet once it stopped, red once it failed. Nothing loops. */
+
+.sessions {
+  --row-hover-solid: color-mix(in srgb, rgb(17 17 17) 10%, var(--bg));
+
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 28px clamp(16px, 4vw, 48px) 48px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sessions {
+    --row-hover-solid: color-mix(in srgb, rgb(255 255 255) 10%, var(--bg));
+  }
+}
+
+.sessions-narrow {
+  max-width: 640px;
+}
+
+.sessions-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sessions-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+}
+
+.sessions .button {
+  text-decoration: none;
+}
+
+.sessions-stale {
+  margin: 10px 0 0;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+.sessions-notice {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 16px 18px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-group);
+  background: var(--gray-2);
+  font-size: var(--font-size-md);
+}
+
+.sessions-notice p {
+  margin: 0;
+}
+
+.sessions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* ---- The list ---- */
+
+.sessions-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sessions-entry + .sessions-entry {
+  border-top: 1px solid var(--line);
+}
+
+.sessions-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 44px;
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.sessions-row:hover {
+  background: var(--row-hover-solid);
+}
+
+.sessions-row:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.sessions-row-title {
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessions-row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+/* A fact about a session, set apart: its repository, its harness. */
+.sessions-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 220px;
+  height: 22px;
+  padding: 0 7px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+}
+
+.sessions-tag > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.sessions-tag-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessions-row-status {
+  min-width: 56px;
+}
+
+.sessions-row-time {
+  min-width: 56px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* A narrow row keeps its name, status and time; its tags go. */
+@media (max-width: 760px) {
+  .sessions-tag {
+    display: none;
+  }
+}
+
+.sessions-dot {
+  justify-self: center;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+
+.sessions-dot[data-status="starting"] {
+  border: 1.5px solid var(--cyan);
+  background: transparent;
+}
+
+.sessions-dot[data-status="running"] {
+  background: var(--cyan);
+}
+
+.sessions-dot[data-status="failed"] {
+  background: var(--danger);
+}
+
+/* An empty list says what fills it: a tile, a title, a sentence, and what to do. */
+.sessions-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 64px 16px 56px;
+  text-align: center;
+}
+
+.sessions-empty-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-md);
+  background: var(--gray-2);
+  color: var(--text-2);
+}
+
+.sessions-empty-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.sessions-empty-words {
+  max-width: 46ch;
+  margin: 0 0 10px;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.sessions-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 24px 0;
+}
+
+.sessions-loading-bar {
+  width: min(520px, 70%);
+  height: 12px;
+  border-radius: 6px;
+  background: var(--hover);
+}
+
+.sessions-loading-short {
+  width: min(320px, 45%);
+  opacity: 0.6;
+}
+
+/* ---- New session ---- */
+
+.sessions-form {
+  margin-top: 20px;
+  padding: 20px;
+}
+
+.sessions-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.sessions-form .actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ---- A session ---- */
+
+.session-page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 44px);
+  min-height: 480px;
+}
+
+.session-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  min-height: 40px;
+  padding: 6px 16px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg);
+}
+
+/* The name gives way; the way back and the status stay whole. */
+.session-crumbs {
+  display: flex;
+  flex: 1000 0 0%;
+  align-items: center;
+  min-width: 48px;
+  max-width: max-content;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.session-crumb {
+  flex: none;
+  color: var(--text-2);
+  text-decoration: none;
+}
+
+.session-crumb:hover {
+  color: var(--text);
+}
+
+.session-crumb:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.session-crumb-sep {
+  flex: none;
+  margin: 0 8px;
+  color: var(--text-3);
+  font-weight: var(--font-weight-normal);
+}
+
+.session-crumb-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--cyan-text);
+  text-overflow: ellipsis;
+}
+
+/* Where the session stands, as a chip tinted by its status. */
+.session-state {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 9px 0 8px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.session-state[data-status="running"],
+.session-state[data-status="starting"] {
+  background: color-mix(in srgb, var(--cyan) 13%, transparent);
+}
+
+.session-state[data-status="failed"] {
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+}
+
+.session-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  font-size: var(--font-size-sm);
+}
+
+.session-controls .button {
+  padding: 2px 10px;
+}
+
+.session-controls .button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.session-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.session-facts .error {
+  flex-basis: 100%;
+}
+
+.session-repository {
+  font-family: var(--font-mono);
+}
+
+.session-warning {
+  margin: 0;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--text);
+  font-size: var(--font-size-sm);
+}
+
+.session-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* The chat fills the rest of the window: its own root is 100% of this frame's height. */
+.session-chat {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.session-chat-frame {
+  position: absolute;
+  inset: 0;
+}
+
+.session-words {
+  max-width: 560px;
+  margin: 48px auto;
+  padding: 0 16px;
+  color: var(--text-2);
+  font-size: var(--font-size-md);
+  text-align: center;
+}
+
+.session-words[data-kind="failed"] {
+  color: var(--text);
+}
+
+.session-words .button {
+  margin-top: 16px;
+}

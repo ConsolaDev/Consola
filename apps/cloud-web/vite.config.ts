@@ -1,7 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
 import react from '@vitejs/plugin-react';
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 
 function commit(): string {
   try {
@@ -35,8 +37,31 @@ const cellProxies = Object.fromEntries(
   }),
 );
 
+/**
+ * Ships `@consola/agent-ui`'s notices beside the chat the build bundles from its `dist/`, as
+ * `agent-ui/THIRD-PARTY-NOTICES` and `agent-ui/LICENSE` (that package's `AGENTS.md`,
+ * "Build"): this app's own licence tooling sees one MIT package, never the packages
+ * inside it.
+ */
+function agentUiNotices(): Plugin {
+  return {
+    name: 'consola:agent-ui-notices',
+    apply: 'build',
+    generateBundle() {
+      const dist = dirname(createRequire(import.meta.url).resolve('@consola/agent-ui'));
+      const notices = [
+        [join(dist, 'THIRD-PARTY-NOTICES'), 'agent-ui/THIRD-PARTY-NOTICES'],
+        [join(dist, '..', 'LICENSE'), 'agent-ui/LICENSE'],
+      ];
+      for (const [from, fileName] of notices) {
+        this.emitFile({ type: 'asset', fileName, source: readFileSync(from, 'utf8') });
+      }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), agentUiNotices()],
   server: {
     port: 5175,
     strictPort: true,
