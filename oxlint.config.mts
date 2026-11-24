@@ -108,7 +108,6 @@ export default defineConfig({
         'unicorn/no-hex-escape': 'off', // 313
         'unicorn/no-useless-spread': 'off', // 52
         'unicorn/prefer-at': 'off', // 48
-        'unicorn/prefer-import-meta-properties': 'off', // 19
         'unicorn/prefer-set-has': 'off', // 40
         'unicorn/prefer-single-call': 'off', // 16
         'unicorn/prefer-string-replace-all': 'off', // 184

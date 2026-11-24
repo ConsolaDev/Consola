@@ -1,8 +1,7 @@
 /// <reference types="node" />
 import { readdirSync, readFileSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
-import { dirname, join, posix } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, posix } from 'node:path';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
@@ -14,7 +13,7 @@ import { describe, expect, it } from 'vitest';
  * way the entry does.
  */
 
-const SRC = dirname(fileURLToPath(import.meta.url));
+const SRC = import.meta.dirname;
 
 /** Every package and every `node:` builtin. */
 const ANY_PACKAGE = '*';

@@ -380,7 +380,7 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
   };
 };
 
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+const isMain = process.argv[1] === import.meta.filename;
 if (isMain) {
   const path = fileURLToPath(new URL('../dist/agent-ui.css', import.meta.url));
   let css: string;

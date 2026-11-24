@@ -17,7 +17,6 @@ import {
 import { createRequire, isBuiltin } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type * as Cause from 'effect/Cause';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
@@ -36,7 +35,7 @@ import { isolateMachine } from './testing/machine.ts';
  */
 const machine = isolateMachine();
 
-const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), '..');
+const PACKAGE = join(import.meta.dirname, '..');
 const BUNDLE_SCRIPT = join(PACKAGE, 'scripts', 'bundle.ts');
 const DIST = join(PACKAGE, 'dist');
 /** The files `scripts/bundle.ts` writes, as the template holds them in `/opt/consola`. */

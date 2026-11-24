@@ -14,12 +14,11 @@
  * and never printed.
  */
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 import { buildE2BTemplate } from '@consola/sandbox/e2b';
 import { SESSION_TEMPLATE } from '../src/core/runnerDecisions.ts';
 
-const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), '..');
+const PACKAGE = join(import.meta.dirname, '..');
 const TEMPLATE = join(PACKAGE, 'sandbox-template');
 const BUNDLE = join(PACKAGE, 'dist', 'consola-host.mjs');
 const HISTORY_WORKER = join(PACKAGE, 'dist', 'claude-history-worker.mjs');

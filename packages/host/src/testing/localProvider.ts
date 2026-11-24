@@ -19,7 +19,6 @@ import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { SandboxError } from '@consola/sandbox';
 import type {
   Command,
@@ -37,7 +36,7 @@ import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts
  */
 export { RUNNER_SECRET_VARIABLES } from '../core/runnerDecisions.ts';
 
-const REPLAY_SESSION = join(dirname(fileURLToPath(import.meta.url)), 'replaySession.ts');
+const REPLAY_SESSION = join(import.meta.dirname, 'replaySession.ts');
 
 /** The replay's own arguments: the fixture, and the mode it was recorded in. */
 const REPLAY_FIXTURE = ['simple', 'full-access'];

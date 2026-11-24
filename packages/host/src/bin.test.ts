@@ -18,8 +18,7 @@ import { get } from 'node:http';
 import { createServer } from 'node:net';
 import type { AddressInfo, Server } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { CommandId, ORCHESTRATION_V2_WS_METHODS, ThreadId } from '@t3tools/contracts';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -65,7 +64,7 @@ import { connectHost } from './testing/t3Client.ts';
  */
 const machine = isolateMachine();
 
-const SRC = dirname(fileURLToPath(import.meta.url));
+const SRC = import.meta.dirname;
 /** The command as Track B's runner starts it: the package's bin. */
 const BIN = join(SRC, 'main.ts');
 /** The same command, its Claude driver replaying one of t3's fixtures (test-only). */
