@@ -1003,6 +1003,42 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12(@types/node@20.19.31)(vite@7.3.8(@types/node@20.19.31)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/cloud-session-e2e:
+    devDependencies:
+      '@consola/cloud-contract':
+        specifier: workspace:*
+        version: link:../cloud-contract
+      '@consola/cloud-region':
+        specifier: workspace:*
+        version: link:../../apps/cloud-region
+      '@consola/host':
+        specifier: workspace:*
+        version: link:../host
+      '@consola/runner-protocol':
+        specifier: workspace:*
+        version: link:../runner-protocol
+      '@consola/sandbox':
+        specifier: workspace:*
+        version: link:../sandbox
+      '@t3tools/contracts':
+        specifier: workspace:*
+        version: link:../../vendor/t3code/packages/contracts
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.12.4
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.5
+      jose:
+        specifier: 6.2.10
+        version: 6.2.10
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.4.0(@types/node@24.12.4)(@vitest/browser-playwright@5.0.5)(@vitest/browser-preview@5.0.5)(@vitest/ui@5.0.5)(esbuild@0.28.2)(jiti@2.7.0)(playwright@1.62.1)(tsx@4.23.15)(typescript@5.9.3)(vite@7.3.8(@types/node@24.12.4)(jiti@2.7.0)(lightningcss@1.33.0)(tsx@4.23.15)(yaml@2.9.1))(vitest@5.0.5)(yaml@2.9.1)
+
   packages/factory-spec:
     dependencies:
       croner:

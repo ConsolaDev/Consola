@@ -721,15 +721,23 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   `readRunnerMessage` reads is logged with the reader's reason alone, never
   the frame, and dropped, and the socket stays open.
 - **One runner per workspace.** The runner serves `RUNNER_WORKSPACE_ID`,
-  whatever its `hello` calls it. A socket's messages are handled one at a
-  time, in order. A second socket's `hello` replaces the first, which is
-  closed with `RUNNER_SOCKET_CLOSE.replaced` (4000); an update on a socket
-  that no longer serves, or before its `hello`, and a second `hello` on one
-  socket, are logged and dropped. `connected` names a socket's offer only once
-  its `hello` is judged, so no person's start lands among the sessions it
-  judges, and `null` again once it closes. A `hello` that cannot be judged
-  (the database down) closes the socket with 1011, and the runner's next
-  `hello` is judged instead.
+  whatever its `hello` calls it. Every socket's messages are handled one at a
+  time, in one queue, in the order the cell read them, whichever socket they
+  came on, so a later socket's `hello` is judged only once all an earlier
+  socket sent is applied or dropped. A second socket's `hello` replaces the
+  first, which is closed with `RUNNER_SOCKET_CLOSE.replaced` (4000). An update
+  the replaced socket sent after that `hello`, an update on a socket whose own
+  `hello` was never said or never judged, and a second `hello` on one socket,
+  are logged and dropped. An update a socket sent before it closed applies,
+  even after the close: the runner says each session's end as it stops, then
+  closes, and counts an end heard once the cell has read it (a ping's pong),
+  not once it is applied, so that end has to stand before the runner's next
+  `hello` is judged, which would otherwise take the session, no longer listed,
+  for one lost in a restart. `connected` names a socket's offer only once its
+  `hello` is judged, so no person's start lands among the sessions it judges,
+  and `null` again once it closes. A `hello` that cannot be judged (the
+  database down) closes the socket with 1011, and the runner's next `hello` is
+  judged instead.
 - **`hello`** (`runnerConnected`, `application/runners.ts`), in this
   order (ended wins, then restarted, then stops): each `endedSessions` entry
   keeps its real end; every other `starting` or `running` row of that runner,

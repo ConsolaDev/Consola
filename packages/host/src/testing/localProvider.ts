@@ -10,8 +10,9 @@
  * the template's start script does, and listens on a free port of loopback, which `exposePort`
  * answers as `http://127.0.0.1:<port>`.
  *
- * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and the cloud session's end-to-end test (CON-96) is to reuse it.
- * It need not pass the whole sandbox contract; `sandboxesFrom` takes its answers.
+ * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and so does `@consola/cloud-session-e2e`,
+ * against the built cell. It need not pass the whole sandbox contract; `sandboxesFrom` takes its
+ * answers.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -27,6 +28,13 @@ import {
   type SandboxProvider,
 } from '@consola/sandbox';
 import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts';
+
+/**
+ * The runner's secret variables (`core/runnerDecisions.ts`), for a test outside this package that
+ * starts a runner over this provider: `@consola/cloud-session-e2e` keeps the developer's own out
+ * of it.
+ */
+export { RUNNER_SECRET_VARIABLES } from '../core/runnerDecisions.ts';
 
 const REPLAY_SESSION = join(dirname(fileURLToPath(import.meta.url)), 'replaySession.ts');
 

@@ -65,6 +65,20 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `sendMessage`). Run
   `pnpm --filter @consola/agent-ui test` after changing any of these.
 
+  `@consola/cloud-session-e2e`'s test (`packages/cloud-session-e2e`, a cloud
+  session end to end against the built cell) uses it too, by path: its
+  `vite.config.ts` takes `setup.ts` as its setup file, and its
+  `src/cloudSession.test.ts` imports `machine.ts` (`writeFakeClis`, `readCalls`,
+  `cliVariablesIn`, `homeVariables`, `pathWith`), `replay.ts` (`loadReplay`,
+  `sendMessage`, `REPLAY_TITLE`), `t3Client.ts` (`connectHost`) and
+  `localProvider.ts` (`RUNNER_SECRET_VARIABLES`, which it re-exports from
+  `core/runnerDecisions.ts`, so no secret of the developer's shell reaches the
+  runner), and spawns
+  `replayRunner.ts` with node (`runner --cell-url ws://127.0.0.1:<port>/api/runner
+  --runner-id …`), whose sandboxes are `localProvider.ts`'s. Run
+  `pnpm exec turbo run test --filter=@consola/cloud-session-e2e` after changing
+  any of these, or the runner command.
+
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules.
 
@@ -1019,6 +1033,8 @@ replacement (4000) exits 1 saying why, both within the grace. With
 the grace, saying the runner did not stop in time.
 It runs the real bin for each start failure. `sandboxSessions.test.ts` drives the sessions over the fake
 provider, and `cellSocket.test.ts` the socket against a `ws` server.
+`@consola/cloud-session-e2e` runs the same runner against the built cell, end to end
+(`packages/cloud-session-e2e/AGENTS.md`).
 
 ## The bundle and the session template
 
@@ -1153,6 +1169,61 @@ chat runs as you, not confined to that folder ("What a turn does on the person's
 expired pass shows the chat's "host refused this chat's pass" notice. The host exits
 once no page has been connected for `--idle-minutes` (default 10) and no turn runs, a
 pending approval included (it is lost); start it again for a new session.
+
+## Local cloud session demo
+
+A cloud session by hand, on this Mac: `cloud-global`, its web app and the EU
+cell run locally, and the runner starts each session in an E2B sandbox. The
+automated version, with no credential and no provider, is
+`packages/cloud-session-e2e`. Every secret below lives in a local `.env`, which
+git ignores (`.env*`) and which is never committed; `pnpm install` links a
+worktree's to the main checkout's.
+
+What each process needs, beyond what its own README sets up:
+
+- **`cloud-global`** (`apps/cloud-global/.env`, its `README.md` for sign-in and
+  `CELL_TOKEN_PRIVATE_KEY`): `CELL_URL_EU=http://127.0.0.1:3101`, so the
+  workspace and its members reach the cell through the outbox.
+- **`cloud-web`**: nothing new. Its proxy reaches the EU cell at the same
+  `CELL_URL_EU` default.
+- **`cloud-region`** (`apps/cloud-region/.env`, its `README.md`, "The runner
+  and session passes"): `RUNNER_SECRET` (`openssl rand -base64 32`),
+  `RUNNER_WORKSPACE_ID` (the id of the workspace the demo runs in, below) and
+  `PASS_PRIVATE_KEY` (`pnpm --filter @consola/cloud-region pass-key:generate`).
+- **`consola-host runner`** (`packages/host/.env`, read with Node's
+  `--env-file`): `E2B_API_KEY`, the key of Consola's E2B account, where the
+  `consola-session` template is built (`sandbox-template/README.md` records its
+  id); `ANTHROPIC_API_KEY`, the workspace's own key, which the sandbox's Claude
+  Code uses; `GIT_TOKEN`, a GitHub token that can read and push the test
+  repository; `CONSOLA_RUNNER_SECRET`, the cell's `RUNNER_SECRET`; and
+  `CONSOLA_RUNNER_REPOSITORIES`, that repository as `owner/name`.
+
+Then, from the repository root:
+
+1. `pnpm dev:cloud` (the API on 3100, the web app on
+   `http://localhost:5175`). Sign in with Google and make a workspace in the
+   `eu` region. Its id is in `http://localhost:5175/api/workspaces`, opened in
+   the signed-in browser: put it in the cell's `RUNNER_WORKSPACE_ID`.
+2. `pnpm dev:cloud-region` (the cell on 3101).
+3. `pnpm exec turbo run build --filter=@consola/host^...` once, then
+   `node --env-file=packages/host/.env packages/host/src/main.ts runner --cell-url ws://127.0.0.1:3101/api/runner --runner-id demo-runner`.
+   Its log on stderr says `connected to the cell` once it is.
+4. In the web app, open Sessions (`http://localhost:5175/#/sessions`), choose
+   New session (`#/sessions/new`), and start a Claude session on the test
+   repository. Its page says "Starting the sandbox…" until the runner reports
+   the host ready, then shows the chat. Its sandbox is created with public
+   ports, as every session sandbox is until a gateway stands in front
+   (Linear: "10.5 A session
+   gateway: sandboxes stay private, the browser reaches the host through
+   Consola", https://linear.app/consola/issue/CON-105): anyone with the
+   sandbox's address reaches every port it listens on, though the host's own
+   still asks for a pass.
+
+The check: ask the agent to add a line to the README and push a branch named
+`consola/demo`, approving what it asks; the branch appears on GitHub. Close the
+page, since a connected chat keeps the host from going idle. After 10 minutes,
+reopening the session shows "This session has stopped.", and E2B's dashboard
+lists no sandbox still running.
 
 ## Licensing
 
