@@ -52,7 +52,7 @@ function reply(status: number, body: unknown) {
   const client = createApi({
     baseUrl: ORIGIN,
     fetch: async (input) => {
-      const request = input as Request;
+      const request = input;
       calls.push({
         method: request.method,
         url: request.url,

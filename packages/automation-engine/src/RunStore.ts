@@ -73,8 +73,8 @@ export class RunStore {
         this.state = {
           lastFired: isRecord(stored.lastFired) ? stored.lastFired : {},
           accepted: isRecord(stored.accepted) ? stored.accepted : {},
-          seen: isRecord(stored.seen) ? (stored.seen as Record<string, SeenRecord>) : {},
-          added: isRecord(stored.added) ? (stored.added as unknown as Record<string, AddedBy>) : {},
+          seen: isRecord(stored.seen) ? stored.seen : {},
+          added: isRecord(stored.added) ? stored.added : {},
           revoked: isRecord(stored.revoked) ? stored.revoked : {},
         };
         if (stored.version === 1) migrating = Array.isArray(stored.runs) ? stored.runs : [];

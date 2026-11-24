@@ -479,9 +479,7 @@ describe('GitHub item actions', () => {
     await expect(
       driver.mutateItem(ref, { ...line, startLine: 3, startSide: 'RIGHT' }, env),
     ).rejects.toThrow('start before');
-    await expect(
-      driver.mutateItem(ref, { ...line, startLine: 2 } as WorkItemMutation, env),
-    ).rejects.toThrow('both');
+    await expect(driver.mutateItem(ref, { ...line, startLine: 2 }, env)).rejects.toThrow('both');
     await expect(driver.mutateItem(ref, { ...line, line: 0 }, env)).rejects.toThrow();
     await expect(
       driver.mutateItem(ref, { kind: 'reply', threadId: 'PRRT_1 } }', body: 'x' }, env),

@@ -128,9 +128,7 @@ describe('fanOut', () => {
 
     await fanOut(deps, intent);
 
-    const ids = launchSession.mock.calls.map(
-      (call) => (call[1] as { instanceId: string }).instanceId,
-    );
+    const ids = launchSession.mock.calls.map((call) => call[1].instanceId);
     expect(new Set(ids).size).toBe(3);
     for (const id of ids) {
       expect(id).toMatch(/^workspace-ws-1-session-/);

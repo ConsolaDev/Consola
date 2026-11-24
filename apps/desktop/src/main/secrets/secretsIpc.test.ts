@@ -61,7 +61,7 @@ function wire(ids: string[] = ['ws-1', 'ws-2']) {
   };
   const loginEnv = vi.fn(async (): Promise<NodeJS.ProcessEnv> => ({ PATH: '/usr/bin:/bin' }));
   registerSecretsIpc({
-    ipc: ipc as never,
+    ipc,
     workspaces,
     bindings,
     runner: automations,
@@ -79,7 +79,7 @@ describe('Settings › Secrets channels', () => {
     expect([...SECRETS_CHANNELS].sort()).toEqual(
       [IPC_CHANNELS.SECRETS_LIST, IPC_CHANNELS.SECRETS_BIND, IPC_CHANNELS.SECRETS_UNBIND].sort(),
     );
-    removeSecretsIpc(ipc as never);
+    removeSecretsIpc(ipc);
     expect(removed.sort()).toEqual([...SECRETS_CHANNELS].sort());
   });
 

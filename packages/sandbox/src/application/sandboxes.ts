@@ -256,7 +256,7 @@ export function requireCapability<C extends SandboxCapability>(
       `This sandbox provider cannot ${CAPABILITY_ABILITIES[capability]}.`,
     );
   }
-  return member as NonNullable<Sandboxes[C]>;
+  return member;
 }
 
 type State = 'running' | 'paused' | 'stopped';

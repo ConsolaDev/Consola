@@ -1624,7 +1624,7 @@ describe('automatic reviews, offered by the banner', () => {
     // No pull request action: the entry inlines its prompt, so it is still offered, and adds.
     const noAction = setup({
       yaml: sweeping(),
-      workspaces: [{ ...bound(), actions: [] } as WorkspaceView],
+      workspaces: [{ ...bound(), actions: [] }],
     });
     await noAction.start();
     expect(noAction.service.snapshot('ws-1').suggestAssignedReviews).toBe(true);
@@ -1639,7 +1639,7 @@ describe('automatic reviews, offered by the banner', () => {
     // Without an account, nothing to offer, and Add says what to do first.
     const unbound = setup({
       yaml: sweeping(),
-      workspaces: [{ ...bound(), provider: undefined } as WorkspaceView],
+      workspaces: [{ ...bound(), provider: undefined }],
     });
     await unbound.start();
     expect(unbound.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
@@ -1797,7 +1797,7 @@ describe('the seen record', () => {
     workspaces[0] = {
       ...workspaces[0],
       provider: { id: 'github', accountLogin: 'me', org: 'globex' },
-    } as WorkspaceView;
+    };
     await t.service.syncWorkspaces();
     await t.poll([pr(1), pr(2), pr(3)]);
     expect(t.store.runs()).toEqual([]);
@@ -2693,9 +2693,7 @@ describe('stepIO', () => {
         },
       } as SessionView;
       const t = setup({
-        workspaces: [
-          { id: 'ws-1', sessions: [session], scopes: [], actions: [] } as unknown as WorkspaceView,
-        ],
+        workspaces: [{ id: 'ws-1', sessions: [session], scopes: [], actions: [] }],
         runFolder: folder,
       });
       await t.start();

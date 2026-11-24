@@ -51,7 +51,7 @@ function workspace(): Workspace {
     sessions: [],
     createdAt: 0,
     updatedAt: 0,
-  } as Workspace;
+  };
 }
 
 function harnessRecord(fields: Partial<Harness>): Harness {

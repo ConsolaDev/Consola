@@ -108,7 +108,7 @@ describe('resolveRememberedView', () => {
     const workspace = makeWorkspace({
       sessions: [session('s1')],
       provider: { id: 'github', accountLogin: 'someone' },
-    } as Partial<Workspace>);
+    });
 
     expect(resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace)).toEqual({
       activeSessionId: 's1',

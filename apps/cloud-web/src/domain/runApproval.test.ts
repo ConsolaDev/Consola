@@ -65,11 +65,7 @@ describe('receiptWords', () => {
 
 describe('messageForApproveAnswer', () => {
   const said = (kind: Exclude<ApproveAnswer, { kind: 'answered' }>['kind']) =>
-    messageForApproveAnswer(
-      { kind } as Exclude<ApproveAnswer, { kind: 'answered' }>,
-      team,
-      workspace,
-    );
+    messageForApproveAnswer({ kind }, team, workspace);
 
   it('has its own sentence for every refusal', () => {
     const kinds = [

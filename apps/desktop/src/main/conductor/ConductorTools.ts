@@ -157,7 +157,7 @@ export class ConductorTools {
       labelIds: [...(conductor.labelIds ?? [])],
       kind: 'interactive',
       initialPrompt: args.prompt,
-    } as NewSessionFields & { initialPrompt?: string });
+    });
 
     return { sessionId: spawned.id, instanceId: spawned.instanceId };
   }

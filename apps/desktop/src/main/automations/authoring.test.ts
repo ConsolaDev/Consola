@@ -163,7 +163,7 @@ describe('startAuthoring', () => {
       startAuthoring(d, { workspaceId: 'ws-9', description: 'Tidy up' }),
     ).rejects.toThrow(/ws-9/);
     await expect(
-      startAuthoring(deps({ ...owner, scopes: [] } as Workspace), {
+      startAuthoring(deps({ ...owner, scopes: [] }), {
         workspaceId: 'ws-1',
         description: 'Tidy up',
       }),

@@ -88,7 +88,6 @@ export default defineConfig({
         'typescript/no-misused-promises': 'off', // 13
         'typescript/no-misused-spread': 'off', // 15
         'typescript/no-require-imports': 'off', // 35
-        'typescript/no-unnecessary-type-assertion': 'off', // 124
         'typescript/no-unsafe-argument': 'off', // 12
         'typescript/no-unsafe-assignment': 'off', // 82
         'typescript/no-unsafe-call': 'off', // 42

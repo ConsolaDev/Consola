@@ -196,9 +196,9 @@ const readStates = async (popup: ReturnType<typeof addPopup>) => {
     '.consola-agent-ui-theme [contenteditable="true"]',
   );
   if (composer === null) throw new Error("no composer in t3's chat");
-  composer.focus({ focusVisible: true } as FocusOptions);
+  composer.focus({ focusVisible: true });
   const composerFocused = await settledChat();
-  popup.button.focus({ focusVisible: true } as FocusOptions);
+  popup.button.focus({ focusVisible: true });
   const buttonFocused = await settledChat();
   popup.button.blur();
   await settledChat();

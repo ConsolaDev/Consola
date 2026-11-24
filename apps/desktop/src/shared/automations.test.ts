@@ -27,7 +27,7 @@ function run(id: string, fields: Partial<RunRecord> & { actorId?: string } = {})
     createdAt: '2026-11-12T10:00:00Z',
     updatedAt: '2026-11-12T10:00:00Z',
     ...rest,
-  } as RunRecord;
+  };
 }
 
 describe('a run’s result, as the renderer tells them apart', () => {

@@ -180,8 +180,8 @@ export function ProviderBindingPanel({ workspace, onConnected }: ProviderBinding
               <>
                 {boundAccountMissing && (
                   <p className="github-section-error">
-                    The connected account {bound!.accountLogin} is no longer signed in. Sign in
-                    again or choose another account below.
+                    The connected account {bound.accountLogin} is no longer signed in. Sign in again
+                    or choose another account below.
                   </p>
                 )}
                 <p>Run this in your terminal:</p>

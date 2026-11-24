@@ -207,7 +207,7 @@ export class JsonAttentionLedger implements AttentionLedger {
   public load(): void {
     let stored: { records?: unknown } | null = null;
     try {
-      stored = this.file.read() as { records?: unknown } | null;
+      stored = this.file.read();
     } catch (error) {
       console.error('Could not read the attention ledger; starting empty.', error);
       return;

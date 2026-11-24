@@ -90,7 +90,7 @@ describe('createCellTokenSigner', () => {
     const signer = await createCellTokenSigner(newKey());
     const before = signer.publicKeys();
     const changed = signer.publicKeys();
-    changed.keys.push({ ...before.keys[0], kid: 'sprocket' } as (typeof before.keys)[number]);
+    changed.keys.push({ ...before.keys[0], kid: 'sprocket' });
     if (changed.keys[0]) changed.keys[0].x = 'sprocket';
 
     expect(signer.publicKeys()).toEqual(before);

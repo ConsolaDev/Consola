@@ -209,7 +209,7 @@ function withoutFile<T extends { file?: string }>(value: T): T {
 
 function readableName(raw: unknown): string | undefined {
   if (raw && typeof raw === 'object' && 'name' in raw) {
-    const name = (raw as { name: unknown }).name;
+    const name = raw.name;
     if (typeof name === 'string' && name.trim()) return name.trim();
   }
   return undefined;

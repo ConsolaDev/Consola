@@ -696,7 +696,7 @@ describe('pressInPage', () => {
     doc.anchorNode = first;
     const selection = doc.getSelection.bind(doc);
     // A page whose selection handling puts the caret back where it was.
-    doc.getSelection = () => ({ ...selection(), addRange: () => {} }) as never;
+    doc.getSelection = () => ({ ...selection(), addRange: () => {} });
     expect(refusalOf(() => pressInPage(page(second), key({ text: 'x' })))).toBe('not-focused');
     expect(doc.edits).toEqual([]);
   });

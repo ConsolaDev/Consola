@@ -225,7 +225,7 @@ export function installGuestPolicy(
     // The element's `preload` attribute reaches Electron through `params`,
     // not the preferences: taken off there too.
     delete (params as { preload?: string }).preload;
-    deps.prepare(params.partition as string);
+    deps.prepare(params.partition);
   });
 
   host.on('did-attach-webview', (_event, guest) => {

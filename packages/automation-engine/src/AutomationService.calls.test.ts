@@ -1343,7 +1343,7 @@ describe('every row of the Failure table (5a-2 Task 8)', () => {
 
   it('a landed call whose result lacks an output fails as landed', async () => {
     const { post } = await posting(
-      slack({ answer: () => ({ ...POSTED, structuredContent: { ok: true } }) as McpCallOutcome }),
+      slack({ answer: () => ({ ...POSTED, structuredContent: { ok: true } }) }),
     );
     expect(post()).toMatchObject({
       status: 'failed',
@@ -2495,7 +2495,7 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
       yaml: factory(SLACK, rounds()),
       mcp: { servers: { slack: slack({ tools: [CHAT_POST] }) } },
     });
-    const version = row(h, 'rounds').servers![0].version!;
+    const version = row(h, 'rounds').servers![0].version;
     const view = await h.service.checkServer(WORKSPACE_ID, 'rounds', 'slack', version);
     expect(view).toEqual({
       server: 'slack',

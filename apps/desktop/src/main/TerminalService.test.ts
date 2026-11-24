@@ -19,7 +19,7 @@ const {
   turnReaders: { create: undefined as (() => import('./drivers').TurnReader) | undefined },
   /** What the mocked LoginEnvironment answers; reset before each test. */
   loginEnv: {
-    current: {} as Record<string, string>,
+    current: {},
     problem: null as string | null,
     retry: null as Promise<void> | null,
   },

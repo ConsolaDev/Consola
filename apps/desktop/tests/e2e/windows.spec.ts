@@ -203,7 +203,7 @@ async function seedSession(target: Page, workspaceId: string, name: string): Pro
         workspaceId: id,
         instanceId: `workspace-${id}-session-${sessionName.replace(/\s/g, '-')}`,
         harnessId: workspace.defaultHarnessId,
-        scopeId: workspace.scopes[0]!.id,
+        scopeId: workspace.scopes[0].id,
       });
       return session!.id;
     },

@@ -181,7 +181,7 @@ describe('tabs', () => {
       store,
       workspaceIdForSession: (id) => sessionWorkspace[id],
       findWindowForWorkspace: () => undefined,
-      send: (_w, c, p) => sent.push({ window: '?', channel: c, payload: p as never }),
+      send: (_w, c, p) => sent.push({ window: '?', channel: c, payload: p }),
       clearPartition,
     });
     service.openTab('s1', 'https://example.com/', 'person');
@@ -608,7 +608,7 @@ describe('closing windows', () => {
       store,
       workspaceIdForSession: (id) => sessionWorkspace[id],
       findWindowForWorkspace: () => dead,
-      send: (_w, c, p) => sent.push({ window: 'dead', channel: c, payload: p as never }),
+      send: (_w, c, p) => sent.push({ window: 'dead', channel: c, payload: p }),
       clearPartition,
     });
     expect(() => service.openTab('s1', 'https://a.com', 'person')).not.toThrow();

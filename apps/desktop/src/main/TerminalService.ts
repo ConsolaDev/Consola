@@ -824,7 +824,7 @@ export class TerminalService extends EventEmitter {
       this.emit('exit', {
         exitCode: 1,
         ...this.unattendedNeverStarted(cwdProblem),
-      } as TerminalExitInfo);
+      });
       return;
     }
 
@@ -893,7 +893,7 @@ export class TerminalService extends EventEmitter {
         this.emit('exit', {
           exitCode: 1,
           ...this.unattendedNeverStarted(stopBeforeSpawn),
-        } as TerminalExitInfo);
+        });
         return;
       }
 
@@ -911,7 +911,7 @@ export class TerminalService extends EventEmitter {
         cols: this.dimensions.cols,
         rows: this.dimensions.rows,
         cwd: this.options.cwd,
-        env: this.spawnEnv(borrowed) as { [key: string]: string },
+        env: this.spawnEnv(borrowed),
       });
       // A prompt on the command line is delivered by the spawn itself,
       // and the turn, cap and fork it asked for are done with once spawned.
@@ -1013,7 +1013,7 @@ export class TerminalService extends EventEmitter {
 
         this.emitStatus();
         if (!turn) {
-          this.emit('exit', { exitCode } as TerminalExitInfo);
+          this.emit('exit', { exitCode });
           return;
         }
         if (reader) {
@@ -1031,7 +1031,7 @@ export class TerminalService extends EventEmitter {
             unattended: true,
             ...(lastLine ? { lastLine } : {}),
             ...(stopped ? { stopped } : {}),
-          } as TerminalExitInfo);
+          });
         });
       });
     } catch (error) {
@@ -1044,7 +1044,7 @@ export class TerminalService extends EventEmitter {
       this.emit('exit', {
         exitCode: 1,
         ...this.unattendedNeverStarted(message),
-      } as TerminalExitInfo);
+      });
     } finally {
       this.isLaunching = false;
     }
@@ -1255,7 +1255,7 @@ export class TerminalService extends EventEmitter {
         unattended: true,
         report: { ...report, ...(maxTurns !== undefined ? { maxTurns } : {}) },
         ...(stopped ? { stopped } : {}),
-      } as TerminalExitInfo);
+      });
     });
   }
 

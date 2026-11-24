@@ -9,10 +9,10 @@ import { launchElectron } from './helpers/electron';
 /** Answer the next native folder dialogs with these folders, as if picked by hand. */
 async function stubFolderDialog(app: ElectronApplication, folders: string[]) {
   await app.evaluate(({ dialog }, filePaths) => {
-    dialog.showOpenDialog = (async () => ({
+    dialog.showOpenDialog = async () => ({
       canceled: false,
       filePaths,
-    })) as typeof dialog.showOpenDialog;
+    });
   }, folders);
 }
 

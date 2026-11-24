@@ -312,7 +312,7 @@ export function attachTuiWheel(
 
     const screen = element.querySelector<HTMLElement>('.xterm-screen');
     const height = screen?.getBoundingClientRect().height ?? 0;
-    pending += wheelReportCount(event as WheelInput & WheelEvent, state, {
+    pending += wheelReportCount(event, state, {
       cellHeight: height > 0 && terminal.rows > 0 ? height / terminal.rows : undefined,
       rows: terminal.rows,
     });

@@ -31,7 +31,7 @@ let workspace: Workspace;
 /** A conductor `p` with a child `k`, and a lone session `x`. */
 function build(sessions = defaultSessions()) {
   workspace = makeWorkspace({ id: 'w1', sessions });
-  terminals = new Map(sessions.map((session) => [session.instanceId, 'ready' as TerminalStatus]));
+  terminals = new Map(sessions.map((session) => [session.instanceId, 'ready']));
   hooks = new HookSignals();
   source = new SessionSource({
     getWorkspaces: () => [workspace],

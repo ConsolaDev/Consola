@@ -244,7 +244,7 @@ export function parseAgentFile(
     } else if (read.value !== null && read.value !== undefined && !isRecord(read.value)) {
       issue(MESSAGES.notAMapping, '', split.firstLine);
     } else {
-      front = (read.value ?? {}) as Record<string, unknown>;
+      front = read.value ?? {};
       lineOf = (key) => read.lineOf(key) ?? split.firstLine;
     }
   }

@@ -190,7 +190,7 @@ export function loadConfig(env: Record<string, string | undefined>): CellConfig 
   } = parsed;
   return {
     databaseUrl: parsed.DATABASE_URL,
-    region: parsed.REGION as Region,
+    region: parsed.REGION,
     port: parsed.PORT ?? DEFAULT_PORT,
     cloudGlobalUrl: parsed.CLOUD_GLOBAL_URL ?? DEFAULT_CLOUD_GLOBAL_URL,
     runner:

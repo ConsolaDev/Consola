@@ -532,8 +532,7 @@ export function setupIpcHandlers(): boolean {
       popups: browser.popups,
       certificates: browser.certificates,
       // `webContents` is accepted by the constructor though not typed.
-      createWindow: (options) =>
-        new BrowserWindow(options as Electron.BrowserWindowConstructorOptions),
+      createWindow: (options) => new BrowserWindow(options),
       maxSize: () => {
         const { width, height } = electronScreen.getDisplayNearestPoint(
           electronScreen.getCursorScreenPoint(),

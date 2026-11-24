@@ -114,7 +114,7 @@ export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {
 export function defineTool<Shape extends z.ZodRawShape>(
   tool: ToolDefinition<Shape>,
 ): ToolDefinition {
-  return tool as unknown as ToolDefinition;
+  return tool;
 }
 
 export type ToolMode = 'preview' | 'run';

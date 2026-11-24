@@ -9,7 +9,6 @@ import {
   serverHash,
   unpinnedLauncher,
 } from './servers';
-import type { McpServerDefinition } from './servers';
 
 type Issue = { message: string; path: Array<string | number> };
 
@@ -522,7 +521,7 @@ describe('serverHash', () => {
       env: { A: 'a', B: 'b' },
       secrets: ['SLACK_BOT_TOKEN'],
       ...over,
-    }).servers.slack as McpServerDefinition;
+    }).servers.slack;
 
   it('is 16 hex characters, equal for equal definitions whatever order their keys were written in', () => {
     const hash = serverHash(definition());
@@ -531,7 +530,7 @@ describe('serverHash', () => {
       yaml(
         'secrets: [SLACK_BOT_TOKEN]\nenv: { B: b, A: a }\nargs: [-y, "@sprocket/slack-mcp@1.4.2"]\ncommand: npx\n',
       ),
-    ).servers.slack as McpServerDefinition;
+    ).servers.slack;
     expect(serverHash(reordered)).toBe(hash);
   });
 

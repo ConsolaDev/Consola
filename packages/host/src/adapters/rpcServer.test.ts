@@ -909,7 +909,7 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
   const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
     effect.pipe(
       Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch),
     );
 
   it(
@@ -1062,7 +1062,7 @@ describe("the shell and a cold thread: what t3's client reads once connected", (
   const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
     effect.pipe(
       Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch),
     );
 
   /**

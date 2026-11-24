@@ -57,12 +57,9 @@ describe('HookSignals', () => {
     expect(hooks.get('i')?.needsInput).toBe(true);
   });
 
-  it.each([
-    ['idle', { kind: 'idle' } as AttentionSignal],
-    [
-      'a turn ending',
-      { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 } as AttentionSignal,
-    ],
+  it.each<[string, AttentionSignal]>([
+    ['idle', { kind: 'idle' }],
+    ['a turn ending', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 }],
   ])('ends on %s', (_name, signal) => {
     const hooks = signals('ready');
     hooks.apply('i', menu);

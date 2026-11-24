@@ -707,7 +707,7 @@ automations:
             timeoutMs: 1000,
             dryRun: 'report',
           }
-        : { ...(base as AgentStep), ...(step as Partial<AgentStep>) };
+        : { ...(base as AgentStep), ...step };
     return {
       automation: { ...automation, steps: [own] },
       version: 'v',

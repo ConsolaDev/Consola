@@ -845,7 +845,7 @@ describe('the outbox', () => {
       `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,
       `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,
     ]);
-    expect(await asACell(deliveries[0] as Delivery)).toBe(
+    expect(await asACell(deliveries[0])).toBe(
       `{"workspaceId":"${workspace.id}","region":"us","sequence":1,"change":{"type":"workspace.created"}}`,
     );
   });

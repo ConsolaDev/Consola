@@ -574,6 +574,7 @@ describe("a workspace's rows", () => {
     // A route added the way the cell's routes are: behind the check, scoped by its caller.
     const notes = new Hono<CellEnv>();
     notes.get('/', async (c) => {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- the Database type's raw results are `unknown`; a type argument cannot name the rows
       const result = (await db.execute(
         sql`select body from note where workspace_id = ${c.var.caller.workspaceId}`,
       )) as unknown as { rows: Array<{ body: string }> };

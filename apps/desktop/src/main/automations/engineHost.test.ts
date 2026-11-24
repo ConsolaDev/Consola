@@ -214,11 +214,7 @@ describe("the runner against Consola's real tools", () => {
     expect(capabilities.harness).toEqual({ name: 'Claude', canRunAgents: true });
 
     // Unbound, on a harness that cannot run agent entries.
-    const other = await runner(
-      { ...bound(), provider: undefined } as WorkspaceView,
-      SWEEPING,
-      CODEX,
-    );
+    const other = await runner({ ...bound(), provider: undefined }, SWEEPING, CODEX);
     const theirs = other.service.capabilities('ws-1');
     expect(theirs.triggers.connections[0].bound).toBe(false);
     expect(theirs.harness).toEqual({

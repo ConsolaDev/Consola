@@ -409,8 +409,8 @@ describe('launchWorkItem — an automation already reviewing the item', () => {
   });
 
   it('opens the newest automated review, not one from an earlier request', async () => {
-    const older = { ...automationReview, id: 'auto-old', createdAt: 1 } as unknown as Session;
-    const newer = { ...automationReview, id: 'auto-new', createdAt: 2 } as unknown as Session;
+    const older = { ...automationReview, id: 'auto-old', createdAt: 1 };
+    const newer = { ...automationReview, id: 'auto-new', createdAt: 2 };
     const { deps } = makeDeps(makeWorkspace({ sessions: [older, newer] }));
     expect(await launchWorkItem(deps, 'ws-1', pr51, { id: review.id })).toMatchObject({
       reason: 'automation-review',

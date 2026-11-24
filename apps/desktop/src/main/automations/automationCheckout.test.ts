@@ -56,7 +56,7 @@ function workspace(sessions: Array<Partial<Session>> = []): Workspace {
     sessions: sessions as Session[],
     createdAt: 0,
     updatedAt: 0,
-  } as Workspace;
+  };
 }
 
 function fakes(overrides: Partial<AutomationCheckoutDeps> = {}) {

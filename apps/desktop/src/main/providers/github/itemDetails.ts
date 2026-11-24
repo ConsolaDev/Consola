@@ -746,17 +746,14 @@ export type IssueHeader = z.infer<typeof issueHeader> & { viewer: Actor };
 
 export function parsePullRequestHeader(raw: unknown): PullRequestHeader {
   const reply = strict(pullRequestReply, raw, 'pull request');
-  const item = reply.data.repository?.pullRequest as
-    | z.infer<typeof pullRequestHeader>
-    | null
-    | undefined;
+  const item = reply.data.repository?.pullRequest;
   if (!item) missing('pr');
   return { ...item, viewer: reply.data.viewer };
 }
 
 export function parseIssueHeader(raw: unknown): IssueHeader {
   const reply = strict(issueReply, raw, 'issue');
-  const item = reply.data.repository?.issue as z.infer<typeof issueHeader> | null | undefined;
+  const item = reply.data.repository?.issue;
   if (!item) missing('issue');
   return { ...item, viewer: reply.data.viewer };
 }

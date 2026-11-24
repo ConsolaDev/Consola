@@ -1,5 +1,4 @@
 import { useMemo } from 'react';
-import type { CSSProperties } from 'react';
 import { regionName } from '../domain/workspace';
 import { DOT_REGIONS, WORLD_DOTS } from './worldDots';
 
@@ -80,7 +79,7 @@ export function RegionMap({ region }: { region: string }) {
             cx={dot.x}
             cy={dot.y}
             r={RADIUS}
-            style={{ animationDelay: `${delay}ms` } as CSSProperties}
+            style={{ animationDelay: `${delay}ms` }}
           />
         ))}
       </g>

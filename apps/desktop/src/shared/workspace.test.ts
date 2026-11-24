@@ -10,7 +10,7 @@ import {
   scopeForSession,
   switchedSession,
 } from './workspace';
-import type { Session, Workspace } from './workspace';
+import type { Session } from './workspace';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -621,10 +621,10 @@ describe('migrateWorkspaceState v6 -> v7', () => {
     expect([...w1Ids].some((id) => w2Ids.has(id))).toBe(false);
 
     // Each workspace's section defaults point only at its own actions.
-    for (const actionId of Object.values(w1.sectionDefaults) as string[]) {
+    for (const actionId of Object.values<string>(w1.sectionDefaults)) {
       expect(w1Ids.has(actionId)).toBe(true);
     }
-    for (const actionId of Object.values(w2.sectionDefaults) as string[]) {
+    for (const actionId of Object.values<string>(w2.sectionDefaults)) {
       expect(w2Ids.has(actionId)).toBe(true);
     }
   });
@@ -1060,7 +1060,7 @@ describe('createSessionRecord', () => {
 describe('scope helpers', () => {
   const workspace = {
     ...createWorkspaceRecord('consola', '/code/consola', true),
-  } as Workspace;
+  };
 
   it('primaryScope is the first scope', () => {
     expect(primaryScope(workspace)?.path).toBe('/code/consola');

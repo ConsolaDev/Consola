@@ -100,6 +100,6 @@ describe('sourceOf', () => {
   });
 
   it('is null when the files hold none the automation names', () => {
-    expect(sourceOf(automation('deploy'), [FILES[0] as FactoryFile], 1, 1)).toBeNull();
+    expect(sourceOf(automation('deploy'), [FILES[0]], 1, 1)).toBeNull();
   });
 });

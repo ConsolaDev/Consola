@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Check, X } from 'lucide-react';
-import type { HarnessDriverId } from '../../../shared/types';
 import { HARNESS_DRIVERS } from '../../../shared/constants';
 import {
   DEFAULT_ACCENT_COLOR,
@@ -136,7 +135,7 @@ export function AddHarnessWizard({
                       draft.driverId === driver.id ? 'selected' : ''
                     }`}
                     disabled={!driver.available}
-                    onClick={() => change({ driverId: driver.id as HarnessDriverId })}
+                    onClick={() => change({ driverId: driver.id })}
                   >
                     <span className="harness-driver-option-label">
                       <HarnessIcon driverId={driver.id} decorative />

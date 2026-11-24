@@ -62,7 +62,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     createdAt: 1,
     lastActiveAt: 1,
     ...overrides,
-  } as Session;
+  };
 }
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {

@@ -38,14 +38,14 @@ async function dropEffectWrites(
 ): Promise<string[]> {
   return page.evaluate(
     ([target, types]) => {
-      const row = document.querySelector(target as string);
+      const row = document.querySelector(target);
       if (!row) throw new Error(`no ${target} on screen`);
       // The row's own handler is under test, so the event starts below it, the
       // way it would under a pointer resting on the name.
       const from = row.firstElementChild ?? row;
 
       const transfer = new DataTransfer();
-      for (const [type, value] of types as Array<[string, string]>) {
+      for (const [type, value] of types) {
         transfer.setData(type, value);
       }
       transfer.effectAllowed = 'move';
@@ -127,7 +127,7 @@ async function seedLabelledWorkspace(page: Page, fixture: ReturnType<typeof make
         .then((snapshot) =>
           window.workspaceAPI.addScope(
             snapshot.workspaces.find((candidate) => candidate.name === 'fleet')!.id,
-            { name: 'elsewhere', path: folder as string, isGitRepo: false },
+            { name: 'elsewhere', path: folder, isGitRepo: false },
           ),
         ),
     [fixture.elsewhereDir] as const,
@@ -251,15 +251,10 @@ async function seedTwoScopes(page: Page, fixture: ReturnType<typeof makeFixture>
   );
   const ids = await page.evaluate(
     async ([folder, elsewhere]) => {
-      const workspace = await window.workspaceAPI.createWorkspace(
-        'fleet',
-        folder as string,
-        false,
-        'stub',
-      );
+      const workspace = await window.workspaceAPI.createWorkspace('fleet', folder, false, 'stub');
       const other = await window.workspaceAPI.addScope(workspace.id, {
         name: 'elsewhere',
-        path: elsewhere as string,
+        path: elsewhere,
         isGitRepo: false,
       });
       return { homeId: workspace.scopes[0].id, otherId: other.id };

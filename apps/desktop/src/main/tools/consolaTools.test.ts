@@ -79,7 +79,7 @@ beforeEach(() => {
       id: 'new-1',
       kind: 'interactive',
       hasStarted: true,
-    } as Partial<Session>),
+    }),
   );
   snoozer = {
     snooze: vi.fn((_workspaceId, sessionIds) => ({

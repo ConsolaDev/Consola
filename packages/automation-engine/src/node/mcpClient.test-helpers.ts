@@ -442,9 +442,7 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
         body = undefined;
       }
       const rpc =
-        body && typeof body === 'object' && 'method' in body
-          ? String((body as { method: unknown }).method)
-          : undefined;
+        body && typeof body === 'object' && 'method' in body ? String(body.method) : undefined;
       const values: Record<string, string> = {};
       for (const name of CHECKED_VALUES) {
         const value = req.headers[name];

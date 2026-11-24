@@ -890,7 +890,7 @@ export class GitHubDriver implements GitProviderDriver {
         binary,
         args,
         {
-          env: this.getEnv() as { [key: string]: string },
+          env: this.getEnv(),
           timeout: RUN_TIMEOUT_MS,
           maxBuffer: 1024 * 1024,
         },
@@ -919,7 +919,7 @@ export class GitHubDriver implements GitProviderDriver {
     try {
       const { stdout } = await execFileAsync(binary, args, {
         cwd,
-        env: env as { [key: string]: string },
+        env,
         maxBuffer: 10 * 1024 * 1024,
         // Unlike run(), this used to have no timeout: a hung `gh api
         // graphql` (or any exec caller) would pin

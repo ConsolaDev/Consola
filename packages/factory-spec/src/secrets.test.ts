@@ -265,7 +265,7 @@ describe('the names an entry uses', () => {
         steps: CALLS.steps.map((step) =>
           step.kind === 'uses' && step.id === 'post' ? { ...step, dryRun: 'run' } : step,
         ),
-      } as Automation;
+      };
     };
 
     it("lists a call's server's names after the step's place, naming the server", () => {

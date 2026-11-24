@@ -590,9 +590,7 @@ function checkArgumentsWith(
   }
   let check: ReturnType<AjvJsonSchemaValidator['getValidator']>;
   try {
-    check = validator.getValidator(
-      effective as Parameters<AjvJsonSchemaValidator['getValidator']>[0],
-    );
+    check = validator.getValidator(effective);
   } catch (error) {
     return `its input schema could not be read (${messageOf(error)})`;
   }

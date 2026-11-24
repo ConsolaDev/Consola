@@ -8,6 +8,7 @@ import { migrateDatabase, openDatabase } from './database.js';
 import type { Database } from './database.js';
 
 async function rowsOf<Row>(db: Database, query: ReturnType<typeof sql>): Promise<Row[]> {
+  // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- the Database type's raw results are `unknown`; a type argument cannot name the rows
   return ((await db.execute(query)) as unknown as { rows: Row[] }).rows;
 }
 

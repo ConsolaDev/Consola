@@ -408,7 +408,7 @@ export function viewsFromStoredLayout(): Record<string, WorkspaceView> {
   const views: Record<string, WorkspaceView> = {};
   let stored: { windows?: unknown } | null = null;
   try {
-    stored = layoutFile().read() as { windows?: unknown } | null;
+    stored = layoutFile().read();
   } catch {
     // No layout to carry over is the same as nothing to remember.
     return views;

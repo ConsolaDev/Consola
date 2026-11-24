@@ -1222,7 +1222,7 @@ export class WorktreeService {
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     try {
       const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
-        env: env as { [key: string]: string },
+        env,
         maxBuffer: 10 * 1024 * 1024,
         timeout: GIT_TIMEOUT_MS,
       });
@@ -1247,7 +1247,7 @@ export class WorktreeService {
     try {
       const { stdout } = await execFileAsync(binary, args, {
         cwd,
-        env: env as { [key: string]: string },
+        env,
         maxBuffer: 10 * 1024 * 1024,
       });
       return stdout;

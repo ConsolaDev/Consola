@@ -230,7 +230,7 @@ function stepsOf(
           ? 'not-run'
           : plan.status === 'expired' || plan.status === 'cancelled'
             ? 'failed'
-            : (plan.status as StepStatus);
+            : plan.status;
     return [
       {
         id: 'orchestrator',
@@ -277,7 +277,7 @@ function stepsOf(
   const slot = runStart === null ? 0 : Math.max(0, runEnd - runStart) / Math.max(1, ranCount);
   const at = (ms: number) => new Date(Math.round(ms)).toISOString();
   return AUTOMATIONS[plan.automation].map(([id, kind], index) => {
-    const status = statuses[index] as StepStatus;
+    const status = statuses[index];
     const ran = status === 'completed' || status === 'failed' || status === 'running';
     const stepStart = runStart === null ? null : runStart + index * slot;
     const detail = ran ? detailOf(plan, id, status) : NO_STEP_DETAIL;

@@ -139,7 +139,7 @@ describe('launch', () => {
     let resolveLaunch!: (value: never) => void;
     vi.mocked(providerBridge.launchWorkItem).mockReturnValue(
       new Promise((resolve) => {
-        resolveLaunch = resolve as never;
+        resolveLaunch = resolve;
       }),
     );
 

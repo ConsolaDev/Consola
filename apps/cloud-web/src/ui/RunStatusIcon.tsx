@@ -61,7 +61,7 @@ export function StatusGlyph({
               r="3.5"
               strokeWidth="7"
               transform="rotate(-90 12 12)"
-              style={{ strokeDasharray: `${filled} ${PIE}` } as CSSProperties}
+              style={{ strokeDasharray: `${filled} ${PIE}` }}
             />
           )}
         </svg>

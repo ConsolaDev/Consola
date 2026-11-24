@@ -156,7 +156,7 @@ export const useNavigationStore = create<NavigationState>()(
       // written before this task would still overwrite the window-context-seeded
       // identity with whatever workspace that blob last held. mergeNavigationState
       // takes only the preference keys, and only when they're the right type.
-      merge: (persisted, current) => mergeNavigationState(persisted, current as NavigationState),
+      merge: (persisted, current) => mergeNavigationState(persisted, current),
     },
   ),
 );

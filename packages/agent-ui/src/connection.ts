@@ -27,7 +27,7 @@ export const connectionServices = (): Promise<Context.Context<ConnectionServices
       (result) => {
         if (result._tag === 'Success') {
           queueMicrotask(() => unsubscribe());
-          resolve(result.value as Context.Context<ConnectionServices>);
+          resolve(result.value);
         } else if (result._tag === 'Failure') {
           queueMicrotask(() => unsubscribe());
           reject(Cause.squash(result.cause));
