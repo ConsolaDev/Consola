@@ -726,7 +726,6 @@ export function setupIpcHandlers(): boolean {
       // Where a session came from, what its agent may do, how many turns
       // a step's may take and what its agent was granted are main's to set,
       // when an automation launches one; a window never does.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { toolPolicy, automation, maxTurns, grants, ...fields } =
         payload ?? ({} as NewSessionFields);
       if (!checkout) return workspaces.createSession(workspaceId, fields);

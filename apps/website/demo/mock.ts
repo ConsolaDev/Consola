@@ -57,7 +57,9 @@ export function notify(message: string) {
 const noSubscription = () => () => {};
 const workspaceEvents = channel<Workspace[]>();
 const dataEvents = channel<{ instanceId: string; data: string }>();
+// oxlint-disable-next-line typescript/no-explicit-any -- a stand-in: the bridge's own types say what subscribers get
 const inboxEvents = channel<any>();
+// oxlint-disable-next-line typescript/no-explicit-any -- a stand-in: the bridge's own types say what subscribers get
 const harnessEvents = channel<any>();
 const workspaceChanged = channel<string | null>();
 const browserEvents = channel<BrowserSnapshotMessage>();
@@ -720,6 +722,7 @@ export function installMock() {
     onStatus: noSubscription,
     getStatusSnapshot: async () => ({}),
   };
+  // oxlint-disable-next-line typescript/no-explicit-any -- a stand-in: the bridge's own types say what subscribers get
   const shellEvents = channel<any>();
   const shellAPI: Window['shellAPI'] = {
     attach: async ({ instanceId, cols, rows }) => ({

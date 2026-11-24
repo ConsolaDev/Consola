@@ -42,6 +42,17 @@ export default defineConfig({
     // A timer or session declared before the closure that clears it, and
     // assigned once after, has to stay `let`.
     'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
+    // nkzw's settings, plus rest siblings: `const { a, ...rest } = x` names
+    // `a` to leave it out of `rest` (Biome's noUnusedVariables allows it too).
+    'no-unused-vars': [
+      'error',
+      {
+        args: 'none',
+        fix: { imports: 'safe-fix', variables: 'off' },
+        ignoreRestSiblings: true,
+        varsIgnorePattern: '^_',
+      },
+    ],
     // A name's length is counted in code points, by the cell and the page
     // alike, so a string spread into an array is meant.
     'typescript/no-misused-spread': ['error', { allow: ['string'] }],
@@ -122,7 +133,6 @@ export default defineConfig({
         'import/no-namespace': 'off', // 855
         'no-console': 'off', // 211
         'no-promise-executor-return': 'off', // 186
-        'no-unused-vars': 'warn', // 14
         'quality/no-array-filter-map': 'off', // 33
         'quality/no-chained-type-assertions': 'off', // 302
         'quality/no-conditional-empty-object-spread': 'off', // 716
@@ -137,7 +147,6 @@ export default defineConfig({
         'react/purity': 'off', // 7
         'react/refs': 'off', // 80
         'react/set-state-in-effect': 'off', // 42
-        'typescript/no-explicit-any': 'warn', // 12
         'typescript/no-require-imports': 'off', // 35
         'typescript/no-unsafe-argument': 'off', // 12
         'typescript/no-unsafe-assignment': 'off', // 82
