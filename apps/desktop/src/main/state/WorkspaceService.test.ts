@@ -309,7 +309,6 @@ describe('WorkspaceService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ] as any,
       4,
     );

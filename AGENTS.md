@@ -21,7 +21,16 @@ pnpm test                 # Every Consola package's tests via Turborepo (the web
 pnpm run test:vendor      # The copied t3code packages' own tests, as CI's vendor job runs them (Linux)
 pnpm run typecheck:vendor # The copied t3code packages' own typecheck, as CI's vendor job runs it
 pnpm --filter @consola/automation-engine test   # Just the engine's tests
+pnpm run lint             # Biome, then Oxlint (lint:oxlint), as CI's lint job runs them
 ```
+
+Linting is two tools. Biome formats, lints CSS and keeps its own rules
+(`biome.jsonc`). Oxlint runs Cloudflare's preset (`@cloudflare/oxlint-config`,
+in `oxlint.config.mts`), whose type-aware rules read the real types through
+`tsrs`. Those rules read the workspace packages' types from their `dist/`, so
+`lint:oxlint` builds the packages first: run bare `oxlint` without them and
+every import from one is `any`, which the `no-unsafe-*` rules then report. A
+rule of the preset that stays off says why beside it in the config.
 
 Individual builds:
 ```bash

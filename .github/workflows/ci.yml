@@ -63,6 +63,10 @@ jobs:
       # point at the line being changed rather than at the whole backlog.
       - name: Biome
         run: pnpm exec biome ci --diagnostic-level=error .
+      # Builds the workspace packages first: Oxlint's type-aware rules read
+      # their types from dist/, and without it every import from one is `any`.
+      - name: Oxlint
+        run: pnpm run lint:oxlint --format=github
       - name: Licences
         run: node .github/scripts/check-licenses.mjs
       - name: Repository scripts' tests
