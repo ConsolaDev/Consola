@@ -45,6 +45,21 @@ export default defineConfig({
   },
   overrides: [
     {
+      // These packages type-check against the ES2020 library, which has no
+      // Array#at, String#replaceAll or Error cause.
+      files: [
+        'apps/desktop/**',
+        'apps/website/**',
+        'packages/automation-engine/**',
+        'packages/factory-spec/**',
+      ],
+      rules: {
+        'preserve-caught-error': 'off',
+        'unicorn/prefer-at': 'off',
+        'unicorn/prefer-string-replace-all': 'off',
+      },
+    },
+    {
       // Playwright requires the fixtures argument to be destructured.
       files: ['**/tests/e2e/**'],
       rules: { 'no-empty-pattern': 'off' },
@@ -67,7 +82,6 @@ export default defineConfig({
         'no-promise-executor-return': 'off', // 186
         'no-unused-vars': 'warn', // 14
         'no-useless-assignment': 'off', // 10
-        'preserve-caught-error': 'off', // 21
         'promise/no-multiple-resolved': 'off', // 1
         'quality/no-array-filter-map': 'off', // 33
         'quality/no-chained-type-assertions': 'off', // 302
@@ -107,9 +121,7 @@ export default defineConfig({
         'unicorn/consistent-function-scoping': 'off', // 763
         'unicorn/no-hex-escape': 'off', // 313
         'unicorn/no-useless-spread': 'off', // 52
-        'unicorn/prefer-at': 'off', // 48
         'unicorn/prefer-single-call': 'off', // 16
-        'unicorn/prefer-string-replace-all': 'off', // 184
         'unicorn/prefer-structured-clone': 'off', // 22
         'unicorn/prefer-top-level-await': 'off', // 11
       },

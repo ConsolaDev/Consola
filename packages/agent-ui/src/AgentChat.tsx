@@ -124,9 +124,7 @@ const removeRegistration = (sessionId: string, owner: object) => {
 
 /** Hands t3 the registrations of every mounted chat. Fails with t3's cause, as text. */
 const reconcileHosts = async (): Promise<void> => {
-  const registrations = [...registered.values()].map(
-    (entries) => entries[entries.length - 1]!.registration,
-  );
+  const registrations = [...registered.values()].map((entries) => entries.at(-1)!.registration);
   const exit = await runInConnection(
     Effect.gen(function* () {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;

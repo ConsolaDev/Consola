@@ -228,10 +228,10 @@ export const GUARDED_PSEUDO_ELEMENTS = [
  */
 export const compact = (selector: string) =>
   selector
-    .replace(/\s+/g, ' ')
-    .replace(/\s*,\s*/g, ',')
-    .replace(/\(\s+/g, '(')
-    .replace(/\s+\)/g, ')')
+    .replaceAll(/\s+/g, ' ')
+    .replaceAll(/\s*,\s*/g, ',')
+    .replaceAll(/\(\s+/g, '(')
+    .replaceAll(/\s+\)/g, ')')
     .trim();
 
 /** Whether a rule is the guard's: each of its selectors starts with `GUARDED`, or is the root's. */
@@ -255,7 +255,7 @@ const STAYS_OUTSIDE = /^(?:-[a-z]+-)?(?:charset|import|namespace|property|font-f
 export const scopeSelector = (selector: string): string => {
   const trimmed = selector.trim();
   if (trimmed.includes(`.${SCOPE_CLASS}`)) return trimmed;
-  const ownDark = trimmed.replace(DARK_CLASS, OWN_DARK);
+  const ownDark = trimmed.replaceAll(DARK_CLASS, OWN_DARK);
   if (DOCUMENT_SELECTOR.test(ownDark)) return ownDark.replace(DOCUMENT_SELECTOR, AS_DOCUMENT);
   return `${INSIDE} ${ownDark}`;
 };
@@ -393,7 +393,9 @@ export const scopeCss: PluginCreator<void> = () => ({
     if (insideKeyframes(rule)) return;
     const scoped = nestedInRule(rule)
       ? rule.selectors.map((selector) =>
-          selector.includes(`.${SCOPE_CLASS}`) ? selector : selector.replace(DARK_CLASS, OWN_DARK),
+          selector.includes(`.${SCOPE_CLASS}`)
+            ? selector
+            : selector.replaceAll(DARK_CLASS, OWN_DARK),
         )
       : rule.selectors.map(scopeSelector);
     if (scoped.join() !== rule.selectors.join()) rule.selectors = scoped;

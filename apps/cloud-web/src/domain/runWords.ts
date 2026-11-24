@@ -49,7 +49,7 @@ const STATUS_WORDS: Record<RunStatus, string> = {
 
 /** A word the page does not know, said as the cell sent it, capitalised. */
 function asSent(word: string): string {
-  const spaced = word.replace(/[-_]+/g, ' ').trim();
+  const spaced = word.replaceAll(/[-_]+/g, ' ').trim();
   return spaced === '' ? 'Unknown' : spaced[0].toUpperCase() + spaced.slice(1);
 }
 

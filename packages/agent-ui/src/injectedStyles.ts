@@ -45,7 +45,7 @@ let observer: MutationObserver | undefined;
 export const INSIDE_CHAT = ':where(.consola-agent-ui, .consola-agent-ui-portal)';
 
 const layered = (css: string) =>
-  `@layer consola-agent-ui {\n${INSIDE_CHAT} {\n${css.replace(/!\s*important/gi, '')}\n}\n}`;
+  `@layer consola-agent-ui {\n${INSIDE_CHAT} {\n${css.replaceAll(/!\s*important/gi, '')}\n}\n}`;
 
 /** The text of an injected style's copy. */
 export const copyTextOf = (original: HTMLStyleElement): string =>

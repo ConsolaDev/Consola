@@ -87,7 +87,7 @@ const FLOOR_LAYER = `${CHAT_LAYER}.${RESET_LAYER}`;
  * writes `::before` as `:before`).
  */
 const guardKey = (selector: string) =>
-  compact(selector).replace(/(?<!:):(before|after|first-line|first-letter)\b/g, '::$1');
+  compact(selector).replaceAll(/(?<!:):(before|after|first-line|first-letter)\b/g, '::$1');
 
 /** The selectors of the rule for `pseudo` (`GUARDED_PSEUDO_ELEMENTS`) that scopeCss adds after `prefix`'s. */
 const pseudoSelectors = (prefix: string, pseudo: string) =>

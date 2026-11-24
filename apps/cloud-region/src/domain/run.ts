@@ -490,7 +490,7 @@ const CONTROLS = /\p{Cc}+/gu;
 
 /** `text` on one line, at most `TITLE_MAX` characters, an ellipsis ending one that was cut. */
 function titleText(text: string): string {
-  const line = text.replace(CONTROLS, ' ').replace(/\s+/g, ' ').trim();
+  const line = text.replaceAll(CONTROLS, ' ').replaceAll(/\s+/g, ' ').trim();
   const chars = [...line];
   if (chars.length <= TITLE_MAX) return line;
   return `${chars

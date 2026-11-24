@@ -177,6 +177,7 @@ export function sandboxesFrom(provider: SandboxProvider): Sandboxes {
         throw new AggregateError(
           [error, stopError],
           `The work in sandbox ${sandbox.id} failed, and stopping the sandbox failed too.`,
+          { cause: stopError },
         );
       }
       throw error;

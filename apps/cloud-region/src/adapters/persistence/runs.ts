@@ -112,7 +112,7 @@ const ofFactory = and(
 );
 
 /** `text` inside a LIKE pattern, its own `%`, `_` and `\` matched as themselves. */
-const likeText = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+const likeText = (text: string) => text.replaceAll(/[\\%_]/g, (c) => `\\${c}`);
 
 /** The workspace's top-level runs the filter keeps, of every phase. */
 function kept(db: Executor, workspaceId: string, filter: RunFilter): SQL | undefined {

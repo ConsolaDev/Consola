@@ -79,7 +79,7 @@ const ALLOWED_IDS = new Set([...ALLOWED].map((id) => id.toLowerCase()));
 /** Whether an SPDX expression lets Consola ship the package. */
 export function allows(expression) {
   const alternatives = expression
-    .replace(/[()]/g, ' ')
+    .replaceAll(/[()]/g, ' ')
     .split(/\s+OR\s+/i)
     .map((alternative) => alternative.trim());
   return alternatives.some((alternative) =>

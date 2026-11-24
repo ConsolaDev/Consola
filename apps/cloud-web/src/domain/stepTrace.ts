@@ -125,7 +125,7 @@ export function rowFacts(step: StepSummary, now: number): string | null {
 
 /** An earlier attempt's status in the words a person uses: one that did not run did not fail. */
 function earlierWords(status: StepSummary['status']): string {
-  return status === 'not-run' ? 'did not run' : status.replace(/-/g, ' ');
+  return status === 'not-run' ? 'did not run' : status.replaceAll('-', ' ');
 }
 
 /**
@@ -247,7 +247,7 @@ export function notRunReason(
 
 /** A value as a row shows it: on one line, cut short past `max` characters. */
 function shortValue(value: string | number | boolean, max = 40): string {
-  const text = String(value).replace(/\s+/g, ' ');
+  const text = String(value).replaceAll(/\s+/g, ' ');
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
@@ -460,10 +460,10 @@ const BIDI = /[؜‎‏‪-‮⁦-⁩]/g;
 
 export function cleanOutput(text: string): string {
   const unescaped = text
-    .replace(ESC_STRING, '')
-    .replace(ESC_CSI, '')
-    .replace(ESC_OTHER, '')
-    .replace(BIDI, '');
+    .replaceAll(ESC_STRING, '')
+    .replaceAll(ESC_CSI, '')
+    .replaceAll(ESC_OTHER, '')
+    .replaceAll(BIDI, '');
   const lines: string[] = [];
   let line: string[] = [];
   for (let at = 0; at < unescaped.length; at++) {

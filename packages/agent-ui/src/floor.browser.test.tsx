@@ -112,7 +112,7 @@ const computed = (element: Element, pseudo?: string): Reading => {
 const read = (fixture: HTMLElement): Record<string, Reading> => {
   const readings: Record<string, Reading> = {};
   for (const [index, element] of [...fixture.querySelectorAll('*')].entries()) {
-    const name = `${index}:${element.outerHTML.slice(0, 60).replace(/\s+/g, ' ')}`;
+    const name = `${index}:${element.outerHTML.slice(0, 60).replaceAll(/\s+/g, ' ')}`;
     const { x, y, width, height } = element.getBoundingClientRect();
     readings[name] = { ...computed(element), box: `${x},${y} ${width}x${height}` };
     if (element.tagName === 'LI') readings[`${name}::marker`] = computed(element, '::marker');

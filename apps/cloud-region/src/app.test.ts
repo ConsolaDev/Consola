@@ -527,7 +527,7 @@ describe('every route', () => {
     ];
     expect(routes.length).toBeGreaterThan(2);
     for (const { method, path } of routes) {
-      const response = await app.request(path.replace(/:[^/]+/g, 'x'), {
+      const response = await app.request(path.replaceAll(/:[^/]+/g, 'x'), {
         method: method === 'ALL' ? 'GET' : method,
       });
       const route = `${method} ${path}`;
