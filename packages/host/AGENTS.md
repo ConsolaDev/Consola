@@ -1208,12 +1208,12 @@ Then, from the repository root:
 3. `pnpm exec turbo run build --filter=@consola/host^...` once, then
    `node --env-file=packages/host/.env packages/host/src/main.ts runner --cell-url ws://127.0.0.1:3101/api/runner --runner-id demo-runner`.
    Its log on stderr says `connected to the cell` once it is.
-4. Open the web app's sessions screen and start a Claude session on the test
-   repository. The web app has no sessions screen on main yet: it lands
-   separately, with Linear CON-95, and until it does, this step and the check
-   below cannot be done (the cell's routes are there; nothing in the web app
-   calls them). Its sandbox is created with public ports, as every session
-   sandbox is until a gateway stands in front (Linear: "10.5 A session
+4. In the web app, open Sessions (`http://localhost:5175/#/sessions`), choose
+   New session (`#/sessions/new`), and start a Claude session on the test
+   repository. Its page says "Starting the sandbox…" until the runner reports
+   the host ready, then shows the chat. Its sandbox is created with public
+   ports, as every session sandbox is until a gateway stands in front
+   (Linear: "10.5 A session
    gateway: sandboxes stay private, the browser reaches the host through
    Consola", https://linear.app/consola/issue/CON-105): anyone with the
    sandbox's address reaches every port it listens on, though the host's own
@@ -1222,8 +1222,8 @@ Then, from the repository root:
 The check: ask the agent to add a line to the README and push a branch named
 `consola/demo`, approving what it asks; the branch appears on GitHub. Close the
 page, since a connected chat keeps the host from going idle. After 10 minutes,
-reopening the session shows that it has stopped ("This session has stopped.",
-in CON-95's words), and E2B's dashboard lists no sandbox still running.
+reopening the session shows "This session has stopped.", and E2B's dashboard
+lists no sandbox still running.
 
 ## Licensing
 
