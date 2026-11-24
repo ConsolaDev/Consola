@@ -513,23 +513,67 @@ describe('the runner socket', () => {
       expect(lines.join('\n')).not.toMatch(/no longer serves/);
     });
 
-    it('received on a socket another replaced is dropped, and logged', async () => {
+    /** Settles once the cell has read every frame `runner` sent so far: a ping's pong follows them. */
+    function readByCell({ socket }: Runner): Promise<void> {
+      return new Promise((resolve) => {
+        socket.once('pong', () => resolve());
+        socket.ping();
+      });
+    }
+
+    /** Long enough for a hello judged out of turn to have failed `s-1` and been offered. */
+    const OUT_OF_TURN_MS = 200;
+
+    it("received before its socket closed applies before a later socket's hello is judged", async () => {
       const first = await runningOnSocket();
       const { held, release } = holdNextUpdate();
       first.send({ type: 'session.update', sessionId: 's-1', title: 'Fix the cart total' });
+      // The runner's end, said as it stops, waits in the queue behind the held update.
       first.send({ type: 'session.update', sessionId: 's-1', status: 'stopped' });
+      await held;
+      first.socket.close(1001, 'the runner is stopping');
+      await waitFor(() => expect(runner.channel.connected('acme')).toBeNull());
+      // The runner again, on a new socket and holding nothing: its hello waits for that end.
+      const second = await open();
+      second.send(hello({ runningSessionIds: [] }));
+      await readByCell(second);
+      await new Promise((resolve) => setTimeout(resolve, OUT_OF_TURN_MS));
+      expect(runner.channel.connected('acme')).toBeNull();
+      expect(await sessions.find('s-1')).toMatchObject({ status: 'running' });
+      release();
+
+      await waitFor(() => expect(runner.channel.connected('acme')?.runnerId).toBe('runner-1'));
+      // The end the runner said stands: never the restart its hello would otherwise mean.
+      expect(await sessions.find('s-1')).toMatchObject({
+        status: 'stopped',
+        error: null,
+        errorCode: null,
+        title: 'Fix the cart total',
+      });
+    });
+
+    it("received on a replaced socket after the new socket's hello is dropped, and logged", async () => {
+      const first = await runningOnSocket();
+      const { held, release } = holdNextUpdate();
+      // Received before the second socket's hello: it applies.
+      first.send({ type: 'session.update', sessionId: 's-1', title: 'Fix the cart total' });
       await held;
       // The second socket's hello takes the workspace, and lists s-1 as still running.
       const second = await open();
       second.send(hello({ runningSessionIds: ['s-1'], harnesses: ['claude', 'codex'] }));
-      await waitFor(() =>
-        expect(runner.channel.connected('acme')).toMatchObject({ harnesses: ['claude', 'codex'] }),
-      );
-      expect(await first.closed).toBe(RUNNER_SOCKET_CLOSE.replaced);
+      await readByCell(second);
+      // Received after it: by its turn, the second socket serves the workspace.
+      first.send({ type: 'session.update', sessionId: 's-1', status: 'stopped' });
+      await readByCell(first);
       release();
 
+      expect(await first.closed).toBe(RUNNER_SOCKET_CLOSE.replaced);
       await waitFor(() => expect(lines.join('\n')).toMatch(/no longer serves/));
-      expect(await sessions.find('s-1')).toMatchObject({ status: 'running' });
+      expect(runner.channel.connected('acme')).toMatchObject({ harnesses: ['claude', 'codex'] });
+      expect(await sessions.find('s-1')).toMatchObject({
+        status: 'running',
+        title: 'Fix the cart total',
+      });
     });
   });
 

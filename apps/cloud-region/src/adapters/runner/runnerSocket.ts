@@ -70,13 +70,11 @@ type Connection = {
   /** True once its `hello` is judged: only then does the channel offer it to a person. */
   ready: boolean;
   /**
-   * True once another socket's `hello` took its place: what it still has queued is dropped, since
-   * the new socket's `hello` was judged instead. A socket that only closed keeps its queue.
+   * True once another socket's `hello` took its place: what it sent after that `hello` is dropped,
+   * since the new socket's `hello` was judged instead. A socket that only closed is not replaced.
    */
   replaced: boolean;
   closed: boolean;
-  /** Its messages are handled one after another, in the order they came. */
-  queue: Promise<void>;
 };
 
 const digest = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest();
@@ -116,9 +114,12 @@ function readFrame(data: unknown): ReadResult<RunnerMessage> {
  *   itself. A second socket's `hello` replaces the first, which closes (`replaced`).
  * - **`hello` first**, judged by `runnerConnected` before the offer is out, so no person's start
  *   lands among the sessions it judges. Then each `session.stop` it asks for is sent.
- * - **Updates** reach `applyRunnerUpdate`, one at a time in order, those still queued when the
- *   socket closes included, unless another socket replaced it. What cannot be read is logged
- *   with its reason alone, never the frame, and dropped; the socket stays open.
+ * - **One queue.** Every socket's messages are handled one at a time, in the order the cell
+ *   read them, whichever socket they came on: a later socket's `hello` is judged only once
+ *   everything an earlier socket sent is applied or dropped.
+ * - **Updates** reach `applyRunnerUpdate`, those of a socket that has since closed included,
+ *   unless another socket's `hello` came first. What cannot be read is logged with its reason
+ *   alone, never the frame, and dropped; the socket stays open.
  *
  * With `settings` null (no runner configured), every request is 401 and no runner connects.
  */
@@ -137,6 +138,13 @@ export function createRunnerSocket(deps: {
   const open = new Set<Connection>();
   /** The newest socket that said hello: the one that serves the workspace, once it is ready. */
   let latest: Connection | null = null;
+  /**
+   * Every socket's messages, one after another, in the order the cell read them. One queue for
+   * them all, since the cell serves one workspace's runner: an end a socket said before it closed
+   * is applied before the runner's next `hello` is judged, which would otherwise take that
+   * session, no longer listed, for one lost in a restart.
+   */
+  let queue: Promise<void> = Promise.resolve();
 
   const secretDigest = settings ? digest(settings.secret) : null;
   const admits = (authorization: string | undefined): boolean => {
@@ -233,10 +241,10 @@ export function createRunnerSocket(deps: {
       report("The cell dropped a runner's update sent before its hello.");
       return;
     }
-    // An update the socket sent before it closed still applies when no socket replaced it: the
-    // runner says each session's end as it stops, then closes, and counts the end heard once the
-    // cell has read it. Updates are compare-and-set and scoped to the runner, so a late one never
-    // overwrites an end.
+    // An update a socket sent before it closed still applies, unless another socket's hello came
+    // first: the runner says each session's end as it stops, then closes, and counts the end heard
+    // once the cell has read it. Updates are compare-and-set and scoped to the runner, so a late
+    // one never overwrites an end.
     if (connection.replaced || !connection.ready) {
       report("The cell dropped an update from a runner's socket that no longer serves it.");
       return;
@@ -255,7 +263,6 @@ export function createRunnerSocket(deps: {
       ready: false,
       replaced: false,
       closed: false,
-      queue: Promise.resolve(),
     };
     return {
       onOpen: (_event, socket) => {
@@ -270,9 +277,9 @@ export function createRunnerSocket(deps: {
           return;
         }
         const message = read.value;
-        // A handler that throws must neither stop the socket's later messages nor leave an
-        // unhandled rejection (which ends the process): log the reason alone, never a body.
-        connection.queue = connection.queue
+        // A handler that throws must neither stop the later messages nor leave an unhandled
+        // rejection (which ends the process): log the reason alone, never a body.
+        queue = queue
           .then(() =>
             message.type === 'hello'
               ? hello(connection, message, settings)
