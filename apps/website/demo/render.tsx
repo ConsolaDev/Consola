@@ -83,25 +83,26 @@ async function showChanges(event: Event): Promise<void> {
 }
 document.addEventListener('demo:changes', (event) => void showChanges(event));
 async function runDemoCommand(event: MessageEvent): Promise<void> {
+  const data = event.data as { type?: unknown; command?: unknown } | null;
   if (
     event.origin !== location.origin ||
     event.source !== window.parent ||
-    event.data?.type !== 'consola:demo-command'
+    data?.type !== 'consola:demo-command'
   )
     return;
-  if (event.data.command === 'home') {
+  if (data.command === 'home') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().setActiveSession('onboarding');
     useSidePanelStore.getState().setVisible(false);
   }
-  if (event.data.command === 'personal')
+  if (data.command === 'personal')
     await useNavigationStore.getState().setActiveWorkspace('personal');
-  if (event.data.command === 'inbox') {
+  if (data.command === 'inbox') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().openInbox();
   }
-  if (event.data.command === 'changes') await openChanges();
-  if (event.data.command === 'reset') location.reload();
+  if (data.command === 'changes') await openChanges();
+  if (data.command === 'reset') location.reload();
 }
 window.addEventListener('message', (event) => void runDemoCommand(event));
 // As the desktop's own bootstrap does: the browser panel shows only what is

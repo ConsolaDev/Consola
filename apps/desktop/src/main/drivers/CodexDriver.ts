@@ -190,7 +190,7 @@ export class CodexDriver implements HarnessDriver {
           path.join(home, 'consola', 'sessions', `${sessionId}.json`),
           'utf8',
         ),
-      );
+      ) as CodexMapping;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;

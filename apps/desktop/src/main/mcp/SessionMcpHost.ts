@@ -192,7 +192,8 @@ export class SessionMcpHost {
 
       let authenticated = false;
       try {
-        authenticated = JSON.parse(buffer.slice(0, newline)).token === endpoint.token;
+        const hello = JSON.parse(buffer.slice(0, newline)) as { token?: unknown } | null;
+        authenticated = hello?.token === endpoint.token;
       } catch {
         // Not even JSON: treated the same as a wrong token.
       }

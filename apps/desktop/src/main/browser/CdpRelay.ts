@@ -193,7 +193,9 @@ export class CdpRelay implements ConnectOverCDPTransport {
           ? pageDebugger.sendCommand(method, params)
           : pageDebugger.sendCommand(method, params, sessionId),
       targetInfo: async () => {
-        const answer = await pageDebugger.sendCommand('Target.getTargetInfo');
+        const answer = (await pageDebugger.sendCommand('Target.getTargetInfo')) as
+          | { targetInfo?: { targetId?: unknown; url?: unknown; title?: unknown } }
+          | undefined;
         const info = answer?.targetInfo;
         if (typeof info?.targetId !== 'string') {
           throw new Error('The page did not say which target it is.');

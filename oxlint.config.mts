@@ -86,6 +86,36 @@ export default defineConfig({
       },
     },
     {
+      // Tests read back, as JSON, what the code under test wrote, and their
+      // assertions are the check on it. The preset already lets a test pass
+      // and read such a value; returning or calling it is allowed too, and in
+      // the e2e suite's helpers alike.
+      files: [
+        '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
+        '**/*.test-helpers.{ts,tsx}',
+        '**/tests/**',
+      ],
+      rules: {
+        'typescript/no-unsafe-argument': 'off',
+        'typescript/no-unsafe-assignment': 'off',
+        'typescript/no-unsafe-call': 'off',
+        'typescript/no-unsafe-member-access': 'off',
+        'typescript/no-unsafe-return': 'off',
+      },
+    },
+    {
+      // Its migrations read workspace files older builds wrote, typed \`any\`
+      // on purpose (each marked), and shape them into today's records.
+      files: ['apps/desktop/src/shared/workspace.ts'],
+      rules: {
+        'typescript/no-unsafe-argument': 'off',
+        'typescript/no-unsafe-assignment': 'off',
+        'typescript/no-unsafe-call': 'off',
+        'typescript/no-unsafe-member-access': 'off',
+        'typescript/no-unsafe-return': 'off',
+      },
+    },
+    {
       // Test helpers are tests' code: the preset's test relaxations apply.
       files: ['**/*.test-helpers.{ts,tsx}'],
       rules: {
@@ -147,11 +177,6 @@ export default defineConfig({
         'react/refs': 'off', // 80
         'react/set-state-in-effect': 'off', // 42
         'typescript/no-require-imports': 'off', // 35
-        'typescript/no-unsafe-argument': 'off', // 12
-        'typescript/no-unsafe-assignment': 'off', // 82
-        'typescript/no-unsafe-call': 'off', // 42
-        'typescript/no-unsafe-member-access': 'off', // 118
-        'typescript/no-unsafe-return': 'off', // 79
         'typescript/no-unsafe-type-assertion': 'off', // 1157
         'typescript/unbound-method': 'off', // 69
         'unicorn/catch-error-name': 'off', // 73

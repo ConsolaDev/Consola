@@ -61,11 +61,11 @@ function oneLine(text: string): string | undefined {
 
 function textParts(content: unknown, partType: string): string {
   if (!Array.isArray(content)) return '';
-  return content
-    .filter(
-      (part): part is { type: string; text: string } =>
-        !!part && part.type === partType && typeof part.text === 'string',
-    )
+  return (content as unknown[])
+    .filter((part): part is { type: string; text: string } => {
+      const fields = part as { type?: unknown; text?: unknown } | null;
+      return !!fields && fields.type === partType && typeof fields.text === 'string';
+    })
     .map((part) => part.text)
     .join('\n\n');
 }

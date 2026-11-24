@@ -335,7 +335,7 @@ function parseOutputType(name: string, value: unknown, fail: Fail): OutputType |
       }
       seen.add(entry);
     }
-    return { type: 'enum', values: [...values] as string[] };
+    return { type: 'enum', values: [...(values as string[])] };
   }
   const type = value.type;
   if (type === 'integer' || type === 'number') {

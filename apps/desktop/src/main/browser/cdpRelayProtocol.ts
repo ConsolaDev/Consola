@@ -507,7 +507,8 @@ export function createRelayConnection(
     }
     // An entry is only an id, so look up where it leads.
     const history = await page.send('Page.getNavigationHistory', {}, child);
-    const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : [];
+    const entries: unknown[] =
+      isRecord(history) && Array.isArray(history.entries) ? history.entries : [];
     const entry = entries.find((item) => isRecord(item) && item.id === params.entryId);
     return isRecord(entry) && typeof entry.url === 'string' && isAllowedPageUrl(entry.url)
       ? undefined

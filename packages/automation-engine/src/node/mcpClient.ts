@@ -959,7 +959,7 @@ function refusingFetch(
     }
     if (!response.body) return response;
     const carried = init?.method === 'POST' ? requestIdOf(init.body) : undefined;
-    const reader = response.body.getReader();
+    const reader = (response.body as ReadableStream<Uint8Array>).getReader();
     let seen = 0;
     const counted = new ReadableStream<Uint8Array>({
       async pull(controller) {

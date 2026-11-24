@@ -453,7 +453,7 @@ export function gitFolderProblem(dir: string): string | null {
   // Its config and attributes, as Consola last wrote them (the commit review): only a `host` step can change them.
   let record: { config?: unknown; attributes?: unknown };
   try {
-    record = JSON.parse(fs.readFileSync(recordFor(gitDir), 'utf8'));
+    record = JSON.parse(fs.readFileSync(recordFor(gitDir), 'utf8')) as typeof record;
   } catch {
     return 'the record of its `config` is missing';
   }

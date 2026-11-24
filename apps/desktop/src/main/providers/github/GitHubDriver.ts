@@ -704,12 +704,12 @@ export class GitHubDriver implements GitProviderDriver {
 
   /** A REST list, every page of it. */
   private async paginate(endpoint: string, env: NodeJS.ProcessEnv): Promise<unknown[]> {
-    const pages = JSON.parse(
+    const pages: unknown = JSON.parse(
       await this.exec(['api', '--hostname', WEB_HOST, endpoint, '--paginate', '--slurp'], env),
     );
     if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page)))
       throw new Error('Unexpected GitHub list response.');
-    return pages.flat();
+    return (pages as unknown[][]).flat();
   }
 
   /**

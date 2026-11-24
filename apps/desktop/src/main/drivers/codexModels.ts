@@ -99,7 +99,11 @@ export function listCodexModels(
         pending = pending.slice(newline + 1);
         if (!line.trim()) continue;
         try {
-          const message = JSON.parse(line);
+          const message = JSON.parse(line) as {
+            id?: unknown;
+            error?: unknown;
+            result?: unknown;
+          } | null;
           if (message?.id !== requestId) continue;
           if (message.error) {
             finish(

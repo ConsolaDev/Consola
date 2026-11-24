@@ -792,7 +792,7 @@ export function decodeCursor(text: string): RunCursor | null {
     return null;
   }
   if (!Array.isArray(value) || value.length !== 2) return null;
-  const [createdAt, id] = value;
+  const [createdAt, id] = value as unknown[];
   if (typeof createdAt !== 'string' || typeof id !== 'string') return null;
   if (!isTime(createdAt) || !RUN_ID_PATTERN.test(id)) return null;
   return { createdAt, id };

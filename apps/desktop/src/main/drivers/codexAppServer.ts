@@ -60,8 +60,12 @@ export function createCodexThread(
         pending = pending.slice(newline + 1);
         if (!line.trim()) continue;
         try {
-          const message = JSON.parse(line);
-          if (![1, 2, 3, 4].includes(message.id)) continue;
+          const message = JSON.parse(line) as {
+            id?: unknown;
+            error?: unknown;
+            result?: { thread?: { id?: unknown } };
+          };
+          if (typeof message.id !== 'number' || ![1, 2, 3, 4].includes(message.id)) continue;
           if (message.error) {
             finish(
               new Error(
@@ -161,7 +165,7 @@ export function readCodexRateLimits(
         if (!line.trim()) continue;
         let message: { id?: unknown; result?: unknown; error?: unknown };
         try {
-          message = JSON.parse(line);
+          message = JSON.parse(line) as typeof message;
         } catch {
           finish(new Error('Invalid response from Codex app-server.'));
           return;

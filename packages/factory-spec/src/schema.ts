@@ -237,7 +237,7 @@ const appliesToSchema = z.unknown().transform((written, ctx): Array<'pr' | 'issu
   const expected = 'Expected `pr`, `issue` or both.';
   if (!Array.isArray(written) || written.length === 0) return fail(expected);
   const kinds: Array<'pr' | 'issue'> = [];
-  for (const kind of written) {
+  for (const kind of written as unknown[]) {
     if (kind !== 'pr' && kind !== 'issue') return fail(expected);
     if (kinds.includes(kind)) return fail(`\`${kind}\` is listed twice.`);
     kinds.push(kind);

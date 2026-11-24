@@ -878,7 +878,7 @@ export class ClaudeDriver implements HarnessDriver {
           // stdout, and exits 1: its reason is there, not on stderr.
           let parsed: { is_error?: unknown; result?: unknown; structured_output?: unknown } | null;
           try {
-            parsed = JSON.parse(stdout);
+            parsed = JSON.parse(stdout) as typeof parsed;
           } catch {
             parsed = null;
           }

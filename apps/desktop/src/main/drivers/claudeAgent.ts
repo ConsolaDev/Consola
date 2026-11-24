@@ -453,8 +453,8 @@ export function skillDenyRules(initialize: unknown, granted: readonly string[]):
   if (!Array.isArray(initialize.commands)) throw new Error('its answer has no command list.');
   const names: string[] = [];
   const entries = [
-    ...initialize.commands,
-    ...(Array.isArray(initialize.skills) ? initialize.skills : []),
+    ...(initialize.commands as unknown[]),
+    ...(Array.isArray(initialize.skills) ? (initialize.skills as unknown[]) : []),
   ];
   for (const entry of entries) {
     const name = listedName(entry);

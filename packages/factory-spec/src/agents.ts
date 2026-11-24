@@ -161,7 +161,7 @@ function readServers(value: unknown): AgentServer[] | string {
   if (!Array.isArray(value)) return MESSAGES.servers;
   if (value.length > MAX_AGENT_SERVERS) return MESSAGES.tooManyServers;
   const servers: AgentServer[] = [];
-  for (const item of value) {
+  for (const item of value as unknown[]) {
     // NFC before any check, comparison or hash: two spellings of one name are one name.
     const raw = isRecord(item) && Object.keys(item).length === 1 ? Object.keys(item)[0] : item;
     const given = nfc(raw);

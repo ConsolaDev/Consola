@@ -77,7 +77,7 @@ function unwrapArgString(raw: unknown): string | undefined {
   if (!trimmed) return undefined;
   if (trimmed.startsWith('"') && trimmed.endsWith('"')) {
     try {
-      const parsed = JSON.parse(trimmed);
+      const parsed: unknown = JSON.parse(trimmed);
       if (typeof parsed === 'string') return oneLine(parsed);
     } catch {
       // Keep the raw string when it is not valid JSON.

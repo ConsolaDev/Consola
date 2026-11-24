@@ -298,7 +298,7 @@ export function parsePatch(patch: string): DiffRow[] {
 /** GitHub's five-square diffstat: the split between added and removed lines. */
 export function diffBlocks(additions: number, deletions: number): Array<'add' | 'del' | 'none'> {
   const total = additions + deletions;
-  if (total === 0) return Array(5).fill('none');
+  if (total === 0) return Array<'none'>(5).fill('none');
   let added = Math.round((5 * additions) / total);
   if (additions > 0 && added === 0) added = 1;
   if (deletions > 0 && added === 5) added = 4;

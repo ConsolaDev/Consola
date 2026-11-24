@@ -87,11 +87,11 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  */
 function parseSettingsValue(raw: string): Record<string, unknown> | null {
   try {
-    const parsed = JSON.parse(raw);
+    const parsed: unknown = JSON.parse(raw);
     return isPlainObject(parsed) ? parsed : null;
   } catch {
     try {
-      const parsed = JSON.parse(fs.readFileSync(raw, 'utf8'));
+      const parsed: unknown = JSON.parse(fs.readFileSync(raw, 'utf8'));
       return isPlainObject(parsed) ? parsed : null;
     } catch {
       return null;

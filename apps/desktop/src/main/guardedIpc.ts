@@ -24,6 +24,7 @@ export const guardedIpc = {
   handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => unknown): void {
     ipcMain.handle(channel, (event, ...args) => {
       if (!trusted(event)) throw new Error(`Refused ${channel}: caller is not a Consola window`);
+      // oxlint-disable-next-line typescript/no-unsafe-argument -- see above
       return listener(event, ...args);
     });
   },
@@ -32,6 +33,7 @@ export const guardedIpc = {
   on(channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void): void {
     ipcMain.on(channel, (event, ...args) => {
       if (!trusted(event)) return;
+      // oxlint-disable-next-line typescript/no-unsafe-argument -- see above
       listener(event, ...args);
     });
   },

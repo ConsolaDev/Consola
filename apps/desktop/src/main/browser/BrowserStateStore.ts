@@ -247,13 +247,16 @@ export class BrowserStateStore {
 
   private write(): void {
     try {
-      const sessions = [...this.sessions].map(([sessionId, session]) => [
-        sessionId,
-        {
-          ...session,
-          tabs: session.tabs.map((tab) => ({ ...tab, url: storableAddress(tab.url) })),
-        },
-      ]);
+      const sessions = [...this.sessions].map(
+        ([sessionId, session]) =>
+          [
+            sessionId,
+            {
+              ...session,
+              tabs: session.tabs.map((tab) => ({ ...tab, url: storableAddress(tab.url) })),
+            },
+          ] as const,
+      );
       this.file.write({
         sessions: Object.fromEntries(sessions),
         history: Object.fromEntries(this.history),

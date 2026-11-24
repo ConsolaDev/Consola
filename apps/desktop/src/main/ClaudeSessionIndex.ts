@@ -154,7 +154,7 @@ export async function readFirstUserPrompt(
         message?: { content?: unknown };
       };
       try {
-        record = JSON.parse(line);
+        record = JSON.parse(line) as typeof record;
       } catch {
         continue;
       }
@@ -336,7 +336,7 @@ export async function readConversation(
         message?: { content?: unknown };
       };
       try {
-        record = JSON.parse(line);
+        record = JSON.parse(line) as typeof record;
       } catch {
         continue;
       }
