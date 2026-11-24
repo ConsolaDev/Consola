@@ -1179,31 +1179,33 @@ automated version, with no credential and no provider, is
 git ignores (`.env*`) and which is never committed; `pnpm install` links a
 worktree's to the main checkout's.
 
-What each process needs, beyond what its own README sets up:
+Each process reads its own `.env`, made by copying the `.env.example` beside
+it, which says what every line is for, how to make its value, and which value
+must match another file's:
 
-- **`cloud-global`** (`apps/cloud-global/.env`, its `README.md` for sign-in and
-  `CELL_TOKEN_PRIVATE_KEY`): `CELL_URL_EU=http://127.0.0.1:3101`, so the
-  workspace and its members reach the cell through the outbox.
-- **`cloud-web`**: nothing new. Its proxy reaches the EU cell at the same
-  `CELL_URL_EU` default.
-- **`cloud-region`** (`apps/cloud-region/.env`, its `README.md`, "The runner
-  and session passes"): `RUNNER_SECRET` (`openssl rand -base64 32`),
-  `RUNNER_WORKSPACE_ID` (the id of the workspace the demo runs in, below) and
-  `PASS_PRIVATE_KEY` (`pnpm --filter @consola/cloud-region pass-key:generate`).
-- **`consola-host runner`** (`packages/host/.env`, read with Node's
-  `--env-file`): `E2B_API_KEY`, the key of Consola's E2B account, where the
-  `consola-session` template is built (`sandbox-template/README.md` records its
-  id); `ANTHROPIC_API_KEY`, the workspace's own key, which the sandbox's Claude
-  Code uses; `GIT_TOKEN`, a GitHub token that can read and push the test
-  repository; `CONSOLA_RUNNER_SECRET`, the cell's `RUNNER_SECRET`; and
-  `CONSOLA_RUNNER_REPOSITORIES`, that repository as `owner/name`.
+| File | Process | For the demo |
+| --- | --- | --- |
+| `apps/cloud-global/.env` | the API (3100) and the web app (5175), `pnpm dev:cloud` | its REQUIRED block (Google sign-in, `CELL_TOKEN_PRIVATE_KEY`) and `CELL_URL_EU` |
+| `apps/cloud-region/.env` | the EU cell (3101), `pnpm dev:cloud-region` | its RUNNER block: `RUNNER_SECRET`, `RUNNER_WORKSPACE_ID`, `PASS_PRIVATE_KEY` |
+| `packages/host/.env` | the runner, through Node's `--env-file` (step 3) | `CONSOLA_RUNNER_SECRET`, `CONSOLA_RUNNER_REPOSITORIES`, `E2B_API_KEY`, `ANTHROPIC_API_KEY`, `GIT_TOKEN` |
+| `packages/sandbox/.env` | `template:build`, the sandbox package's live tests | `E2B_API_KEY`, only to rebuild the `consola-session` template |
+
+The web app has no `.env`: it reaches the API on 3100 and the cell at
+`CELL_URL_EU` from the shell (`http://127.0.0.1:3101` when unset). Two values
+are shared: the runner's `CONSOLA_RUNNER_SECRET` is the cell's `RUNNER_SECRET`,
+and the cell's address (its `PORT`, 3101) is cloud-global's `CELL_URL_EU`. The
+template is already built on Consola's account (`sandbox-template/README.md`
+records its id); rebuild it only after changing the host's code or the
+template.
 
 Then, from the repository root:
 
 1. `pnpm dev:cloud` (the API on 3100, the web app on
    `http://localhost:5175`). Sign in with Google and make a workspace in the
    `eu` region. Its id is in `http://localhost:5175/api/workspaces`, opened in
-   the signed-in browser: put it in the cell's `RUNNER_WORKSPACE_ID`.
+   the signed-in browser: put it in the cell's `RUNNER_WORKSPACE_ID`, with the
+   cell's other two RUNNER settings (all three or none, or the cell refuses to
+   start).
 2. `pnpm dev:cloud-region` (the cell on 3101).
 3. `pnpm exec turbo run build --filter=@consola/host^...` once, then
    `node --env-file=packages/host/.env packages/host/src/main.ts runner --cell-url ws://127.0.0.1:3101/api/runner --runner-id demo-runner`.
@@ -1213,11 +1215,10 @@ Then, from the repository root:
    repository. Its page says "Starting the sandbox…" until the runner reports
    the host ready, then shows the chat. Its sandbox is created with public
    ports, as every session sandbox is until a gateway stands in front
-   (Linear: "10.5 A session
-   gateway: sandboxes stay private, the browser reaches the host through
-   Consola", https://linear.app/consola/issue/CON-105): anyone with the
-   sandbox's address reaches every port it listens on, though the host's own
-   still asks for a pass.
+   (Linear: "10.5 A session gateway: sandboxes stay private, the browser
+   reaches the host through Consola", https://linear.app/consola/issue/CON-105):
+   anyone with the sandbox's address reaches every port it listens on, though
+   the host's own still asks for a pass.
 
 The check: ask the agent to add a line to the README and push a branch named
 `consola/demo`, approving what it asks; the branch appears on GitHub. Close the
