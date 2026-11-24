@@ -30,7 +30,10 @@ in `oxlint.config.mts`), whose type-aware rules read the real types through
 `tsrs`. Those rules read the workspace packages' types from their `dist/`, so
 `lint:oxlint` builds the packages first: run bare `oxlint` without them and
 every import from one is `any`, which the `no-unsafe-*` rules then report. A
-rule of the preset that stays off says why beside it in the config.
+rule of the preset that stays off says why beside it in the config, and a
+rule turned off for one line names itself and its reason
+(`// oxlint-disable-next-line <rule> -- <why>`): an unused disable fails the
+check.
 
 Individual builds:
 ```bash
