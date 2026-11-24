@@ -1,0 +1,861 @@
+/* A factory's definition, laid out as an editor is and drawn as the desktop draws a session: a
+   bar (the run page's header: 44px, a hairline under it), the banner, then the files beside the
+   editor, which fill what is left of the window. The file list sits on the sidebar's surface and
+   draws its rows as the sidebar does (28px, 3px corners, the open one on the active fill); the
+   tabs sit on that surface too, the one in front on the editor's. Colour means something here
+   and nowhere else: the accent for focus and what is lit, red for a problem, green once, for a
+   save that landed. Every class is `definition-`, `workbench`, `file-tree-`, `editor-`,
+   `problem`, or `code-editor`. */
+
+.definition {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 44px);
+  min-height: 460px;
+}
+
+.definition-state,
+.factory-wide-frame {
+  padding: 28px clamp(20px, 4vw, 64px);
+}
+
+/* ---- The bar ---- */
+
+.definition-bar {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  min-height: 44px;
+  padding: 6px 12px 6px 16px;
+  box-sizing: border-box;
+  border-bottom: 1px solid var(--line);
+}
+
+.definition-crumbs {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.definition-crumb-factory {
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+}
+
+.definition-crumb-sep {
+  color: var(--text-3);
+}
+
+.definition-crumb-page {
+  color: var(--text);
+}
+
+.definition-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.definition-version {
+  margin: 0 4px 0 0;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+}
+
+.definition-version-number {
+  display: inline-block;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A save's new version arrives from below, as a counter turns over. */
+.definition-version-number[data-rolled] {
+  animation: definition-roll 560ms var(--ease-out-expo);
+}
+
+@keyframes definition-roll {
+  from {
+    opacity: 0;
+    transform: translateY(0.7em);
+  }
+}
+
+.definition-tools .button {
+  min-height: 28px;
+  padding: 3px 12px;
+}
+
+.definition-discard {
+  color: var(--text-2);
+}
+
+.definition-save {
+  min-width: 72px;
+}
+
+/* Nothing to save yet, or problems in the way: Save waits, outlined and quiet, and fills with the
+   accent only once it would do something. */
+.definition-save:disabled:not([data-state="saved"], [data-state="saving"]) {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--text-3);
+  opacity: 1;
+}
+
+/* Saved: the button holds its fill, turns green, and its check draws itself. */
+.definition-save[data-state="saved"],
+.definition-save[data-state="saved"]:disabled {
+  border-color: var(--success);
+  background: var(--success);
+  color: #ffffff;
+  opacity: 1;
+  transition:
+    background 160ms var(--ease-out-quart),
+    border-color 160ms var(--ease-out-quart);
+}
+
+.definition-save[data-state="saving"]:disabled {
+  opacity: 0.8;
+}
+
+.definition-save-check {
+  margin-right: -2px;
+}
+
+.definition-save-check path,
+.definition-save-check polyline {
+  stroke-dasharray: 24;
+  stroke-dashoffset: 0;
+  animation: definition-draw 420ms 60ms var(--ease-out-quart) backwards;
+}
+
+@keyframes definition-draw {
+  from {
+    stroke-dashoffset: 24;
+  }
+}
+
+/* ---- The banner and the strips under the bar ---- */
+
+.definition-banner {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sidebar);
+}
+
+.definition-banner-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-md);
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+.definition-banner-text {
+  min-width: 0;
+}
+
+.definition-banner-text p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.definition-banner-text .definition-banner-title {
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.definition-banner-hide {
+  flex: none;
+  min-height: 28px;
+  margin-left: auto;
+  padding: 3px 12px;
+  color: var(--text-2);
+}
+
+.definition-strip {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+  padding: 8px 12px 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sidebar);
+  font-size: var(--font-size-md);
+  animation: definition-arrive 220ms var(--ease-out-quart);
+}
+
+.definition-strip p {
+  flex: 1 1 320px;
+  margin: 0;
+}
+
+.definition-strip[data-tone="danger"] p {
+  color: var(--danger);
+}
+
+.definition-strip-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.definition-strip .button {
+  min-height: 28px;
+  padding: 3px 12px;
+}
+
+.definition-strip .button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.definition-strip-close {
+  display: inline-flex;
+  padding: 4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.definition-strip-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+@keyframes definition-arrive {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---- A factory with no files ---- */
+
+.definition-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 48px 24px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.definition-empty p {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.definition-empty .definition-empty-title {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+/* ---- The files beside the editor ---- */
+
+.workbench {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(200px, 264px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.file-tree {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+  background: var(--bg-sidebar);
+}
+
+.file-tree-filter {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 8px 4px;
+  padding: 0 6px 0 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  color: var(--text-3);
+}
+
+.file-tree-filter:focus-within {
+  border-color: var(--cyan);
+}
+
+.file-tree-filter input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--sidebar-font-size);
+}
+
+.file-tree-filter input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.file-tree-filter input::placeholder {
+  color: var(--text-3);
+}
+
+.file-tree-clear {
+  display: inline-flex;
+  padding: 3px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.file-tree-clear:hover {
+  background: var(--hover);
+}
+
+.file-tree-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 6px 12px;
+  overflow-y: auto;
+}
+
+.file-tree-none {
+  margin: 0;
+  padding: 8px;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.file-tree-group ul {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-tree-folder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 4px 8px 2px;
+  color: var(--text-3);
+  font-size: var(--sidebar-font-size-label);
+  font-weight: var(--font-weight-medium);
+}
+
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--sidebar-font-size-small);
+  text-align: left;
+  cursor: pointer;
+}
+
+.file-tree-folder + ul .file-tree-row {
+  padding-left: 27px;
+}
+
+.file-tree-row:hover {
+  background: var(--hover);
+}
+
+.file-tree-row[aria-current="true"] {
+  background: var(--active);
+}
+
+.file-tree-row:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.file-tree-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-row[aria-current="true"] .file-tree-name,
+.file-tree-row:hover .file-tree-name {
+  color: var(--text);
+}
+
+.file-tree-name mark {
+  background: none;
+  color: var(--text);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* A changed file's dot, and a file's own problems: quiet until they mean something. */
+.file-changed {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-2);
+  animation: definition-pop 240ms var(--ease-out-quart);
+}
+
+.file-problems {
+  flex: none;
+  min-width: 16px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--danger) 16%, transparent);
+  color: var(--danger);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+  animation: definition-pop 240ms var(--ease-out-quart);
+}
+
+@keyframes definition-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+
+/* ---- The editor and its tabs ---- */
+
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.editor-tabs {
+  display: flex;
+  flex: none;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sidebar);
+  scrollbar-width: none;
+}
+
+.editor-tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  border-right: 1px solid var(--line);
+  color: var(--text-2);
+}
+
+.editor-tab[data-active] {
+  /* Covers the tab bar's hairline, so the tab in front opens onto the editor. */
+  margin-bottom: -1px;
+  border-bottom: 1px solid var(--bg);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.editor-tab-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 4px 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.editor-tab-open svg {
+  color: var(--text-3);
+}
+
+.editor-tab-name {
+  max-width: 28ch;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-tab-open:focus-visible,
+.editor-tab-close:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+/* The close button holds the changed dot; the × takes its place under the pointer. */
+.editor-tab-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.editor-tab-close > * {
+  grid-area: 1 / 1;
+}
+
+.editor-tab-dot {
+  display: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.editor-tab svg.lucide-x {
+  opacity: 0;
+}
+
+.editor-tab[data-active] svg.lucide-x,
+.editor-tab:hover svg.lucide-x,
+.editor-tab-close:focus-visible svg.lucide-x {
+  opacity: 1;
+}
+
+.editor-tab[data-changed] .editor-tab-dot {
+  display: block;
+}
+
+.editor-tab[data-changed] svg.lucide-x {
+  opacity: 0;
+}
+
+.editor-tab[data-changed]:hover .editor-tab-dot,
+.editor-tab[data-changed] .editor-tab-close:focus-visible .editor-tab-dot {
+  display: none;
+}
+
+.editor-tab[data-changed]:hover svg.lucide-x,
+.editor-tab[data-changed] .editor-tab-close:focus-visible svg.lucide-x {
+  opacity: 1;
+}
+
+.editor-tab-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.code-editor {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* A problem's line, lit once as it is opened, as a run's file lights a step's lines. */
+.code-editor .cm-flash {
+  animation: definition-flash 1300ms var(--ease-out-quart);
+}
+
+@keyframes definition-flash {
+  from {
+    background: color-mix(in srgb, var(--cyan) 30%, transparent);
+  }
+}
+
+.editor-none {
+  display: grid;
+  flex: 1;
+  place-items: center;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
+/* ---- The problems ---- */
+
+.problems {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  max-height: 34%;
+  border-top: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.problems-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+}
+
+.problems-head:disabled {
+  cursor: default;
+}
+
+.problems-head:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.problems-head:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.problems-fold {
+  color: var(--text-3);
+  transition: transform 200ms var(--ease-out-quart);
+}
+
+.problems[data-open] .problems-fold {
+  transform: rotate(90deg);
+}
+
+.problems-icon {
+  color: var(--danger);
+}
+
+.problems-count {
+  min-width: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #ffffff;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* Save asked for with problems standing: the head lights red once, where the eye should go. */
+.problems-head[data-nudged] {
+  animation: definition-nudge 900ms var(--ease-out-quart);
+}
+
+@keyframes definition-nudge {
+  from {
+    background: color-mix(in srgb, var(--danger) 22%, transparent);
+  }
+}
+
+.problems-clear {
+  color: var(--text-3);
+}
+
+/* The last problem fixed: the check draws itself in green, and the words settle back. */
+.problems-clear[data-cleared] {
+  color: var(--success);
+}
+
+.problems-clear[data-cleared] path,
+.problems-clear[data-cleared] polyline {
+  stroke-dasharray: 24;
+  animation: definition-draw 480ms var(--ease-out-quart) backwards;
+}
+
+.problems-head span[data-cleared] {
+  color: var(--success);
+  transition: color 600ms var(--ease-out-quart);
+}
+
+.problems-note {
+  margin: 0;
+  padding: 2px 12px 6px 32px;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.problems-list {
+  margin: 0;
+  padding: 0 0 6px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.problem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 4px 12px 4px 30px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.problem:disabled {
+  cursor: default;
+}
+
+.problem:hover:not(:disabled) {
+  background: var(--hover);
+}
+
+.problem:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.problem-icon {
+  flex: none;
+  align-self: center;
+  color: var(--danger);
+}
+
+.problems-list li[data-through] .problem {
+  color: var(--text-2);
+}
+
+.problems-list li[data-through] .problem-icon {
+  color: var(--text-3);
+}
+
+.problem-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.problem-message code {
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  font-size: 0.95em;
+}
+
+.problem-place {
+  flex: none;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+/* ---- Narrow windows: the files above the editor ---- */
+
+@media (max-width: 760px) {
+  .definition {
+    height: auto;
+    min-height: 0;
+  }
+
+  .definition-tools {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .definition-version {
+    margin-right: auto;
+  }
+
+  .definition-banner {
+    flex-wrap: wrap;
+  }
+
+  .definition-banner-hide {
+    margin-left: 44px;
+  }
+
+  .workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .file-tree {
+    max-height: 200px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .editor-pane {
+    height: 70dvh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .definition-version-number[data-rolled],
+  .definition-save-check path,
+  .definition-save-check polyline,
+  .definition-strip,
+  .file-changed,
+  .file-problems,
+  .code-editor .cm-flash,
+  .problems-head[data-nudged],
+  .problems-clear[data-cleared] path,
+  .problems-clear[data-cleared] polyline {
+    animation: none;
+  }
+
+  .problems-fold,
+  .problems-head span[data-cleared],
+  .definition-save[data-state="saved"] {
+    transition: none;
+  }
+}

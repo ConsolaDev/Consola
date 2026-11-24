@@ -28,8 +28,15 @@ The app is built in layers, and imports point inward only.
   `TeamsState`, `TeamChange`) and their sentences (`teamMessages.ts`);
   factories (`factories.ts`: `Factory`, `checkFactoryName`, `checkNewFactory`,
   `newFactoryDraft`, `owningTeam`, `isMove`, `SOURCE_OPTIONS`,
-  `FactoriesState`, `FactoryChange`, `FactoryRead`, `fileGroups` and
-  `firstFile`), how the sidebar and the address name them (`factoryNav.ts`:
+  `FactoriesState`, `FactoryChange`, `FactoryRead`, `FactorySave`,
+  `fileGroups` and `firstFile`), what is wrong with a factory's files
+  (`factoryProblems.ts`: `FactoryProblem`, `problemOf`, `problemPath`,
+  `problemCounts`, `ownProblems`, `sortedProblems`, `messageParts`) and the
+  check that finds it as the person edits (`factoryCheck.ts`, factory-spec's
+  parser: see "Factories"), a person's edits over a version
+  (`factoryDraft.ts`: `FactoryDraft`, `draftOf`, `withEdit`, `filesOf`,
+  `broughtIn`, `afterSave`) and the files open as tabs (`factoryTabs.ts`), how
+  the sidebar and the address name them (`factoryNav.ts`:
   `FACTORY_PAGES`, `factoryRouteOfHash`, `hashOfFactoryPage`,
   `factoryLanding`, the fold rules `isUnfolded` and `withFold`, and a tile's
   colour, `factoryHue`) and their sentences (`factoryMessages.ts`); runs
@@ -49,7 +56,8 @@ The app is built in layers, and imports point inward only.
   section (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`)
   and a settings page
   (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
-  TypeScript, with no package and no browser I/O. `apiContract.ts` and
+  TypeScript, with no browser I/O and no package but `@consola/factory-spec`
+  (`factoryCheck.ts` alone). `apiContract.ts` and
   `cellApiContract.ts` hold the APIs' types, generated from
   `apps/cloud-global/openapi.json` and `apps/cloud-region/openapi.json` (see
   "The API's contract").
@@ -60,7 +68,7 @@ The app is built in layers, and imports point inward only.
   `openapi-fetch` client typed by the contract), the workspace's cell
   (`cell.ts`: `createCellSession`, the token and the address every service
   of the cell shares, on `createCellApi`; `teams.ts`: `teamsService`;
-  `factories.ts`: `factoriesService`; `runs.ts`: `runsService`;
+  `factories.ts`: `factoriesService`, a factory's files saved included; `runs.ts`: `runsService`;
   `cloudSessions.ts`: `cloudSessionsService`), Better
   Auth's client (`authClient.ts`: `signInWithGoogle`, `signOut`), the
   clipboard (`clipboard.ts`: `copyText`) and the address bar
@@ -72,7 +80,8 @@ The app is built in layers, and imports point inward only.
   `showRunPlace`), whether the
   page is in view (`pageVisibility.ts`), and the browser's storage, for a
   convenience only (`foldStore.ts`: `readUnfolded`, `writeUnfolded`;
-  `runPagePrefs.ts`, what this browser keeps of a run's page). A service
+  `runPagePrefs.ts`, what this browser keeps of a run's page;
+  `definitionBanner.ts`, whether the definition's banner was hidden). A service
   answers in domain types and sentences, never in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
   `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the narrow page's
@@ -85,7 +94,9 @@ The app is built in layers, and imports point inward only.
   `SessionChat`, loads only for a running session (see "Sessions"), and its
   Factories group
   `FactoriesNav.tsx` with `FactoryTile`, `useFactories`, `NewFactoryDialog`
-  and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage`,
+  and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage` (its
+  `FactoryFileTree`, `EditorTabs`, `CodeEditor`, `ProblemsPanel` and the
+  edits it keeps while the person is away, `factoryDrafts.ts`),
   `FactorySettingsPage` and `SourceChoice`), Settings
   (`SettingsDialog.tsx`, its pages in `settingsPages.tsx`: `GeneralPage.tsx`
   with `WorkspaceIconPicker`, `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
@@ -101,8 +112,10 @@ The app is built in layers, and imports point inward only.
 
 ## The dependency rule
 
-- `domain` imports only `domain`. It imports no package and refers to no
-  browser global: `window`, `document`, `fetch`, `history`, `location`,
+- `domain` imports only `domain` and `@consola/factory-spec`, the factory
+  files' schema and parser (MIT, no I/O, no Node builtin), so the page checks
+  files with the rules the cell saves them by. It imports no other package and
+  refers to no browser global: `window`, `document`, `fetch`, `history`, `location`,
   `localStorage`, `sessionStorage`, `navigator`, `XMLHttpRequest`,
   `WebSocket`, `globalThis` or `self`.
 - `services` imports `domain` and `services`, and packages, but never `ui`,
@@ -112,9 +125,10 @@ The app is built in layers, and imports point inward only.
   `fetch` or `XMLHttpRequest`: the API is reached only through `createApi`'s
   client, typed by the contract, so a call with types written by hand fails
   the boundary test.
-- `ui` imports `domain`, `services`, `ui`, `react`, `@radix-ui/themes` and
-  `@consola/agent-ui` with its stylesheet (the chat, in `SessionChat.tsx`),
-  never `better-auth`. It refers to no `fetch`, `history`, `location`,
+- `ui` imports `domain`, `services`, `ui`, `react`, `@radix-ui/themes`,
+  CodeMirror (`@codemirror/*` and `@lezer/*`, the definition's editor, in
+  `CodeEditor.tsx`) and `@consola/agent-ui` with its stylesheet (the chat, in
+  `SessionChat.tsx`), never `better-auth`. It refers to no `fetch`, `history`, `location`,
   `localStorage`, `sessionStorage`, `XMLHttpRequest` or `WebSocket`, directly
   or through `window`. The build constants are compile-time values, not I/O,
   so `Footer.tsx` may read them.
@@ -125,9 +139,9 @@ The app is built in layers, and imports point inward only.
   `WorkspaceSwitcher.tsx`).
   `domain` and `main.tsx` call none.
 - No file imports another app or a workspace package (`@consola/*`), but
-  `ui`, which imports `@consola/agent-ui`: the chat, MIT, which imports
-  nothing of an app's. `domain`, `services`, the entry and the tests never
-  import it.
+  `ui`, which imports `@consola/agent-ui` (the chat, MIT, which imports
+  nothing of an app's), and `domain`, which imports `@consola/factory-spec`.
+  No other layer imports either, and no test does.
 - Test files (`*.test.ts`) are exempt from the layer rules (the never-import
   list still applies), because they wire real pieces together the way the
   entry does.
@@ -263,13 +277,51 @@ desktop app draws its sidebar.
   its facts (its team, where its files come from), then the page. A factory
   the list no longer holds is gone, or now another team's, and the page says
   so.
-- **Factory definition** (`FactoryDefinitionPage`) reads the factory with
-  its latest version's files (`GET /api/factories/{factoryId}`): "Version N,
-  saved <when>" (`versionLine`), the files as the folder holds them
-  (`fileGroups`: `factory.yml`, then `automations/`, `agents/`, `skills/`),
-  the one chosen beside the list in a read-only monospace field (`FileView`),
-  "No files yet" for none, and a line saying editing comes next. The editor
-  (CON-74) takes `FileView`'s place on this page; nothing else changes.
+- **Factory definition** (`FactoryDefinitionPage`, CON-74) is a window onto
+  the whole factory as files and a quick fix in place, never where a factory
+  is made (a repository, the setup helper): a file is edited here, never
+  added, renamed or removed. It takes the whole width beside the sidebar
+  (`factoryLayout`) and loads only when it opens (`React.lazy`), since it
+  carries the editor. A bar (the factory, "Version N, saved <when>", "by
+  you" when it was the person, `savedWords`; Discard and Save), the banner
+  until it is hidden for good in this browser, then the files beside the
+  editor:
+  - **The files** (`FactoryFileTree`) as the folder holds them
+    (`fileGroups`), under a filter by path (`/` puts the keyboard there).
+    A file the person changed has a dot; its own problems a red count.
+  - **The editor** (`CodeEditor`, CodeMirror 6) shows the files open as tabs
+    (`EditorTabs`, `factoryTabs.ts`; closing one keeps its edits), each file
+    keeping its own undo history and place. YAML, and Markdown with YAML
+    front matter (from `@lezer/markdown` itself: CodeMirror's Markdown
+    package brings HTML, CSS and JavaScript along), shaded in the run page's
+    colours; its look is an `EditorView.theme` on the app's tokens.
+  - **Problems as the person types.** `factoryCheck.ts` runs factory-spec's
+    `parseFactory` over the set as the cell reads it (`storedFactoryFiles`),
+    shortly after typing stops. It is loaded with `import()` once the page
+    opens: it carries YAML and zod. factory-spec is built as CommonJS, so
+    `vite.config.ts` has the dev server pre-bundle it and the build convert
+    it (`COMMONJS_LINKED`). A problem shows in the panel under the
+    editor (`ProblemsPanel`), as a wavy line and a red line number, and in
+    the counts; one that only shows another file's (`cause`) is quieter and
+    counted at its cause. A problem opens its file at its line and lights
+    the line once. Save stays off while any problem of the files' own
+    stands; ⌘S then lights the panel's head and says why.
+  - **Save** sends every file as the next version, from the version they
+    were read from (`POST /api/factories/{factoryId}/versions`). The cell
+    checks again and is the authority: what it finds that the page did not
+    (its limits on the set) shows in the same panel, "nothing was saved".
+    Someone else's save in between (`version_moved`, or a newer version the
+    sidebar's list read) is said in a strip with "Bring in version N"
+    (`broughtIn`): files the person did not touch take the newer text, theirs
+    stay, and a file both changed is named. Typing while a save is on its
+    way is kept (`afterSave`).
+  - **Unsaved edits** stay in the page's memory per workspace and factory
+    while the person moves around the dashboard (`factoryDrafts.ts`), with a
+    dot on the sidebar's Factory definition row; closing or reloading the tab
+    asks first. Nothing is written to storage. Discard asks first, in place.
+  - **Moments, once each**: Save turns green and its check draws itself as
+    the version number rolls over; the last problem fixed draws a green
+    check in the panel's head. None plays under `prefers-reduced-motion`.
 - **Settings** (`FactorySettingsPage`): Name, renamed in place; Team, moved
   to another of the person's teams by Move, which asks first, in place,
   since it changes who sees the factory; and Files, the source shown and not
@@ -543,7 +595,8 @@ under a topbar of their own.
   order. A section is `{ id, label, icon, View }` (the icon from the
   desktop's set, `lucide-react`), with `layout: 'wide'` for a page that
   takes the whole space beside the sidebar and lays itself out (Runs,
-  Sessions), where any other sits in the 880px reading column; its `View`
+  Sessions, and a factory's definition, `factoryLayout`), where any other
+  sits in the 880px reading column; its `View`
   gets `SectionProps`: the person (`Me`), the workspace open (never null)
   and `onWorkspaceChanged`, which a page calls once it has changed the
   workspace, so the page loads again and the sidebar and the menu catch up.
@@ -619,7 +672,8 @@ under a topbar of their own.
   `.factory-row`, `.switcher-trigger`, `.workspace-menu`) sit beside the
   shared ones (`.card`, `.heading`, `.muted`, `.error`, `.button`, `.avatar`,
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
-  (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/NewFactoryDialog.css`,
+  (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/FactoryDefinition.css`,
+  `ui/NewFactoryDialog.css`,
   `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
   `ui/ApprovalCard.css`, `ui/RequestAutomations.css`, `ui/Sessions.css`),

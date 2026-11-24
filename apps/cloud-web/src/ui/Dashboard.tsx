@@ -8,7 +8,7 @@ import type { MyWorkspace } from '../domain/workspace';
 import { currentHash, onHashChange, openHash, replaceHash } from '../services/address';
 import { AccountMenu } from './AccountMenu';
 import { FactoriesNav } from './FactoriesNav';
-import { FactoryView } from './FactoryView';
+import { FactoryView, factoryLayout } from './FactoryView';
 import { Footer } from './Footer';
 import { NewFactoryDialog } from './NewFactoryDialog';
 import { SECTIONS, type SectionProps } from './sections';
@@ -140,13 +140,17 @@ export function Dashboard({
         </div>
       </aside>
       <div className="content">
-        <main className="content-inner" data-layout={openFactory ? undefined : section.layout}>
+        <main
+          className="content-inner"
+          data-layout={openFactory ? factoryLayout(openFactory.page) : section.layout}
+        >
           {openFactory ? (
             <FactoryView
               key={`${workspace.id} ${openFactory.factoryId}`}
               factoryId={openFactory.factoryId}
               page={openFactory.page}
               state={factories.state}
+              personId={me.user.id}
               workspace={workspace}
               onChanged={factories.reload}
             />

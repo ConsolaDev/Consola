@@ -601,6 +601,22 @@ button.factory-row-toggle:hover {
   );
 }
 
+/* Unsaved edits left on a factory's definition: a quiet dot at the row's end, as an editor's tab
+   shows one, kept clear of the fold's chevron on the factory's own row. */
+.nav-unsaved {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+
+.factory-row-link .nav-unsaved {
+  margin-right: 18px;
+}
+
 .sidebar-foot {
   padding: 4px;
   border-top: 1px solid var(--line);
