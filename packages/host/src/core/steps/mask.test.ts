@@ -1,5 +1,6 @@
+import { maskFormsOf } from '@consola/automation-engine/core';
 import { describe, expect, it } from 'vite-plus/test';
-import { MASK, MaskedTail, maskFormsOf, maskText } from './mask.ts';
+import { MASK, MaskedTail, maskText } from './mask.ts';
 
 /** Not a real token; its `/` and `+` make its encoded forms differ from it. */
 const TOKEN = 'ghs_Sprocket/Token+0123456789';

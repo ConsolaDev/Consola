@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off globalTimers:off - The ring is plain promises: a request's id is node:crypto's, its deadline a timer.
 /**
  * The automations ring's link to its cell (`core/automations/ports.ts`, `CellLink`), over the
  * runner's socket (`cellSocket.ts`).

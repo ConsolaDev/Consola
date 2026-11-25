@@ -1,4 +1,4 @@
-// @effect-diagnostics nodeBuiltinImport:off - The wiring reads the command line, the key file and the folders it is given.
+// @effect-diagnostics nodeBuiltinImport:off globalDate:off - The wiring reads the command line, the key file and the folders it is given, and hands the automations ring the clock and node:crypto's hash.
 /**
  * `consola-host session`: runs one Consola session's thread and serves it to t3's chat UI.
  *
@@ -22,6 +22,7 @@
  * (which the bin, `main.ts`, calls) passes the production one. A test entry (`testing/replaySession.ts`) runs the same
  * command over a replaying runtime; nothing here can reach a test seam.
  */
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -37,13 +38,17 @@ import * as Fiber from 'effect/Fiber';
 import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
-import { type SandboxProvider, sandboxesFrom } from '@consola/sandbox';
+import { type SandboxProvider, type Sandboxes, sandboxesFrom } from '@consola/sandbox';
+import { makeAgentSteps } from './adapters/agentSteps.ts';
+import { type CellLinkAdapter, makeCellLink } from './adapters/cellLink.ts';
 import { makeCellSocket } from './adapters/cellSocket.ts';
+import { makeCommandSteps } from './adapters/commandSteps.ts';
 import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
 import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
 import { type HostListening, listenHost } from './adapters/rpcServer.ts';
-import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
+import { makeSandboxSessions, SHUTDOWN_STOP_TIMEOUT } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
+import { type AutomationsRing, createAutomationsRing } from './core/automations/ring.ts';
 import { isLoopback } from './core/bind.ts';
 import { isIdle } from './core/idle.ts';
 import {
@@ -57,6 +62,7 @@ import {
   secretValuesOf,
 } from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
+import type { AgentSteps, CommandSteps } from './core/steps/ports.ts';
 import * as ThreadRuntime from './runtime/threadRuntime.ts';
 
 export const DEFAULT_PORT = 7420;
@@ -545,33 +551,84 @@ export const productionProvider: ProviderFor = async (env) => {
   return new E2BProvider({ apiKey });
 };
 
+/** The two ports an automation's steps run through. */
+export type StepPorts = { readonly agentSteps: AgentSteps; readonly commandSteps: CommandSteps };
+
 /**
- * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`) and its socket to the
- * cell (`makeCellSocket`), the cell's messages handed to the sessions. On SIGTERM, or once another
- * runner replaced it, every sandbox is stopped and its end told to the cell while the socket is
- * still open; then the socket closes. However it stops, `HostStopping` comes first. It logs to
- * stderr, scrubbed of its secrets, and never its environment; stdout stays empty.
+ * The automations ring's step ports, on the runner's own sandboxes (`adapters/agentSteps.ts`,
+ * `adapters/commandSteps.ts`, "Step sandboxes" in AGENTS.md), or null when the runner cannot run
+ * an automation's steps: stage 1 runs agent steps on claude alone, so without its key
+ * (`ANTHROPIC_API_KEY`) the runner runs no automations and its `hello` says so.
+ *
+ * This is the ring's composition point: another runner (a headless one, a test) hands
+ * `runRunner` its own ports instead.
+ */
+export const productionStepPorts = (
+  args: RunnerArgs,
+  sandboxes: Sandboxes,
+  log: (message: string) => Effect.Effect<void>,
+): StepPorts | null => {
+  if (args.secrets.apiKeys.claude === undefined) return null;
+  const common = { sandboxes, secretValues: args.secretValues, log };
+  return {
+    agentSteps: makeAgentSteps({ ...common, apiKeys: args.secrets.apiKeys }),
+    commandSteps: makeCommandSteps(common),
+  };
+};
+
+/** How a runner gets its step ports from its sandboxes (`productionStepPorts` in production). */
+export type StepPortsFor = (
+  args: RunnerArgs,
+  sandboxes: Sandboxes,
+  log: (message: string) => Effect.Effect<void>,
+) => StepPorts | null;
+
+/**
+ * Runs the runner until it is stopped: its sessions (`makeSandboxSessions`), its socket to the
+ * cell (`makeCellSocket`), and, when it has step ports (`stepPortsFor`), its automations ring
+ * (`createAutomationsRing`, over `makeCellLink`), the cell's messages handed to each. On SIGTERM,
+ * or once another runner replaced it, every running step fails and its run is recorded, every
+ * sandbox is stopped and its end told to the cell while the socket is still open; then the socket
+ * closes. However it stops, `HostStopping` comes first. It logs to stderr, scrubbed of its
+ * secrets, and never its environment; stdout stays empty.
  */
 export const runRunner = (
   args: RunnerArgs,
   provider: SandboxProvider,
+  stepPortsFor: StepPortsFor = productionStepPorts,
 ): Effect.Effect<void, RunnerReplaced> =>
   Effect.gen(function* () {
-    const log = (message: string) =>
-      Effect.sync(() => {
-        process.stderr.write(`consola-host runner: ${scrubSecrets(message, args.secretValues)}\n`);
-      });
-    const { socket, sessions } = yield* Effect.acquireRelease(
+    const writeLog = (message: string): void => {
+      process.stderr.write(`consola-host runner: ${scrubSecrets(message, args.secretValues)}\n`);
+    };
+    const log = (message: string) => Effect.sync(() => writeLog(message));
+    const sandboxes = sandboxesFrom(provider);
+    const steps = stepPortsFor(args, sandboxes, log);
+    const { socket, sessions, link, ring } = yield* Effect.acquireRelease(
       Effect.gen(function* () {
         const socket = yield* makeCellSocket({
           url: args.cellUrl,
           secret: args.secret,
           runnerId: args.runnerId,
           offer: args.offer,
+          automations: steps !== null,
           log,
         });
+        let link: CellLinkAdapter | null = null;
+        let ring: AutomationsRing | null = null;
+        if (steps !== null) {
+          link = makeCellLink({ sendNow: socket.sendNow, log: writeLog });
+          ring = createAutomationsRing({
+            link,
+            agentSteps: steps.agentSteps,
+            commandSteps: steps.commandSteps,
+            now: () => new Date().toISOString(),
+            digest: (text) => createHash('sha256').update(text, 'utf8').digest('hex'),
+            log: writeLog,
+          });
+        }
         const sessions = yield* makeSandboxSessions({
-          sandboxes: sandboxesFrom(provider),
+          sandboxes,
           offer: args.offer,
           secrets: args.secrets,
           secretValues: args.secretValues,
@@ -580,17 +637,40 @@ export const runRunner = (
           report: socket.send,
           log,
         });
-        return { socket, sessions };
+        return { socket, sessions, link, ring };
       }),
-      // Every sandbox first, its end said on the open socket; the socket last.
-      ({ socket, sessions }) => sessions.stopAll.pipe(Effect.andThen(socket.close)),
+      // Every running step's end and every sandbox's first, said on the open socket; the socket
+      // last. The steps' sandboxes stop as their ports see the abort, within the shutdown's bound.
+      ({ socket, sessions, link, ring }) =>
+        Effect.sync(() => {
+          ring?.stop();
+          link?.close();
+        }).pipe(
+          Effect.andThen(
+            Effect.all(
+              [
+                sessions.stopAll,
+                ring === null
+                  ? Effect.void
+                  : Effect.promise(() => ring.settled()).pipe(
+                      Effect.timeoutOrElse({
+                        duration: SHUTDOWN_STOP_TIMEOUT,
+                        orElse: () => log("the automations' steps did not stop in time"),
+                      }),
+                    ),
+              ],
+              { concurrency: 'unbounded', discard: true },
+            ),
+          ),
+          Effect.andThen(socket.close),
+        ),
     );
     // Added last, so the first to run as the scope closes: the forced exit is armed before any
     // sandbox is asked to stop, on a replacement or a failure as on a signal.
     const stopping = yield* HostStopping;
     yield* Effect.addFinalizer(() => stopping);
     yield* log(
-      `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')}; dialling ${args.cellUrl}`,
+      `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')}, ${ring === null ? 'and runs no automations (no claude key)' : 'and runs automations'}; dialling ${args.cellUrl}`,
     );
     yield* socket.connect({
       live: sessions.liveNow,
@@ -601,11 +681,28 @@ export const runRunner = (
           case 'session.stop':
             // A stop waits for the sandbox; the socket's next message does not.
             return sessions.stop(message.sessionId).pipe(Effect.forkDetach, Effect.asVoid);
-          default:
-            // The automations' messages: its hello says it runs none, so the cell sends none.
-            return log(`the cell sent \`${message.type}\`, which this runner does not act on`);
+          case 'github.event':
+          case 'run.answered':
+          case 'run.refused':
+            if (ring === null) {
+              // Its hello says it runs no automations, so the cell sends none of these.
+              return log(`the cell sent \`${message.type}\`, which this runner does not act on`);
+            }
+            return Effect.sync(() => ring.receive(message));
+          case 'factories':
+          case 'github.token':
+          case 'github.token.refused':
+            if (link === null) {
+              return log(`the cell sent \`${message.type}\`, which this runner does not act on`);
+            }
+            return Effect.sync(() => link.answer(message));
         }
       },
+      onConnected: () =>
+        Effect.sync(() => {
+          link?.connected();
+          ring?.connected();
+        }),
     });
     yield* socket.replaced;
     return yield* new RunnerReplaced({
@@ -622,6 +719,7 @@ export const runnerCommand = (
   argv: ReadonlyArray<string>,
   env: RunnerEnv,
   providerFor: ProviderFor,
+  stepPortsFor: StepPortsFor = productionStepPorts,
 ): Effect.Effect<void, UsageError | StartFailed | RunnerReplaced> =>
   Effect.gen(function* () {
     const args = yield* parseRunnerArgs(argv, env);
@@ -632,7 +730,7 @@ export const runnerCommand = (
           'No sandbox provider is configured, so the runner has nowhere to start sessions: set E2B_API_KEY to the key of the E2B account the consola-session template is built on.',
       });
     }
-    return yield* runRunner(args, provider);
+    return yield* runRunner(args, provider, stepPortsFor);
   });
 
 /** Whether `argv` asks for the runner rather than a session: its command comes first. */

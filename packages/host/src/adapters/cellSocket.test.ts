@@ -129,6 +129,7 @@ const runnerOf = (
   delayMs = 50,
   onMessage?: (message: CellMessage) => Effect.Effect<void>,
   heartbeat?: { readonly intervalMs: number; readonly timeoutMs: number },
+  automations?: { readonly onConnected: () => void },
 ): Effect.Effect<Runner, never, Scope.Scope> =>
   Effect.gen(function* () {
     const received = yield* Queue.unbounded<CellMessage, Cause.Done>();
@@ -139,6 +140,7 @@ const runnerOf = (
         secret: SECRET,
         runnerId: 'runner-sprocket-1',
         offer: OFFER,
+        automations: automations !== undefined,
         reconnectDelay: () => delayMs,
         ...(heartbeat === undefined ? {} : { heartbeat }),
         log: (message) => Effect.sync(() => logged.push(message)),
@@ -150,6 +152,9 @@ const runnerOf = (
       live: () => runner.live,
       onMessage:
         onMessage ?? ((message) => Effect.sync(() => Queue.offerUnsafe(received, message))),
+      ...(automations === undefined
+        ? {}
+        : { onConnected: () => Effect.sync(() => automations.onConnected()) }),
     });
     return runner;
   });
@@ -190,6 +195,32 @@ describe('makeCellSocket', () => {
         yield* runner.socket.send(running('session-acme-2'));
         expect(yield* connection.next).toEqual(running('session-acme-2'));
         expect(runner.logged.join('\n')).not.toContain(SECRET);
+      }),
+    ));
+
+  it("says it runs automations, sends the ring's messages only on a greeted socket, and tells the ring of each greeting", () =>
+    run(
+      Effect.gen(function* () {
+        const cell = yield* fakeCell();
+        let greetings = 0;
+        const runner = yield* runnerOf(cell, 50, undefined, undefined, {
+          onConnected: () => {
+            greetings += 1;
+          },
+        });
+        const ack = { type: 'github.event.ack', deliveryId: 'd0c5-1' } as const;
+        // Before the first hello there is no greeted socket: nothing goes, nothing is queued.
+        expect(runner.socket.sendNow(ack)).toBe(false);
+        const first = yield* cell.next;
+        expect(yield* first.next).toMatchObject({ type: 'hello', automations: true });
+        expect(greetings).toBe(1);
+        expect(runner.socket.sendNow(ack)).toBe(true);
+        expect(yield* first.next).toEqual(ack);
+        first.socket.terminate();
+        yield* first.closed;
+        const second = yield* cell.next;
+        expect(yield* second.next).toMatchObject({ type: 'hello', automations: true });
+        expect(greetings).toBe(2);
       }),
     ));
 

@@ -86,6 +86,13 @@ const SANDBOX_E2B = '@consola/sandbox/e2b';
  * may name it, and so may the rings that run steps.
  */
 const FACTORY_SPEC = '@consola/factory-spec';
+/**
+ * The automation engine's pure core (AGPL, like the host), its entry point of its own: the step
+ * sequencer, the step records' changes, a step's prompt and command, and `maskFormsOf`. It never
+ * reaches the engine's `node/` adapters (the engine's own boundary test), so `core` may name it.
+ * The engine's root entry re-exports those adapters, and no ring names it.
+ */
+const AUTOMATION_ENGINE_CORE = '@consola/automation-engine/core';
 
 const LAYERS: Layer[] = [
   {
@@ -95,9 +102,9 @@ const LAYERS: Layer[] = [
     reaches: ['core'],
     refuses: [NODE_BUILTINS, 'effect/process', 'ws', 'jose'],
     noGlobals: MACHINE_GLOBALS,
-    // The protocol's types and readers, and the factory files' output types and checks; never the
-    // sandboxes: starting one is the adapters'.
-    consola: [RUNNER_PROTOCOL, FACTORY_SPEC],
+    // The protocol's types and readers, the factory files' schema and checks, and the engine's
+    // pure core; never the sandboxes: starting one is the adapters'.
+    consola: [RUNNER_PROTOCOL, FACTORY_SPEC, AUTOMATION_ENGINE_CORE],
   },
   {
     // Effect services over the vendored packages. Free to use them and `core`, never the
@@ -571,6 +578,17 @@ describe('the dependency rule', () => {
     ['main.ts', 'node:process', false],
     ['main.ts', '@consola/runner-protocol', false],
     ['adapters/x.ts', '@consola/automation-engine', false],
+    // The engine's pure core, in `core` alone and by its own entry point; never its root, which
+    // reaches its `node/` adapters, nor a path inside it.
+    ['core/x.ts', '@consola/automation-engine/core', true],
+    ['core/x.test.ts', '@consola/automation-engine/core', true],
+    ['core/x.ts', '@consola/automation-engine', false],
+    ['core/x.ts', '@consola/automation-engine/dist/core.js', false],
+    ['runtime/x.ts', '@consola/automation-engine/core', false],
+    ['adapters/x.ts', '@consola/automation-engine/core', false],
+    ['testing/x.ts', '@consola/automation-engine/core', false],
+    ['bin.ts', '@consola/automation-engine/core', false],
+    ['stepToolsMain.ts', '@consola/automation-engine/core', false],
     ['core/x.test.ts', '../adapters/ws.ts', true],
     ['x.test.ts', '@consola/factory-spec', false],
     // The two Consola packages the host builds on: the runner protocol in every ring, the
@@ -735,5 +753,80 @@ describe('the dependency rule', () => {
     expect(
       loadedWithModuleOf(`const load = async () => (await import('${SANDBOX_E2B}')).E2BProvider;`),
     ).toEqual([]);
+  });
+});
+
+/**
+ * The runner's automations ring (`core/automations/`, AGENTS.md "The automations ring") is a ring
+ * of its own inside `core`: it decides, and everything it reaches the world through is a port it
+ * is handed (`RingPorts`). So beyond `core`'s rule its files import nothing but each other, the
+ * steps' ports (`core/steps/ports.ts`), the protocol, the factory files' schema and the engine's
+ * pure core; and they read no clock, randomness, console or crypto of their own: time is
+ * `RingPorts.now`, a run's id `RingPorts.digest`, a log line `RingPorts.log`.
+ */
+const RING = 'core/automations';
+const RING_PACKAGES = [RUNNER_PROTOCOL, FACTORY_SPEC, AUTOMATION_ENGINE_CORE];
+const RING_REACHES = [RING, 'core/steps/ports'];
+const RING_GLOBALS = [
+  ...MACHINE_GLOBALS,
+  'Date',
+  'crypto',
+  'performance',
+  'console',
+  'queueMicrotask',
+];
+
+/** Every way one of the ring's files leaves it, as `<file> imports <specifier>` or `<file> uses <global>`. */
+function ringViolationsOf(file: string, source: string): string[] {
+  const imports = importsOf(source, file).filter((specifier) => {
+    if (specifier.startsWith('.')) {
+      const target = posix.join(posix.dirname(file), specifier).replace(SOURCE_EXTENSION, '');
+      return !RING_REACHES.some(
+        (allowed) => target === allowed || target.startsWith(`${allowed}/`),
+      );
+    }
+    return !RING_PACKAGES.includes(specifier);
+  });
+  const globals = [
+    ...new Set(referencesOf(source, file).filter((name) => RING_GLOBALS.includes(name))),
+  ];
+  return [
+    ...imports.map((specifier) => `${file} imports ${specifier}`),
+    ...globals.map((name) => `${file} uses ${name}`),
+  ];
+}
+
+describe('the automations ring', () => {
+  it('imports nothing but its ports, the protocol, the schema and the engine’s core, and reads no clock', () => {
+    const files = sourceFiles(RING).filter((file) => !isTestFile(file));
+    expect(files.length).toBeGreaterThanOrEqual(5);
+    const violations = files.flatMap((file) =>
+      ringViolationsOf(file, readFileSync(join(SRC, file), 'utf8')),
+    );
+    expect(violations).toEqual([]);
+  });
+
+  it.each([
+    ["import { x } from '../../adapters/cellLink.ts';", 'imports ../../adapters/cellLink.ts'],
+    ["import { x } from '../runnerDecisions.ts';", 'imports ../runnerDecisions.ts'],
+    ["import { x } from '../steps/mask.ts';", 'imports ../steps/mask.ts'],
+    ["import * as Effect from 'effect/Effect';", 'imports effect/Effect'],
+    ["import { x } from '@consola/automation-engine';", 'imports @consola/automation-engine'],
+    ["import { x } from '@consola/sandbox';", 'imports @consola/sandbox'],
+    ['const now = new Date().toISOString();', 'uses Date'],
+    ["console.log('x');", 'uses console'],
+    ['const id = crypto.randomUUID();', 'uses crypto'],
+    ['setTimeout(() => {}, 1);', 'uses setTimeout'],
+  ])('refuses %s', (source, found) => {
+    expect(ringViolationsOf(`${RING}/x.ts`, source)).toEqual([`${RING}/x.ts ${found}`]);
+  });
+
+  it('lets it import its own files, the steps’ ports and its three packages', () => {
+    const source = [
+      "import { a } from './ring.ts';",
+      "import type { AgentSteps } from '../steps/ports.ts';",
+      ...RING_PACKAGES.map((name) => `import { b } from '${name}';`),
+    ].join('\n');
+    expect(ringViolationsOf(`${RING}/x.ts`, source)).toEqual([]);
   });
 });
