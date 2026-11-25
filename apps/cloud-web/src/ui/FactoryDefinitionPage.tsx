@@ -585,7 +585,7 @@ function Workbench({
                 text={activeText}
                 problems={activeProblems}
                 reveal={reveal}
-                label={active}
+                moves={null}
                 onChange={edit}
               />
             ) : (
