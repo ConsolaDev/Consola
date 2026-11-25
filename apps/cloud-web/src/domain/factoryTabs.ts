@@ -24,6 +24,25 @@ export function closeTab(tabs: FactoryTabs, path: string): FactoryTabs {
   return { open, active: open[at] ?? open[at - 1] ?? null };
 }
 
+/**
+ * The tabs once `path`'s file is deleted: its tab closed, the tab beside it brought forward as
+ * closing does, and, when no tab is left to show, the file beside it in the list opened (the one
+ * after it, else the one before), so the editor moves to a neighbour rather than to nothing.
+ * `listed` is every file as the list shows them, the deleted one included.
+ */
+export function tabsAfterDelete(
+  tabs: FactoryTabs,
+  path: string,
+  listed: readonly string[],
+): FactoryTabs {
+  const closed = closeTab(tabs, path);
+  if (tabs.active !== path || closed.active !== null) return closed;
+  const at = listed.indexOf(path);
+  if (at === -1) return closed;
+  const neighbour = listed[at + 1] ?? listed[at - 1];
+  return neighbour === undefined ? closed : openTab(closed, neighbour);
+}
+
 /** The tabs with every file `paths` does not hold closed, as after a newer version is read. */
 export function keptTabs(tabs: FactoryTabs, paths: readonly string[]): FactoryTabs {
   let kept = tabs;

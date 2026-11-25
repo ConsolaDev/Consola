@@ -4,8 +4,8 @@
    draws its rows as the sidebar does (28px, 3px corners, the open one on the active fill); the
    tabs sit on that surface too, the one in front on the editor's. Colour means something here
    and nowhere else: the accent for focus and what is lit, red for a problem, green once, for a
-   save that landed. Every class is `definition-`, `workbench`, `file-tree-`, `editor-`,
-   `problem`, or `code-editor`. */
+   save that landed, or a path that cannot be added. Every class is `definition-`, `workbench`,
+   `file-tree-`, `file-new`, `editor-`, `problem`, or `code-editor`. */
 
 .definition {
   display: flex;
@@ -281,6 +281,16 @@
   font-weight: var(--font-weight-medium);
 }
 
+.definition-empty-new {
+  min-height: 28px;
+  margin-top: 12px;
+  padding: 3px 12px;
+}
+
+.definition-empty-new svg {
+  color: var(--text-2);
+}
+
 /* ---- The files beside the editor ---- */
 
 .workbench {
@@ -298,11 +308,53 @@
   background: var(--bg-sidebar);
 }
 
-.file-tree-filter {
+/* The filter, and New file beside it: the list's own actions, as the sidebar's group heading
+   puts + beside its title. */
+.file-tree-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin: 8px 8px 4px;
+}
+
+.file-tree-new {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.file-tree-new:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.file-tree-new[aria-expanded="true"] {
+  background: var(--active);
+  color: var(--text);
+}
+
+.file-tree-new:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.file-tree-filter {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   padding: 0 6px 0 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
@@ -347,6 +399,102 @@
 
 .file-tree-clear:hover {
   background: var(--hover);
+}
+
+/* The new file's path, typed where the files are: a field drawn as the filter is, in the rows'
+   monospace, the two starts under it, and one line of what stands in the way, quiet while the
+   person types and red once Enter meets it. */
+.file-new {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 8px 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+  animation: definition-arrive 220ms var(--ease-out-quart);
+}
+
+.file-new-path {
+  width: 100%;
+  height: 30px;
+  padding: 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--sidebar-font-size-small);
+}
+
+.file-new-path::placeholder {
+  color: var(--text-3);
+}
+
+.file-new-path:focus {
+  border-color: var(--cyan);
+}
+
+.file-new-path[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+
+.file-new-starts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.file-new-start {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition:
+    background 100ms ease,
+    color 100ms ease;
+}
+
+.file-new-start svg {
+  color: var(--text-3);
+}
+
+.file-new-start:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.file-new-start:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.file-new-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.file-new-note[data-tone="danger"] {
+  color: var(--danger);
+}
+
+.file-new-note code {
+  padding: 0 3px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  font-size: 0.95em;
 }
 
 .file-tree-list {
@@ -405,15 +553,65 @@
   padding-left: 27px;
 }
 
-.file-tree-row:hover {
+/* The row lights for its delete button too, which sits over its end. */
+.file-tree-item:hover .file-tree-row {
   background: var(--hover);
 }
 
-.file-tree-row[aria-current="true"] {
+.file-tree-row[aria-current="true"],
+.file-tree-item:hover .file-tree-row[aria-current="true"] {
   background: var(--active);
 }
 
 .file-tree-row:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+/* A file's delete: under the pointer, on the keyboard and on the open row, the row making room
+   for it so its dot and count stay in sight. Hidden, it takes no click, so a tap on a row's end
+   never deletes. */
+.file-tree-item {
+  position: relative;
+}
+
+.file-tree-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.file-tree-item:hover .file-tree-delete,
+.file-tree-delete:focus-visible,
+.file-tree-row[aria-current="true"] + .file-tree-delete {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.file-tree-item:hover .file-tree-row,
+.file-tree-item:has(.file-tree-delete:focus-visible) .file-tree-row,
+.file-tree-row[aria-current="true"] {
+  padding-right: 28px;
+}
+
+.file-tree-delete:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.file-tree-delete:focus-visible {
   outline: 1px solid var(--cyan);
   outline-offset: -1px;
 }
@@ -428,7 +626,7 @@
 }
 
 .file-tree-row[aria-current="true"] .file-tree-name,
-.file-tree-row:hover .file-tree-name {
+.file-tree-item:hover .file-tree-name {
   color: var(--text);
 }
 
@@ -844,6 +1042,7 @@
   .definition-save-check path,
   .definition-save-check polyline,
   .definition-strip,
+  .file-new,
   .file-changed,
   .file-problems,
   .code-editor .cm-flash,
@@ -855,7 +1054,9 @@
 
   .problems-fold,
   .problems-head span[data-cleared],
-  .definition-save[data-state="saved"] {
+  .definition-save[data-state="saved"],
+  .file-tree-new,
+  .file-new-start {
     transition: none;
   }
 }

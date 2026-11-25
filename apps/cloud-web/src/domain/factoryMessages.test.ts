@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  addedLine,
   broughtInLine,
+  deletedLine,
+  deleteFileLabel,
   discardQuestion,
   FACTORY_GONE,
   fixToSave,
+  laterFolderNote,
   messageForSave,
   noFileMatches,
   problemsCount,
@@ -43,6 +47,22 @@ describe('the definition’s sentences', () => {
     expect(broughtInLine(8, [], ['automations/triage.yaml'])).toBe(
       'Brought in version 8. Version 8 removed automations/triage.yaml: saving adds your edited copy back.',
     );
+    expect(broughtInLine(8, [], [], ['agents/reviewer.md'])).toBe(
+      'Brought in version 8. You deleted agents/reviewer.md, which version 8 changed: saving still deletes it.',
+    );
+    expect(broughtInLine(8, [], [], ['agents/a.md', 'agents/b.md'])).toMatch(
+      /You deleted agents\/a\.md and agents\/b\.md, .*: saving still deletes them\.$/,
+    );
+  });
+
+  it('say a file added or deleted, and a folder whose files do nothing yet', () => {
+    expect(addedLine('agents/reviewer.md')).toBe('Added agents/reviewer.md. Save to keep it.');
+    expect(deletedLine('agents/reviewer.md', true)).toBe(
+      'Deleted agents/reviewer.md. Saving removes it from the factory.',
+    );
+    expect(deletedLine('agents/sprocket.md', false)).toBe('Deleted agents/sprocket.md.');
+    expect(deleteFileLabel('agents/reviewer.md')).toBe('Delete agents/reviewer.md');
+    expect(laterFolderNote('evals')).toBe('Files in `evals/` are kept, but have no effect yet.');
   });
 
   it('say a save that did not land', () => {

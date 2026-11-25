@@ -73,6 +73,7 @@ export function CodeEditor({
   const view = useRef<EditorView | null>(null);
   const states = useRef(new Map<string, EditorState>());
   const shown = useRef<string | null>(null);
+  const revealed = useRef(0);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
 
@@ -86,6 +87,8 @@ export function CodeEditor({
       made.destroy();
       view.current = null;
       shown.current = null;
+      // A new view answers the request standing, as React's strict mode remakes it at once.
+      revealed.current = 0;
     };
   }, []);
 
@@ -137,10 +140,12 @@ export function CodeEditor({
     current.dispatch({ effects: setProblemLines.of([...lines]) });
   }, [path, problems]);
 
-  // A line to reveal: scrolled to, the caret put there, lit once.
+  // A line to reveal: scrolled to, the caret put there, lit once. Each request is answered once,
+  // so coming back to its file later neither moves the caret nor takes the keyboard again.
   useEffect(() => {
     const current = view.current;
-    if (!current || !reveal || reveal.path !== path) return;
+    if (!current || !reveal || reveal.path !== path || reveal.seq === revealed.current) return;
+    revealed.current = reveal.seq;
     const { doc } = current.state;
     const line = doc.line(Math.min(Math.max(reveal.line, 1), doc.lines));
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
