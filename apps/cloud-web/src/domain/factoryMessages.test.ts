@@ -36,12 +36,31 @@ describe('the definition’s sentences', () => {
   });
 
   it('say what bringing a newer version in came to', () => {
-    expect(broughtInLine(8, [], [])).toBe('Brought in version 8. Your changes are on top of it.');
-    expect(broughtInLine(8, ['agents/reviewer.md', 'factory.yml'], [])).toBe(
+    const none = { bothChanged: [], goneThere: [], removedChanged: [], followed: [] };
+    expect(broughtInLine(8, none)).toBe('Brought in version 8. Your changes are on top of it.');
+    expect(broughtInLine(8, { ...none, bothChanged: ['agents/reviewer.md', 'factory.yml'] })).toBe(
       'Brought in version 8. You and they both changed agents/reviewer.md and factory.yml: yours is kept, so check it before saving.',
     );
-    expect(broughtInLine(8, [], ['automations/triage.yaml'])).toBe(
-      'Brought in version 8. Version 8 removed automations/triage.yaml: saving adds your edited copy back.',
+    expect(broughtInLine(8, { ...none, goneThere: ['automations/triage.yaml'] })).toBe(
+      'Brought in version 8. Version 8 removed automations/triage.yaml: saving adds your copy back.',
+    );
+  });
+
+  it('name the files the person removed or renamed that the newer version changed', () => {
+    const none = { bothChanged: [], goneThere: [], removedChanged: [], followed: [] };
+    expect(broughtInLine(8, { ...none, removedChanged: ['agents/old.md'] })).toBe(
+      'Brought in version 8. Version 8 changed agents/old.md, which you removed: it stays removed, and Restore brings back yours.',
+    );
+    expect(
+      broughtInLine(8, { ...none, removedChanged: ['agents/old.md', 'skills/triage/refs/a.md'] }),
+    ).toBe(
+      'Brought in version 8. Version 8 changed agents/old.md and skills/triage/refs/a.md, which you removed: they stay removed, and Restore brings back yours.',
+    );
+    expect(broughtInLine(8, { ...none, followed: ['agents/checker.md'] })).toBe(
+      'Brought in version 8. Version 8 changed agents/checker.md under its old name: the change moved with your rename, so check it before saving.',
+    );
+    expect(broughtInLine(8, { ...none, followed: ['agents/a.md', 'agents/b.md'] })).toBe(
+      'Brought in version 8. Version 8 changed agents/a.md and agents/b.md under their old names: the changes moved with your renames, so check them before saving.',
     );
   });
 

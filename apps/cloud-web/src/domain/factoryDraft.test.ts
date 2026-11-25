@@ -397,9 +397,257 @@ describe('afterSave', () => {
   it('keeps a file typed back to its old text while it saved', () => {
     const sent = withEdit(draftOf(V3), 'factory.yml', 'version: 2\n');
     const current = withEdit(sent, 'factory.yml', 'version: 1\n');
-    const saved = { version: 4, files: [{ path: 'factory.yml', content: 'version: 2\n' }] };
-    const next = afterSave(current, sent, saved);
+    const next = afterSave(current, sent, { version: 4, files: filesOf(sent) });
     expect(contentOf(next, 'factory.yml')).toBe('version: 1\n');
     expect(isChanged(next)).toBe(true);
+  });
+});
+
+describe('broughtIn, over adds, renames and removals', () => {
+  /** Their version: `edits` set new text (or null removes the file); `added` adds files. */
+  const theirs = (
+    from: { files: readonly { path: string; content: string }[] },
+    edits: Record<string, string | null> = {},
+    added: Record<string, string> = {},
+  ) => ({
+    version: 4,
+    files: [
+      ...from.files
+        .filter((file) => edits[file.path] !== null)
+        .map((file) => ({ path: file.path, content: edits[file.path] ?? file.content })),
+      ...Object.entries(added).map(([path, content]) => ({ path, content })),
+    ],
+  });
+
+  it('takes their removal and their new files where the person did nothing', () => {
+    const { draft } = broughtIn(
+      draftOf(V3),
+      theirs(V3, { 'agents/reviewer.md': null }, { 'agents/sprocket.md': 'theirs' }),
+    );
+    expect(asMap(draft)).toEqual({
+      'factory.yml': 'version: 1\n',
+      'automations/triage.yaml': 'triage v3',
+      'agents/sprocket.md': 'theirs',
+    });
+    expect(isChanged(draft)).toBe(false);
+  });
+
+  it('keeps the person’s new file at a path both added, naming it when the texts differ', () => {
+    const mine = withFileAdded(
+      withFileAdded(draftOf(V3), 'agents/sprocket.md', 'mine'),
+      'agents/cog.md',
+      'same',
+    );
+    const result = broughtIn(
+      mine,
+      theirs(V3, {}, { 'agents/sprocket.md': 'theirs', 'agents/cog.md': 'same' }),
+    );
+    expect(contentOf(result.draft, 'agents/sprocket.md')).toBe('mine');
+    expect(contentOf(result.draft, 'agents/cog.md')).toBe('same');
+    expect(fileMarks(result.draft).get('agents/sprocket.md')).toEqual({
+      isNew: false,
+      renamedFrom: null,
+      changed: true,
+    });
+    expect(result.bothChanged).toEqual(['agents/sprocket.md']);
+    expect(pathsOf(result.draft).filter((path) => path === 'agents/sprocket.md')).toHaveLength(1);
+  });
+
+  it('keeps a file the person removed and they changed removed, named, with the person’s text', () => {
+    const mine = withRemoved(
+      withEdit(draftOf(V3), 'agents/reviewer.md', 'mine'),
+      'agents/reviewer.md',
+    );
+    const result = broughtIn(mine, theirs(V3, { 'agents/reviewer.md': 'theirs' }));
+    expect(pathsOf(result.draft)).not.toContain('agents/reviewer.md');
+    expect(removedPaths(result.draft)).toEqual(['agents/reviewer.md']);
+    expect(result.removedChanged).toEqual(['agents/reviewer.md']);
+    expect(isChanged(result.draft)).toBe(true);
+    const restored = withRestored(result.draft, 'agents/reviewer.md');
+    expect(contentOf(restored, 'agents/reviewer.md')).toBe('mine');
+    expect(fileMarks(restored).get('agents/reviewer.md')?.changed).toBe(true);
+  });
+
+  it('keeps a file the person removed and they did not change removed, unnamed', () => {
+    const result = broughtIn(
+      withRemoved(draftOf(V3), 'agents/reviewer.md'),
+      theirs(V3, { 'factory.yml': 'version: 1\n# theirs\n' }),
+    );
+    expect(removedPaths(result.draft)).toEqual(['agents/reviewer.md']);
+    expect(result.removedChanged).toEqual([]);
+    expect(isChanged(result.draft)).toBe(true);
+  });
+
+  it('has nothing to do for a file both removed: it stays listed, and is no change', () => {
+    const result = broughtIn(
+      withRemoved(draftOf(V3), 'agents/reviewer.md'),
+      theirs(V3, { 'agents/reviewer.md': null }),
+    );
+    expect(isChanged(result.draft)).toBe(false);
+    expect(removedPaths(result.draft)).toEqual(['agents/reviewer.md']);
+    expect(changeSummary(result.draft).removed).toBe(0);
+    expect(result.removedChanged).toEqual([]);
+    expect(result.bothChanged).toEqual([]);
+  });
+
+  it('follows a rename: their change moves to the new name when the person only renamed it', () => {
+    const renamed = withRenamed(draftOf(V3), 'agents/reviewer.md', 'agents/checker.md');
+    const result = broughtIn(renamed, theirs(V3, { 'agents/reviewer.md': 'theirs' }));
+    expect(asMap(result.draft)).toEqual({
+      'factory.yml': 'version: 1\n',
+      'agents/checker.md': 'theirs',
+      'automations/triage.yaml': 'triage v3',
+    });
+    expect(fileMarks(result.draft).get('agents/checker.md')).toEqual({
+      isNew: false,
+      renamedFrom: 'agents/reviewer.md',
+      changed: false,
+    });
+    expect(result.followed).toEqual(['agents/checker.md']);
+    expect(result.bothChanged).toEqual([]);
+  });
+
+  it('keeps the person’s text at the new name when they renamed and edited it, and names it', () => {
+    const mine = withRenamed(
+      withEdit(draftOf(V3), 'agents/reviewer.md', 'mine'),
+      'agents/reviewer.md',
+      'agents/checker.md',
+    );
+    const result = broughtIn(mine, theirs(V3, { 'agents/reviewer.md': 'theirs' }));
+    expect(contentOf(result.draft, 'agents/checker.md')).toBe('mine');
+    expect(result.bothChanged).toEqual(['agents/checker.md']);
+  });
+
+  it('keeps a renamed file they removed, as the person’s new file, and names it', () => {
+    const renamed = withRenamed(draftOf(V3), 'agents/reviewer.md', 'agents/checker.md');
+    const result = broughtIn(renamed, theirs(V3, { 'agents/reviewer.md': null }));
+    expect(contentOf(result.draft, 'agents/checker.md')).toBe('reviewer v3');
+    expect(fileMarks(result.draft).get('agents/checker.md')?.isNew).toBe(true);
+    expect(result.goneThere).toEqual(['agents/checker.md']);
+  });
+
+  it('moves a file they added or changed inside a skill the person renamed, and names it', () => {
+    const renamed = withSkillRenamed(draftOf(WITH_SKILL), 'triage', 'sorting');
+    const result = broughtIn(
+      renamed,
+      theirs(
+        WITH_SKILL,
+        { 'skills/triage/refs/queries.md': 'queries v4' },
+        { 'skills/triage/refs/labels.md': 'labels' },
+      ),
+    );
+    expect(asMap(result.draft)).toMatchObject({
+      'skills/sorting/SKILL.md':
+        '---\nname: sorting\ndescription: Sorts issues.\n---\n\nSort them.\n',
+      'skills/sorting/refs/queries.md': 'queries v4',
+      'skills/sorting/refs/labels.md': 'labels',
+    });
+    expect(pathsOf(result.draft).some((path) => path.startsWith('skills/triage/'))).toBe(false);
+    expect(result.followed).toEqual([
+      'skills/sorting/refs/queries.md',
+      'skills/sorting/refs/labels.md',
+    ]);
+  });
+
+  it('keeps a file they added inside a skill the person removed out, with the skill, named', () => {
+    const removed = withSkillRemoved(draftOf(WITH_SKILL), 'triage');
+    const result = broughtIn(
+      removed,
+      theirs(WITH_SKILL, {}, { 'skills/triage/refs/labels.md': 'labels' }),
+    );
+    expect(pathsOf(result.draft).some((path) => path.startsWith('skills/'))).toBe(false);
+    expect(result.draft.removed.map((entry) => entry.label)).toEqual(['skills/triage/']);
+    expect(removedPaths(result.draft)).toContain('skills/triage/refs/labels.md');
+    expect(result.removedChanged).toEqual(['skills/triage/refs/labels.md']);
+    const restored = withRestored(result.draft, 'skills/triage/');
+    expect(contentOf(restored, 'skills/triage/refs/labels.md')).toBe('labels');
+    expect(contentOf(restored, 'skills/triage/SKILL.md')).toBe(TRIAGE_SKILL);
+    expect(isChanged(restored)).toBe(false);
+  });
+
+  it('keeps the person’s rename where they added a file at its new name, theirs under Removed', () => {
+    const renamed = withRenamed(draftOf(V3), 'agents/reviewer.md', 'agents/checker.md');
+    const result = broughtIn(renamed, theirs(V3, {}, { 'agents/checker.md': 'theirs' }));
+    expect(contentOf(result.draft, 'agents/checker.md')).toBe('reviewer v3');
+    expect(removedPaths(result.draft)).toEqual(['agents/checker.md']);
+    expect(canRestore(result.draft, 'agents/checker.md')).toBe(false);
+    expect(result.bothChanged).toEqual(['agents/checker.md']);
+    expect(pathsOf(result.draft).filter((path) => path === 'agents/checker.md')).toHaveLength(1);
+  });
+
+  it('keeps a new file the person removed removed when they added one at its path', () => {
+    const mine = withRemoved(withFileAdded(draftOf(V3), 'agents/cog.md', 'mine'), 'agents/cog.md');
+    const result = broughtIn(mine, theirs(V3, {}, { 'agents/cog.md': 'theirs' }));
+    expect(pathsOf(result.draft)).not.toContain('agents/cog.md');
+    expect(removedPaths(result.draft)).toEqual(['agents/cog.md']);
+    expect(result.removedChanged).toEqual(['agents/cog.md']);
+    expect(contentOf(withRestored(result.draft, 'agents/cog.md'), 'agents/cog.md')).toBe('mine');
+  });
+
+  it('never leaves two files at one path, and keeps every saved file accounted for', () => {
+    let mine = draftOf(WITH_SKILL);
+    mine = withRenamed(mine, 'agents/reviewer.md', 'agents/checker.md');
+    mine = withFileAdded(mine, 'agents/reviewer.md', 'a new reviewer');
+    mine = withSkillRenamed(mine, 'triage', 'sorting');
+    const { draft } = broughtIn(
+      mine,
+      theirs(
+        WITH_SKILL,
+        { 'agents/reviewer.md': 'theirs' },
+        { 'agents/checker.md': 'x', 'skills/triage/notes.md': 'y' },
+      ),
+    );
+    const paths = pathsOf(draft);
+    expect(new Set(paths).size).toBe(paths.length);
+    const from = [...draft.files, ...draft.removed.flatMap((entry) => entry.files)]
+      .map((file) => file.from)
+      .filter((path) => path !== null);
+    expect(new Set(from).size).toBe(from.length);
+    expect(new Set(from)).toEqual(new Set(draft.base.keys()));
+  });
+});
+
+describe('afterSave, over adds, renames and removals', () => {
+  const saving = (sent: FactoryDraft) => ({ version: 4, files: filesOf(sent) });
+
+  it('empties Removed of what the save removed, and shows nothing it saved as changed', () => {
+    let sent = draftOf(WITH_SKILL);
+    sent = withRemoved(sent, 'agents/reviewer.md');
+    sent = withSkillRenamed(sent, 'triage', 'sorting');
+    sent = withFileAdded(sent, 'agents/sprocket.md', 'hello');
+    sent = withRemoved(withFileAdded(sent, 'agents/cog.md', 'gone'), 'agents/cog.md');
+    const next = afterSave(sent, sent, saving(sent));
+    expect(next.baseVersion).toBe(4);
+    expect(hasWork(next)).toBe(false);
+    expect(next.removed).toEqual([]);
+    expect([...fileMarks(next).values()].every((mark) => !mark.isNew && !mark.changed)).toBe(true);
+    expect([...fileMarks(next).values()].every((mark) => mark.renamedFrom === null)).toBe(true);
+  });
+
+  it('keeps an add, a rename, a removal and a restore made while it saved', () => {
+    let sent = draftOf(V3);
+    sent = withRemoved(sent, 'factory.yml');
+    sent = withEdit(sent, 'agents/reviewer.md', 'sent');
+    let current = withFileAdded(sent, 'agents/sprocket.md', 'typed meanwhile');
+    current = withRenamed(current, 'agents/reviewer.md', 'agents/checker.md');
+    current = withRemoved(current, 'automations/triage.yaml');
+    current = withRestored(current, 'factory.yml');
+    const next = afterSave(current, sent, saving(sent));
+    expect(asMap(next)).toEqual({
+      'agents/checker.md': 'sent',
+      'agents/sprocket.md': 'typed meanwhile',
+      'factory.yml': 'version: 1\n',
+    });
+    const marks = fileMarks(next);
+    expect(marks.get('agents/checker.md')).toEqual({
+      isNew: false,
+      renamedFrom: 'agents/reviewer.md',
+      changed: false,
+    });
+    expect(marks.get('agents/sprocket.md')?.isNew).toBe(true);
+    // The save removed factory.yml; brought back meanwhile, it is a new file now.
+    expect(marks.get('factory.yml')?.isNew).toBe(true);
+    expect(next.removed.map((entry) => entry.label)).toEqual(['automations/triage.yaml']);
+    expect(changeSummary(next).removed).toBe(1);
   });
 });

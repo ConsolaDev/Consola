@@ -7,6 +7,7 @@ import {
   type NewFactoryProblem,
   type SourceOption,
 } from './factories';
+import type { BroughtIn } from './factoryDraft';
 import type { FactoryPageId } from './factoryNav';
 import { messageForTeamsState } from './teamMessages';
 import { regionName } from './workspace';
@@ -226,8 +227,7 @@ export function bringInLabel(latestVersion: number): string {
 /** What bringing a newer version in came to: the files to check before saving, if any. */
 export function broughtInLine(
   version: number,
-  bothChanged: readonly string[],
-  goneThere: readonly string[],
+  { bothChanged, goneThere, removedChanged, followed }: Omit<BroughtIn, 'draft'>,
 ): string {
   const said = [`Brought in version ${version}.`];
   if (bothChanged.length > 0) {
@@ -236,8 +236,20 @@ export function broughtInLine(
     );
   }
   if (goneThere.length > 0) {
+    said.push(`Version ${version} removed ${listOf(goneThere)}: saving adds your copy back.`);
+  }
+  if (removedChanged.length > 0) {
+    const one = removedChanged.length === 1;
     said.push(
-      `Version ${version} removed ${listOf(goneThere)}: saving adds your edited copy back.`,
+      `Version ${version} changed ${listOf(removedChanged)}, which you removed: ${one ? 'it stays' : 'they stay'} removed, and Restore brings back yours.`,
+    );
+  }
+  if (followed.length > 0) {
+    const one = followed.length === 1;
+    said.push(
+      one
+        ? `Version ${version} changed ${listOf(followed)} under its old name: the change moved with your rename, so check it before saving.`
+        : `Version ${version} changed ${listOf(followed)} under their old names: the changes moved with your renames, so check them before saving.`,
     );
   }
   if (said.length === 1) said.push('Your changes are on top of it.');

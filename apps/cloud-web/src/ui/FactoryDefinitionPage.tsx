@@ -403,7 +403,7 @@ function Workbench({
     setTabs((current) => keptTabs(current, pathsOf(result.draft)));
     setMoved(null);
     setFromCell(null);
-    setBrought(broughtInLine(latestVersion.version, result.bothChanged, result.goneThere));
+    setBrought(broughtInLine(latestVersion.version, result));
   };
 
   const discard = () => {

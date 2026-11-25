@@ -295,60 +295,235 @@ export function changeSummary(draft: FactoryDraft): ChangeSummary {
   };
 }
 
-/** What bringing a newer version into a draft came to. */
+/**
+ * What bringing a newer version into a draft came to: the draft over it, and every file where
+ * what the person did meets a change of theirs, by where it is now, so the person can check it
+ * before saving.
+ */
 export type BroughtIn = {
   /** The draft over the newer version. */
   draft: FactoryDraft;
-  /** Files the person and the newer version both changed: the person's text is kept. */
+  /**
+   * Files both changed, a path both added with different text, and a path the person's rename
+   * took that the newer version added (theirs waits under Removed): the person's text is kept.
+   */
   bothChanged: string[];
-  /** Files the person changed that the newer version no longer holds: kept, so a save adds them back. */
+  /** Files the person changed or renamed that the newer version removed: kept, so a save adds them back. */
   goneThere: string[];
+  /**
+   * Files the person removed that the newer version changed, or added inside a skill the person
+   * removed: they stay removed, and Restore brings back the person's text.
+   */
+  removedChanged: string[];
+  /**
+   * Files the person only renamed (a skill's folder included) that the newer version changed, or
+   * added inside a skill the person renamed: their text follows the new name.
+   */
+  followed: string[];
 };
 
-/**
- * The draft moved onto `latest`, a version saved since it was made, so a save no longer undoes
- * it: every file the person did not touch takes the newer text, and every file they did keeps
- * theirs. A file both changed keeps the person's text and is named (`bothChanged`), as is one
- * the newer version took away (`goneThere`), so the person can check before saving. An edit the
- * newer version already holds is no edit any more.
- */
-export function broughtIn(draft: FactoryDraft, latest: Version): BroughtIn {
-  let next = draftOf(latest, draft.nextId);
-  const bothChanged: string[] = [];
-  const goneThere: string[] = [];
-  for (const file of draft.files) {
-    if (file.from === null) {
-      next = withFileAdded(next, file.path, file.content);
-      continue;
-    }
-    if (file.content === draft.base.get(file.from)) continue;
-    const theirs = next.base.get(file.from);
-    if (theirs === undefined) {
-      goneThere.push(file.path);
-      next = withFileAdded(next, file.path, file.content);
-      continue;
-    }
-    if (theirs !== draft.base.get(file.from) && theirs !== file.content)
-      bothChanged.push(file.path);
-    next = withEdit(next, file.path, file.content);
-  }
-  return { draft: next, bothChanged, goneThere };
+/** A path's skill folder (`skills/triage/`), or null for a path in no skill. */
+function skillFolderOf(path: string): string | null {
+  return /^skills\/[^/]+\//.exec(path)?.[0] ?? null;
 }
 
 /**
- * The draft once `sent` is saved as `saved`: over the saved version, keeping only what the person
- * did while the save was on its way (`current` against `sent`), so nothing done meanwhile is lost
- * and nothing saved is shown as still changed.
+ * The draft moved onto `latest`, a version saved since it was made, so a save no longer undoes
+ * it. One rule: what the person did stands, and every file where it meets a change of theirs is
+ * named (`BroughtIn`).
+ *
+ * - A file the person did not touch takes their version, their adds and removals included.
+ * - A file both changed keeps the person's text. One the person removed stays removed.
+ * - A rename is followed as a rename: a file the person only renamed takes their text at its new
+ *   name; one they renamed and edited keeps the person's text.
+ * - A skill's folder renamed or removed takes the files their version adds inside it along.
+ *
+ * Every path the newer version holds stays accounted for exactly once, in the tree or under
+ * Removed, so no file of theirs is dropped unseen; and no two files share a path.
+ */
+export function broughtIn(draft: FactoryDraft, latest: Version): BroughtIn {
+  const old = draft.base;
+  const theirs = new Map(latest.files.map((file) => [file.path, file.content]));
+  const said = {
+    bothChanged: [] as string[],
+    goneThere: [] as string[],
+    removedChanged: [] as string[],
+    followed: [] as string[],
+  };
+  let nextId = draft.nextId;
+  const made = (from: string, path: string, content: string): DraftFile => ({
+    id: nextId++,
+    from,
+    path,
+    content,
+  });
+
+  // The person's files in the tree, each set against what their version did with its saved path.
+  const live: DraftFile[] = [];
+  for (const file of draft.files) {
+    if (file.from === null) {
+      live.push(file);
+      continue;
+    }
+    const saved = old.get(file.from);
+    const there = theirs.get(file.from);
+    const edited = file.content !== saved;
+    if (file.path === file.from && !edited) {
+      if (there !== undefined) live.push({ ...file, content: there });
+    } else if (there === undefined) {
+      live.push({ ...file, from: null });
+      said.goneThere.push(file.path);
+    } else if (there === saved) {
+      live.push(file);
+    } else if (edited) {
+      live.push(file);
+      if (file.content !== there) said.bothChanged.push(file.path);
+    } else {
+      live.push({ ...file, content: there });
+      said.followed.push(file.path);
+    }
+  }
+
+  // What waits under Removed stays there; a file both removed is now one never saved.
+  const entries = draft.removed.map((entry) => ({
+    label: entry.label,
+    files: entry.files.map((file) => {
+      if (file.from === null) return file;
+      const there = theirs.get(file.from);
+      if (there === undefined) return { ...file, from: null };
+      if (there !== old.get(file.from)) said.removedChanged.push(file.path);
+      return file;
+    }),
+  }));
+
+  // Where each saved skill went: its folder renamed, or removed as one entry.
+  const fates = new Map<string, { folder: string; entry: number | null }>();
+  for (const path of old.keys()) {
+    const folder = skillFolderOf(path);
+    if (!folder || path !== `${folder}SKILL.md`) continue;
+    const kept = draft.files.find((file) => file.from === path);
+    const now = kept ? skillFolderOf(kept.path) : null;
+    if (now && now !== folder) fates.set(folder, { folder: now, entry: null });
+    if (kept) continue;
+    const at = draft.removed.findIndex(
+      (entry) => entry.label.endsWith('/') && entry.files.some((file) => file.from === path),
+    );
+    const removedAt = draft.removed[at]?.files.find((file) => file.from === path);
+    const was = removedAt ? skillFolderOf(removedAt.path) : null;
+    if (was) fates.set(folder, { folder: was, entry: at });
+  }
+
+  /** A file of theirs into the tree at `at`, unless a file of the person's is there. */
+  const placeLive = (from: string, at: string, content: string) => {
+    const here = live.findIndex((file) => file.path === at);
+    const mine = live[here];
+    if (mine) {
+      if (mine.from === null) {
+        live[here] = { ...mine, from };
+        if (mine.content !== content) said.bothChanged.push(at);
+      } else {
+        entries.push({ label: at, files: [made(from, at, content)] });
+        said.bothChanged.push(at);
+      }
+      return;
+    }
+    for (const entry of entries) {
+      const k = entry.files.findIndex((file) => file.path === at);
+      const removed = entry.files[k];
+      if (!removed) continue;
+      if (removed.from === null) {
+        entry.files[k] = { ...removed, from };
+        said.removedChanged.push(at);
+      } else {
+        live.push(made(from, at, content));
+        said.bothChanged.push(at);
+      }
+      return;
+    }
+    live.push(made(from, at, content));
+    if (at !== from) said.followed.push(at);
+  };
+
+  /** A file of theirs into a removed skill's entry, at `at`. */
+  const join = (into: number, from: string, at: string, content: string) => {
+    const entry = entries[into];
+    if (!entry) return placeLive(from, at, content);
+    const k = entry.files.findIndex((file) => file.path === at);
+    const removed = entry.files[k];
+    if (removed?.from === null) entry.files[k] = { ...removed, from };
+    else if (removed) entries.push({ label: at, files: [made(from, at, content)] });
+    else entry.files.push(made(from, at, content));
+    said.removedChanged.push(at);
+  };
+
+  const claimed = new Set(
+    [...draft.files, ...draft.removed.flatMap((entry) => entry.files)].map((file) => file.from),
+  );
+  for (const [path, content] of theirs) {
+    if (old.has(path)) {
+      // Every saved path is the person's to place, but for one no file names (never so).
+      if (!claimed.has(path)) placeLive(path, path, content);
+      continue;
+    }
+    const folder = skillFolderOf(path);
+    const fate = folder ? fates.get(folder) : undefined;
+    if (folder && fate) {
+      const at = fate.folder + path.slice(folder.length);
+      if (fate.entry === null) placeLive(path, at, content);
+      else join(fate.entry, path, at, content);
+      continue;
+    }
+    const into = entries.findIndex(
+      (entry) => entry.label.endsWith('/') && path.startsWith(entry.label),
+    );
+    if (into !== -1) join(into, path, path, content);
+    else placeLive(path, path, content);
+  }
+
+  return {
+    draft: {
+      baseVersion: latest.version,
+      base: theirs,
+      files: live,
+      removed: entries.filter((entry) => entry.files.length > 0),
+      nextId,
+    },
+    ...said,
+  };
+}
+
+/**
+ * The draft once `sent` is saved as `saved`: over the saved version, keeping what the person did
+ * while the save was on its way (`current` against `sent`): edits, adds, renames, removals and
+ * restores. Nothing saved shows as still changed, and what the save removed leaves Removed; a file
+ * restored meanwhile is a new one, since the save took it away.
  */
 export function afterSave(current: FactoryDraft, sent: FactoryDraft, saved: Version): FactoryDraft {
-  let next = draftOf(saved, current.nextId);
-  const wasSent = new Map(sent.files.map((file) => [file.id, file]));
-  for (const file of current.files) {
-    const before = wasSent.get(file.id);
-    if (!before) next = withFileAdded(next, file.path, file.content);
-    else if (file.content !== before.content) next = withEdit(next, before.path, file.content);
+  const base = new Map(saved.files.map((file) => [file.path, file.content]));
+  const sentAt = new Map(sent.files.map((file) => [file.id, file.path]));
+  const sentAway = new Set(sent.removed.flatMap((entry) => entry.files.map((file) => file.id)));
+  const fromSaved = (file: DraftFile): DraftFile => {
+    const was = sentAt.get(file.id);
+    return { ...file, from: was !== undefined && base.has(was) ? was : null };
+  };
+  const files = current.files.map(fromSaved);
+  const removed = current.removed
+    .map((entry) => ({
+      label: entry.label,
+      files: entry.files.filter((file) => !sentAway.has(file.id)).map(fromSaved),
+    }))
+    .filter((entry) => entry.files.length > 0);
+  // A path the save stored that no file names (never so, as the cell stores what was sent).
+  let nextId = current.nextId;
+  const claimed = new Set(
+    [...files, ...removed.flatMap((entry) => entry.files)].map((f) => f.from),
+  );
+  const taken = new Set(files.map((file) => file.path));
+  for (const [path, content] of base) {
+    if (!claimed.has(path) && !taken.has(path))
+      files.push({ id: nextId++, from: path, path, content });
   }
-  return next;
+  return { baseVersion: saved.version, base, files, removed, nextId };
 }
 
 function replaced<T>(list: readonly T[], at: number, value: T): T[] {
