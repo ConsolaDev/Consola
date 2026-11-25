@@ -210,10 +210,13 @@ GitHub App's key and mints; the cell holds the work a token is for, and asks.
 - **The request** is `GitHubTokenRequest`: `aud` (always
   `GITHUB_TOKEN_REQUEST_AUDIENCE`, `consola-global`), `workspaceId`,
   `installationId`, `purpose` (one of `GITHUB_TOKEN_PURPOSES`: `review-run`,
-  `factory-pull`, `factory-save`), `repositoryIds` (GitHub's ids, which a
-  rename keeps), `iat` and `exp`. It names no permissions: `cloud-global`
-  gives each purpose fixed ones, and the request cannot widen them. Build it
-  with `gitHubTokenRequest`, which throws on what the reader would refuse.
+  `run-read`, `factory-pull`, `factory-save`), `repositoryIds` (GitHub's ids,
+  which a rename keeps), `iat` and `exp`. It names no permissions:
+  `cloud-global` gives each purpose fixed ones, and the request cannot widen
+  them. `run-read` and `factory-pull` grant the same, contents read, and stay
+  two because the purpose is recorded with every token: a run's is never
+  recorded as a factory's. Build it with `gitHubTokenRequest`, which throws on
+  what the reader would refuse.
 - **The workspace is the one the cell serves**: the `ws` of the caller's cell
   token, or the workspace of the factory or run the cell holds, never one a
   request to the cell names. `cloud-global` checks it holds the installation

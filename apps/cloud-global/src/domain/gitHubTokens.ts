@@ -21,6 +21,8 @@ export type GrantedPermissions = GitHubPermissions & { metadata?: 'read' };
  * permissions it is needed for).
  *
  * - A run of the review automation reads its repositories and writes its review (epic 21).
+ * - A run reads its one repository, for its checkout or a step that only reads (epic 21). It
+ *   grants what `factory-pull` does, under a purpose of its own, so the record says a run asked.
  * - A repo-backed factory reads its one repository to pull its files (9.4) and writes it to save
  *   them (37.2). Pulling never needs write, so it gets its own, read-only purpose.
  */
@@ -29,6 +31,7 @@ export const TOKEN_PURPOSES: Record<
   { permissions: GitHubPermissions; maxRepositories: number }
 > = {
   'review-run': { permissions: { contents: 'read', pull_requests: 'write' }, maxRepositories: 10 },
+  'run-read': { permissions: { contents: 'read' }, maxRepositories: 1 },
   'factory-pull': { permissions: { contents: 'read' }, maxRepositories: 1 },
   'factory-save': { permissions: { contents: 'write' }, maxRepositories: 1 },
 };

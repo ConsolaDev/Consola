@@ -629,9 +629,11 @@ run (epic 21), so the cell asks. The request's shape is the contract's
   when the cell first asks (9.4).
 - **The purposes fix the permissions** (`TOKEN_PURPOSES`): `review-run`,
   contents read and pull requests write, for at most 10 repositories;
-  `factory-pull`, contents read, and `factory-save`, contents write, each for
-  exactly one. The request names a purpose, never permissions. Pulling a
-  factory gets a read-only token: only saving writes.
+  `run-read`, contents read, for a run's one repository; `factory-pull`,
+  contents read, and `factory-save`, contents write, each for exactly one. The
+  request names a purpose, never permissions. Pulling a factory gets a
+  read-only token: only saving writes. `run-read` grants what `factory-pull`
+  does and is kept apart so that `github_token_mint` says a run asked.
 - **What is checked, in order, before anything is minted**
   (`mintGitHubToken`): the signature (401 `unsigned`); the contract's reader,
   times included (400 `unreadable`, its reason logged); the purpose's rules:
