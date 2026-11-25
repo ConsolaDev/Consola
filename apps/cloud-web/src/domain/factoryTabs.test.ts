@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeTab, keptTabs, NO_TABS, openTab } from './factoryTabs';
+import { closeTab, keptTabs, NO_TABS, openTab, tabsAfterDelete } from './factoryTabs';
 
 describe('factory tabs', () => {
   it('opens a tab right of the one in front, and brings an open one forward', () => {
@@ -18,6 +18,37 @@ describe('factory tabs', () => {
     expect(closeTab(tabs, 'a')).toEqual({ open: ['b', 'c'], active: 'b' });
     expect(closeTab({ open: ['a'], active: 'a' }, 'a')).toEqual({ open: [], active: null });
     expect(closeTab(tabs, 'z')).toBe(tabs);
+  });
+
+  it('moves the editor to a neighbour when the file in front is deleted', () => {
+    const listed = ['factory.yml', 'automations/triage.yaml', 'agents/reviewer.md'];
+    // Another tab is open: it comes forward, as closing the tab would bring it.
+    expect(
+      tabsAfterDelete(
+        { open: ['factory.yml', 'agents/reviewer.md'], active: 'agents/reviewer.md' },
+        'agents/reviewer.md',
+        listed,
+      ),
+    ).toEqual({ open: ['factory.yml'], active: 'factory.yml' });
+    // No other tab: the file after it in the list opens, else the one before.
+    expect(
+      tabsAfterDelete({ open: ['factory.yml'], active: 'factory.yml' }, 'factory.yml', listed),
+    ).toEqual({ open: ['automations/triage.yaml'], active: 'automations/triage.yaml' });
+    expect(
+      tabsAfterDelete(
+        { open: ['agents/reviewer.md'], active: 'agents/reviewer.md' },
+        'agents/reviewer.md',
+        listed,
+      ),
+    ).toEqual({ open: ['automations/triage.yaml'], active: 'automations/triage.yaml' });
+    // The last file: nothing is left to show.
+    expect(tabsAfterDelete({ open: ['a'], active: 'a' }, 'a', ['a'])).toEqual(NO_TABS);
+  });
+
+  it('only closes the tab of a deleted file that is not in front', () => {
+    const tabs = { open: ['a', 'b'], active: 'a' };
+    expect(tabsAfterDelete(tabs, 'b', ['a', 'b', 'c'])).toEqual({ open: ['a'], active: 'a' });
+    expect(tabsAfterDelete(tabs, 'c', ['a', 'b', 'c'])).toBe(tabs);
   });
 
   it('closes the tabs of files a version no longer holds', () => {

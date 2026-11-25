@@ -11,6 +11,7 @@ import {
   firstFile,
   isFactoryNameProblem,
   isMove,
+  listedPaths,
   newFactoryDraft,
   owningTeam,
   SOURCE_OPTIONS,
@@ -178,6 +179,18 @@ describe("a factory's files", () => {
     expect(firstFile(fileGroups(paths(['agents/a.md', 'factory.yml'])))).toBe('factory.yml');
     expect(firstFile(fileGroups(paths(['skills/x/SKILL.md', 'agents/a.md'])))).toBe('agents/a.md');
     expect(firstFile(fileGroups([]))).toBeNull();
+  });
+
+  it('are listed in the order the list shows them, for the neighbour a delete moves to', () => {
+    expect(
+      listedPaths([
+        'agents/reviewer.md',
+        'automations/z.yaml',
+        'factory.yml',
+        'automations/a.yaml',
+      ]),
+    ).toEqual(['factory.yml', 'automations/a.yaml', 'automations/z.yaml', 'agents/reviewer.md']);
+    expect(listedPaths([])).toEqual([]);
   });
 });
 

@@ -8,6 +8,7 @@ import {
   type SourceOption,
 } from './factories';
 import type { FactoryPageId } from './factoryNav';
+import type { NewFileStart } from './factoryNewFile';
 import { messageForTeamsState } from './teamMessages';
 import { regionName } from './workspace';
 
@@ -170,7 +171,41 @@ export const LOADING_FACTORIES = 'Loading…';
 /** Said where a factory's definition has no files yet, and what fills it. */
 export const NO_FILES = 'No files yet.';
 export const NO_FILES_HINT =
-  'A factory is set up from a repository or the setup helper. Once its files are here, you can read them and make a quick edit.';
+  'Add an automation or an agent to start. Nothing is kept until you save.';
+
+/** The file list's control that adds a file. */
+export const NEW_FILE = 'New file';
+
+/** The new file's field: its name for a screen reader, its example, and how it is answered. */
+export const NEW_FILE_PATH_LABEL = 'New file’s path';
+export const NEW_FILE_PLACEHOLDER = 'e.g. agents/reviewer.md';
+export const NEW_FILE_HINT = 'Enter adds it. Esc cancels.';
+
+/** Each start the new file's field offers, by the word on its button. */
+export const NEW_FILE_START_LABELS: Record<NewFileStart['id'], string> = {
+  automation: 'Automation',
+  agent: 'Agent',
+};
+
+/** Said under a new file's path in a folder a later slice reads, which the cell stores all the same. */
+export function laterFolderNote(folder: string): string {
+  return `Files in \`${folder}/\` are kept, but have no effect yet.`;
+}
+
+/** Said once a file is added, for a screen reader. */
+export function addedLine(path: string): string {
+  return `Added ${path}. Save to keep it.`;
+}
+
+/** A file row's delete button, named for a screen reader. */
+export function deleteFileLabel(path: string): string {
+  return `Delete ${path}`;
+}
+
+/** Said once a file is deleted, beside Undo: a saved file goes from the factory with the next save. */
+export function deletedLine(path: string, saved: boolean): string {
+  return saved ? `Deleted ${path}. Saving removes it from the factory.` : `Deleted ${path}.`;
+}
 
 /** What the sidebar's dot on a factory's definition means. */
 export const UNSAVED_EDITS = 'Unsaved changes';
@@ -182,7 +217,7 @@ export const DEFINITION_NOT_LOADED =
 /** The banner over a factory's definition, until the person hides it for good. */
 export const DEFINITION_BANNER_TITLE = 'Your factory is defined in code';
 export const DEFINITION_BANNER_TEXT =
-  'Its automations, agents and skills live as files. Read them here, and make a quick edit when you need one.';
+  'Its automations, agents and skills live as files. Read them here, add one, and make a quick edit when you need one.';
 
 /** Said in the file list when its filter matches no file. */
 export function noFileMatches(filter: string): string {
@@ -228,6 +263,7 @@ export function broughtInLine(
   version: number,
   bothChanged: readonly string[],
   goneThere: readonly string[],
+  deletedChanged: readonly string[] = [],
 ): string {
   const said = [`Brought in version ${version}.`];
   if (bothChanged.length > 0) {
@@ -238,6 +274,12 @@ export function broughtInLine(
   if (goneThere.length > 0) {
     said.push(
       `Version ${version} removed ${listOf(goneThere)}: saving adds your edited copy back.`,
+    );
+  }
+  if (deletedChanged.length > 0) {
+    const them = deletedChanged.length === 1 ? 'it' : 'them';
+    said.push(
+      `You deleted ${listOf(deletedChanged)}, which version ${version} changed: saving still deletes ${them}.`,
     );
   }
   if (said.length === 1) said.push('Your changes are on top of it.');

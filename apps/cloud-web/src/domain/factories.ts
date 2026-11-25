@@ -217,6 +217,13 @@ export function fileGroups(files: readonly { path: string }[]): FileGroup[] {
     }));
 }
 
+/** Every path in the order the file list shows them (`fileGroups`), folder by folder. */
+export function listedPaths(paths: readonly string[]): string[] {
+  return fileGroups(paths.map((path) => ({ path }))).flatMap((group) =>
+    group.files.map((file) => file.path),
+  );
+}
+
 /** The file a factory's definition opens on: `factory.yml`, else the first as they are listed. */
 export function firstFile(groups: readonly FileGroup[]): string | null {
   const all = groups.flatMap((group) => group.files);
