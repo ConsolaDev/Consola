@@ -116,6 +116,18 @@ describe('checkBuiltCss', () => {
     ).toEqual(['unscoped selector: .consola-agent-ui-other']);
   });
 
+  it("takes Consola's own rules on a popup's portal, which is the chat's", () => {
+    expect(
+      checkBuiltCss(
+        `${CHAT}${inLayer('.consola-agent-ui-portal{position:static}.consola-agent-ui-portal .a{color:red}')}`,
+      ).problems,
+    ).toEqual([]);
+    // Its siblings are the page's.
+    expect(
+      checkBuiltCss(`${CHAT}${inLayer('.consola-agent-ui-portal+p{color:red}')}`).problems,
+    ).toEqual(['unscoped selector: .consola-agent-ui-portal+p']);
+  });
+
   it('fails a sibling combinator straight after the scope, which styles the page beside the chat', () => {
     const leaks = [
       '.consola-agent-ui+p',

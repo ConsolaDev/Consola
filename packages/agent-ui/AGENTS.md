@@ -180,7 +180,12 @@ pieces:
 - **What else is mounted**: t3's `I18nProvider` (started once per page), its atom registry, and a
   memory router whose root route renders `ChatView` for the session, as t3's own tests render
   without routes. No route, sidebar, terminal drawer, in-app browser or PR view is mounted;
-  their code is copied but idle.
+  their code is copied but idle. `ChatView`'s header bar (`[data-chat-header]`: the project's
+  badge and name, the thread's title, and the toggles of t3's thread details, terminal and side
+  panel) renders but is not shown (`styles.css`, `display: none`): the page around the chat names
+  the session, as cloud-web's session page does in its own header, and t3's panels are not
+  Consola's to offer. Only what shows changes: the shortcuts t3 binds for those panels are
+  `ChatView`'s own, not the header's, and are as they were.
 - **What t3 keeps in the browser**, under the page's origin (Consola's windows share one):
   - IndexedDB `t3code:connection-runtime`: its catalog (each registered host's pass, under
     `consola-host:<session>`, and its profile) and its cache per environment (the thread and
@@ -270,6 +275,21 @@ other kind:
 
 The root has `contain: layout`, so t3's fixed-position controls are placed inside the chat, not
 on the page's viewport. Its guard keeps that, and its height, out of the page's rules' reach.
+
+**The stand-ins are not windows.** t3's rules for its own `html` and `body` size and clip a
+window (`min-height: calc(100svh + …)`, `height: 100%`, `overflow: hidden`, `position:
+relative`), and the scope sends them to the theme element and the popups' portals. `styles.css`
+puts each back in its place (`AgentChat.layout.browser.test.tsx`):
+
+- The theme element is the chat's box, as tall as the root and never the window, and a flex
+  column t3's view fills, as t3's page lays the view out (`SidebarInset`). The view's
+  `flex-1 min-h-0` bounds it, so its message list scrolls inside the chat and the composer stays
+  at its foot. The page gives the root a definite height (`height: 100%` of a box that has one,
+  as cloud-web's `.session-chat-frame`).
+- A portal is the empty element Base UI puts at the end of `<body>`: no height, clipping,
+  background or positioning of its own. As a window-tall block it lengthened the page by a
+  window and carried its popup down there, so the page scrolled to the popup when it took the
+  focus (opening the model picker, or picking a model, showed only the portal's background).
 
 **Theme.** Where the page carries Consola's colour tokens (the desktop sets them on
 `html[data-theme]`), `styles.css` reads them there under `--consola-agent-ui-*` names and maps
@@ -492,6 +512,16 @@ the guard and the floor are taken out and every other stylesheet on the page, wh
 dependencies injected, goes into the chat's layer as on t3's page it sits beside t3's unlayered
 rules: so a guard, a floor or a copy that changed anything of t3's own, or a dependency's new
 injected style the guard rolls back, fails it.
+
+`AgentChat.layout.browser.test.tsx` checks the chat's layout where cloud-web lays it out: its
+page for a running session (`cloudWebSessionPage`: cloud-web's stylesheets, `ui/Sessions.css`
+included, and the elements its dashboard and session page put around the chat), in a short
+window and at a larger root font size, so the conversation is taller than the chat's box. The
+chat, its theme element and t3's view are the frame's size, the message list scrolls under the
+wheel, the composer is inside the frame, and the page does not scroll. Opening the model picker
+and picking a model leaves every part of the page where it was, with the popup in the window,
+and the host takes the pick (its `thread.model-selection-updated`, read from the page's socket).
+And in a default box, t3's header bar is not shown.
 
 ### t3 does not write the page's document
 

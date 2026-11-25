@@ -284,6 +284,11 @@ const compareReadings = async (
 const mountOn = async (page: EmbeddingPage) => {
   const { hostUrl, pass, sessionId, assistantText } = host();
   for (const style of styleElements(page.tokens)) addToPage(style);
+  // The page's body fills the window, as a page's does, though all it shows here is fixed:
+  // `userEvent.unhover` moves the pointer onto `<body>`, which Playwright waits to see have a size.
+  const filler = document.createElement('div');
+  filler.style.height = '100vh';
+  addToPage(filler);
   const around = document.createElement('div');
   for (const [name, value] of Object.entries(page.around)) around.setAttribute(name, value);
   around.style.cssText = 'position: fixed; inset: 0 auto auto 0; width: 960px; height: 720px;';
