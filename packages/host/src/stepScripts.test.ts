@@ -15,7 +15,13 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { readSessionLine } from './core/runnerDecisions.ts';
-import { cutLine } from './core/steps/stepSandbox.ts';
+import {
+  CHECKOUT_CLAUDE_SETTINGS,
+  cutLine,
+  jsonFileText,
+  STEP_THREAD_TITLE,
+  stepT3Settings,
+} from './core/steps/stepSandbox.ts';
 import { isolateMachine } from './testing/machine.ts';
 
 /**
@@ -279,36 +285,59 @@ describe('consola-step-start', () => {
     .publicKey.export({ type: 'spki', format: 'pem' })
     .toString();
 
-  it("gives Claude the step tools and the runner's ask rules, writes the key, then runs the host", () => {
+  /** A step's workspace as the runner leaves it before the script: its t3 settings written. */
+  const stepWorkspace = (scripted: ReturnType<typeof scriptMachine>) => {
+    const settings = join(scripted.workspace, '.consola', 't3-state', 'userdata', 'settings.json');
+    mkdirSync(dirname(settings), { recursive: true });
+    writeFileSync(settings, jsonFileText(stepT3Settings()));
+    return { stepFolder: join(scripted.workspace, '.consola', 'step') };
+  };
+
+  const startEnv = (
+    scripted: ReturnType<typeof scriptMachine>,
+    home: string,
+    stepFolder: string,
+  ): Record<string, string> => ({
+    HOME: home,
+    PATH: `${scripted.bin}:/usr/bin:/bin`,
+    CONSOLA_WORKSPACE: scripted.workspace,
+    CONSOLA_SESSION_ID: 'step-run-review-1',
+    CONSOLA_HARNESS: 'claude',
+    CONSOLA_PASS_PUBLIC_KEY: PASS_PUBLIC_KEY,
+    CONSOLA_SESSION_IDLE_MINUTES: '10',
+    CONSOLA_STEP_FOLDER: stepFolder,
+    ANTHROPIC_API_KEY: 'sk-ant-sprocket-step-0123456789',
+  });
+
+  it("takes the checkout's own Claude settings out, writes the key, then runs the host in the step's state with a title", () => {
     const scripted = scriptMachine('/nowhere');
+    const { stepFolder } = stepWorkspace(scripted);
     const home = folder('consola-step-home-');
-    // Claude's own state is kept, and a rule already there stays.
-    writeFileSync(join(home, '.claude.json'), JSON.stringify({ numStartups: 3 }));
-    mkdirSync(join(home, '.claude'));
-    writeFileSync(
-      join(home, '.claude', 'settings.json'),
-      JSON.stringify({ permissions: { ask: ['Bash'] }, model: 'opus' }),
-    );
-    const stepFolder = join(scripted.workspace, '.consola', 'step');
+    // The author's checkout: settings with a hook and an allow rule, and a file that stays.
+    mkdirSync(join(scripted.repo, '.claude'), { recursive: true });
+    for (const name of ['settings.json', 'settings.local.json']) {
+      writeFileSync(
+        join(scripted.repo, '.claude', name),
+        JSON.stringify({ permissions: { allow: ['Bash'] }, hooks: {} }),
+      );
+    }
+    writeFileSync(join(scripted.repo, '.claude', 'NOTES.md'), 'kept');
     const ran = spawnSync('/bin/sh', [START_SCRIPT], {
       encoding: 'utf8',
-      env: {
-        HOME: home,
-        PATH: `${scripted.bin}:/usr/bin:/bin`,
-        CONSOLA_WORKSPACE: scripted.workspace,
-        CONSOLA_SESSION_ID: 'step-run-review-1',
-        CONSOLA_HARNESS: 'claude',
-        CONSOLA_PASS_PUBLIC_KEY: PASS_PUBLIC_KEY,
-        CONSOLA_SESSION_IDLE_MINUTES: '10',
-        CONSOLA_STEP_FOLDER: stepFolder,
-        ANTHROPIC_API_KEY: 'sk-ant-sprocket-step-0123456789',
-      },
+      env: startEnv(scripted, home, stepFolder),
     });
     expect(ran.status, ran.stderr).toBe(0);
     expect(ran.stdout).toBe('');
     const keyFile = join(scripted.workspace, '.consola', 'pass-public-key.pem');
     expect(readFileSync(keyFile, 'utf8')).toBe(`${PASS_PUBLIC_KEY.trimEnd()}\n`);
     expect(existsSync(stepFolder)).toBe(true);
+    expect(existsSync(join(scripted.repo, '.claude', 'settings.json'))).toBe(false);
+    expect(existsSync(join(scripted.repo, '.claude', 'settings.local.json'))).toBe(false);
+    expect(readFileSync(join(scripted.repo, '.claude', 'NOTES.md'), 'utf8')).toBe('kept');
+    expect(CHECKOUT_CLAUDE_SETTINGS).toEqual([
+      '.claude/settings.json',
+      '.claude/settings.local.json',
+    ]);
     expect(scripted.read('node.args')?.split('\n').slice(0, -1)).toEqual([
       '/opt/consola/consola-host.mjs',
       'session',
@@ -326,39 +355,34 @@ describe('consola-step-start', () => {
       keyFile,
       '--idle-minutes',
       '10',
+      '--state-dir',
+      join(scripted.workspace, '.consola', 't3-state'),
+      '--title',
+      STEP_THREAD_TITLE,
     ]);
-
-    const config = JSON.parse(readFileSync(join(home, '.claude.json'), 'utf8'));
-    expect(config.numStartups).toBe(3);
-    expect(config.mcpServers.consola).toEqual({
-      type: 'stdio',
-      command: process.execPath,
-      args: ['/opt/consola/consola-host.mjs', 'step-tools', '--folder', stepFolder],
-      env: {},
-    });
-    const settings = JSON.parse(readFileSync(join(home, '.claude', 'settings.json'), 'utf8'));
-    expect(settings.model).toBe('opus');
-    expect(settings.permissions.allow).toEqual([
-      'mcp__consola__consola_set_outputs',
-      'mcp__consola__consola_write_artifact',
-      'mcp__consola__consola_read_artifact',
-      'mcp__consola__consola_list_artifacts',
-    ]);
-    expect(settings.permissions.ask).toEqual([
-      'Bash',
-      'Edit',
-      'MultiEdit',
-      'Write',
-      'NotebookEdit',
-      'WebFetch',
-      'WebSearch',
-    ]);
+    // It writes nothing into Claude's own config: `--restricted` ignores the user's settings.
+    expect(existsSync(join(home, '.claude.json'))).toBe(false);
+    expect(existsSync(join(home, '.claude'))).toBe(false);
   });
 
-  it("writes no t3 settings, whose launch arguments would override the host's approval mode", () => {
+  it("starts no host without the step's t3 settings, whose launch arguments hold --restricted", () => {
+    const scripted = scriptMachine('/nowhere');
+    const home = folder('consola-step-home-');
+    const ran = spawnSync('/bin/sh', [START_SCRIPT], {
+      encoding: 'utf8',
+      env: startEnv(scripted, home, join(scripted.workspace, '.consola', 'step')),
+    });
+    expect(ran.status).toBe(1);
+    expect(ran.stderr).toMatch(/t3 settings are not there/);
+    expect(scripted.read('node.args')).toBeNull();
+  });
+
+  it('names no launch argument and writes no t3 settings itself: the runner writes them', () => {
     for (const script of [START_SCRIPT, CHECKOUT_SCRIPT]) {
-      expect(readFileSync(script, 'utf8')).not.toMatch(/userdata|--state-dir|launchArgs/);
+      const text = readFileSync(script, 'utf8');
+      expect(text).not.toMatch(/--permission-mode|--dangerously-skip-permissions|launchArgs/);
     }
+    expect(readFileSync(START_SCRIPT, 'utf8')).not.toMatch(/> *"\$state/);
   });
 
   it('refuses another harness', () => {

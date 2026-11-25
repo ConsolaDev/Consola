@@ -8,6 +8,7 @@
 import { isRepository } from '@consola/runner-protocol';
 import { HARNESS_API_KEYS, SESSION_TEMPLATE } from '../runnerDecisions.ts';
 import type { CommandStepRequest, StepCheckout } from './ports.ts';
+import { STEP_TOOL_CLI_NAMES, STEP_TOOL_SERVER } from './stepTools.ts';
 
 /** The template a step's sandbox starts from: the sessions' (`sandbox-template/`). */
 export const STEP_TEMPLATE = SESSION_TEMPLATE;
@@ -136,6 +137,99 @@ export function changesDocument(written: string | null, checkout: StepCheckout):
 /** The pass the runner signs for its own client of a step's host: names no person or workspace. */
 export const STEP_PASS_SUBJECT = 'consola-runner';
 export const STEP_PASS_WORKSPACE = 'consola-step';
+
+/** Where the template keeps Node and the host's bundle (`sandbox-template/Dockerfile`). */
+export const TEMPLATE_NODE = '/usr/local/bin/node';
+export const TEMPLATE_HOST_BUNDLE = '/opt/consola/consola-host.mjs';
+
+/** An agent step's host keeps t3's state here, its settings in `userdata/settings.json`. */
+export const STEP_STATE_DIR = `${STEP_WORKSPACE}/.consola/t3-state`;
+export const STEP_T3_SETTINGS_FILE = `${STEP_STATE_DIR}/userdata/settings.json`;
+/** The CLI's MCP config for a step: the step tools' server and no other. */
+export const STEP_MCP_CONFIG_FILE = `${STEP_WORKSPACE}/.consola/step-mcp.json`;
+/** The title an agent step's thread opens with, so its CLI is never asked for one. */
+export const STEP_THREAD_TITLE = 'Consola step';
+
+/**
+ * The checkout's own Claude settings, which the step's start script takes out of the working tree
+ * before the host runs: t3 starts Claude in the folder without `--restricted` for one thing, its
+ * workspace probe (user, project and local setting sources, no turn), and a settings file there
+ * can set the CLI's environment or name commands it runs (a credential helper). The step reads
+ * what its pull request changes in them from its `changes` document.
+ */
+export const CHECKOUT_CLAUDE_SETTINGS: ReadonlyArray<string> = [
+  '.claude/settings.json',
+  '.claude/settings.local.json',
+];
+
+/**
+ * The CLI's launch arguments in a step, which t3 passes on every turn (its Claude instance's
+ * `launchArgs`): the step tools' MCP config and no other server (`--strict-mcp-config`: not the
+ * checkout's `.mcp.json`, not the user's), the four step tools allowed with no approval, and
+ * `--restricted`, last, which keeps the checkout's settings, hooks, permission rules, servers,
+ * plugins, skills and CLAUDE.md out, drops the tools that run code and WebFetch, and confines the
+ * file tools to the folder (the desktop's `readOnlyArgs`, checked against the real CLI by its
+ * canary's row 3). Each only narrows what the CLI loads, runs or asks about: none sets a
+ * permission mode, so the thread's `approval-required` holds.
+ */
+export const STEP_LAUNCH_ARGS = [
+  '--strict-mcp-config',
+  '--mcp-config',
+  STEP_MCP_CONFIG_FILE,
+  '--allowedTools',
+  STEP_TOOL_CLI_NAMES.join(','),
+  '--restricted',
+].join(' ');
+
+/** Launch flags that would widen what the CLI may do or load: none is ever in `STEP_LAUNCH_ARGS`. */
+export const LOOSENING_LAUNCH_FLAGS: ReadonlyArray<string> = [
+  '--permission-mode',
+  '--dangerously-skip-permissions',
+  '--allow-dangerously-skip-permissions',
+  '--permission-prompt-tool',
+  '--settings',
+  '--setting-sources',
+  '--tools',
+  '--add-dir',
+  '--plugin-dir',
+];
+
+/** t3's settings for a step's host (`STEP_T3_SETTINGS_FILE`): no update checks, and Claude's launch arguments. */
+export function stepT3Settings(): Record<string, unknown> {
+  return {
+    enableProviderUpdateChecks: false,
+    providerInstances: {
+      claudeAgent: { driver: 'claudeAgent', config: { launchArgs: STEP_LAUNCH_ARGS } },
+    },
+  };
+}
+
+/**
+ * The CLI's MCP config for a step: the step tools' server, from the host's bundle, started through
+ * `env -u ANTHROPIC_API_KEY`, so the server, which needs no key, never holds it.
+ */
+export function stepMcpConfig(folder: string = STEP_TOOLS_FOLDER): Record<string, unknown> {
+  return {
+    mcpServers: {
+      [STEP_TOOL_SERVER]: {
+        type: 'stdio',
+        command: '/usr/bin/env',
+        args: [
+          '-u',
+          HARNESS_API_KEYS.claude,
+          TEMPLATE_NODE,
+          TEMPLATE_HOST_BUNDLE,
+          'step-tools',
+          '--folder',
+          folder,
+        ],
+      },
+    },
+  };
+}
+
+/** A JSON file's text, for one of the files the runner writes into a step's sandbox. */
+export const jsonFileText = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`;
 
 /** What an agent step's host is started with: its session, the key its passes are checked with, the step's folder and the API key. */
 export function stepHostEnv(input: {

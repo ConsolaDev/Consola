@@ -5,7 +5,7 @@
  *   consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> --cwd <dir>
  *     [--port <n, default 7420>] [--bind <addr, default 127.0.0.1>]
  *     --pass-public-key <PEM file> | --dev
- *     [--idle-minutes <n, default 10>] [--state-dir <dir>]
+ *     [--idle-minutes <n, default 10>] [--state-dir <dir>] [--title <text>]
  *
  * `consola-host runner` (below, and `AGENTS.md`): connects to a regional cell and runs each
  * session it is asked for in a sandbox of its own, where the session command runs.
@@ -90,6 +90,7 @@ const USAGE = `Usage:
     [--port <n, default ${DEFAULT_PORT}; 0 for any free port>] [--bind <address, default ${DEFAULT_BIND}>]
     --pass-public-key <Ed25519 public key, SPKI PEM file> | --dev
     [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--state-dir <dir, default a temporary one>]
+    [--title <the thread's title; with one, the CLI is never asked for a title>]
 
   --dev makes a key pair in memory, ignores --pass-public-key, defaults --session-id to
   ${DEV_SESSION_ID}, and prints a pass for the session after "ready".
@@ -158,6 +159,7 @@ export const parseSessionArgs = (
             'pass-public-key': { type: 'string' },
             'idle-minutes': { type: 'string' },
             'state-dir': { type: 'string' },
+            title: { type: 'string' },
             dev: { type: 'boolean' },
           },
         }),
@@ -206,8 +208,18 @@ export const parseSessionArgs = (
       return yield* refuse('--pass-public-key is required without --dev.');
     }
 
+    const title = values.title?.trim();
+    if (values.title !== undefined && (title === undefined || title === '')) {
+      return yield* refuse('--title must name the thread.');
+    }
+
     const args: SessionArgs = {
-      spec: { sessionId, harness, cwd: resolve(values.cwd) },
+      spec: {
+        sessionId,
+        harness,
+        cwd: resolve(values.cwd),
+        ...(title === undefined ? {} : { title }),
+      },
       port: Number(port),
       bind,
       access: dev || publicKeyFile === undefined ? { type: 'dev' } : { type: 'key', publicKeyFile },

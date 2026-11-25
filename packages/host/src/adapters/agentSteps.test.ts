@@ -8,7 +8,12 @@ import * as Effect from 'effect/Effect';
 import { describe, expect, it } from 'vite-plus/test';
 import type { AgentStepRequest, AgentStepResult } from '../core/steps/ports.ts';
 import { DECLARATION_FILE, OUTPUTS_FILE } from '../core/steps/stepFolder.ts';
-import { CHANGES_DOCUMENT, STEP_TOOLS_FOLDER } from '../core/steps/stepSandbox.ts';
+import {
+  CHANGES_DOCUMENT,
+  STEP_TOOLS_FOLDER,
+  stepMcpConfig,
+  stepT3Settings,
+} from '../core/steps/stepSandbox.ts';
 import { readDeclaration } from '../core/steps/stepFolder.ts';
 import {
   LocalProvider,
@@ -152,13 +157,24 @@ describe('AgentSteps on sandboxes', () => {
     async () => {
       // The declaration, as the step tools found it, and the changes the checkout wrote.
       let declaration: ReturnType<typeof readDeclaration> = null;
+      // What the runner wrote for the host and its CLI: t3's settings and the MCP config.
+      let launch: { t3: unknown; mcp: unknown } | null = null;
       const ran = await runStep({
         toolCalls: [{ name: 'consola_list_artifacts', arguments: {} }, SET_VERDICT, WRITE_HANDOVER],
         changes: 'Files changed:\nM\tsrc/checkout.ts\n',
         tamper: (folder) => {
           declaration = readDeclaration(readFileSync(join(folder, DECLARATION_FILE), 'utf8'));
+          const consola = join(folder, '..');
+          launch = {
+            t3: JSON.parse(
+              readFileSync(join(consola, 't3-state', 'userdata', 'settings.json'), 'utf8'),
+            ),
+            mcp: JSON.parse(readFileSync(join(consola, 'step-mcp.json'), 'utf8')),
+          };
         },
       });
+      // Every turn's CLI runs --restricted, with the step tools' server alone.
+      expect(launch).toEqual({ t3: stepT3Settings(), mcp: stepMcpConfig() });
       expect(ran.result).toMatchObject({
         status: 'completed',
         error: null,

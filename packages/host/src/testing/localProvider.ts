@@ -34,6 +34,7 @@ import {
   STEP_CHECKOUT_ARGV,
   STEP_HOST_ARGV,
   STEP_REPO,
+  STEP_THREAD_TITLE,
   STEP_WORKSPACE,
 } from '../core/steps/stepSandbox.ts';
 
@@ -312,9 +313,11 @@ class LocalSandbox implements ProviderSandbox {
       const folder = this.mapped(env.CONSOLA_STEP_FOLDER ?? '');
       mkdirSync(folder, { recursive: true });
       mkdirSync(this.pathOf(STEP_REPO), { recursive: true });
+      // As the step's MCP config starts it: without the API key (`env -u`, `stepMcpConfig`).
+      const { ANTHROPIC_API_KEY: _withheld, ...serverEnv } = env;
       const answers = await callStepTools(
         folder,
-        env,
+        serverEnv,
         this.steps.toolCalls ?? [],
         this.record.pids,
       );
@@ -337,6 +340,8 @@ class LocalSandbox implements ProviderSandbox {
         '0',
         '--idle-minutes',
         env.CONSOLA_SESSION_IDLE_MINUTES ?? '10',
+        '--title',
+        STEP_THREAD_TITLE,
       ];
     }
     return null;
