@@ -141,7 +141,10 @@ run on the desktop, a headless runner and the cloud. So it imports no
 reaches no `process`, `fetch`, `require`, `XMLHttpRequest` or `WebSocket`
 global, imports no test code, and its `index.ts` holds only exports. Node adapters (state files,
 run history, the factory file on disk) live in its `src/node/`, the one place
-allowed to touch the machine. The desktop is one host: it implements the
+allowed to touch the machine. `index.ts` re-exports them; a runner that brings
+its own I/O imports `@consola/automation-engine/core` (`src/core.ts`, exports
+only, never reaching `src/node/`), as the cloud runner's automations ring does
+(`packages/host/AGENTS.md`, "The automations ring"). The desktop is one host: it implements the
 engine's ports, and `src/main/automations/engineViews.ts` maps its records
 onto the package's narrow views. `src/shared/automations.ts` re-exports the
 runner's types, type-only, so the renderer never loads the engine's runtime.
