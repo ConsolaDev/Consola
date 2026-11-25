@@ -284,6 +284,14 @@ describe('the host bundle', () => {
       inputs.filter((input) => /@cursor\/sdk|provider-cursor\/src\/server/.test(input)),
     ).toEqual([]);
     expect(inputs.some((input) => input.includes('@anthropic-ai/claude-agent-sdk/'))).toBe(true);
+    // The automations ring's engine is its pure core alone: none of its Node adapters, its
+    // service or the MCP SDK they load ("The automations ring").
+    const engine = inputs.filter((input) => input.includes('automation-engine/dist/'));
+    expect(engine.some((input) => input.endsWith('/dist/core.js'))).toBe(true);
+    expect(
+      engine.filter((input) => /\/dist\/(node\/|index\.js|AutomationService)/.test(input)),
+    ).toEqual([]);
+    expect(inputs.filter((input) => input.includes('@modelcontextprotocol/'))).toEqual([]);
   });
 
   it("requires as it runs only Node's modules, the packages the template installs beside it, ws's optional helpers, and Antigravity's keyring, which it never reaches", () => {

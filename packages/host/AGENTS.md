@@ -19,11 +19,13 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   turn, nothing done for the idle minutes) and `SessionSpec`. No
   `node:` builtin, no `effect/process`, `ws` or `jose`, and no global that
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
-  vendored `@t3tools/contracts`, `@consola/runner-protocol` and
-  `@consola/factory-spec` (below). The runner's decisions live here too
-  (`runnerDecisions.ts`, "The `runner` command"), the host's stdout lines
-  (`hostLine.ts`: `HostLine` and its reader), and the steps' ports and
-  decisions (`core/steps/`, "Step sandboxes").
+  vendored `@t3tools/contracts`, `@consola/runner-protocol`,
+  `@consola/factory-spec` and `@consola/automation-engine/core` (below). The
+  runner's decisions live here too (`runnerDecisions.ts`, "The `runner`
+  command"), the host's stdout lines (`hostLine.ts`: `HostLine` and its reader),
+  the steps' ports and decisions (`core/steps/`, "Step sandboxes"), and the
+  automations ring (`core/automations/`, "The automations ring"), a ring of its
+  own inside `core`.
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
@@ -31,7 +33,8 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   verifying a pass's signature, the socket's tickets (`socketTickets.ts`), the
   dev pass (`devPass.ts`), the lines on
   stdout (`stdoutEvents.ts`), the runner's sandboxes (`sandboxSessions.ts`)
-  and its socket to the cell (`cellSocket.ts`), and its steps (`agentSteps.ts`,
+  and its socket to the cell (`cellSocket.ts`, and over it the automations
+  ring's link, `cellLink.ts`), and its steps (`agentSteps.ts`,
   `commandSteps.ts`, `stepSandboxes.ts`, `stepHostClient.ts`) and the step
   tools' MCP server (`stepToolsServer.ts`, "Step sandboxes"). It may import
   `core/` and `runtime/`.
@@ -93,14 +96,20 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules.
 
-No file imports another `@consola/*` package, tests included, but three, each by
+No file imports another `@consola/*` package, tests included, but four, each by
 its own name and never a path inside it (`@consola/sandbox/dist/index.js` is
 refused): `@consola/runner-protocol` (MIT), what a runner and its cell say to
 each other, which does no I/O, so every ring may name it;
 `@consola/factory-spec` (MIT), the factory files' schema, for a step's output
 types and its pure checks (`OutputType`, `checkOutputs`,
-`ARTIFACT_NAME_PATTERN`), which does no I/O, in `core`, `adapters` and
-`testing` only; and
+`ARTIFACT_NAME_PATTERN`) and the automations ring's parse, which does no I/O, in
+`core`, `adapters` and `testing` only; `@consola/automation-engine/core`
+(AGPL, like the host), the engine's pure core by its own entry point (the step
+sequencer, the step records' changes, a step's prompt and command,
+`maskFormsOf`), which never reaches the engine's `node/` adapters (the engine's
+own boundary test), in `core` only: the engine's root entry
+(`@consola/automation-engine`) re-exports those adapters, and no ring names it;
+and
 `@consola/sandbox`, the interface the runner starts sandboxes through, in
 `adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. One entry
 point of `@consola/sandbox` is named on its own: `@consola/sandbox/e2b`, the E2B
@@ -1018,10 +1027,14 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   loop. Frames over the protocol's `SOCKET_FRAME_MAX_BYTES` (4 MiB, `ws`'s
   `maxPayload`, as the cell's) close the socket (1009); a frame
   `readCellMessage` refuses is logged with its reason and dropped. Its
-  `hello` says `automations: false`, since it runs no automations yet, and a
-  cell message for runs (`github.event`, `factories`, `run.answered`,
-  `github.token`, `github.token.refused`, `run.refused`) is logged by its type
-  and ignored. A failure of
+  `hello` says `automations: true` when the runner has step ports ("The
+  automations ring"), and the cell's messages for runs go to the ring
+  (`github.event`, `run.answered`, `run.refused`) and its link (`factories`,
+  `github.token`, `github.token.refused`); with none it says `false`, and such
+  a message is logged by its type and ignored. Once a socket is greeted,
+  `onConnected` lets the ring and its link say again what may not have arrived;
+  their messages go with `sendNow`, which says whether a greeted socket took
+  them and queues nothing. A failure of
   the runner's own while connected ends that connection, never the dialling.
   **The heartbeat** (`Pings`): a ping at least every `HEARTBEAT_INTERVAL_MS`
   (25 s), each carrying its number, which the pong echoes; a ping unanswered
@@ -1138,6 +1151,99 @@ gets a sandbox of its own.
 `simple`, `multi_turn`, `tool_call_denied_write` and `turn_interrupt` fixtures, the real step
 tools' server, a real `bash`); `stepScripts.test.ts` runs both scripts under `sh` against a
 repository on disk.
+
+## The automations ring
+
+Stage 1 of the cloud's automations (Linear CON-116, CON-119): a pull request
+event reaches the runner, which matches it against the factories' triggers,
+records a run waiting for a person, and once approved walks its steps through
+the two step ports ("Step sandboxes"), recording the whole run to the cell
+after every change. The cell stores; the ring decides. It is the thin
+precursor of the engine's whole `AutomationService` on a runner (slices 7 and
+8, Linear CON-27 and CON-28), which can replace it behind the same ports.
+
+- **What decides, and what is the engine's.** `core/automations/`:
+  `triggers.ts` parses each factory with factory-spec (`parseFactory` over
+  `storedFactoryFiles`, as the cell does) and reads each entry's trigger with
+  the engine's `resolveWebhookTrigger`: an entry fires on a GitHub event it
+  lists that only webhooks say (`pull_request.opened`, `.synchronize`,
+  `.reopened`), its `filter:` by the Inbox's rules. A factory with problems, an
+  entry the engine refuses for a webhook (an Inbox event beside it, parameters,
+  a bad filter), a `run:` entry and a checkout of its own (`checkout: { repo,
+  branch }`) match nothing and say why in a log line, never a run. `ring.ts`
+  walks with the engine's `advanceSteps` and its record changes (`withUpdate`,
+  `withRound`, `withGateAsked`, `withAttemptStarted`, `withCommandIntent`,
+  `closeSteps`, `runCostOf`), so `if:`, `repeat:`, `then: stop`, gates and
+  budgets behave as on the desktop. `steps.ts` asks for a step's work with the
+  engine's own `agentStepLaunch` (the step prompt: the item's identity trusted,
+  its title fenced by the GitHub connection's `fenceItem`, `changes` listed
+  under what it reads, only the step tools named) and `prepareCommand` (`env:`
+  from trusted values, a `{{steps.x.y.file}}` value a file in `files` and its
+  sandbox path in `fileEnv`, then `CONSOLA_RUN_ID`, `CONSOLA_STEP` and
+  `CONSOLA_CHECKOUT_HEAD`), over `documents.ts`, a `RunFolderPort` held in
+  memory; and judges the result with the engine's `checkOutputs`,
+  `endedWithout` and `commandOutcome`. Nothing a port returns is trusted: its
+  outputs and documents are checked again, and everything it says is masked of
+  the step's tokens (`maskFormsOf`). It imports nothing but its ports, the
+  protocol, factory-spec and the engine's core, and reads no clock of its own
+  (`boundary.test.ts`, "the automations ring").
+- **What a step may be.** An agent step runs read-only on claude, with its
+  agent's model and `max_turns` (passed on; the steps' sandbox cannot enforce
+  it yet) and a 30-minute timeout. An `action:`, an agent asking for `edit` or
+  `write`, another harness, MCP servers or skills, a `uses:` step and a command
+  naming `secrets:` each fail the step in one sentence. A command's
+  `permissions:` get it a token from the cell (`github.token.request`), passed
+  as `GH_TOKEN` in `secretEnv`; a step that names none gets none, and a refusal
+  fails it in the cell's words. Every step with a checkout gets a clone token
+  for `{ contents: read }`. A step's declared `on_failure` retries do not run
+  here: its failure says so.
+- **Where approval is decided.** `approval.ts`, `admissionOf`, alone: stage 1
+  asks a person for every run, whatever its `mode:`. Accepting a version once
+  (Linear CON-122) changes that function; the ring already walks a run it
+  admits.
+- **The record.** `runRecord.ts` maps the engine's record onto the protocol's
+  `RunRecord` (`recordOf`): agent and command steps in record order (a loop's
+  row, a gate and a call have no step kind in the cell's vocabulary yet, so the
+  run's status, `waitingOn` and error say what they hold), each output cut to
+  `OUTPUT_TAIL_MAX` bytes, the whole within `SOCKET_FRAME_MAX_BYTES`
+  (`withinFrame`: outputs cut further, else dropped; a record that still cannot
+  fit fails the run). A run's id is `run-` and 32 hex digits of SHA-256 over
+  the delivery, the factory and the automation (`runIdOf`), so an event the
+  cell delivers twice records one run. A gate parks the run `waiting` on a
+  person, its error saying the web cannot answer a gate yet.
+- **What a restart keeps and loses.** The ring keeps nothing durable. A run
+  waiting for approval costs no process: `run.answered` carries the record, and
+  the ring rebuilds the run from it and its factory at the record's version
+  (`factories.request` with `only`), whether or not it restarted. The record
+  carries what that takes: `factoryId`, `factoryVersion`, `automation`,
+  `triggerDetail`, and the item's `repo`, `number`, `headSha` and `baseRef`,
+  which make the checkout (`checkoutOf`). It carries no author, so the engine's
+  item never has one and a step's fence shows the title alone. A version gone,
+  an automation no longer in it, or a pull request's record with no `headSha`
+  fails the run in a sentence. A run being walked is lost with the process (a
+  run that survives a restart mid-step is later work). An answer for a run it
+  is already running is ignored.
+- **The cell link** (`adapters/cellLink.ts`): a request carries a `requestId`
+  of its own and waits `REQUEST_TIMEOUT_MS` (30 s) for the answer naming it,
+  asked again on each new socket until then. A record or an acknowledgement
+  goes at once or not at all, and on each new socket the ring says every run's
+  latest record again (open ones always, the last 64 ended), so a reconnect
+  loses no record and starts no step again. An event is acknowledged once its
+  runs are recorded; without the factories it is not, so the cell sends it
+  again.
+- **Stopping.** On SIGTERM the ring fails each running step (`The runner
+  stopped while this step ran, …`) and its run, records them on the open
+  socket, and aborts the ports, whose sandboxes stop within the shutdown's
+  bound; their late answers are ignored.
+- **The composition point** is `productionStepPorts` in `bin.ts`: the step
+  ports on the runner's sandboxes, or none without `ANTHROPIC_API_KEY`, when
+  the runner runs no automations and its `hello` says so. `runRunner` and
+  `runnerCommand` take another (`StepPortsFor`).
+
+`ring.test.ts` drives the ring over fakes of every port with factory-spec's
+Review pull requests files: every record it says is read by `readRunRecord`
+and held to the cell's `checkRun` vocabulary. `triggers.test.ts`,
+`runRecord.test.ts` and `adapters/cellLink.test.ts` test the rest.
 
 ## The bundle and the session template
 

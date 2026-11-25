@@ -934,7 +934,8 @@ describe('consola-host runner', () => {
           harnesses: ['claude'],
           runningSessionIds: [],
           endedSessions: [],
-          automations: false,
+          // It holds the claude key, so it runs automations on its sandboxes ("The automations ring").
+          automations: true,
         });
         expect(cell.authorizations).toEqual([`Bearer ${RUNNER_SECRET}`]);
 
