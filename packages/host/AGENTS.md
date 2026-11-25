@@ -1001,7 +1001,11 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   SIGTERM, within the shutdown's bound), stops dialling and exits 1 saying so,
   so two runners sharing a secret never take the socket from each other in a
   loop. Frames over 64 KiB close the socket (1009); a frame
-  `readCellMessage` refuses is logged with its reason and dropped. A failure of
+  `readCellMessage` refuses is logged with its reason and dropped. Its
+  `hello` says `automations: false`, since it runs no automations yet, and a
+  cell message for runs (`github.event`, `factories`, `run.answered`,
+  `github.token`, `github.token.refused`, `run.refused`) is logged by its type
+  and ignored. A failure of
   the runner's own while connected ends that connection, never the dialling.
   **The heartbeat** (`Pings`): a ping at least every `HEARTBEAT_INTERVAL_MS`
   (25 s), each carrying its number, which the pong echoes; a ping unanswered

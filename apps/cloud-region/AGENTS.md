@@ -720,7 +720,11 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   (64 KiB, ws's `maxPayload`); a larger one closes the socket with 1009
   before it is read. A frame that is not text, not JSON or not a message
   `readRunnerMessage` reads is logged with the reader's reason alone, never
-  the frame, and dropped, and the socket stays open.
+  the frame, and dropped, and the socket stays open. So is a message for
+  runs (`factories.request`, `run.record`, `github.event.ack`,
+  `github.token.request`), which the protocol reads and the cell does not act
+  on yet, logged by its type alone; `hello`'s `automations` is read and
+  ignored for now.
 - **One runner per workspace.** The runner serves `RUNNER_WORKSPACE_ID`,
   whatever its `hello` calls it. Every socket's messages are handled one at a
   time, in one queue, in the order the cell read them, whichever socket they
