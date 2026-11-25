@@ -917,6 +917,23 @@ describe('the runner stopping and the socket dropping', () => {
     expect(steps.commands).toEqual([]);
   });
 
+  it('ends, saying why, an approved run it stopped before starting, and records no event while stopping', async () => {
+    const stored = await recordedRun();
+    const link = new FakeLink([REVIEW_FACTORY]);
+    const { ring, steps } = ringOver(link);
+    ring.stop();
+    ring.receive(answered(stored));
+    ring.receive(eventOf('d0c5-3000'));
+    await ring.settled();
+    expect(steps.agents).toEqual([]);
+    expect(link.latest(stored.id)).toMatchObject({
+      status: 'failed',
+      error: 'The runner stopped before it could start this run.',
+    });
+    // Not acknowledged: the cell sends the event again, to a runner that runs.
+    expect(link.acks()).toEqual([]);
+  });
+
   it('says every run’s latest record again on a new socket, and starts no step again', async () => {
     const link = new FakeLink([REVIEW_FACTORY]);
     const { ring, steps } = ringOver(link);

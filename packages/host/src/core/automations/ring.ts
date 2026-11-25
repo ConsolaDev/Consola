@@ -83,6 +83,9 @@ export type AutomationsRing = {
 export const RUNNER_STOPPED =
   'The runner stopped while this step ran, so it may have done part of its work.';
 
+/** What an approved run says when the runner stopped before it could start it. */
+const STOPPED_BEFORE_START = 'The runner stopped before it could start this run.';
+
 /** The most ended runs whose latest record the ring keeps, to say again after a reconnect. */
 const ENDED_KEPT = 64;
 
@@ -529,6 +532,7 @@ export function createAutomationsRing(ports: RingPorts): AutomationsRing {
       else {
         const record = withinFrame(recordOf(state));
         if (record !== null) sayRecord(record);
+        else log(`run ${id}: its first record cannot fit the socket's frame`);
       }
     }
     link.send({ type: 'github.event.ack', deliveryId });
@@ -560,17 +564,17 @@ export function createAutomationsRing(ports: RingPorts): AutomationsRing {
       return;
     }
     walks.set(run.id, 'rebuilding');
+    if (stopping) return refuse(run, STOPPED_BEFORE_START);
     const version = `Version ${run.factoryVersion} of its factory`;
     let snapshots: Awaited<ReturnType<RingPorts['link']['factories']>>;
     try {
       snapshots = await link.factories({ factoryId: run.factoryId, version: run.factoryVersion });
     } catch (error) {
+      if (stopping) return refuse(run, STOPPED_BEFORE_START);
       return refuse(run, `${version} could not be read from the cell: ${describe(error)}`);
     }
-    if (stopping) {
-      walks.delete(run.id);
-      return;
-    }
+    // Approved, and never to be answered again: a run the runner will not start ends, saying why.
+    if (stopping) return refuse(run, STOPPED_BEFORE_START);
     const snapshot = snapshots.find(
       (candidate) =>
         candidate.factoryId === run.factoryId && candidate.version === run.factoryVersion,
@@ -599,7 +603,8 @@ export function createAutomationsRing(ports: RingPorts): AutomationsRing {
           if (!stopping) track(onEvent(message));
           return;
         case 'run.answered':
-          if (!stopping) track(onAnswered(message));
+          // Even while stopping: an approval is not sent twice, so a run it cannot start ends, saying why.
+          track(onAnswered(message));
           return;
         case 'run.refused': {
           const problems = message.problems.map(
