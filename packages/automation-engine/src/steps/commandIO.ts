@@ -120,6 +120,47 @@ export function parseOutputFile(
   return { ok: true, outputs };
 }
 
+/** The most of the last line of stderr a result keeps: it becomes the step's error. */
+export const STDERR_LINE_MAX_CHARS = 300;
+
+/** CSI and OSC sequences, then any other escape. */
+const ESCAPES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?/g;
+/** Every control character but tab (newlines are already split on). */
+const LINE_CONTROLS = /[\x00-\x08\x0b-\x1f\x7f]/g;
+
+/**
+ * The last non-blank line of the end of a log, as plain text, masked and
+ * clipped: what `describeFailure` says after a command's exit. `cutsLine`
+ * says the text begins partway through a line, whose head is then dropped
+ * through its first space or tab. The Node executor reads it from the tail
+ * of stderr it keeps; a runner whose commands run elsewhere, from the tail it
+ * was handed.
+ */
+export function lastLineOf(
+  text: string,
+  secrets: readonly string[],
+  cutsLine: boolean,
+): string | undefined {
+  const lines = text.split('\n');
+  if (cutsLine) {
+    // The cut line's head may be the end of a secret split by bytes the
+    // stripping below removes, too short to mask. Drop it through the
+    // first space or tab (stripping keeps both), before stripping.
+    const space = lines[0].search(/[ \t]/);
+    lines[0] = space === -1 ? '' : lines[0].slice(space + 1);
+  }
+  for (let i = lines.length - 1; i >= 0; i--) {
+    // Masked again after stripping: a secret split by an escape, a NUL or
+    // UTF-16's zero bytes never matched in the stream, and is whole only now.
+    const line = maskSecrets(
+      lines[i].replace(ESCAPES, '').replace(LINE_CONTROLS, ''),
+      secrets,
+    ).trim();
+    if (line) return clipText(i === 0 && cutsLine ? `…${line}` : line, STDERR_LINE_MAX_CHARS);
+  }
+  return undefined;
+}
+
 /** A duration as a `timeout:` writes it: `10m`, `30s`, `1h`, or `300ms` below a second. */
 /** A duration as a step's words say it: `30s`, `10m`, `2h`, else milliseconds. */
 export function formatDuration(ms: number): string {

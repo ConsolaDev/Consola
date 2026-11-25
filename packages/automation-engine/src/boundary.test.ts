@@ -16,6 +16,12 @@ const PACKAGE_ROOT = path.resolve(__dirname, '..');
 const SRC = 'src';
 const NODE_DIR = 'src/node';
 const ENTRY = 'src/index.ts';
+/**
+ * The core's own entry point (`@consola/automation-engine/core`): what a runner that brings its
+ * own I/O imports. It holds only exports, like `ENTRY`, but it is core code: it never reaches
+ * `src/node/` or `ENTRY`, which does.
+ */
+const CORE_ENTRY = 'src/core.ts';
 
 const packageJson = JSON.parse(
   fs.readFileSync(path.join(PACKAGE_ROOT, 'package.json'), 'utf8'),
@@ -154,9 +160,9 @@ function globalProblems(file: string, source: string): string[] {
   );
 }
 
-/** The entry point holds only `export … from` statements; anything else is code the build would run on import. */
+/** An entry point holds only `export … from` statements; anything else is code the build would run on import. */
 function entryProblems(file: string, source: string): string[] {
-  if (file !== ENTRY) return [];
+  if (file !== ENTRY && file !== CORE_ENTRY) return [];
   const tree = ts.createSourceFile('x.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
   return tree.statements
     .filter((statement) => !(ts.isExportDeclaration(statement) && statement.moduleSpecifier))
@@ -548,8 +554,20 @@ describe('the checker', () => {
     expect(entryProblems(ENTRY, source)).toEqual([]);
   });
 
-  it('judges only the entry point by its shape', () => {
+  it('judges only the entry points by their shape', () => {
     expect(entryProblems('src/x.ts', 'const a = 1;')).toEqual([]);
+    expect(entryProblems(CORE_ENTRY, 'export const a = 1;').length).toBeGreaterThan(0);
+    expect(entryProblems(CORE_ENTRY, "export { a } from './steps/sequence';")).toEqual([]);
+  });
+
+  it.each([
+    ['src/node', reExport('./node')],
+    ['a file in src/node', reExport('./node/runCommand')],
+    ['the entry point', reExport('./index')],
+  ])('refuses the core entry point re-exporting %s', (_name, source) => {
+    const found = boundaryProblems(CORE_ENTRY, importsOf(source));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatch(/src\/node|entry point/);
   });
 
   it.each([

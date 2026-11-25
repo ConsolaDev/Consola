@@ -394,6 +394,38 @@ describe('renderStepPrompt by policy (slice 3-B, Call 17)', () => {
   });
 });
 
+describe('renderStepPrompt for a runner that serves only the step tools', () => {
+  it('names only the tools the runner serves, when it says which', () => {
+    const rendered = renderStepPrompt(input({ consolaTools: [] }));
+    expect(rendered).toContain(
+      'use Consola’s tools (this step’s output and artifact tools), and nothing else',
+    );
+    expect(rendered).not.toContain('work_item_context');
+    // Absent, the desktop's, byte for byte.
+    expect(renderStepPrompt(input())).toContain(
+      'Consola’s tools (work_item_context, list_inbox, and this step’s output and artifact tools)',
+    );
+  });
+
+  it('lists material prepared where the step runs by its label alone, with no size', () => {
+    const rendered = renderStepPrompt(
+      input({
+        reads: [
+          {
+            ref: 'changes',
+            step: 'checkout',
+            label: 'the files pull request #51 changes, and its diff against main',
+            unsized: true,
+          },
+        ],
+      }),
+    );
+    expect(rendered).toContain(
+      '  - changes (the files pull request #51 changes, and its diff against main)\nRead them with consola_read_artifact.',
+    );
+  });
+});
+
 describe('reminderPrompt', () => {
   it('names what is missing and the tool that sets it', () => {
     expect(reminderPrompt({ outputs: ['verdict'], artifacts: [] })).toBe(

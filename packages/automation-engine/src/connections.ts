@@ -177,20 +177,53 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(`^${pattern}$`, 'i');
 }
 
-function githubMatcher(filter: GitHubFilter): (item: InboxItemView) => boolean {
+/** What a GitHub filter reads of an item, wherever the item came from: the Inbox, or a webhook. */
+export interface FilterFacts {
+  repo: string;
+  author: string;
+  draft: boolean;
+}
+
+function githubMatcher(filter: GitHubFilter): (item: FilterFacts) => boolean {
   const repos = filter.repos?.map(globToRegExp);
   const lower = (logins?: string[]) =>
     logins && new Set(logins.map((login) => login.toLowerCase()));
   const authors = lower(filter.authors);
   const authorsNot = lower(filter.authors_not);
   return (item) => {
-    if (item.isDraft && !filter.drafts) return false;
-    if (repos && !repos.some((pattern) => pattern.test(item.workItem.repo))) return false;
+    if (item.draft && !filter.drafts) return false;
+    if (repos && !repos.some((pattern) => pattern.test(item.repo))) return false;
     const author = item.author.toLowerCase();
     if (authors && !authors.has(author)) return false;
     if (authorsNot?.has(author)) return false;
     return true;
   };
+}
+
+/** A GitHub entry's filter over a webhook's item, or the problem with it. */
+function githubWebhookFilter(
+  rawFilter: Record<string, unknown> | undefined,
+): { ok: true; passes(item: FilterFacts): boolean } | { ok: false; problem: string } {
+  const parsed = parseGitHubFilter(rawFilter);
+  return parsed.ok ? { ok: true, passes: githubMatcher(parsed.filter) } : parsed;
+}
+
+/** An Inbox item's facts, as a filter reads them. */
+const inboxFacts = (item: InboxItemView): FilterFacts => ({
+  repo: item.workItem.repo,
+  author: item.author,
+  draft: item.isDraft,
+});
+
+/** A connection's filter parsed, or the problem with it in the entry's words. */
+function parseGitHubFilter(
+  rawFilter: Record<string, unknown> | undefined,
+): { ok: true; filter: GitHubFilter } | { ok: false; problem: string } {
+  const parsed = GITHUB_FILTER.safeParse(rawFilter ?? {});
+  if (parsed.success) return { ok: true, filter: parsed.data };
+  const issue = parsed.error.issues[0];
+  const where = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
+  return { ok: false, problem: `filter: ${where}${issue.message}` };
 }
 
 const CONNECTIONS: Record<
@@ -205,6 +238,8 @@ const CONNECTIONS: Record<
     filter: z.ZodObject;
     resolve: typeof resolveGitHub;
     workItemSource: typeof githubWorkItemSource;
+    /** Its filter over a webhook's item (`resolveWebhookTrigger`). */
+    webhookFilter: typeof githubWebhookFilter;
   }
 > = {
   github: {
@@ -214,6 +249,7 @@ const CONNECTIONS: Record<
     filter: GITHUB_FILTER,
     resolve: resolveGitHub,
     workItemSource: githubWorkItemSource,
+    webhookFilter: githubWebhookFilter,
   },
 };
 
@@ -254,13 +290,10 @@ function resolveGitHub(
   definitions: EventDefinition[],
   rawFilter: Record<string, unknown> | undefined,
 ): EventSourceResolution {
-  const parsed = GITHUB_FILTER.safeParse(rawFilter ?? {});
-  if (!parsed.success) {
-    const issue = parsed.error.issues[0];
-    const where = issue.path.length > 0 ? `${issue.path.join('.')}: ` : '';
-    return { ok: false, problem: `filter: ${where}${issue.message}` };
-  }
-  const passesFilter = githubMatcher(parsed.data);
+  const parsed = parseGitHubFilter(rawFilter);
+  if (!parsed.ok) return parsed;
+  const matches = githubMatcher(parsed.filter);
+  const passesFilter = (item: InboxItemView) => matches(inboxFacts(item));
   const { itemType } = definitions[0];
   const eventsOf = (item: InboxItemView) =>
     trigger.events.filter((_, index) => definitions[index].inView(item));
@@ -483,4 +516,57 @@ export function resolveEventSource(
     trigger.events.map((event) => connection.events[event]),
     filter,
   );
+}
+
+/**
+ * An event entry as a runner that receives the provider's webhooks reads it (a cloud runner):
+ * the events it lists, each one only webhooks say (`webhookEvents`), its item source (the
+ * connection's work items: header, fence and fields, as an Inbox item's run has them), and its
+ * filter over a webhook's item, by the rules an Inbox item is held to. An entry this runner
+ * cannot honour exactly is a problem, never a looser match: a connection that does not exist, an
+ * event that is not one only webhooks say (an Inbox event's meaning, a request of the person
+ * whose file it is, is not a webhook's), parameters, or a filter that does not parse.
+ */
+export function resolveWebhookTrigger(
+  trigger: EventTrigger,
+  filter?: Record<string, unknown>,
+):
+  | { ok: true; events: string[]; source: ItemSource; passes(item: FilterFacts): boolean }
+  | { ok: false; problem: string } {
+  const connection = own(CONNECTIONS, trigger.connection)
+    ? CONNECTIONS[trigger.connection]
+    : undefined;
+  if (!connection) {
+    return {
+      ok: false,
+      problem: `there is no connection named "${trigger.connection}" yet; the ones that exist are: ${Object.keys(CONNECTIONS).join(', ')}`,
+    };
+  }
+  const others = trigger.events.filter((event) => !connection.webhookEvents.includes(event));
+  if (others.length > 0) {
+    const one = others.length === 1;
+    return {
+      ok: false,
+      problem:
+        `${joinNames(others)} ${one ? 'is' : 'are'} not ${one ? 'an event' : 'events'} a cloud runner fires; ` +
+        `it fires ${joinNames(connection.webhookEvents)}`,
+    };
+  }
+  const params = Object.keys(trigger.params);
+  if (params.length > 0) {
+    const verb = trigger.events.length === 1 ? 'takes' : 'take';
+    return {
+      ok: false,
+      problem: `${trigger.events.join(' and ')} ${verb} no parameters; remove ${params.map((key) => `\`${key}\``).join(', ')} from \`on\``,
+    };
+  }
+  const matcher = connection.webhookFilter(filter);
+  if (!matcher.ok) return matcher;
+  return {
+    ok: true,
+    events: [...trigger.events],
+    // Every event only webhooks say today is a pull request's.
+    source: connection.workItemSource(trigger.connection, ['pr']),
+    passes: matcher.passes,
+  };
 }

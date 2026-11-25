@@ -225,6 +225,13 @@ export function agentStepLaunch(input: {
   folder: RunFolderPort;
   /** In a run's own checkout: what the step is handed of it (slice 3-B). */
   checkoutMaterial?: CheckoutMaterial;
+  /**
+   * Documents a runner prepares where the step runs (a cloud runner's pull request changes),
+   * listed after its reads by label, their size unknown when the prompt is written.
+   */
+  prepared?: ReadonlyArray<{ ref: string; label: string }>;
+  /** Consola's tools the runner serves beside the step's own (`StepPromptInput.consolaTools`); absent, the desktop's. */
+  consolaTools?: readonly string[];
 }): AgentStepLaunch {
   const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } =
     input;
@@ -302,6 +309,16 @@ export function agentStepLaunch(input: {
       : {}),
     ...(definition.automation.scope ? { scope: definition.automation.scope } : {}),
     ...reads,
+    reads: [
+      ...reads.reads,
+      ...(input.prepared ?? []).map(({ ref, label }) => ({
+        ref,
+        step: 'checkout',
+        label,
+        unsized: true as const,
+      })),
+    ],
+    ...(input.consolaTools !== undefined ? { consolaTools: input.consolaTools } : {}),
     outputs: step.outputs,
     artifacts: step.artifacts,
     handover: step.handover,

@@ -47,6 +47,12 @@ export interface StepPromptInput {
     /** `label`: what a run's own checkout's material is (slice 3-B), said in place of its step. */
     | { ref: string; step: string; bytes: number; previous?: true; label?: string }
     | { ref: string; step: string; previous: true; absent: string }
+    /**
+     * Material the runner prepares where the step runs, said by its label alone: its size is not
+     * known when the prompt is written (a cloud runner's pull request changes, made in the step's
+     * sandbox).
+     */
+    | { ref: string; step: string; label: string; unsized: true }
   >;
   /** It reads `previous`, and this run has no earlier one: says so after the inputs. */
   noEarlierRun?: true;
@@ -61,7 +67,16 @@ export interface StepPromptInput {
   policy?: 'read-only' | 'edit' | 'write';
   /** A `write` step's environment: where its shell may write and what it may reach. */
   environment?: { isolation: 'host' | 'sandbox'; network: readonly string[] };
+  /**
+   * Consola's own tools beside the step's, as the header names them; absent, the desktop's
+   * (`work_item_context` and `list_inbox`). A runner that serves only the step's tools passes
+   * none, so the header never names a tool the session cannot call.
+   */
+  consolaTools?: readonly string[];
 }
+
+/** The tools the desktop serves every step's session, beside the step's own. */
+const DESKTOP_TOOLS: readonly string[] = ['work_item_context', 'list_inbox'];
 
 const RUN_ID_LENGTH = 8;
 
@@ -141,11 +156,13 @@ export function renderStepPrompt(input: StepPromptInput): string {
     handover,
     policy,
     environment,
+    consolaTools = DESKTOP_TOOLS,
   } = input;
   // An item run works in the item's own worktree, unless its items have no repository (a poll with `key:`): then in its scope.
   const place = scope ? `, in ${scope}` : item ? ', in a dedicated git worktree for it' : '';
   const where = `${item ? `, for ${item.header}` : ''}${place}`;
-  const tools = `Consola’s tools (work_item_context, list_inbox, and this step’s output and artifact tools)${agentGrants(agent)}`;
+  const own = 'this step’s output and artifact tools';
+  const tools = `Consola’s tools (${consolaTools.length > 0 ? `${consolaTools.join(', ')}, and ${own}` : own})${agentGrants(agent)}`;
   const header =
     `[Consola] Step "${step.id}" (${index} of ${count}) of the automation "${automation}" (run ${runId.slice(0, RUN_ID_LENGTH)})${where}. ` +
     sessionSentence(policy, environment, tools) +
@@ -168,7 +185,9 @@ export function renderStepPrompt(input: StepPromptInput): string {
         ...reads.map((read) =>
           'absent' in read
             ? `  - ${read.ref} — ${read.absent}`
-            : `  - ${read.ref} (${read.label ?? `from step "${read.step}"${read.previous ? ` ${OF_EARLIER_RUN}` : ''}`}, ${describeSize(read.bytes)})`,
+            : 'unsized' in read
+              ? `  - ${read.ref} (${read.label})`
+              : `  - ${read.ref} (${read.label ?? `from step "${read.step}"${read.previous ? ` ${OF_EARLIER_RUN}` : ''}`}, ${describeSize(read.bytes)})`,
         ),
         'Read them with consola_read_artifact.',
       ].join('\n'),

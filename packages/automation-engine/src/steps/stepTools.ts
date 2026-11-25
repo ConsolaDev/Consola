@@ -113,12 +113,12 @@ function sentence(parts: string[]): string {
 }
 
 /** The step's own documents: its handover and its `artifacts:`. */
-function writableOf(step: AgentStep): string[] {
+export function writableOf(step: AgentStep): string[] {
   return [HANDOVER, ...step.artifacts];
 }
 
 /** The documents it must write before it ends: the handover when a later step uses it, and every `artifacts:` name. */
-function requiredOf(step: AgentStep): string[] {
+export function requiredOf(step: AgentStep): string[] {
   return [...(step.handover === 'required' ? [HANDOVER] : []), ...step.artifacts];
 }
 

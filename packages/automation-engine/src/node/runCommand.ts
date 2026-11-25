@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { CommandResult, CommandSpec, RunningCommand } from '../ports';
-import { LOG_CAP_BYTES, clipText, maskSecrets } from '../steps/commandIO';
+import { LOG_CAP_BYTES, lastLineOf } from '../steps/commandIO';
 
 /** GitHub Actions' default bash: no profile or rc files, stop at the first failure, a pipeline fails with any part. */
 export const COMMAND_SHELL: readonly string[] = [
@@ -25,17 +25,10 @@ const GROUP_POLL_MS = 100;
 const REAP_WAIT_MS = 2000;
 /** How much of stderr's end is kept, to find its last line. */
 const STDERR_TAIL_BYTES = 4096;
-/** The most of the last line of stderr a result keeps: it becomes the step's error. */
-const STDERR_LINE_MAX_CHARS = 300;
 /** The longest a Node timer waits; a longer one fires at once. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const MASK = Buffer.from('***');
 const EMPTY = Buffer.alloc(0);
-
-/** CSI and OSC sequences, then any other escape. */
-const ESCAPES = /\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)?|\x1b[@-_]?/g;
-/** Every control character but tab (newlines are already split on). */
-const CONTROLS = /[\x00-\x08\x0b-\x1f\x7f]/g;
 
 /**
  * Replaces each secret by ***, across chunk boundaries. It holds back the end
@@ -125,25 +118,7 @@ class LogSink {
 
   /** The last non-blank line written, as plain text, masked and clipped. */
   lastLine(): string | undefined {
-    const lines = this.tail.toString('utf8').split('\n');
-    if (this.tailCutsLine) {
-      // The cut line's head may be the end of a secret split by bytes the
-      // stripping below removes, too short to mask. Drop it through the
-      // first space or tab (stripping keeps both), before stripping.
-      const space = lines[0].search(/[ \t]/);
-      lines[0] = space === -1 ? '' : lines[0].slice(space + 1);
-    }
-    for (let i = lines.length - 1; i >= 0; i--) {
-      // Masked again after stripping: a secret split by an escape, a NUL or
-      // UTF-16's zero bytes never matched in the stream, and is whole only now.
-      const line = maskSecrets(
-        lines[i].replace(ESCAPES, '').replace(CONTROLS, ''),
-        this.secrets,
-      ).trim();
-      if (line)
-        return clipText(i === 0 && this.tailCutsLine ? `…${line}` : line, STDERR_LINE_MAX_CHARS);
-    }
-    return undefined;
+    return lastLineOf(this.tail.toString('utf8'), this.secrets, this.tailCutsLine);
   }
 
   private emit(bytes: Buffer): void {

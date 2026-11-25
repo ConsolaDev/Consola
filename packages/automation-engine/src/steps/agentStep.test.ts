@@ -89,6 +89,32 @@ describe('agentStepLaunch', () => {
   });
 });
 
+describe('agentStepLaunch for a runner that prepares material where the step runs', () => {
+  it('lists prepared documents after its reads, and names only the tools the runner serves', () => {
+    const launch = agentStepLaunch({
+      workspaceId: 'ws-1',
+      run: run({ artifacts: [{ name: 'notes', bytes: 2048 }] }),
+      definition: { automation, version: 'v', actions: {} },
+      stepId: 'write',
+      checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+      checkoutKind: 'scope',
+      source: undefined,
+      polled: undefined,
+      previous: undefined,
+      folder: UNREAD_FOLDER,
+      prepared: [{ ref: 'changes', label: 'the changes of pull request #51 against main' }],
+      consolaTools: [],
+    });
+    if (!launch.ok) throw new Error(launch.error);
+    expect(launch.request.prompt).toContain(
+      '\n  - research.notes (from step "research", 2.0 KB)\n  - changes (the changes of pull request #51 against main)\nRead them with consola_read_artifact.',
+    );
+    expect(launch.request.prompt).toContain(
+      'Consola’s tools (this step’s output and artifact tools)',
+    );
+  });
+});
+
 /** One entry's steps run on #51 of sprocket/catalog-portal, fired by `trigger`, with its first step queued. */
 function itemRun(
   definition: RunDefinition,

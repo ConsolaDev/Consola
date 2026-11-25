@@ -13,6 +13,7 @@ import type { CommandResult } from '../ports';
 import {
   OUTPUT_FILE_CAP_BYTES,
   describeFailure,
+  lastLineOf,
   layerCommandEnv,
   maskSecrets,
   parseOutputFile,
@@ -37,6 +38,28 @@ function failed(
   if (parsed.ok) throw new Error(`expected a problem, got ${JSON.stringify(parsed.outputs)}`);
   return parsed.problem;
 }
+
+describe('lastLineOf', () => {
+  it('is the last line with anything in it, stripped of escapes and control characters', () => {
+    expect(lastLineOf('first\n\x1b[31mfatal: no\x07 access\x1b[0m\n\n', [], false)).toBe(
+      'fatal: no access',
+    );
+    expect(lastLineOf('\n  \n', [], false)).toBeUndefined();
+  });
+
+  it('masks what it keeps, and clips it', () => {
+    expect(lastLineOf('token ghs_sprocketsecret leaked', ['ghs_sprocketsecret'], false)).toBe(
+      'token *** leaked',
+    );
+    expect(lastLineOf('x'.repeat(400), [], false)).toBe(`${'x'.repeat(300)}…`);
+  });
+
+  it('drops the head of a line the text begins inside, through its first space', () => {
+    expect(lastLineOf('ecret tail of it', [], true)).toBe('…tail of it');
+    expect(lastLineOf('cutalone', [], true)).toBeUndefined();
+    expect(lastLineOf('cut head\nwhole', [], true)).toBe('whole');
+  });
+});
 
 describe('maskSecrets', () => {
   it('replaces every occurrence of each secret, the longest first', () => {

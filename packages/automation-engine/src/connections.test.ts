@@ -3,6 +3,7 @@ import type { EventTrigger, RunItem } from '@consola/factory-spec';
 import {
   connectionCatalog,
   resolveEventSource,
+  resolveWebhookTrigger,
   scheduledPrompt,
   workItemSource,
 } from './connections';
@@ -478,5 +479,61 @@ describe('scheduledPrompt', () => {
         'and list_inbox tools, and nothing else — no shell, no network. Nobody is watching while you ' +
         'work, so finish by writing what you found here for the person to read.\n\nList my open pull requests.',
     );
+  });
+});
+
+describe('resolveWebhookTrigger: an event entry on a runner that receives webhooks', () => {
+  const opened: EventTrigger = { ...reviewRequested, events: ['pull_request.opened'] };
+  const facts = { repo: 'sprocket/catalog-portal', author: 'JaviDev', draft: false };
+
+  it('takes the events only webhooks say, with the connection’s item source', () => {
+    const resolved = resolveWebhookTrigger({
+      ...opened,
+      events: ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'],
+    });
+    if (!resolved.ok) throw new Error(resolved.problem);
+    expect(resolved.events).toEqual([
+      'pull_request.opened',
+      'pull_request.synchronize',
+      'pull_request.reopened',
+    ]);
+    expect(resolved.source.connection).toBe('github');
+    expect(resolved.source.itemTypes).toEqual(['pr']);
+    expect(resolved.passes(facts)).toBe(true);
+    // No filter: a draft does not fire, as on the desktop.
+    expect(resolved.passes({ ...facts, draft: true })).toBe(false);
+  });
+
+  it('holds a webhook’s item to the filter by the Inbox’s rules', () => {
+    const resolved = resolveWebhookTrigger(opened, {
+      repos: ['sprocket/*'],
+      authors_not: ['dependabot[bot]'],
+      drafts: true,
+    });
+    if (!resolved.ok) throw new Error(resolved.problem);
+    expect(resolved.passes({ ...facts, draft: true })).toBe(true);
+    expect(resolved.passes({ ...facts, repo: 'acme/api' })).toBe(false);
+    expect(resolved.passes({ ...facts, author: 'Dependabot[bot]' })).toBe(false);
+  });
+
+  it('refuses what it cannot honour exactly, never matching loosely', () => {
+    const refused = (trigger: EventTrigger, filter?: Record<string, unknown>) => {
+      const resolved = resolveWebhookTrigger(trigger, filter);
+      return resolved.ok ? null : resolved.problem;
+    };
+    // An Inbox event is a request of the file's person, which a webhook does not say.
+    expect(refused({ ...opened, events: ['pull_request.opened', 'pull_request.assigned'] })).toBe(
+      '`pull_request.assigned` is not an event a cloud runner fires; it fires `pull_request.opened`, `pull_request.synchronize` and `pull_request.reopened`',
+    );
+    expect(refused({ ...opened, events: ['pull_request.closed'] })).toMatch(
+      /^`pull_request\.closed` is not an event a cloud runner fires/,
+    );
+    expect(refused({ ...opened, connection: 'jira' })).toMatch(
+      /^there is no connection named "jira"/,
+    );
+    expect(refused({ ...opened, params: { to: 'main' } })).toBe(
+      'pull_request.opened takes no parameters; remove `to` from `on`',
+    );
+    expect(refused(opened, { labels: ['bug'] })).toMatch(/^filter: /);
   });
 });
