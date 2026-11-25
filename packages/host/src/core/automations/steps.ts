@@ -111,10 +111,19 @@ function recordOf(state: RunState, stepId: string): StepRun | undefined {
   return (state.engine.steps ?? []).find((record) => record.id === stepId);
 }
 
-/** What the prompt calls a pull request's changes, in place of the step that wrote them. */
-function changesLabel(checkout: StepCheckout): string {
-  const base = checkout.baseRef === null ? 'its base' : checkout.baseRef;
-  return `the files pull request #${checkout.pullRequest} changes, and its diff against ${base}`;
+/**
+ * The `changes` document a pull request's agent step reads, listed by its label: the steps'
+ * sandbox prepares it for a checkout with a pull request and a base branch ("Step sandboxes"),
+ * so the prompt lists it then and never otherwise.
+ */
+function preparedFor(checkout: StepCheckout | null): Array<{ ref: string; label: string }> {
+  if (checkout === null || checkout.pullRequest === null || checkout.baseRef === null) return [];
+  return [
+    {
+      ref: CHANGES_DOCUMENT,
+      label: `the files pull request #${checkout.pullRequest} changes, and its diff against ${checkout.baseRef}`,
+    },
+  ];
 }
 
 /** An agent step's request, but for its clone token, which the ring asks the cell for as it starts. */
@@ -160,10 +169,7 @@ export function planAgentStep(input: {
     polled: undefined,
     previous: undefined,
     folder: documents.folder,
-    prepared:
-      checkout !== null && checkout.pullRequest !== null
-        ? [{ ref: CHANGES_DOCUMENT, label: changesLabel(checkout) }]
-        : [],
+    prepared: preparedFor(checkout),
     // The step tools are all a cloud step's session serves of Consola's.
     consolaTools: [],
   });
