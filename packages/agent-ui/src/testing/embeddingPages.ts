@@ -60,6 +60,58 @@ export const cloudWebPage = async (): Promise<EmbeddingPage> => ({
 });
 
 /**
+ * Consola Cloud's page for a running session, for `AgentChat.layout.browser.test.tsx`: the
+ * dashboard's sidebar beside the session's page, whose header, facts and warning sit above the
+ * chat, which gets the rest of the window. `rules` are cloud-web's stylesheets (`cloudWebPage`'s,
+ * then `ui/Sessions.css`, which `SessionPage` imports); `markup` is what `Dashboard.tsx`,
+ * `SessionPage.tsx` and `SessionChat.tsx` render around the chat, with their classes, inside
+ * Radix's theme element (`around`). The chat's container is `SessionChat`'s `.session-chat-frame`,
+ * inside the page's `.session-chat` (`mountChat`'s `parent` and `className`).
+ */
+export const cloudWebSessionPage = async () => {
+  const page = await cloudWebPage();
+  return {
+    rules: [...page.rules, await read('../../apps/cloud-web/src/ui/Sessions.css')],
+    around: page.around,
+    markup: `
+<div class="shell">
+  <aside class="sidebar">
+    <div class="sidebar-head">Acme</div>
+    <nav class="sidebar-nav" aria-label="Workspace">
+      <ul class="nav-list nav-foot">
+        <li><a class="nav-row nav-row-settings" href="#/settings">Settings</a></li>
+      </ul>
+    </nav>
+    <div class="sidebar-foot">Sprocket Person</div>
+  </aside>
+  <div class="content">
+    <main class="content-inner" data-layout="wide">
+      <div class="session-page">
+        <header class="session-header">
+          <h1 class="session-crumbs">
+            <a class="session-crumb" href="#/sessions">Sessions</a>
+            <span class="session-crumb-sep" aria-hidden="true">/</span>
+            <span class="session-crumb-name">Sprocket session</span>
+          </h1>
+          <span class="session-state" data-status="running">Running</span>
+          <div class="session-controls"><button type="button" class="button">Stop</button></div>
+        </header>
+        <div class="session-facts">
+          <span class="session-repository">acme/sprocket</span>
+          <span>Claude Code</span>
+          <span>Started 5m ago</span>
+        </div>
+        <p class="session-warning">Changes not pushed to a branch are lost when this session stops.</p>
+        <div class="session-body"><div class="session-chat"></div></div>
+      </div>
+    </main>
+    <footer class="footer"><span>Consola</span></footer>
+  </div>
+</div>`,
+  };
+};
+
+/**
  * Tailwind 3's per-element defaults, which its `@tailwind base` emits unlayered on every page
  * that uses it (Tailwind CSS v3.4, MIT): the same `--tw-*` names Tailwind 4 (t3's) reads, set on
  * every element.

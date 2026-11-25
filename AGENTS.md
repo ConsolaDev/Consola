@@ -105,8 +105,9 @@ The script also holds four rules the package graph cannot see:
   imports the desktop's renderer by path, not as a dependency.
 - A change to the desktop's or cloud-web's CSS that `@consola/agent-ui`'s
   page tests read as files (`src/testing/embeddingPages.ts`: the desktop's
-  `global.css` and theme tokens, cloud-web's `ui/styles.css`, and the Radix
-  Themes stylesheet its `package.json` or the lockfile installs) checks
+  `global.css` and theme tokens, cloud-web's `ui/styles.css` and
+  `ui/Sessions.css`, and the Radix Themes stylesheet its `package.json` or the
+  lockfile installs) checks
   agent-ui too. `ci-scope.test.mjs` fails when that module reads a file the
   rule does not name.
 - A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,

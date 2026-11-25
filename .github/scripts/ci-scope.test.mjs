@@ -161,6 +161,7 @@ test("a change to the desktop's CSS the chat view's page tests read checks the c
 test("a change to cloud-web's CSS, or to the Radix Themes it installs, checks the chat view", () => {
   for (const changedFiles of [
     ['apps/cloud-web/src/ui/styles.css'],
+    ['apps/cloud-web/src/ui/Sessions.css'],
     ['apps/cloud-web/package.json', 'pnpm-lock.yaml'],
     // A lockfile-only update within cloud-web's range moves the Radix Themes stylesheet too.
     ['pnpm-lock.yaml'],

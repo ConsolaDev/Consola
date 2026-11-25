@@ -437,7 +437,7 @@ handlers are host glue that calls the helpers `ws.ts` calls
   chat reads the thread's title and status from it (`ChatView`'s
   `serverThread`) rather than from the projection, so the row is read from
   the store the projection is read from and sent again after every event of
-  the thread: what the chat shows follows the thread (`rpcServer.test.ts`
+  the thread: what the chat renders follows the thread (`rpcServer.test.ts`
   "follows the thread over the socket", `@consola/agent-ui`'s
   `AgentChat.console.browser.test.tsx`). Left out, as the host offers none of
   them: repository identities and their enrichment refreshes, idle subagents

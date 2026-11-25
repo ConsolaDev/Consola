@@ -82,8 +82,48 @@
   height: 100%;
 }
 
+/*
+ * The theme element and the popups stand in for t3's document, but neither is a window, and t3's
+ * rules for its own `html` and `body`, which scopeCss sends to both, size and clip one
+ * (`min-height: calc(100svh + …)`, `height: 100%`, `overflow: hidden`, `position: relative`).
+ *
+ * The theme element is the chat's box: as tall as the root, never as the window, and a column t3's
+ * view fills, as t3's page lays the view out (a flex column, `SidebarInset`). The view's
+ * `flex-1 min-h-0` then bounds it, so its message list scrolls inside the chat and the composer
+ * stays at its foot. In a block, the view was as tall as its conversation, clipped by a theme
+ * element as tall as the window: the end of the conversation and the composer fell past the
+ * page's edge, and nothing scrolled.
+ */
 .consola-agent-ui .consola-agent-ui-theme {
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-height: 0;
+}
+
+/*
+ * A popup's portal is the empty element Base UI puts at the end of `<body>`: no height, no
+ * clipping, no background and no positioning of its own, so its popup is placed on the page as
+ * Base UI places it. As a window-tall block it lengthened the page by a window and carried its
+ * popup down there, and the page scrolled to it when the popup took the focus (the model picker:
+ * the page showed only the portal's background).
+ */
+.consola-agent-ui-portal {
+  position: static;
+  height: auto;
+  min-height: 0;
+  overflow: visible;
+  background-color: transparent;
+}
+
+/*
+ * t3's header bar over the conversation (`[data-chat-header]`: the project's badge and name, the
+ * thread's title, and the toggles of t3's thread details, terminal and side panel) is not shown.
+ * The page around the chat names the session itself, as cloud-web's session page does in its own
+ * header, and t3's panels are not Consola's to offer.
+ */
+.consola-agent-ui [data-chat-header] {
+  display: none;
 }
 
 /*
