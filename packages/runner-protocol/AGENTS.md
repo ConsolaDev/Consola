@@ -16,7 +16,8 @@ say to each other, written once so that neither keeps its own copy:
   ended while the socket was down, each with its real end, and `automations`,
   whether it runs automations) and `session.update` (`status`, `hostUrl`,
   `title`, `error`). Cell to runner: `session.start` and `session.stop`. Read
-  with `readRunnerMessage` and `readCellMessage`;
+  with `readRunnerMessage` and `readCellMessage`. One message's JSON may be at
+  most `SOCKET_FRAME_MAX_BYTES` (4 MiB): both sides refuse a larger frame;
 - the messages for automation runs (`automationMessages.ts`, below, "Runs");
 - the run record (`run.ts`, `RunRecord`, `readRunRecord`) and a GitHub
   event's facts (`github.ts`, `GitHubEventFacts`, `readGitHubEventFacts`);

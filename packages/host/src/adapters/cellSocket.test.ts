@@ -358,7 +358,8 @@ describe('makeCellSocket', () => {
             type: 'session.update',
             sessionId: `session-acme-long-${each}`,
             status: 'failed',
-            error: '€'.repeat(1_000),
+            // Three bytes each, so the 32 ends' messages alone are past the limit.
+            error: '€'.repeat(Math.ceil(CELL_FRAME_LIMIT_BYTES / (3 * 32))),
           });
         }
         const connection = yield* cell.next;

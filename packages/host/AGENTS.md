@@ -994,13 +994,14 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   (the cell reads a socket's frames in order); should the connection close
   first, however long it was open, the end goes again in the next `hello`. An
   id is never listed as running and ended at once. A `hello` over the cell's
-  64 KiB frame limit sends its ends without their messages. A drop is dialled again
+  frame limit sends its ends without their messages. A drop is dialled again
   after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
   once a connection has held 10 s. A close with 4000 means another process with
   this secret said hello and replaced this one: it stops its sandboxes (as at
   SIGTERM, within the shutdown's bound), stops dialling and exits 1 saying so,
   so two runners sharing a secret never take the socket from each other in a
-  loop. Frames over 64 KiB close the socket (1009); a frame
+  loop. Frames over the protocol's `SOCKET_FRAME_MAX_BYTES` (4 MiB, `ws`'s
+  `maxPayload`, as the cell's) close the socket (1009); a frame
   `readCellMessage` refuses is logged with its reason and dropped. Its
   `hello` says `automations: false`, since it runs no automations yet, and a
   cell message for runs (`github.event`, `factories`, `run.answered`,

@@ -5,6 +5,7 @@ import {
   type RunnerHello,
   type RunnerMessage,
   readRunnerMessage,
+  SOCKET_FRAME_MAX_BYTES,
   type SessionUpdate,
 } from '@consola/runner-protocol';
 import { createNodeWebSocket, type NodeWebSocket } from '@hono/node-ws';
@@ -25,11 +26,11 @@ import { noRunner } from './noRunner.js';
 export const RUNNER_SOCKET_PATH = '/api/runner';
 
 /**
- * The largest frame a runner may send, in bytes: room for a `hello` listing many sessions and an
- * update carrying a long error, and no more. Past it the socket closes with 1009 (Message Too
- * Big) before the frame is read, so a runner cannot fill the cell's memory one frame at a time.
+ * The largest frame a runner may send, in bytes: the protocol's `SOCKET_FRAME_MAX_BYTES`, which
+ * the runner keeps for what it reads too. Past it the socket closes with 1009 (Message Too Big)
+ * before the frame is read, so a runner cannot fill the cell's memory one frame at a time.
  */
-export const RUNNER_FRAME_LIMIT_BYTES = 64 * 1024;
+export const RUNNER_FRAME_LIMIT_BYTES = SOCKET_FRAME_MAX_BYTES;
 
 /** Why the cell closes a runner's socket. A runner reconnects after either. */
 export const RUNNER_SOCKET_CLOSE = {

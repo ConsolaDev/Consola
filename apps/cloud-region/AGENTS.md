@@ -717,7 +717,8 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   runner's socket (`closeRunnerSockets`, 1001) before the server, which
   would otherwise wait on them.
 - **Frames.** A runner's frame may be at most `RUNNER_FRAME_LIMIT_BYTES`
-  (64 KiB, ws's `maxPayload`); a larger one closes the socket with 1009
+  (the protocol's `SOCKET_FRAME_MAX_BYTES`, 4 MiB, set as ws's
+  `maxPayload`); a larger one closes the socket with 1009
   before it is read. A frame that is not text, not JSON or not a message
   `readRunnerMessage` reads is logged with the reader's reason alone, never
   the frame, and dropped, and the socket stays open. So is a message for
