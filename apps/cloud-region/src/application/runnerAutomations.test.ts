@@ -205,6 +205,35 @@ describe('recordRunnerRun', () => {
     expect((await runs.recordOf('sprocket', 'run-1'))?.status).toBe('running');
   });
 
+  it('refuses a first record of a run that moved on, newer or not: a run never moves backwards', async () => {
+    const factory = await workspaceWithFactory('sprocket');
+    await recordRunnerRun(
+      runs,
+      'sprocket',
+      run(factory.id, { status: 'completed', finishedAt: T }),
+    );
+    // A runner that restarted records the event the cell handed it again, as new.
+    const afresh = run(factory.id, {
+      status: 'needs-approval',
+      startedAt: null,
+      updatedAt: new Date((NOW + 60) * 1000).toISOString(),
+    });
+    const refusal = await recordRunnerRun(runs, 'sprocket', afresh);
+    expect(refusal).toEqual({
+      type: 'run.refused',
+      runId: 'run-1',
+      problems: [
+        {
+          field: 'status',
+          message:
+            'The workspace holds this run past waiting for approval, and a run never moves backwards: the record is kept as it was.',
+        },
+      ],
+    });
+    expect(readCellMessage(JSON.parse(JSON.stringify(refusal))).ok).toBe(true);
+    expect((await runs.recordOf('sprocket', 'run-1'))?.status).toBe('completed');
+  });
+
   it("never records a run in another workspace than the socket's: its factory is no factory there", async () => {
     await workspaceWithFactory('sprocket');
     const theirs = await workspaceWithFactory('globex', 'Theirs');

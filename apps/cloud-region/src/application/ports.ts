@@ -267,6 +267,11 @@ export type RunRecording =
   | 'recorded'
   /** The workspace holds a newer record of the run (a later `updatedAt`): nothing changed. */
   | 'stale'
+  /**
+   * The record is the run's first (waiting for approval, never started) and the workspace holds
+   * the run moved on from it (`movesBackwards`): a run never moves backwards, so nothing changed.
+   */
+  | 'moved-on'
   /** The workspace has no such factory, or the factory no such version. */
   | 'factory-not-found'
   /** The run names a parent the workspace does not hold as a request of the same factory. */
@@ -294,7 +299,8 @@ export type RunFound = {
 export type RunStore = {
   /**
    * Stores a checked run, or replaces the workspace's record of it unless that one is newer
-   * (`stale`). A request's stored phase rolls up its children's (`requestPhase`), and recording a
+   * (`stale`) or the run would move backwards (`moved-on`: a first record over a run that moved
+   * on). A request's stored phase rolls up its children's (`requestPhase`), and recording a
    * child rolls its request's up again, in the same transaction.
    */
   record(workspaceId: string, run: CheckedRun): Promise<RunRecording>;

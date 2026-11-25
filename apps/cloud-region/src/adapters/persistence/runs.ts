@@ -4,6 +4,7 @@ import type { RunFilter, RunFound, RunStore } from '../../application/ports.js';
 import {
   type CheckedRun,
   childCountsOf,
+  movesBackwards,
   NO_RUNS,
   type Phase,
   type PhaseCounts,
@@ -301,14 +302,16 @@ async function recordHeld(tx: Transaction, workspaceId: string, run: CheckedRun)
       : run.ownPhase;
   const row = rowOf(workspaceId, run, phase);
   const { workspaceId: _w, runId: _r, ...changes } = row;
-  // The compare-and-set: a record older than the one held changes nothing.
+  // The compare-and-set: a record older than the one held changes nothing, and neither does a
+  // first record over a run that moved on from it (`movesBackwards`), the backstop of the check
+  // `record` makes on the row it holds.
   const written = await tx
     .insert(runs)
     .values(row)
     .onConflictDoUpdate({
       target: [runs.workspaceId, runs.runId],
       set: changes,
-      setWhere: sql`${runs.updatedAt} <= excluded.updated_at`,
+      setWhere: sql`${runs.updatedAt} <= excluded.updated_at and not (excluded.status = 'needs-approval' and excluded.started_at is null and not (${runs.status} = 'needs-approval' and ${runs.startedAt} is null))`,
     })
     .returning({ id: runs.runId });
   return written.length > 0;
@@ -347,6 +350,8 @@ export function createRunStore(db: Database): RunStore {
               factoryId: runs.factoryId,
               parentRunId: runs.parentRunId,
               parentMove: runs.parentMove,
+              status: runs.status,
+              startedAt: runs.startedAt,
             })
             .from(runs)
             .where(and(eq(runs.workspaceId, workspaceId), eq(runs.runId, run.id)))
@@ -359,6 +364,17 @@ export function createRunStore(db: Database): RunStore {
               stored.parentMove !== (run.parent?.move ?? null))
           ) {
             return 'identity-changed' as const;
+          }
+          // A run never moves backwards: the row is held (`for update`), so this holds until the
+          // transaction ends.
+          if (
+            stored &&
+            movesBackwards(
+              { status: stored.status, startedAt: stored.startedAt?.toISOString() ?? null },
+              run,
+            )
+          ) {
+            return 'moved-on' as const;
           }
 
           if (!(await recordHeld(tx, workspaceId, run))) return 'stale' as const;

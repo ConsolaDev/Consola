@@ -251,9 +251,33 @@ export const TITLE_MAX = 120;
 /**
  * A run as a runner records it: everything the cell keeps of it, the protocol's `RunRecord`. The
  * run's id is the runner's, and a record of an id the workspace already holds replaces it
- * (`RunStore.record`), unless it is older.
+ * (`RunStore.record`), unless it is older or would move the run backwards (`movesBackwards`).
  */
 export type RunWrite = RunRecord;
+
+/**
+ * A run's first record: waiting for approval, never started (`needs-approval`, no `startedAt`).
+ * Every run a trigger records begins as one, and a runner sends it again whenever it handles the
+ * same event afresh: a runner keeps nothing durable, so after a restart it records an event the
+ * cell hands it again (never acknowledged) as if new, under the same derived id.
+ */
+export function isFirstRecord(run: Pick<RunWrite, 'status' | 'startedAt'>): boolean {
+  return run.status === 'needs-approval' && run.startedAt === null;
+}
+
+/**
+ * A run never moves backwards: a first record never replaces a record of the same run that has
+ * moved on from it (started, waiting, ended), whatever their times say, so an event handed again
+ * can never bring an approved, running or finished run back to waiting for approval, where its
+ * answer would be passed again and the run walked twice. A first record still replaces a first
+ * record, newer over older, as any record does.
+ */
+export function movesBackwards(
+  held: Pick<RunWrite, 'status' | 'startedAt'>,
+  incoming: Pick<RunWrite, 'status' | 'startedAt'>,
+): boolean {
+  return isFirstRecord(incoming) && !isFirstRecord(held);
+}
 
 /** A record `checkRun` found nothing wrong with, with what the cell derives from it. */
 export type CheckedRun = RunWrite & {

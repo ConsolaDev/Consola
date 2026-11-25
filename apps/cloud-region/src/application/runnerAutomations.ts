@@ -45,7 +45,7 @@ export const ANSWERS_ON_HELLO_MAX = 200;
 
 /** Why the cell refused a record its check found nothing wrong with, by what the store found. */
 const STORE_REFUSALS: Record<
-  'factory-not-found' | 'parent-not-found' | 'identity-changed',
+  'factory-not-found' | 'parent-not-found' | 'identity-changed' | 'moved-on',
   RunProblem
 > = {
   'factory-not-found': {
@@ -61,12 +61,21 @@ const STORE_REFUSALS: Record<
     message:
       'The workspace holds this run with another factory, kind or parent, which never change.',
   },
+  // A runner that restarted records an event handed again as new: it drops this record, and the
+  // run stays as the workspace holds it.
+  'moved-on': {
+    field: 'status',
+    message:
+      'The workspace holds this run past waiting for approval, and a run never moves backwards: the record is kept as it was.',
+  },
 };
 
 /**
  * Records a run its runner sent (`run.record`) for the socket's workspace, and answers the
  * `run.refused` to send back, or null when there is none to send: recorded, or older than the
- * record the workspace holds (`stale`), which changes nothing and needs no answer.
+ * record the workspace holds (`stale`), which changes nothing and needs no answer. A first record
+ * of a run the workspace holds moved on (`moved-on`: a run never moves backwards) is refused, so
+ * the runner drops it and never says it again; the event it came from is acknowledged as ever.
  */
 export async function recordRunnerRun(
   runs: RunStore,

@@ -406,7 +406,25 @@ changed; every other run is a top-level automation run. The rules are in
   no NUL or lone surrogate anywhere (`jsonb` refuses `\u0000` too). A record
   older than the one held (`updated_at`) changes nothing (`stale`, a
   compare-and-set in the upsert), and a run's factory, kind and parent never
-  change (`identity-changed`). A record refused for any reason but `stale` is
+  change (`identity-changed`).
+- **A run never moves backwards.** A run's first record is how a trigger
+  records it: waiting for approval and never started (`isFirstRecord`:
+  `needs-approval`, no `startedAt`). It never replaces a record of the same
+  run that has moved on from it, started, waiting or ended, whatever the
+  times say (`movesBackwards`, `moved-on`): the store checks the row it holds
+  (`for update`), and the upsert's compare-and-set holds the same rule as a
+  backstop. A runner keeps nothing durable and derives a run's id from the
+  delivery, the factory and the automation, so a runner that restarted
+  records an event the cell hands it again (it never acknowledged it) as
+  new, under the same id and with a newer time. Taken, that record would put
+  an approved, running or finished run back to waiting, where the answer for
+  its version would be passed again on the next hello and the run walked
+  twice. A first record still replaces a first record, newer over older, and
+  an approval does not change the run, so a run approved but not yet started
+  is still a first record. A `moved-on` record is answered with `run.refused`
+  (`field` `status`): the runner drops it and never says it again, and the
+  event it came from is acknowledged as ever. A record refused for any reason
+  but `stale` is
   answered with `run.refused` (`refusalOf`): every problem, at most
   `RUN_PROBLEMS_MAX`, each cut to `RUN_PROBLEM_TEXT_MAX`, so it never quotes
   more of what the runner sent than that. A run of another workspace's
@@ -852,7 +870,9 @@ holds up no other message.
 - **`github.event.ack`** marks the workspace's held event `acknowledged`,
   a compare-and-set from `held`; one it does not hold as held is logged.
 - **`run.record`** is recorded for the socket's workspace, or answered with
-  `run.refused` (above, "Runs").
+  `run.refused` (above, "Runs"), a first record of a run that moved on
+  included: a run never moves backwards, so an event handed again after a
+  runner's restart records nothing over the run it already started.
 - **`factories.request`** is answered with `factories`: every factory of the
   workspace at its latest saved version with its files, or the one factory
   and version `only` names (none for one it does not hold). A frame is the

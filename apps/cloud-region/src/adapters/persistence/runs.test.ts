@@ -347,6 +347,64 @@ describe('the run store', () => {
     expect((await runs.get('acme', 'nightly'))?.run.status).toBe('failed');
   });
 
+  it('never moves a run backwards: a first record over a run that moved on changes nothing', async () => {
+    // A run's first record: waiting for approval, never started, as a trigger records it.
+    const first = (minutes: number, overrides: Partial<RunWrite> = {}) =>
+      automationRun('review', {
+        status: 'needs-approval',
+        startedAt: null,
+        steps: [step('review', 'pending'), step('post', 'pending', 'run')],
+        createdAt: at(minutes),
+        updatedAt: at(minutes),
+        ...overrides,
+      });
+    expect(await record(first(0))).toBe('recorded');
+    // A first record still replaces a first record, newer over older.
+    expect(await record(first(1, { triggerDetail: 'pull_request.reopened' }))).toBe('recorded');
+    expect((await runs.recordOf('acme', 'review'))?.triggerDetail).toBe('pull_request.reopened');
+
+    // Approved, walked and finished.
+    for (const [minutes, status] of [
+      [2, 'running'],
+      [3, 'completed'],
+    ] as const) {
+      const moved = automationRun('review', {
+        status,
+        startedAt: at(2),
+        finishedAt: status === 'completed' ? at(3) : null,
+        steps: [step('review', 'completed'), step('post', 'completed', 'run')],
+        createdAt: at(1),
+        updatedAt: at(minutes),
+      });
+      expect(await record(moved)).toBe('recorded');
+    }
+    // A runner that restarted handles the same event afresh: its first record is newer, and
+    // still changes nothing, so the run never waits for approval again.
+    expect(await record(first(9))).toBe('moved-on');
+    expect(await runs.recordOf('acme', 'review')).toMatchObject({
+      status: 'completed',
+      startedAt: at(2),
+      updatedAt: at(3),
+    });
+    expect(await runs.answeredWaiting('acme', 10)).toEqual([]);
+
+    // Nor over one that waits at a gate, or was rejected: neither is a first record.
+    const later: [string, Partial<RunWrite>][] = [
+      ['gated', { status: 'waiting', waitingOn: 'person', startedAt: at(2) }],
+      ['dismissed', { status: 'rejected', startedAt: null, finishedAt: at(2) }],
+    ];
+    for (const [id, moved] of later) {
+      await record(automationRun(id, { ...moved, updatedAt: at(2) }));
+      const again = automationRun(id, {
+        status: 'needs-approval',
+        startedAt: null,
+        updatedAt: at(9),
+      });
+      expect(await record(again)).toBe('moved-on');
+      expect((await runs.recordOf('acme', id))?.status).toBe(moved.status);
+    }
+  });
+
   it("never changes a run's factory, kind or parent", async () => {
     const other = await madeFactory('acme', 'Docs', (await teams.list('acme'))[0]?.id ?? '');
     await record(request('ship'));
