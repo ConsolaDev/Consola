@@ -74,6 +74,34 @@ describe('checkFactoryFiles', () => {
     expect(checkFactoryFiles(VALID)).toEqual({ ok: true, notices: [] });
   });
 
+  it("takes an automation on a pull request's events, one or several, and a command's permissions", () => {
+    // Which runner fires an event is the runner's: the cell stores files for a cloud runner,
+    // which receives GitHub's webhooks, so none of these is refused here.
+    const reviewOn = (on: string) => `on: ${on}
+mode: auto
+steps:
+  - id: review
+    agent: investigator
+    outputs:
+      verdict: { enum: [APPROVE, COMMENT, REQUEST_CHANGES] }
+  - id: post
+    run: gh api "repos/$REPO/pulls/$NUMBER/reviews" -f event=COMMENT -F body=@"$BODY"
+    env: { REPO: "{{item.repo}}", NUMBER: "{{item.number}}", BODY: "{{steps.review.handover.file}}" }
+    permissions: { pull_requests: write }
+`;
+    for (const on of [
+      '{ github: pull_request.opened }',
+      '{ github: pull_request.synchronize }',
+      '{ github: pull_request.reopened }',
+      '{ github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }',
+    ]) {
+      expect([
+        on,
+        checkFactoryFiles([...VALID, file('automations/review.yaml', reviewOn(on))]),
+      ]).toEqual([on, { ok: true, notices: [] }]);
+    }
+  });
+
   it('takes no files at all: a blank factory', () => {
     expect(checkFactoryFiles([])).toEqual({ ok: true, notices: [] });
   });

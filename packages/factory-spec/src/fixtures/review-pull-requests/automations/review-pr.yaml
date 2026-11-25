@@ -1,0 +1,31 @@
+# When a pull request opens, gets new commits or reopens, a read-only agent
+# reviews it, and a command posts the review on GitHub, on the commit the run
+# read. Nothing approves unattended: an approving review is posted as a comment.
+on: { github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }
+mode: auto
+steps:
+  - id: review
+    agent: reviewer
+    prompt: >-
+      Review this pull request. Write the review as your handover, in Markdown, addressed
+      to its author and under 60,000 characters: a sentence or two on what it changes, then
+      each finding with its file and line, then what you could not check. Then set verdict:
+      APPROVE if it can be merged as it is, REQUEST_CHANGES if something must change first,
+      COMMENT otherwise.
+    outputs:
+      verdict: { enum: [APPROVE, COMMENT, REQUEST_CHANGES] }
+  - id: post
+    run: |
+      # Nothing approves unattended: APPROVE is posted as COMMENT.
+      case "$VERDICT" in
+        REQUEST_CHANGES) event=REQUEST_CHANGES ;;
+        *) event=COMMENT ;;
+      esac
+      gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+        -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+    env:
+      REPO: "{{item.repo}}"
+      NUMBER: "{{item.number}}"
+      VERDICT: "{{steps.review.verdict}}"
+      BODY_FILE: "{{steps.review.handover.file}}"
+    permissions: { pull_requests: write }

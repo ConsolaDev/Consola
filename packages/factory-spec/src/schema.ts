@@ -4,6 +4,7 @@ import { cronError } from './cron';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
+import { ENTRY_PERMISSIONS_REASON } from './permissions';
 import { ENTRY_SECRETS_REASON } from './secrets';
 import { ENTRY_USES_REASON } from './uses';
 import {
@@ -413,6 +414,7 @@ function automationEntrySchema() {
       skills: explained(ENTRY_SKILLS_AND_SERVERS),
       mcpServers: explained(ENTRY_SKILLS_AND_SERVERS),
       secrets: explained(ENTRY_SECRETS_REASON),
+      permissions: explained(ENTRY_PERMISSIONS_REASON),
       uses: explained(ENTRY_USES_REASON),
       // Control flow belongs to the steps, so an entry says where it goes.
       gate: explained('A gate is a step; put it in `steps:`.'),

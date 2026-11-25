@@ -38,6 +38,12 @@ import {
 } from './flow';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
+import {
+  AGENT_PERMISSIONS_REASON,
+  LOOP_PERMISSIONS_REASON,
+  parsePermissions,
+  type StepPermissions,
+} from './permissions';
 import type { Trigger } from './schema';
 import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
@@ -106,6 +112,13 @@ export interface CommandStep extends StepCommon {
   dryRun: 'report' | 'run';
   /** The secrets it needs, by name, each its own environment variable; present only when written and non-empty. */
   secrets?: string[];
+  /**
+   * The GitHub permissions its command needs (`permissions: { pull_requests: write }`), present
+   * only when written. On a cloud runner the step gets a GitHub token narrowed to them, and a
+   * step without them gets none; on the desktop a command runs as the workspace's bound account,
+   * so they have no effect there. In the version either way.
+   */
+  permissions?: StepPermissions;
   /** `on_failure: { retry: <n> }`, present only when written; above 0 only with `dry_run: run` (`checkSteps`). */
   onFailure?: { retry: number };
 }
@@ -260,7 +273,7 @@ export function laterKeyMessage(key: string): string {
 
 const COMMON_KEYS = ['id', 'if', 'then', 'on_failure'];
 const AGENT_KEYS = ['prompt', 'action', 'agent', 'outputs', 'artifacts', 'reads', 'max_turns'];
-const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run', 'secrets'];
+const COMMAND_KEYS = ['run', 'env', 'outputs', 'timeout', 'dry_run', 'secrets', 'permissions'];
 const ALL_KEYS = new Set([...COMMON_KEYS, ...AGENT_KEYS, ...COMMAND_KEYS]);
 /** Exclusive: a step names one thing to do. `agent:` goes with `prompt:` or `action:`, or alone. */
 const ONE_OF = ['prompt', 'action', 'run'] as const;
@@ -713,6 +726,12 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
             Object.keys(env),
           )
         : null;
+    const permissions =
+      'permissions' in raw
+        ? parsePermissions(raw.permissions, (message, path = []) =>
+            bad(message, ['permissions', ...path]),
+          )
+        : null;
     if (!ok || typeof run !== 'string' || timeoutMs === null) return null;
     return {
       id,
@@ -727,6 +746,8 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
       dryRun,
       // Only when it names any, so a step without one parses, and hashes, as before the key existed.
       ...(secrets && secrets.length > 0 ? { secrets } : {}),
+      // Only when written, so a step without it parses, and hashes, as before the key existed.
+      ...(permissions ? { permissions } : {}),
       ...(stop ? { stop } : {}),
       ...(onFailure ? { onFailure } : {}),
     };
@@ -737,6 +758,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     bad(`\`${key}\` is for a command (\`run:\`); an agent step does not take it.`, [key]);
   }
   if ('secrets' in raw) bad(AGENT_SECRETS_REASON, ['secrets']);
+  if ('permissions' in raw) bad(AGENT_PERMISSIONS_REASON, ['permissions']);
   // A step with `agent:` and neither `prompt:` nor `action:` runs on the agent's body alone.
   const text = kind === 'agent' ? undefined : raw[kind];
   if (kind !== 'agent') {
@@ -924,6 +946,7 @@ function parseBlock(
       );
     else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
       bad(RUN_KEYS_ON_A_STEP[key], [key]);
+    else if (key === 'permissions') bad(LOOP_PERMISSIONS_REASON, [key]);
     else bad(`Unrecognized key in a loop: ${key}.`, [key]);
   }
   if (!('id' in raw)) bad('A loop needs an `id`, e.g. `id: polish`.');

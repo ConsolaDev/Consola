@@ -286,6 +286,21 @@ describe('automationVersion', () => {
       ).not.toBe(named);
     });
 
+    it("a command's permissions change it, by name and access, never by the order written", () => {
+      const at = (permissions: string) =>
+        versionOf(
+          edit('      env: { VERDICT:', `      permissions: ${permissions}\n      env: { VERDICT:`),
+        );
+      const write = at('{ pull_requests: write }');
+      expect(write).not.toBe(versionOf(ENTRY));
+      expect(at('{ pull_requests: read }')).not.toBe(write);
+      expect(at('{ issues: write }')).not.toBe(write);
+      const both = at('{ pull_requests: write, contents: read }');
+      expect(both).not.toBe(write);
+      expect(at('{ contents: read, pull_requests: write }')).toBe(both);
+      // Not written, an entry hashes as it did before the key existed: PR A's pinned hash above holds.
+    });
+
     it('a cron-only change to a steps entry does not', () => {
       const cron = ENTRY.replace(
         'on: { github: [pull_request.review_requested] }',

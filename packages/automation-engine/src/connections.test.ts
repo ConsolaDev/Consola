@@ -129,12 +129,52 @@ describe('resolveEventSource', () => {
   it('names every unknown event', () => {
     const resolved = resolveEventSource({
       ...reviewRequested,
-      events: ['pull_request.opened', 'pull_request.assigned', 'pull_request.closed'],
+      events: ['pull_request.edited', 'pull_request.assigned', 'pull_request.closed'],
     });
     expect(resolved).toEqual({
       ok: false,
       problem: expect.stringMatching(
-        /"pull_request\.opened" or "pull_request\.closed".*pull_request\.review_requested, pull_request\.assigned/,
+        /"pull_request\.edited" or "pull_request\.closed".*pull_request\.review_requested, pull_request\.assigned/,
+      ),
+    });
+    // A webhook event beside them is not unknown: it is named for what it is once they are fixed.
+    const beside = resolveEventSource({
+      ...reviewRequested,
+      events: ['pull_request.opened', 'pull_request.closed'],
+    });
+    expect(beside).toEqual({
+      ok: false,
+      problem: expect.stringMatching(/^github has no event "pull_request\.closed" Consola/),
+    });
+  });
+
+  it("says a pull request's webhook events fire on a cloud runner, and never here", () => {
+    expect(resolveEventSource({ ...reviewRequested, events: ['pull_request.opened'] })).toEqual({
+      ok: false,
+      problem:
+        "`pull_request.opened` comes only from GitHub's webhooks, which a cloud runner receives; " +
+        'this computer sees GitHub through its Inbox, so here it would never fire. ' +
+        'Run this automation on a cloud runner, or use what fires here: pull_request.review_requested, pull_request.assigned',
+    });
+    const all = resolveEventSource({
+      ...reviewRequested,
+      events: ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'],
+    });
+    expect(all).toEqual({
+      ok: false,
+      problem: expect.stringMatching(
+        /^`pull_request\.opened`, `pull_request\.synchronize` and `pull_request\.reopened` come only from GitHub's webhooks, .* so here they would never fire\./,
+      ),
+    });
+    // Listed with one this runner fires, it still never fires the webhook one: the entry is refused whole.
+    const mixed = resolveEventSource({
+      ...reviewRequested,
+      events: ['pull_request.review_requested', 'pull_request.synchronize'],
+    });
+    expect(mixed).toEqual({
+      ok: false,
+      problem: expect.stringMatching(
+        /^`pull_request\.synchronize` comes only from GitHub's webhooks/,
       ),
     });
   });
@@ -160,10 +200,10 @@ describe('resolveEventSource', () => {
       problem: expect.stringMatching(/no connection named "constructor".*github/),
     });
 
-    const opened = resolveEventSource({ ...reviewRequested, events: ['pull_request.opened'] });
-    expect(opened).toEqual({
+    const closed = resolveEventSource({ ...reviewRequested, events: ['pull_request.closed'] });
+    expect(closed).toEqual({
       ok: false,
-      problem: expect.stringMatching(/"pull_request.opened".*pull_request\.review_requested/),
+      problem: expect.stringMatching(/"pull_request.closed".*pull_request\.review_requested/),
     });
   });
 
