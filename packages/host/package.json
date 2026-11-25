@@ -15,6 +15,8 @@
     "template:build": "node scripts/bundle.ts && node scripts/build-template.ts"
   },
   "dependencies": {
+    "@consola/automation-engine": "workspace:*",
+    "@consola/factory-spec": "workspace:*",
     "@consola/runner-protocol": "workspace:*",
     "@consola/sandbox": "workspace:*",
     "@effect/platform-node": "catalog:",

@@ -19,10 +19,17 @@
  *   sharing a secret never take the socket from each other in a loop (`replaced`).
  * - A frame from the cell over `CELL_FRAME_LIMIT_BYTES` closes the socket (1009); one that is not
  *   a message `readCellMessage` reads is logged with the reader's reason and dropped.
+ * - `hello` says whether the runner runs automations (`automations`). The automations ring's
+ *   messages go with `sendNow`, which says whether they went; once a socket is greeted,
+ *   `onConnected` lets the ring say again what may not have arrived on the last one.
  */
 import {
   type CellMessage,
+  type FactoriesRequest,
+  type GitHubEventAck,
+  type GitHubStepTokenRequest,
   type RunnerHello,
+  type RunRecordMessage,
   readCellMessage,
   SOCKET_FRAME_MAX_BYTES,
   type SessionUpdate,
@@ -67,6 +74,11 @@ export type CellSocketOptions = {
   readonly secret: string;
   readonly runnerId: string;
   readonly offer: RunnerOffer;
+  /**
+   * Whether the runner runs automations, as its `hello` says: only then does the cell send it
+   * GitHub's events, answers to runs and tokens.
+   */
+  readonly automations: boolean;
   /** A line for the runner's log. The secret never reaches it. */
   readonly log: (message: string) => Effect.Effect<void>;
   /** The wait before dialling again (`reconnectDelayMs` unless a test shortens it). */
@@ -81,11 +93,25 @@ export type CellHandlers = {
   readonly live: () => LiveSessions;
   /** A message from the cell, in the order the cell sent them. */
   readonly onMessage: (message: CellMessage) => Effect.Effect<void>;
+  /** A socket was greeted: its `hello` and the sessions' states went on it. */
+  readonly onConnected?: () => Effect.Effect<void>;
 };
+
+/** What the automations ring says to the cell. */
+export type RunMessage =
+  | RunRecordMessage
+  | GitHubEventAck
+  | FactoriesRequest
+  | GitHubStepTokenRequest;
 
 export type CellSocket = {
   /** Says `update` to the cell now, if a `hello` went on the open socket (see above). */
   readonly send: (update: SessionUpdate) => Effect.Effect<void>;
+  /**
+   * Says one of the automations ring's messages now, if a `hello` went on the open socket: true
+   * when it went, false when there is none (nothing is queued).
+   */
+  readonly sendNow: (message: RunMessage) => boolean;
   /** Starts dialling, in the background, until `close` or a replacement. */
   readonly connect: (handlers: CellHandlers) => Effect.Effect<void>;
   /** Done once another socket of this runner replaced this one (close 4000); dialling has stopped. */
@@ -122,7 +148,8 @@ type Open = {
   helloSent: boolean;
 };
 
-const encode = (message: RunnerHello | SessionUpdate): string => JSON.stringify(message);
+const encode = (message: RunnerHello | SessionUpdate | RunMessage): string =>
+  JSON.stringify(message);
 
 const parseJson = (text: string): unknown => {
   try {
@@ -180,8 +207,8 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           harnesses: [...options.offer.harnesses],
           runningSessionIds: live.sessionIds.filter((sessionId) => !ended.has(sessionId)),
           endedSessions,
-          // It runs no automations yet, so the cell sends it no events, runs or tokens.
-          automations: false,
+          // Without them, the cell sends it no events, runs or tokens.
+          automations: options.automations,
         };
         // Within the cell's frame limit: past it, the ends go without their messages (the cell
         // then records `runner_failed` for a failure), rather than the cell closing the socket.
@@ -202,6 +229,7 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
       yield* options.log(
         `connected to the cell: ${said.running} sessions running, ${said.ended} ended while away`,
       );
+      if (handlers.onConnected !== undefined) yield* handlers.onConnected();
     });
 
     const onFrame = (text: string | null, handlers: CellHandlers): Effect.Effect<void> => {
@@ -360,6 +388,12 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           );
         }
       }),
+      sendNow: (message) => {
+        const open = current;
+        if (open?.helloSent !== true || open.ws.readyState !== WebSocket.OPEN) return false;
+        open.ws.send(encode(message));
+        return true;
+      },
       connect: Effect.fn('CellSocket.connect')(function* (handlers: CellHandlers) {
         if (loop !== null || closing) return;
         loop = yield* dialling(handlers).pipe(Effect.forkDetach);
