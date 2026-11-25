@@ -10,6 +10,7 @@ import type {
   FactoryStore,
   GitHubEventStore,
   HealthProbe,
+  RunnerChannel,
   RunStore,
   TeamStore,
   TokenVerifier,
@@ -71,6 +72,11 @@ export function createApp(deps: {
   runs: RunStore;
   clock: Clock;
   cloudSessions: CloudSessionPorts;
+  /**
+   * The workspace's runner, which a GitHub event and a person's answer to a run are handed to:
+   * the cloud sessions' channel.
+   */
+  runners: RunnerChannel;
   /** The runner's socket route, which checks the runner's secret itself. */
   runner: Hono;
   report?: (line: string) => void;
@@ -88,6 +94,7 @@ export function createApp(deps: {
     runs,
     clock,
     cloudSessions,
+    runners,
   } = deps;
   const report = deps.report ?? ((line: string) => console.error(line));
   const app = createRouter();
@@ -101,7 +108,7 @@ export function createApp(deps: {
 
   // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
   app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
-  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report }));
+  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, runners, report }));
 
   // No token either: a runner is no person, and presents its secret instead.
   app.route('/', deps.runner);
@@ -114,7 +121,7 @@ export function createApp(deps: {
 
   teamRoutes(app, teams);
   factoryRoutes(app, teams, factories);
-  runRoutes(app, teams, factories, runs);
+  runRoutes(app, teams, factories, runs, runners);
 
   cloudSessionRoutes(app, cloudSessions);
 

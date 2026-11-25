@@ -24,6 +24,7 @@ describe('loadConfig', () => {
       port: 3101,
       cloudGlobalUrl: 'http://127.0.0.1:3100',
       runner: null,
+      cellPrivateKey: null,
     });
   });
 
@@ -175,6 +176,39 @@ describe('loadConfig, the runner and its passes', () => {
   ])('refuses a PASS_PRIVATE_KEY that is %s, never quoting it', (_what, key) => {
     const failure = failureOf({ ...valid, ...runner, PASS_PRIVATE_KEY: key });
     expect(failure.problems).toEqual([expect.stringMatching(/^PASS_PRIVATE_KEY: /)]);
+    expect(failure.message).not.toContain('d-of-the-key');
+  });
+});
+
+const CELL_JWK = { kty: 'OKP', crv: 'Ed25519', x: 'x-of-the-cell-key', d: 'd-of-the-cell-key' };
+
+describe("loadConfig, the cell's key for GitHub tokens", () => {
+  it('is null when unset or empty: then the cell asks for no GitHub token', () => {
+    expect(loadConfig(valid).cellPrivateKey).toBeNull();
+    expect(loadConfig({ ...valid, CELL_PRIVATE_KEY: '' }).cellPrivateKey).toBeNull();
+  });
+
+  it('reads the JSON object it holds, with a runner or without one', () => {
+    const key = JSON.stringify(CELL_JWK);
+    expect(loadConfig({ ...valid, CELL_PRIVATE_KEY: key }).cellPrivateKey).toEqual(CELL_JWK);
+    expect(loadConfig({ ...valid, ...runner, CELL_PRIVATE_KEY: key }).cellPrivateKey).toEqual(
+      CELL_JWK,
+    );
+  });
+
+  it.each([
+    ['not JSON', '{"kty":"OKP","d":"d-of-the-cell-key"'],
+    ['a JSON list', JSON.stringify([CELL_JWK])],
+    ['JSON null', 'null'],
+  ])('refuses one that is %s, never quoting it', (_what, key) => {
+    const failure = failureOf({ ...valid, CELL_PRIVATE_KEY: key });
+    expect(failure.problems).toEqual([expect.stringMatching(/^CELL_PRIVATE_KEY: /)]);
+    expect(failure.message).not.toContain('d-of-the-cell-key');
+  });
+
+  it('refuses the pass key, since each key does one thing', () => {
+    const failure = failureOf({ ...valid, ...runner, CELL_PRIVATE_KEY: JSON.stringify(JWK) });
+    expect(failure.problems).toEqual([expect.stringMatching(/^CELL_PRIVATE_KEY: /)]);
     expect(failure.message).not.toContain('d-of-the-key');
   });
 });

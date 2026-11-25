@@ -1,4 +1,5 @@
 import { type Automation, type AutomationMode, flatSteps } from '@consola/factory-spec';
+import type { RunDecision } from '@consola/runner-protocol';
 import type { RunStatus } from './run.js';
 import type { Team } from './team.js';
 
@@ -11,7 +12,7 @@ import type { Team } from './team.js';
  * is the one kept.
  *
  * The cell records the answer and never changes the run: its runner is the authority on the run,
- * and acts on the answer once it reads it (epic 21, CON-94).
+ * and acts on the answer once it reads it (`run.answered`, epic 21).
  */
 
 /** How a run's request to be approved was answered. */
@@ -24,6 +25,12 @@ export type ApprovalChoice = 'approve' | 'dismiss';
 export const DECISION_OF: Record<ApprovalChoice, ApprovalDecision> = {
   approve: 'approved',
   dismiss: 'dismissed',
+};
+
+/** A stored answer as the runner is told it (`run.answered`): a dismissed run is rejected. */
+export const RUN_DECISION_OF: Record<ApprovalDecision, RunDecision> = {
+  approved: 'approved',
+  dismissed: 'rejected',
 };
 
 /** An answer, as the cell keeps it. */

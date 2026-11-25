@@ -1,9 +1,14 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import {
   type CellMessage,
+  type FactoriesRequest,
+  type GitHubEventAck,
+  type GitHubStepTokenRefused,
+  type GitHubStepTokenRequest,
   type ReadResult,
   type RunnerHello,
   type RunnerMessage,
+  type RunRecordMessage,
   readRunnerMessage,
   SOCKET_FRAME_MAX_BYTES,
   type SessionUpdate,
@@ -12,13 +17,21 @@ import { createNodeWebSocket, type NodeWebSocket } from '@hono/node-ws';
 import { type Context, Hono } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import { belongsToRunner, isEnded } from '../../domain/cloudSession.js';
+import { HELD_EVENTS_MAX } from '../../domain/gitHubEvent.js';
 import { applyRunnerUpdate } from '../../application/cloudSessions.js';
 import type {
   Offer,
   RunnerChannel,
-  RunnerUpdatePorts,
+  RunnerPorts,
   SessionStartRequest,
 } from '../../application/ports.js';
+import {
+  acknowledgeEvent,
+  answerFactoriesRequest,
+  issueStepToken,
+  pendingForHello,
+  recordRunnerRun,
+} from '../../application/runnerAutomations.js';
 import { runnerConnected } from '../../application/runners.js';
 import { noRunner } from './noRunner.js';
 
@@ -68,6 +81,11 @@ type Connection = {
   socket: WSContext | null;
   /** What its `hello` offered. Null until it says hello. */
   offer: Offer | null;
+  /**
+   * Whether its `hello` said it runs automations: only then is it handed GitHub's events and a
+   * person's answers, and are its runs, acknowledgements and requests taken.
+   */
+  automations: boolean;
   /** True once its `hello` is judged: only then does the channel offer it to a person. */
   ready: boolean;
   /**
@@ -80,6 +98,19 @@ type Connection = {
 
 const digest = (value: string): Buffer => createHash('sha256').update(value, 'utf8').digest();
 
+/** A message the cell will not send: its JSON is larger than a frame, which the runner refuses. */
+class FrameTooLarge extends Error {
+  constructor(type: CellMessage['type']) {
+    super(`a \`${type}\` larger than ${SOCKET_FRAME_MAX_BYTES} bytes`);
+  }
+}
+
+/** The messages for automations a runner sends, which the cell takes only from such a runner. */
+type AutomationMessage = Extract<
+  RunnerMessage,
+  { type: 'run.record' | 'github.event.ack' | 'factories.request' | 'github.token.request' }
+>;
+
 /** The first line of an error and of each of its causes, for the log. */
 function describe(error: unknown): string {
   const lines: string[] = [];
@@ -91,6 +122,13 @@ function describe(error: unknown): string {
   }
   return lines.join(': ') || 'an unexpected error';
 }
+
+/** A token refusal in the cell's words. */
+const refusedToken = (requestId: string, reason: string): GitHubStepTokenRefused => ({
+  type: 'github.token.refused',
+  requestId,
+  reason,
+});
 
 /** What a frame holds, read as the protocol has it: text, JSON, and a runner message. */
 function readFrame(data: unknown): ReadResult<RunnerMessage> {
@@ -126,7 +164,7 @@ function readFrame(data: unknown): ReadResult<RunnerMessage> {
  */
 export function createRunnerSocket(deps: {
   settings: RunnerSocketSettings | null;
-  ports: RunnerUpdatePorts;
+  ports: RunnerPorts;
   report?: (line: string) => void;
 }): RunnerSocket {
   const { settings, ports } = deps;
@@ -160,8 +198,34 @@ export function createRunnerSocket(deps: {
     if (connection.closed || connection.socket?.readyState !== 1) {
       throw new Error("the runner's socket is not open");
     }
-    connection.socket.send(JSON.stringify(message));
+    // A frame past the cap would close the runner's socket, and a hello would bring the same
+    // message back: never send one.
+    const json = JSON.stringify(message);
+    if (Buffer.byteLength(json, 'utf8') > SOCKET_FRAME_MAX_BYTES) {
+      throw new FrameTooLarge(message.type);
+    }
+    connection.socket.send(json);
   }
+
+  /**
+   * Sends `message` if it can: true when it went out. A closed socket is no news (the runner's
+   * next hello is answered again); a message too large for a frame is logged, by its type alone.
+   */
+  function trySend(connection: Connection, message: CellMessage): boolean {
+    try {
+      send(connection, message);
+      return true;
+    } catch (error) {
+      if (error instanceof FrameTooLarge) report(`The cell did not send ${error.message}.`);
+      return false;
+    }
+  }
+
+  /** The socket that takes automations for `workspaceId`: the runner's, judged, and open. */
+  const automationsFor = (workspaceId: string): Connection | null =>
+    settings && workspaceId === settings.workspaceId && latest?.ready && latest.automations
+      ? latest
+      : null;
 
   function close(connection: Connection, code: number, reason: string): void {
     if (latest === connection) latest = null;
@@ -186,6 +250,7 @@ export function createRunnerSocket(deps: {
       repositories: [...message.repositories],
       harnesses: [...message.harnesses],
     };
+    connection.automations = message.automations;
     // From now on this socket is the runner's: an older one is closed, and no start goes out
     // until the sessions the hello lists are judged.
     const previous = latest;
@@ -231,6 +296,154 @@ export function createRunnerSocket(deps: {
     } catch {
       // Closed meanwhile, or unreadable: the runner's next hello is judged again.
     }
+    if (message.automations && !connection.closed) await sendPending(connection, workspaceId);
+  }
+
+  /**
+   * What a runner that runs automations is owed once its hello is judged: every GitHub event of
+   * its workspace it has not acknowledged (the last day's, the newest `HELD_EVENTS_MAX`, oldest
+   * first), then a `run.answered` for every run still waiting with an answer. It is read after the
+   * socket is ready, so an event or an answer that lands meanwhile goes out live, or here, or
+   * both: the runner keys both by their ids.
+   */
+  async function sendPending(connection: Connection, workspaceId: string) {
+    let pending: Awaited<ReturnType<typeof pendingForHello>>;
+    try {
+      pending = await pendingForHello(ports, workspaceId);
+    } catch (error) {
+      report(`The cell could not read what a runner's hello is owed: ${describe(error)}`);
+      return;
+    }
+    const { events, answers } = pending;
+    if (events.left > 0) {
+      report(
+        `The cell left ${events.left} held GitHub events of workspace ${workspaceId} for the runner unsent: older than a day, or past the newest ${HELD_EVENTS_MAX}.`,
+      );
+    }
+    for (const deliveryId of events.unreadable) {
+      report(`The cell kept GitHub delivery ${deliveryId} held: its facts no longer read.`);
+    }
+    for (const { deliveryId, facts } of events.events) {
+      if (!trySend(connection, { type: 'github.event', deliveryId, event: facts })) {
+        if (connection.closed) return;
+      }
+    }
+    for (const { run, decision, personId } of answers) {
+      if (!trySend(connection, { type: 'run.answered', run, decision, personId })) {
+        if (connection.closed) return;
+      }
+    }
+  }
+
+  /**
+   * Whether `connection` may send messages for automations now: it said hello with
+   * `automations: true`, that hello is judged, and no later socket's hello took its place. A run
+   * or an acknowledgement it sent before it closed still counts, as an update does; a request
+   * needs an open socket to be answered on.
+   */
+  function takesAutomations(connection: Connection, message: AutomationMessage): boolean {
+    if (!connection.offer || !connection.ready || connection.replaced) {
+      report(
+        `The cell dropped a runner's \`${message.type}\` from a socket that does not serve it.`,
+      );
+      return false;
+    }
+    if (!connection.automations) {
+      report(
+        `The cell dropped a runner's \`${message.type}\`: its hello said it runs no automations.`,
+      );
+      return false;
+    }
+    return true;
+  }
+
+  /** A run its runner recorded: stored, or refused with `run.refused`. */
+  async function record(
+    connection: Connection,
+    message: RunRecordMessage,
+    { workspaceId }: RunnerSocketSettings,
+  ) {
+    const refusal = await recordRunnerRun(ports.runs, workspaceId, message.run);
+    if (refusal) {
+      report(
+        `The cell refused a runner's run, with ${refusal.problems.length} problems sent back.`,
+      );
+      trySend(connection, refusal);
+    }
+  }
+
+  /** The runner dealt with a GitHub event: it is held no more. */
+  async function acknowledge(message: GitHubEventAck, { workspaceId }: RunnerSocketSettings) {
+    const answer = await acknowledgeEvent(ports.gitHubEvents, workspaceId, message.deliveryId);
+    if (answer === 'not-held') {
+      report(
+        `The cell holds no GitHub delivery ${message.deliveryId} for the runner to acknowledge.`,
+      );
+    }
+  }
+
+  /** The workspace's factories, answered on the socket that asked. */
+  async function factories(
+    connection: Connection,
+    message: FactoriesRequest,
+    { workspaceId }: RunnerSocketSettings,
+  ) {
+    const { answer, left } = await answerFactoriesRequest(ports.factories, workspaceId, message);
+    if (left.length > 0) {
+      const named = left.map((each) => `${each.factoryId} v${each.version} (${each.reason})`);
+      report(`The cell left factories out of its answer to a runner: ${named.join(', ')}.`);
+    }
+    trySend(connection, answer);
+  }
+
+  /** A GitHub token for a step, or why not, answered on the socket that asked. */
+  async function token(
+    connection: Connection,
+    message: GitHubStepTokenRequest,
+    { workspaceId }: RunnerSocketSettings,
+  ) {
+    let answer: Awaited<ReturnType<typeof issueStepToken>>;
+    try {
+      answer = await issueStepToken(ports, workspaceId, message);
+    } catch (error) {
+      // No error here holds the token: it is only ever in an answer that went well.
+      report(`The cell could not answer a runner's token request: ${describe(error)}`);
+      answer = refusedToken(message.requestId, 'The cell could not ask for a GitHub token.');
+    }
+    // The reason is the cell's own sentence; the token itself is never logged.
+    if (answer.type === 'github.token.refused') {
+      report(`The cell refused a runner a GitHub token: ${answer.reason}`);
+    }
+    trySend(connection, answer);
+  }
+
+  /**
+   * A message for automations, once the messages before it are handled. A run and an
+   * acknowledgement are written in turn, as updates are; a request is answered on its own, so a
+   * slow answer (a token waits for `cloud-global`, then GitHub) holds up no other message.
+   */
+  async function automation(
+    connection: Connection,
+    message: AutomationMessage,
+    settings: RunnerSocketSettings,
+  ) {
+    if (!takesAutomations(connection, message)) return;
+    switch (message.type) {
+      case 'run.record':
+        return record(connection, message, settings);
+      case 'github.event.ack':
+        return acknowledge(message, settings);
+      case 'factories.request':
+        void factories(connection, message, settings).catch((error) =>
+          report(`The cell could not answer a runner's factories request: ${describe(error)}`),
+        );
+        return;
+      case 'github.token.request':
+        void token(connection, message, settings).catch((error) =>
+          report(`The cell could not answer a runner's token request: ${describe(error)}`),
+        );
+        return;
+    }
   }
 
   async function update(
@@ -261,6 +474,7 @@ export function createRunnerSocket(deps: {
     const connection: Connection = {
       socket: null,
       offer: null,
+      automations: false,
       ready: false,
       replaced: false,
       closed: false,
@@ -278,20 +492,19 @@ export function createRunnerSocket(deps: {
           return;
         }
         const message = read.value;
-        if (message.type !== 'hello' && message.type !== 'session.update') {
-          // The automations' messages (CON-116): the protocol reads them, and the cell acts on
-          // none yet. Each is logged by its type alone and dropped; the socket stays open.
-          report(`The cell dropped a runner's \`${message.type}\`, which it does not act on yet.`);
-          return;
-        }
         // A handler that throws must neither stop the later messages nor leave an unhandled
         // rejection (which ends the process): log the reason alone, never a body.
         queue = queue
-          .then(() =>
-            message.type === 'hello'
-              ? hello(connection, message, settings)
-              : update(connection, message, settings),
-          )
+          .then(() => {
+            switch (message.type) {
+              case 'hello':
+                return hello(connection, message, settings);
+              case 'session.update':
+                return update(connection, message, settings);
+              default:
+                return automation(connection, message, settings);
+            }
+          })
           .catch((error) => {
             try {
               report(`The cell could not handle a runner's message: ${describe(error)}`);
@@ -352,6 +565,18 @@ export function createRunnerSocket(deps: {
           const connection = readyFor(runnerId);
           if (!connection) throw new Error('no such runner is connected');
           send(connection, { type: 'session.stop', sessionId });
+        },
+        handEvent(workspaceId, { deliveryId, facts }) {
+          const connection = automationsFor(workspaceId);
+          return connection !== null
+            ? trySend(connection, { type: 'github.event', deliveryId, event: facts })
+            : false;
+        },
+        passAnswer(workspaceId, { run, decision, personId }) {
+          const connection = automationsFor(workspaceId);
+          return connection !== null
+            ? trySend(connection, { type: 'run.answered', run, decision, personId })
+            : false;
         },
       }
     : noRunner;

@@ -729,6 +729,18 @@ export const RunItem = z
     kind: z.enum(ITEM_KINDS).nullable(),
     repo: z.string().nullable().openapi({ description: '`owner/name`, when known.' }),
     number: z.number().int().nullable(),
+    headSha: z
+      .string()
+      .nullable()
+      .openapi({
+        description:
+          "A pull request's head commit when the run was recorded, the commit the run reads: 40 " +
+          'lowercase hex. Null for anything else.',
+      }),
+    baseRef: z
+      .string()
+      .nullable()
+      .openapi({ description: "A pull request's base branch. Null for anything else." }),
   })
   .openapi('RunItem', { description: 'The pull request or issue a run is about.' });
 

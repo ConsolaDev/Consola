@@ -8,6 +8,7 @@ import type {
   DeliveryCheck,
   DeliveryVerifier,
   GitHubEventStore,
+  RunnerChannel,
   WorkspaceCopies,
 } from './ports.js';
 import { receiveGitHubEvent } from './receiveGitHubEvent.js';
@@ -44,6 +45,8 @@ const signedAsSent: DeliveryVerifier = {
 
 const answering = (check: DeliveryCheck): DeliveryVerifier => ({ verify: async () => check });
 
+const HEAD = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
+
 /** Acme (EU) opening a pull request in the `sprocket` organisation's repository. */
 const opened = (overrides: Partial<GitHubEventMessage> = {}): GitHubEventMessage => ({
   workspaceId: 'acme',
@@ -54,11 +57,50 @@ const opened = (overrides: Partial<GitHubEventMessage> = {}): GitHubEventMessage
   payload: {
     action: 'opened',
     number: 7,
-    pull_request: { title: 'Price the catalog in euros' },
-    repository: { full_name: 'sprocket/catalog-portal' },
+    pull_request: {
+      number: 7,
+      html_url: 'https://github.com/sprocket/catalog-portal/pull/7',
+      title: 'Price the catalog in euros',
+      user: { login: 'dana-sprocket' },
+      draft: false,
+      head: { sha: HEAD, ref: 'euro-prices', repo: { id: 410 } },
+      base: { ref: 'main', repo: { id: 410 } },
+    },
+    repository: { id: 410, full_name: 'sprocket/catalog-portal' },
     installation: { id: 41 },
   },
   ...overrides,
+});
+
+/** The facts a runner is handed of `opened()`. */
+const FACTS = {
+  name: 'pull_request',
+  action: 'opened',
+  repository: 'sprocket/catalog-portal',
+  number: 7,
+  url: 'https://github.com/sprocket/catalog-portal/pull/7',
+  title: 'Price the catalog in euros',
+  author: 'dana-sprocket',
+  draft: false,
+  headSha: HEAD,
+  headRef: 'euro-prices',
+  baseRef: 'main',
+  fork: false,
+} as const;
+
+/** The workspace's runner, as the use case reaches it: what it was handed, and whether it took it. */
+let handed: { workspaceId: string; deliveryId: string }[] = [];
+let runnerTakes = true;
+const runners: Pick<RunnerChannel, 'handEvent'> = {
+  handEvent: (workspaceId, event) => {
+    if (runnerTakes) handed.push({ workspaceId, deliveryId: event.deliveryId });
+    return runnerTakes;
+  },
+};
+
+beforeEach(() => {
+  handed = [];
+  runnerTakes = true;
 });
 
 /** The cell holds Acme: its `workspace.created` is applied. */
@@ -75,7 +117,11 @@ async function holdAcme() {
 
 /** Delivers `value` as JSON to the eu cell, signed as sent. */
 const deliver = (value: unknown, verifier: DeliveryVerifier = signedAsSent) =>
-  receiveGitHubEvent({ events: verifier, gitHubEvents: events }, 'eu', JSON.stringify(value));
+  receiveGitHubEvent(
+    { events: verifier, gitHubEvents: events, runners },
+    'eu',
+    JSON.stringify(value),
+  );
 
 const recorded = () =>
   db
@@ -87,7 +133,12 @@ describe('receiveGitHubEvent', () => {
   it('records an event for a workspace the cell holds, its payload as GitHub sent it', async () => {
     await holdAcme();
     const event = opened();
-    expect(await deliver(event)).toEqual({ kind: 'recorded', event, now: true });
+    expect(await deliver(event)).toEqual({
+      kind: 'recorded',
+      event,
+      now: true,
+      runner: { kind: 'handed' },
+    });
 
     const rows = await recorded();
     expect(rows).toEqual([
@@ -98,21 +149,87 @@ describe('receiveGitHubEvent', () => {
         installationId: 41,
         payload: JSON.stringify(event.payload),
         receivedAt: expect.any(Date),
+        repositoryId: 410,
+        repository: 'sprocket/catalog-portal',
+        runnerState: 'held',
+        runnerFacts: FACTS,
       },
     ]);
   });
 
-  it('records a delivery once, however often it arrives', async () => {
+  it("hands a pull request's event to the workspace's runner, as its facts, held until it acknowledges", async () => {
+    await holdAcme();
+    await deliver(opened());
+    expect(handed).toEqual([{ workspaceId: 'acme', deliveryId: opened().deliveryId }]);
+    // Handed, and still held until the runner says it dealt with it.
+    expect((await events.held('acme', 0, 10)).events).toEqual([
+      { deliveryId: opened().deliveryId, facts: FACTS },
+    ]);
+  });
+
+  it('records a delivery once, however often it arrives, and hands it once', async () => {
     await holdAcme();
     expect(await deliver(opened())).toMatchObject({ kind: 'recorded', now: true });
     const again = await deliver(
       opened({ payload: { action: 'closed', installation: { id: 41 } } }),
     );
-    expect(again).toMatchObject({ kind: 'recorded', now: false });
+    expect(again).toEqual({
+      kind: 'recorded',
+      event: expect.anything(),
+      now: false,
+      runner: null,
+    });
 
     const rows = await recorded();
     expect(rows).toHaveLength(1);
     expect(JSON.parse(rows[0]?.payload ?? '')).toMatchObject({ action: 'opened' });
+    expect(handed).toHaveLength(1);
+  });
+
+  it('holds an event no runner takes now, for its next hello', async () => {
+    await holdAcme();
+    runnerTakes = false;
+    expect(await deliver(opened())).toMatchObject({ runner: { kind: 'held' } });
+    expect((await events.held('acme', 0, 10)).events).toHaveLength(1);
+  });
+
+  it('records a pull request event that does not read into facts as not for runners, never handed', async () => {
+    await holdAcme();
+    const broken = opened({
+      payload: { action: 'opened', pull_request: { number: 7 }, installation: { id: 41 } },
+    });
+    expect(await deliver(broken)).toEqual({
+      kind: 'recorded',
+      event: broken,
+      now: true,
+      runner: { kind: 'not-for-runners', reason: '`repository` does not name a repository' },
+    });
+    expect(handed).toEqual([]);
+    expect((await recorded())[0]).toMatchObject({
+      runnerState: 'not-for-runners',
+      runnerFacts: null,
+    });
+    expect((await events.held('acme', 0, 10)).events).toEqual([]);
+  });
+
+  it('hands no other event to the runner, but keeps where it happened', async () => {
+    await holdAcme();
+    const push = opened({
+      event: 'push',
+      payload: {
+        ref: 'refs/heads/main',
+        repository: { id: 410, full_name: 'sprocket/catalog-portal' },
+        installation: { id: 41 },
+      },
+    });
+    expect(await deliver(push)).toEqual({ kind: 'recorded', event: push, now: true, runner: null });
+    expect(handed).toEqual([]);
+    expect((await recorded())[0]).toMatchObject({
+      repositoryId: 410,
+      repository: 'sprocket/catalog-portal',
+      runnerState: null,
+      runnerFacts: null,
+    });
   });
 
   it('keeps a payload whatever it holds, a NUL character included', async () => {

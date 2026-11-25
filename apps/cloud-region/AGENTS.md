@@ -40,7 +40,8 @@ region (`REGION`, `eu` or `us`) and given a database of its own, never
 The cell listens on `127.0.0.1:3101` by default, beside `cloud-global`'s 3100.
 `PORT` moves it, so two cells (`eu` and `us`) can run on one machine.
 `CLOUD_GLOBAL_URL` (default `http://127.0.0.1:3100`) is where it fetches
-`cloud-global`'s keys.
+`cloud-global`'s keys, and where it asks for a run's GitHub tokens, the one
+request it makes of `cloud-global` (below, "The runner's socket").
 
 ## Who is asking
 
@@ -180,7 +181,29 @@ and 39), which read it later.
   GitHub sent it and when the cell received it. The payload is GitHub's JSON
   as text, not `json` or `jsonb`: both refuse a `\u0000` escape, which a pull
   request's body or a comment can hold. Every event is kept for now; how long
-  is for the runners and triggers to decide.
+  is for the runners and triggers to decide. Beside it, read from the payload
+  as it is recorded (`domain/gitHubEvent.ts`): the repository it happened in
+  (`repository_id`, GitHub's id, and `repository`, its name then), which a
+  run's token is asked for by (below, "The runner's socket"), and what became
+  of it for the workspace's runner (`runner_state`, `runner_facts`). Events
+  recorded before those columns existed have none of them.
+- **Handed to the runner.** A `pull_request` event, any action, is read into
+  the protocol's `PullRequestFacts` (`pullRequestFactsOf`), strictly, since
+  the payload is its author's: the title cut to `PULL_REQUEST_TITLE_MAX`
+  (never between the halves of a pair, a NUL or a lone surrogate as U+FFFD,
+  since a run's record of it must be storable), every other string past its
+  bound refused, and the page only an `https:` address at `github.com`, of
+  the event's own repository and number. The facts are checked again with the
+  protocol's reader before they are kept. An event that reads is recorded
+  `held`, with its facts, and handed to the workspace's runner at once when
+  this delivery recorded it and a runner that runs automations is connected
+  (`RunnerChannel.handEvent`), so an event GitHub delivers twice is handed
+  once. It stays `held` until the runner sends `github.event.ack` for it
+  (then `acknowledged`), and each hello of such a runner is sent every held
+  event of its workspace again (below). One that does not read is
+  `not-for-runners`, its reason logged (a field's name, never its contents),
+  and is never handed or tried again. Every other event is kept and handed to
+  no runner in stage 1 (`runner_state` null).
 - **How a delivery is authenticated** is the outbox's way, with its own `typ`:
   a compact JWS signed with the cell token's key, checked by
   `createJoseDeliveryVerifier` built for `GITHUB_EVENT_TYPE`
@@ -364,17 +387,37 @@ changed; every other run is a top-level automation run. The rules are in
   only its page reads, is `request_text`. Times are `timestamptz(3)`, the
   runner's own, so a cursor holding one finds it again. Check constraints
   hold the domain's rules on the row as a backstop.
-- **No route writes a run.** A runner records each through the store's
-  `record` (`recordRun`), and the cell stores it only once `checkRun` finds
-  nothing wrong with it: a status, trigger or step it knows, `waitingOn`
-  exactly while `waiting`, an automation exactly for an automation run and a
-  request's facts exactly for a request, a parent only on an automation run
-  (`manual`, started by no person), an item only at an https address, times
-  it can store, and no NUL or lone surrogate anywhere (`jsonb` refuses
-  `\u0000` too). A record older than the one held (`updated_at`) changes
-  nothing (`stale`, a compare-and-set in the upsert), and a run's factory,
-  kind and parent never change (`identity-changed`). Today the tests and the
-  seed call it; the runner's connection (CON-94) will.
+- **A run on the wire is the protocol's `RunRecord`.** The cell's `RunWrite`
+  is `@consola/runner-protocol`'s `RunRecord`, and the run vocabularies
+  (`RUN_STATUSES`, `STEP_STATUSES`…) and parts (`RunItem`, `StepRecord`…) are
+  the protocol's, re-exported by `domain/run.ts`, so a run has one definition.
+  The protocol's reader checks a record's shape; `checkRun` keeps what it
+  means.
+- **No route writes a run.** The workspace's runner records each over its
+  socket (`run.record`, `recordRunnerRun`, then `recordRun` and the store's
+  `record`), for the one workspace the socket serves, never one a message
+  names; the demo seed and the tests call `recordRun` too. The cell stores a
+  record only once `checkRun` finds nothing wrong with it: a status, trigger
+  or step it knows, `waitingOn` exactly while `waiting`, an automation exactly
+  for an automation run and a request's facts exactly for a request, a parent
+  only on an automation run (`manual`, started by no person), an item only at
+  an https address, its head commit (`headSha`, 40 lowercase hex) and base
+  branch (`baseRef`) null unless it is a pull request, times it can store, and
+  no NUL or lone surrogate anywhere (`jsonb` refuses `\u0000` too). A record
+  older than the one held (`updated_at`) changes nothing (`stale`, a
+  compare-and-set in the upsert), and a run's factory, kind and parent never
+  change (`identity-changed`). A record refused for any reason but `stale` is
+  answered with `run.refused` (`refusalOf`): every problem, at most
+  `RUN_PROBLEMS_MAX`, each cut to `RUN_PROBLEM_TEXT_MAX`, so it never quotes
+  more of what the runner sent than that. A run of another workspace's
+  factory is no factory of the socket's workspace, so it is refused
+  (`factory-not-found`), never written anywhere.
+- **The record comes back whole.** `RunStore.recordOf` gives the record a
+  runner sent, as the protocol reads it (times as the cell stores them, in
+  UTC), for `run.answered` and a token's checks. The item's `headSha` and
+  `baseRef` are kept in its `jsonb` (`run_item_head_check` holds them on the
+  row); `0007_run_item_head` set both to null in the items recorded before
+  them. The HTTP answer carries them too.
 - **Title and phase are stored**, so the list searches, filters and counts
   by them. The title (`titleOf`) is a request's item's title, else its
   text's first line; an automation run's item's title, else its
@@ -445,9 +488,14 @@ changed; every other run is a top-level automation run. The rules are in
   `version_moved`), then the insert (409 `already_answered`: the first
   answer for a version stands). The answer is a row of `run_approval`, keyed
   by run and version, and the cell **never changes the run** for it: the
-  runner is the authority on a run, and acts on the answer once runners
-  exist (epic 21, CON-94). A run shows its approval while it waits and once
-  its version is answered.
+  runner is the authority on a run, and acts on the answer. Once it is
+  stored, the cell passes it on to the workspace's runner (`run.answered`:
+  the run as stored, `approved` or `rejected` for a dismissal
+  (`RUN_DECISION_OF`), and the person's id) if one that runs automations is
+  connected; nothing is lost if none is, or the run cannot be read just then,
+  since each hello is told every run still waiting with an answer for its
+  version (below). A run shows its approval while it waits and once its
+  version is answered.
 - **The demo seed** (`pnpm --filter @consola/cloud-region db:seed`,
   `src/seed.ts`, then `seedDemoRuns`) writes demo runs for every workspace
   the cell holds: a demo factory per team (`Demo · <team>`, each automation
@@ -525,11 +573,15 @@ The service is built in rings, and imports point inward only.
   `teams.ts`, the factories' in `factories.ts`, the runs' in `runs.ts`,
   `seedDemoRuns`, the cloud sessions' `sessionOptions`, `startSession`,
   `listSessions`, `getSession`, `stopSession`, `applyRunnerUpdate` and
-  `issuePass`, and a runner's `runnerConnected`, in `runners.ts`) and, in
-  `ports.ts`, the stores, probes, the `TokenVerifier`, the
-  `DeliveryVerifier`, the `WorkspaceCopies`, the `GitHubEventStore`, the
-  `TeamStore`, the `FactoryStore`, the `RunStore`, the `CloudSessionStore`,
-  the `RunnerChannel`, the `PassSigner`, `Ids` and the `Clock` they need.
+  `issuePass`, a runner's `runnerConnected`, in `runners.ts`, and what a
+  runner's messages for automations do, in `runnerAutomations.ts`:
+  `recordRunnerRun`, `acknowledgeEvent`, `answerFactoriesRequest`,
+  `pendingForHello` and `issueStepToken`) and, in `ports.ts`, the stores,
+  probes, the `TokenVerifier`, the `DeliveryVerifier`, the `WorkspaceCopies`,
+  the `GitHubEventStore`, the `TeamStore`, the `FactoryStore`, the
+  `RunStore`, the `CloudSessionStore`, the `RunnerChannel`, the `PassSigner`,
+  the `GitHubTokenRequestSigner` and `GitHubTokenMinter`, `Ids` and the
+  `Clock` they need.
   `signedPayload.ts` reads a signed delivery's JSON for both delivery use
   cases. A use case is a plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
@@ -544,15 +596,22 @@ The service is built in rings, and imports point inward only.
     maps its answer to a status and a body;
   - `token/` is jose: the `TokenVerifier` and where its keys come from
     (`cellTokens.ts`), the `DeliveryVerifier`, on the same keys, for the
-    outbox and for GitHub's events (`outboxDeliveries.ts`), and the
+    outbox and for GitHub's events (`outboxDeliveries.ts`), the
     `PassSigner`, on the cell's own pass key, with the public half it derives
-    (`passSigner.ts`);
+    (`passSigner.ts`), and the `GitHubTokenRequestSigner`, on the cell's own
+    key for `cloud-global` (`gitHubTokenRequests.ts`);
+  - `cloudGlobal/` is `cloud-global`'s API as the cell calls it: the
+    `GitHubTokenMinter` (`gitHubTokens.ts`), an `openapi-fetch` client typed
+    by the types generated from `cloud-global`'s `openapi.json`
+    (`apiContract.ts`, below, "Generated files"), the one place the cell
+    reaches `cloud-global` but for its keys;
   - `clock/` is the machine's clock, the `Clock`;
   - `runner/` is the `RunnerChannel`, how the cell reaches a workspace's
     runner: the runner's socket, a route of its own on `@hono/node-ws`
-    (`runnerSocket.ts`), which calls `runnerConnected` and
-    `applyRunnerUpdate` itself. With no runner configured, its channel is
-    `noRunner`, which answers that none is connected.
+    (`runnerSocket.ts`), which calls `runnerConnected`,
+    `applyRunnerUpdate` and the automations' use cases itself. With no runner
+    configured, its channel is `noRunner`, which answers that none is
+    connected and hands nothing over.
 - The composition ring wires them together. `src/compose.ts` is the one place
   adapters are built and handed the ports they need (`composeCell`), and the
   place startup steps go. Adapters call use cases themselves; what they never
@@ -583,6 +642,8 @@ The service is built in rings, and imports point inward only.
     (`passSigner.ts`) included, and never imports `hono` or a database
     library;
   - `adapters/clock` imports no package;
+  - `adapters/cloudGlobal` may import `openapi-fetch`, and never a database
+    library, `hono` or `jose`: what it sends is signed in `adapters/token`;
   - `adapters/runner` may import `hono` and `@hono/*` (`@hono/node-ws`), since
     the runner's socket is a route, and never a database library or `jose`:
     it is handed the pass key's public half as a string, and never signs.
@@ -725,11 +786,10 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   `maxPayload`); a larger one closes the socket with 1009
   before it is read. A frame that is not text, not JSON or not a message
   `readRunnerMessage` reads is logged with the reader's reason alone, never
-  the frame, and dropped, and the socket stays open. So is a message for
-  runs (`factories.request`, `run.record`, `github.event.ack`,
-  `github.token.request`), which the protocol reads and the cell does not act
-  on yet, logged by its type alone; `hello`'s `automations` is read and
-  ignored for now.
+  the frame, and dropped, and the socket stays open. The cell never sends a
+  frame past `SOCKET_FRAME_MAX_BYTES` either (`send` measures it): one would
+  close the runner's socket, and its hello would bring the same message back.
+  It logs what it did not send, by its type alone.
 - **One runner per workspace.** The runner serves `RUNNER_WORKSPACE_ID`,
   whatever its `hello` calls it. Every socket's messages are handled one at a
   time, in one queue, in the order the cell read them, whichever socket they
@@ -760,7 +820,79 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
 - **The channel.** `startSession` sends `session.start` with the pass key's
   public half, and `stopSession` a `session.stop`, only on the open socket of
   the runner named, for its workspace; otherwise each rejects, and the use
-  cases already answer that.
+  cases already answer that. `handEvent` (`github.event`) and `passAnswer`
+  (`run.answered`) send only to the workspace's runner whose judged hello said
+  `automations: true`, and answer whether it went out, never throwing: what
+  did not go out goes with the runner's next hello.
+
+## The runner's automations
+
+A runner whose `hello` says `automations: true` runs the workspace's
+automations (CON-116, stage 1): it matches GitHub's events against the
+factories' files, records each run, waits for a person's approval, runs the
+steps in sandboxes and records every change. The cell stays the store and the
+gate, and decides nothing about a run (`application/runnerAutomations.ts`).
+Every message for automations is taken only from such a runner, once its
+hello is judged and no later socket's took its place; anything else is logged
+by its type and dropped. They go through the socket's one queue, after the
+messages before them: a run and an acknowledgement are written in turn, as
+updates are, and still count when their socket closed after sending them; a
+request is answered on its own once its turn comes (`factories.request` reads,
+`github.token.request` waits on `cloud-global` and GitHub), so a slow answer
+holds up no other message.
+
+- **On hello** (`pendingForHello`), once the hello is judged and the socket
+  ready, so an event or answer that lands meanwhile goes out live, here, or
+  both (the runner keys both by their ids): every `held` GitHub event of the
+  workspace received in the last `HELD_EVENTS_WINDOW_SECONDS` (a day), the
+  newest `HELD_EVENTS_MAX` (200) sent oldest first, those left out counted in
+  one log line and left held; then a `run.answered` for every run that waits
+  for approval with an answer for its version (`answeredWaiting`, at most
+  `ANSWERS_ON_HELLO_MAX`).
+- **`github.event.ack`** marks the workspace's held event `acknowledged`,
+  a compare-and-set from `held`; one it does not hold as held is logged.
+- **`run.record`** is recorded for the socket's workspace, or answered with
+  `run.refused` (above, "Runs").
+- **`factories.request`** is answered with `factories`: every factory of the
+  workspace at its latest saved version with its files, or the one factory
+  and version `only` names (none for one it does not hold). A frame is the
+  real limit: whole factories, in name order, as many as fit
+  `SOCKET_FRAME_MAX_BYTES` and the protocol's bounds (`factoriesAnswer`), the
+  rest named in a log line. A factory is never sent in part.
+- **`github.token.request`** (`issueStepToken`) is answered with
+  `github.token` or `github.token.refused`, a sentence for the run's page.
+  The cell checks, in order: the run is the workspace's and `running`; the
+  repository is the run's item's, in any case; what is asked beyond the run's
+  checkout (`contents: read`, `metadata: read`, always allowed) is declared,
+  at that level or above, in the `permissions:` of the step named, a `run:`
+  step of the run's automation at its factory version (factory-spec parses
+  the stored files); one purpose grants exactly what is asked, give or take
+  the checkout (`purposeFor`, `domain/stepToken.ts`: `run-read` for contents
+  read, `review-run` for pull requests write); the workspace recorded an event
+  from the repository, whose installation and GitHub id (the newest) the
+  request names, never the runner's word; and the cell has a key. Then it
+  signs `cloud-contract`'s request (`gitHubTokenRequest`) with
+  `CELL_PRIVATE_KEY` and asks `cloud-global` (`POST /api/github/tokens`),
+  and hands the token on only when `cloud-global` says it carries exactly the
+  purpose's permissions, plus metadata read, on exactly that repository. Each
+  of `cloud-global`'s refusals has its sentence (`MINT_REFUSALS`). The token
+  is a secret: it is in that one answer and nowhere else, never logged, stored
+  or in a refusal; the socket's tests check no log line holds it.
+- **`CELL_PRIVATE_KEY`** is optional: the cell's own Ed25519 key, never the
+  pass key (`config.ts` refuses the same key for both) nor `cloud-global`'s.
+  Its public half is `cloud-global`'s `CELL_PUBLIC_KEY_<REGION>`
+  (`cell-key:generate` prints both). `createGitHubTokenRequestSigner` refuses
+  one that is not an Ed25519 private key, as a `ConfigError`, when
+  `composeCell` imports it; `describeStartupFailure` hides its `d`. Without
+  it, every token request is refused in words.
+- **The client of `cloud-global`** (`adapters/cloudGlobal/gitHubTokens.ts`)
+  follows no redirect, gives up after `MINT_TIMEOUT_MS`, reads every answer
+  as `cloud-global`'s contract declares it, and takes anything else (a failed
+  connection, a server's failure, a body that does not read) as
+  `unavailable`. It never throws.
+- **A runner that restarted** does not yet fail the runs it no longer holds:
+  `hello` lists no runs, so the cell cannot tell a restart from a reconnect
+  (CON-126).
 
 ## Adding a feature
 
@@ -817,9 +949,20 @@ which give the workspaces already held their first team
 `0002_factories` adds the factories' tables, all generated,
 `0003_github_event` GitHub's events, `0004_runs` the runs,
 `0005_run_approval` the answers to runs waiting for approval, and
-`0006_cloud_session` the cloud sessions. `cloud_session` has no foreign key
+`0006_cloud_session` the cloud sessions, `0007_run_item_head` a run's item's
+head commit and base branch (its first statement, written by hand, sets both
+to null in every item recorded before), and `0008_github_event_runner` what an
+event is for the runner and the repository it happened in. `cloud_session`
+has no foreign key
 to `workspace`, so a session does not wait for the outbox.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.
 
 `openapi.json` is generated too (above, "The API's contract").
+
+`src/adapters/cloudGlobal/apiContract.ts` is `cloud-global`'s API as types,
+generated from `apps/cloud-global/openapi.json`, read as a file, by
+`pnpm --filter @consola/cloud-region api:generate` (`apiContract.test.ts`
+fails while it is stale). Never edit it by hand; Biome leaves it alone. CI
+checks the cell with every change to `cloud-global`
+(`.github/scripts/ci-scope.mjs`).

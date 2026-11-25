@@ -8,7 +8,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
-import type { DeliveryVerifier, GitHubEventStore } from '../../application/ports.js';
+import type { DeliveryVerifier, GitHubEventStore, RunnerChannel } from '../../application/ports.js';
 import {
   type GitHubEventAnswer,
   receiveGitHubEvent,
@@ -27,6 +27,9 @@ const about = (event: GitHubEventMessage) =>
 function lineFor(answer: GitHubEventAnswer, region: Region): string | null {
   switch (answer.kind) {
     case 'recorded':
+      return answer.runner?.kind === 'not-for-runners'
+        ? `The cell recorded ${about(answer.event)} as not for runners: ${answer.runner.reason}.`
+        : null;
     case 'keys-unavailable': // The verifier has said why.
       return null;
     case 'unsigned':
@@ -58,9 +61,10 @@ export function gitHubEventRoutes(deps: {
   region: Region;
   events: DeliveryVerifier;
   gitHubEvents: GitHubEventStore;
+  runners: Pick<RunnerChannel, 'handEvent'>;
   report: (line: string) => void;
 }): OpenAPIHono {
-  const { region, events, gitHubEvents, report } = deps;
+  const { region, events, gitHubEvents, runners, report } = deps;
   const refuseUnreadable = (c: Context, why: string) => {
     report(`The cell refused a GitHub event: ${why}.`);
     return c.json({ error: 'unreadable' }, GITHUB_EVENT_ANSWER.unreadable);
@@ -83,7 +87,11 @@ export function gitHubEventRoutes(deps: {
   routes.openapi(
     { ...postGitHubEventDelivery, middleware: [mediaType, size] as const },
     async (c) => {
-      const answer = await receiveGitHubEvent({ events, gitHubEvents }, region, await c.req.text());
+      const answer = await receiveGitHubEvent(
+        { events, gitHubEvents, runners },
+        region,
+        await c.req.text(),
+      );
       const line = lineFor(answer, region);
       if (line !== null) report(line);
 

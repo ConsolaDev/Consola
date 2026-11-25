@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net';
 import { type ServerType, serve } from '@hono/node-server';
 import {
   type CellMessage,
+  type GitHubEventFacts,
   PASS_MAX_LIFETIME_SECONDS,
   type PassClaims,
   passClaims,
@@ -12,12 +13,28 @@ import {
 } from '@consola/runner-protocol';
 import { Hono } from 'hono';
 import { compactVerify, importSPKI } from 'jose';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
-import type { CloudSessionStore } from '../../application/ports.js';
+import type {
+  CloudSessionStore,
+  FactoryStore,
+  GitHubEventStore,
+  GitHubTokenAsking,
+  RunStore,
+} from '../../application/ports.js';
 import type { CloudSession, CloudSessionStatus } from '../../domain/cloudSession.js';
+import { recordRun } from '../../application/runs.js';
+import { handOverOf } from '../../domain/gitHubEvent.js';
+import { NO_STEP_DETAIL, type RunWrite } from '../../domain/run.js';
 import { type Database, migrateDatabase, openDatabase } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
+import { createFactoryStore } from '../persistence/factories.js';
+import { createGitHubEventStore } from '../persistence/gitHubEvents.js';
+import { createRunStore } from '../persistence/runs.js';
+import { gitHubEvents as eventTable } from '../persistence/tables.js';
+import { createTeamStore } from '../persistence/teams.js';
+import { createWorkspaceCopies } from '../persistence/workspaceCopies.js';
 import { createPassSigner, type PassKey } from '../token/passSigner.js';
 import {
   createRunnerSocket,
@@ -34,9 +51,19 @@ const waitFor = <T>(callback: () => T | Promise<T>) =>
 /** A stand-in for the runner's shared secret, never a real one. */
 const SECRET = 'sprocket-runner-secret-0123456789abcdef';
 
+/** A stand-in for an installation token, never a real one. */
+const TOKEN = 'ghs_sprocketStandInToken0123456789abcdef';
+
 let db: Database;
 let closeDatabase: () => Promise<void>;
 let sessions: CloudSessionStore;
+let gitHubEvents: GitHubEventStore;
+let runs: RunStore;
+let factories: FactoryStore;
+/** How the cell asks cloud-global for a token: a stand-in a test sets, or none. */
+let gitHubTokens: GitHubTokenAsking | null;
+/** The cell's clock, in whole seconds. */
+let nowSeconds: number;
 let passKey: PassKey;
 let privateD: string;
 let runner: RunnerSocket;
@@ -73,7 +100,11 @@ function build(settings: 'set' | 'unset' = 'set'): RunnerSocket {
           return found;
         },
       },
-      clock: { nowSeconds: () => 2000 },
+      clock: { nowSeconds: () => nowSeconds },
+      gitHubEvents,
+      runs,
+      factories,
+      gitHubTokens,
     },
     report: (line) => {
       reportHook?.(line);
@@ -86,6 +117,11 @@ beforeEach(async () => {
   ({ db, close: closeDatabase } = openDatabase('pglite:memory'));
   await migrateDatabase(db);
   sessions = createCloudSessionStore(db);
+  gitHubEvents = createGitHubEventStore(db);
+  runs = createRunStore(db);
+  factories = createFactoryStore(db);
+  gitHubTokens = null;
+  nowSeconds = 2000;
   const jwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
   privateD = String(jwk.d);
   passKey = await createPassSigner(jwk as Record<string, unknown>);
@@ -105,6 +141,7 @@ afterEach(async () => {
   const logged = lines.join('\n');
   expect(logged).not.toContain(SECRET);
   expect(logged).not.toContain(privateD);
+  expect(logged).not.toContain(TOKEN);
 });
 
 /** A runner's socket, as the runner opens it, and what the cell sends it. */
@@ -451,11 +488,11 @@ describe('the runner socket', () => {
       expect(connected.socket.readyState).toBe(WebSocket.OPEN);
     });
 
-    it('for runs, which the cell does not act on yet, is logged by its type and dropped, keeping the socket', async () => {
+    it('for runs, from a runner that runs no automations, is logged by its type and dropped, keeping the socket', async () => {
       await holds('s-1', 'starting');
-      const connected = await connect({ runningSessionIds: ['s-1'], automations: true });
-      connected.send({ type: 'factories.request', requestId: 'what-the-frame-held' });
-      connected.send({ type: 'github.event.ack', deliveryId: 'what-the-frame-held' });
+      const connected = await connect({ runningSessionIds: ['s-1'], automations: false });
+      connected.send({ type: 'factories.request', requestId: 'req-1' });
+      connected.send({ type: 'github.event.ack', deliveryId: 'd-1' });
       connected.send({
         type: 'github.token.request',
         requestId: 'req-1',
@@ -465,10 +502,11 @@ describe('the runner socket', () => {
         permissions: { contents: 'read' },
       });
       await waitFor(() => expect(lines).toHaveLength(3));
-      expect(lines[0]).toMatch(/`factories.request`, which it does not act on yet/);
+      expect(lines[0]).toMatch(/`factories.request`: its hello said it runs no automations/);
       expect(lines[1]).toMatch(/`github.event.ack`/);
       expect(lines[2]).toMatch(/`github.token.request`/);
       expect(lines.join('\n')).not.toContain('what-the-frame-held');
+      expect(connected.received).toEqual([]);
 
       // Still open: the next update applies.
       connected.send({ type: 'session.update', sessionId: 's-1', status: 'running' });
@@ -630,6 +668,353 @@ describe('the runner socket', () => {
       } finally {
         process.off('unhandledRejection', note);
       }
+    });
+  });
+
+  describe('automations', () => {
+    const HEAD = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
+    const REVIEW = `on: { github: pull_request.opened }
+steps:
+  - id: review
+    prompt: Review it.
+  - id: post
+    run: gh api "repos/$REPO/pulls/$NUMBER/reviews" -f event=COMMENT
+    env: { REPO: "{{item.repo}}", NUMBER: "{{item.number}}" }
+    permissions: { pull_requests: write }
+`;
+    const FILES = [
+      { path: 'factory.yml', content: 'version: 1\n' },
+      { path: 'automations/review-pr.yaml', content: REVIEW },
+    ];
+
+    /** Opens `workspaceId` in the copy, with a factory whose version 2 holds the review files. */
+    async function workspaceWithFactory(workspaceId: string) {
+      await createWorkspaceCopies(db).applyAfter({
+        workspaceId,
+        sequence: 1,
+        after: null,
+        change: { kind: 'open-workspace' },
+      });
+      const [first] = await createTeamStore(db).list(workspaceId);
+      const factory = await factories.create(workspaceId, {
+        name: 'Reviews',
+        teamId: first?.id ?? '',
+        personId: 'person-dana',
+      });
+      if (typeof factory === 'string') throw new Error(factory);
+      await factories.save(workspaceId, factory.id, {
+        baseVersion: 1,
+        files: FILES,
+        personId: 'person-dana',
+      });
+      return factory;
+    }
+
+    const T = '2026-11-25T10:00:00.000Z';
+
+    const reviewRun = (factoryId: string, over: Partial<RunWrite> = {}): RunWrite => ({
+      id: 'run-1',
+      factoryId,
+      factoryVersion: 2,
+      parent: null,
+      automation: 'review-pr',
+      status: 'running',
+      waitingOn: null,
+      trigger: 'event',
+      triggerDetail: 'pull_request.opened',
+      startedBy: null,
+      item: {
+        url: 'https://github.com/sprocket/catalog-portal/pull/7',
+        title: 'Price the catalog in euros',
+        kind: 'pr',
+        repo: 'sprocket/catalog-portal',
+        number: 7,
+        headSha: HEAD,
+        baseRef: 'main',
+      },
+      runner: 'cloud',
+      steps: [
+        {
+          id: 'post',
+          kind: 'run',
+          status: 'running',
+          attempt: 1,
+          agent: null,
+          model: null,
+          startedAt: T,
+          finishedAt: null,
+          costUsd: null,
+          error: null,
+          skipped: null,
+          ...NO_STEP_DETAIL,
+        },
+      ],
+      request: null,
+      summary: null,
+      error: null,
+      costUsd: null,
+      createdAt: T,
+      startedAt: T,
+      finishedAt: null,
+      updatedAt: T,
+      ...over,
+    });
+
+    const payload = (number = 7) => ({
+      action: 'opened',
+      pull_request: {
+        number,
+        html_url: `https://github.com/sprocket/catalog-portal/pull/${number}`,
+        title: 'Price the catalog in euros',
+        user: { login: 'dana-sprocket' },
+        draft: false,
+        head: { sha: HEAD, ref: 'euro-prices', repo: { id: 410 } },
+        base: { ref: 'main', repo: { id: 410 } },
+      },
+      repository: { id: 410, full_name: 'sprocket/catalog-portal' },
+      installation: { id: 41 },
+    });
+
+    const factsOf = (number = 7): GitHubEventFacts => {
+      const handOver = handOverOf('pull_request', payload(number));
+      if (handOver?.kind !== 'held') throw new Error('the payload does not read');
+      return handOver.facts;
+    };
+
+    /** Records a pull request event held for the runner, received `secondsAgo` before now. */
+    async function heldEvent(deliveryId: string, secondsAgo: number, number = 7) {
+      await gitHubEvents.record(
+        {
+          workspaceId: 'acme',
+          region: 'eu',
+          deliveryId,
+          event: 'pull_request',
+          installationId: 41,
+          payload: payload(number),
+        },
+        {
+          handOver: handOverOf('pull_request', payload(number)),
+          repository: { id: 410, fullName: 'sprocket/catalog-portal' },
+        },
+      );
+      await db
+        .update(eventTable)
+        .set({ receivedAt: new Date((nowSeconds - secondsAgo) * 1000) })
+        .where(eq(eventTable.deliveryId, deliveryId));
+    }
+
+    const ofType = <Type extends CellMessage['type']>(received: CellMessage[], type: Type) =>
+      received.filter(
+        (message): message is Extract<CellMessage, { type: Type }> => message.type === type,
+      );
+
+    beforeEach(() => {
+      nowSeconds = Math.floor(Date.now() / 1000);
+    });
+
+    it("records a run for the socket's workspace, and refuses one of another workspace's factory", async () => {
+      const factory = await workspaceWithFactory('acme');
+      const theirs = await workspaceWithFactory('globex');
+      const connected = await connect({ automations: true });
+
+      connected.send({ type: 'run.record', run: reviewRun(factory.id) });
+      await waitFor(async () => expect(await runs.recordOf('acme', 'run-1')).not.toBeNull());
+
+      // A run names a factory, never a workspace: the socket's alone is written.
+      connected.send({ type: 'run.record', run: reviewRun(theirs.id, { id: 'run-2' }) });
+      await waitFor(() => expect(ofType(connected.received, 'run.refused')).toHaveLength(1));
+      expect(ofType(connected.received, 'run.refused')[0]).toMatchObject({
+        runId: 'run-2',
+        problems: [{ field: 'factoryVersion' }],
+      });
+      expect(await runs.recordOf('acme', 'run-2')).toBeNull();
+      expect(await runs.recordOf('globex', 'run-2')).toBeNull();
+    });
+
+    it('answers a record its check refuses with run.refused, within bounds, the socket open', async () => {
+      const factory = await workspaceWithFactory('acme');
+      const connected = await connect({ automations: true });
+      const steps = Array.from({ length: 80 }, (_, i) => ({
+        ...reviewRun(factory.id).steps[0],
+        id: `s${i}`,
+        attempt: 0,
+      }));
+      connected.send({
+        type: 'run.record',
+        run: reviewRun(factory.id, { automation: 'a'.repeat(5000), steps }),
+      });
+      await waitFor(() => expect(ofType(connected.received, 'run.refused')).toHaveLength(1));
+      const [refusal] = ofType(connected.received, 'run.refused');
+      expect(refusal?.problems).toHaveLength(64);
+      for (const problem of refusal?.problems ?? []) {
+        expect(problem.message.length).toBeLessThanOrEqual(1024);
+      }
+      expect(await runs.recordOf('acme', 'run-1')).toBeNull();
+      expect(lines.join('\n')).not.toContain('a'.repeat(100));
+      expect(connected.socket.readyState).toBe(WebSocket.OPEN);
+    });
+
+    it('sends every held event again on hello, oldest first, and not one after its acknowledgement', async () => {
+      await workspaceWithFactory('acme');
+      await heldEvent('d-old', 2 * 24 * 60 * 60, 5);
+      await heldEvent('d-1', 60, 7);
+      await heldEvent('d-2', 30, 8);
+
+      const first = await connect({ automations: true });
+      await waitFor(() => expect(ofType(first.received, 'github.event')).toHaveLength(2));
+      expect(ofType(first.received, 'github.event')).toEqual([
+        { type: 'github.event', deliveryId: 'd-1', event: factsOf(7) },
+        { type: 'github.event', deliveryId: 'd-2', event: factsOf(8) },
+      ]);
+      expect(lines.join('\n')).toMatch(/left 1 held GitHub events/);
+
+      first.send({ type: 'github.event.ack', deliveryId: 'd-1' });
+      await waitFor(async () =>
+        expect((await gitHubEvents.held('acme', 0, 10)).events.map((e) => e.deliveryId)).toEqual([
+          'd-old',
+          'd-2',
+        ]),
+      );
+
+      const second = await connect({ runnerId: 'runner-1', automations: true });
+      await waitFor(() => expect(ofType(second.received, 'github.event')).toHaveLength(1));
+      expect(ofType(second.received, 'github.event')[0]?.deliveryId).toBe('d-2');
+    });
+
+    it('hands an event live to a runner that runs automations, and to no other', async () => {
+      await workspaceWithFactory('acme');
+      const event = { deliveryId: 'd-live', facts: factsOf() };
+      expect(runner.channel.handEvent('acme', event)).toBe(false);
+
+      const quiet = await connect({ automations: false });
+      expect(runner.channel.handEvent('acme', event)).toBe(false);
+      expect(runner.channel.handEvent('globex', event)).toBe(false);
+      quiet.socket.close();
+      await quiet.closed;
+
+      const connected = await connect({ automations: true });
+      expect(runner.channel.handEvent('acme', event)).toBe(true);
+      expect(runner.channel.handEvent('globex', event)).toBe(false);
+      await waitFor(() =>
+        expect(ofType(connected.received, 'github.event')).toEqual([
+          { type: 'github.event', deliveryId: 'd-live', event: factsOf() },
+        ]),
+      );
+    });
+
+    it('answers factories.request with the workspace factories, and one version when asked', async () => {
+      const factory = await workspaceWithFactory('acme');
+      await workspaceWithFactory('globex');
+      const connected = await connect({ automations: true });
+      connected.send({ type: 'factories.request', requestId: 'all' });
+      connected.send({
+        type: 'factories.request',
+        requestId: 'one',
+        only: { factoryId: factory.id, version: 1 },
+      });
+      await waitFor(() => expect(ofType(connected.received, 'factories')).toHaveLength(2));
+      const answers = ofType(connected.received, 'factories');
+      const all = answers.find((answer) => answer.requestId === 'all');
+      expect(all?.factories).toEqual([
+        { factoryId: factory.id, version: 2, files: expect.arrayContaining(FILES) },
+      ]);
+      expect(answers.find((answer) => answer.requestId === 'one')?.factories).toEqual([
+        { factoryId: factory.id, version: 1, files: [] },
+      ]);
+    });
+
+    it('passes an answer given while no runner is connected on to the next runner, and a live one at once', async () => {
+      const factory = await workspaceWithFactory('acme');
+      await recordRunnerRunHere(
+        reviewRun(factory.id, { status: 'needs-approval', startedAt: null }),
+      );
+      await runs.answer('acme', 'run-1', {
+        version: 2,
+        decision: 'approved',
+        personId: 'person-fay',
+      });
+
+      const connected = await connect({ automations: true });
+      await waitFor(() => expect(ofType(connected.received, 'run.answered')).toHaveLength(1));
+      expect(ofType(connected.received, 'run.answered')[0]).toEqual({
+        type: 'run.answered',
+        run: await runs.recordOf('acme', 'run-1'),
+        decision: 'approved',
+        personId: 'person-fay',
+      });
+
+      const stored = await runs.recordOf('acme', 'run-1');
+      if (!stored) throw new Error('no run');
+      expect(
+        runner.channel.passAnswer('acme', { run: stored, decision: 'rejected', personId: 'p' }),
+      ).toBe(true);
+      expect(
+        runner.channel.passAnswer('globex', { run: stored, decision: 'rejected', personId: 'p' }),
+      ).toBe(false);
+      await waitFor(() => expect(ofType(connected.received, 'run.answered')).toHaveLength(2));
+    });
+
+    /** Records a run as its runner would, straight to the store. */
+    async function recordRunnerRunHere(run: RunWrite) {
+      expect((await recordRun(runs, 'acme', run)).kind).toBe('recorded');
+    }
+
+    it('answers a token request with a token, logging nothing of it, and a refusal in words', async () => {
+      const factory = await workspaceWithFactory('acme');
+      await recordRunnerRunHere(reviewRun(factory.id));
+      await heldEvent('d-1', 10);
+      gitHubTokens = {
+        signer: { sign: async () => 'signed.request.jws' },
+        minter: {
+          mint: async () => ({
+            kind: 'minted',
+            token: TOKEN,
+            expiresAt: nowSeconds + 3600,
+            repositories: [{ id: 410, fullName: 'sprocket/catalog-portal' }],
+            permissions: { contents: 'read', pull_requests: 'write', metadata: 'read' },
+          }),
+        },
+      };
+      runner.closeAll();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+      runner = build();
+      await listen(runner);
+
+      const connected = await connect({ automations: true });
+      const ask = {
+        type: 'github.token.request',
+        runId: 'run-1',
+        stepId: 'post',
+        repository: 'sprocket/catalog-portal',
+        permissions: { pull_requests: 'write' },
+      };
+      connected.send({ ...ask, requestId: 'yes' });
+      connected.send({ ...ask, requestId: 'no', permissions: { issues: 'write' } });
+      await waitFor(() =>
+        expect(
+          connected.received.filter(
+            (m) => m.type === 'github.token' || m.type === 'github.token.refused',
+          ),
+        ).toHaveLength(2),
+      );
+      expect(ofType(connected.received, 'github.token')).toEqual([
+        {
+          type: 'github.token',
+          requestId: 'yes',
+          token: TOKEN,
+          expiresAt: new Date((nowSeconds + 3600) * 1000).toISOString(),
+        },
+      ]);
+      expect(ofType(connected.received, 'github.token.refused')).toEqual([
+        {
+          type: 'github.token.refused',
+          requestId: 'no',
+          reason:
+            'The step does not declare issues: write in its permissions, so its run gets no token for it.',
+        },
+      ]);
+      // The afterEach checks no line holds the token.
+      expect(lines.join('\n')).toMatch(/refused a runner a GitHub token/);
     });
   });
 

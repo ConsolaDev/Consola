@@ -8,6 +8,7 @@ const config: CellConfig = {
   port: 3101,
   cloudGlobalUrl: 'http://127.0.0.1:3100',
   runner: null,
+  cellPrivateKey: null,
 };
 
 describe('describeStartupFailure', () => {
@@ -63,6 +64,17 @@ describe('describeStartupFailure', () => {
     const failure = new Error(`refused ${secret} with {"d":"${d}"}`);
     expect(describeStartupFailure(failure, withRunner)).toBe(
       'refused <hidden> with {"d":"<hidden>"}',
+    );
+  });
+
+  it("never shows the cell key's private part", () => {
+    const d = 'private-part-of-the-cell-key-0123456789abc';
+    const withKey: CellConfig = {
+      ...config,
+      cellPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'public-part', d },
+    };
+    expect(describeStartupFailure(new Error(`refused {"d":"${d}"}`), withKey)).toBe(
+      'refused {"d":"<hidden>"}',
     );
   });
 

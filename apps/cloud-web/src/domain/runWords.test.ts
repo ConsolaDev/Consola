@@ -164,6 +164,8 @@ describe('itemLabel', () => {
     kind: 'pr' as const,
     repo: 'acme/app',
     number: 12,
+    headSha: null,
+    baseRef: null,
   };
 
   it('is the repository’s name and the number', () => {

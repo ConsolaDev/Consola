@@ -22,6 +22,8 @@ import {
   approvalOf,
   DECISION_OF,
   judgeAnswer,
+  RUN_DECISION_OF,
+  type RunAnswer,
   type RunApproval,
 } from '../domain/runApproval.js';
 import { type RunSource, sourceOf } from '../domain/runSource.js';
@@ -30,6 +32,7 @@ import type {
   FactoryStore,
   RunFilter,
   RunFound,
+  RunnerChannel,
   RunRecording,
   RunStore,
   TeamStore,
@@ -300,7 +303,10 @@ export type ApprovalAnswering =
 /**
  * Records the caller's answer to a run waiting for approval, at the version they were shown.
  * Anyone on the run's factory's owning team may answer (`mayAnswer`), and the first answer for a
- * version stands. The cell records it and does not change the run: its runner acts on it.
+ * version stands. The cell records it and does not change the run: its runner acts on it. Once it
+ * is stored, the answer is passed on to the workspace's runner (`run.answered`, with the run as
+ * stored) if one is connected; if none is, or the run cannot be read just then, nothing is lost:
+ * the runner's next hello is told every run that still waits with an answer.
  *
  * In the order it checks: whether the cell holds the workspace, whether the caller sees the run
  * (`not-found`, so a member of another team learns nothing), whether they are on its team, then
@@ -310,6 +316,7 @@ export async function answerRunApproval(
   teams: TeamStore,
   factories: FactoryStore,
   runs: RunStore,
+  runners: Pick<RunnerChannel, 'passAnswer'>,
   caller: Caller,
   runId: string,
   input: { decision: ApprovalChoice; version: number },
@@ -327,6 +334,7 @@ export async function answerRunApproval(
     personId,
   });
   if (typeof answer === 'string') return { kind: answer };
+  await passOn(runs, runners, workspaceId, runId, answer);
   const read = await automationOf(factories, workspaceId, seen);
   const approval = approvalOf({
     run: approvalRunOf(seen.found.run),
@@ -339,6 +347,32 @@ export async function answerRunApproval(
   return { kind: 'answered', approval };
 }
 
+/**
+ * Tells the workspace's runner of an answer just stored, as `run.answered`. A failure to read the
+ * run is not the person's: their answer is stored, and the runner's next hello is told it.
+ */
+async function passOn(
+  runs: RunStore,
+  runners: Pick<RunnerChannel, 'passAnswer'>,
+  workspaceId: string,
+  runId: string,
+  answer: RunAnswer,
+): Promise<void> {
+  let run: RunWrite | null;
+  try {
+    run = await runs.recordOf(workspaceId, runId);
+  } catch {
+    return;
+  }
+  if (run) {
+    runners.passAnswer(workspaceId, {
+      run,
+      decision: RUN_DECISION_OF[answer.decision],
+      personId: answer.by,
+    });
+  }
+}
+
 export type RunRecordAnswer =
   | { kind: 'recorded' }
   | { kind: 'invalid'; problems: RunProblem[] }
@@ -346,7 +380,8 @@ export type RunRecordAnswer =
 
 /**
  * Records a run a runner reports for a workspace, if `checkRun` finds nothing wrong with it. No
- * person calls it: the seed and the tests do now, and a runner's connection will.
+ * person calls it: the runner's socket does (`recordRunnerRun`), for the one workspace the socket
+ * is bound to, and so do the demo seed and the tests.
  */
 export async function recordRun(
   runs: RunStore,

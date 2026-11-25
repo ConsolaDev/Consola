@@ -35,13 +35,16 @@ function secretsOf(config: CellConfig): string[] {
     const { d } = config.runner.passPrivateKey;
     if (typeof d === 'string') secrets.push(d);
   }
+  // The cell key's private part, likewise.
+  const cellKeyD = config.cellPrivateKey?.d;
+  if (typeof cellKeyD === 'string') secrets.push(cellKeyD);
   // Longest first, so a secret inside another is hidden by the longer one.
   return secrets.filter((secret) => secret !== '').sort((a, b) => b.length - a.length);
 }
 
 /**
  * One plain line for a failure while the cell starts: the error's own words, never the database
- * address or its password, the runner's secret or the pass key.
+ * address or its password, the runner's secret, the pass key or the cell key.
  */
 export function describeStartupFailure(error: unknown, config: CellConfig): string {
   const message =

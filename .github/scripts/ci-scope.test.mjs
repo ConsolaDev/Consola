@@ -42,11 +42,11 @@ test('a change to the cell checks the web app too, whose cell types are generate
   });
 });
 
-test('a change to cloud-global checks the web app too, whose API types are generated from it', () => {
+test('a change to cloud-global checks the web app and the cell too, whose API types are generated from it', () => {
   assert.deepEqual(checks(pr(['apps/cloud-global/openapi.json'], ['@consola/cloud-global'])), {
     desktop: false,
     website: false,
-    packages: ['@consola/cloud-global', '@consola/cloud-web'],
+    packages: ['@consola/cloud-global', '@consola/cloud-region', '@consola/cloud-web'],
   });
 });
 

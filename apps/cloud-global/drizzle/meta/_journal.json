@@ -36,6 +36,13 @@
       "when": 1795387375462,
       "tag": "0004_github_token_mint",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1795594726809,
+      "tag": "0005_run_read_purpose",
+      "breakpoints": true
     }
   ]
 }

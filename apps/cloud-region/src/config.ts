@@ -29,6 +29,14 @@ export type CellConfig = {
   cloudGlobalUrl: string;
   /** Null when none of the runner's settings is set: then no runner connects, nor session starts. */
   runner: RunnerConfig | null;
+  /**
+   * `CELL_PRIVATE_KEY`, the JSON object it holds: the cell's own Ed25519 key, which signs its
+   * requests to `cloud-global` for GitHub tokens, and whose public half `cloud-global` holds as
+   * `CELL_PUBLIC_KEY_<REGION>`. Null when unset: then the cell asks for no GitHub token. This
+   * parser checks no more than that it is a JSON object; `adapters/token` refuses one that is not
+   * an Ed25519 private key.
+   */
+  cellPrivateKey: Record<string, unknown> | null;
 };
 
 /** Beside `cloud-global`'s 3100. A second cell on the same machine sets `PORT`. */
@@ -82,6 +90,7 @@ type RunnerSetting = (typeof RUNNER_SETTINGS)[number];
 const MIN_RUNNER_SECRET_LENGTH = 32;
 const MAKE_A_SECRET = '`openssl rand -base64 32` makes one';
 const MAKE_A_PASS_KEY = '`pnpm --filter @consola/cloud-region pass-key:generate` makes one';
+const MAKE_A_CELL_KEY = '`pnpm --filter @consola/cloud-region cell-key:generate` makes one';
 /** What a header carries: printable ASCII and no space, since `Bearer <secret>` splits on one. */
 const HEADER_SAFE = /^[\x21-\x7e]+$/;
 
@@ -156,7 +165,32 @@ const rawEnv = z.object({
       return z.NEVER;
     })
     .optional(),
+  CELL_PRIVATE_KEY: z
+    .string()
+    .transform((value, context) => {
+      const key = jsonObjectOf(value);
+      if (key) return key;
+      context.addIssue({
+        code: 'custom',
+        message: `must be a JSON Web Key on one line (${MAKE_A_CELL_KEY})`,
+      });
+      return z.NEVER;
+    })
+    .optional(),
 });
+
+/**
+ * Why `CELL_PRIVATE_KEY` may not be the key it is, or null: never the pass key, since each key
+ * does one thing, and a pass key's public half is handed to every session's sandbox.
+ */
+function cellKeyProblem(
+  cellKey: Record<string, unknown> | undefined,
+  passKey: Record<string, unknown> | undefined,
+): string | null {
+  if (!cellKey || !passKey) return null;
+  const same = typeof cellKey.d === 'string' && cellKey.d === passKey.d;
+  return same ? 'CELL_PRIVATE_KEY: must not be PASS_PRIVATE_KEY: each key does one thing' : null;
+}
 
 /** An optional variable set to nothing counts as unset. */
 const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
@@ -171,14 +205,19 @@ export function loadConfig(env: Record<string, string | undefined>): CellConfig 
     ...env,
     PORT: unsetWhenEmpty(env.PORT),
     CLOUD_GLOBAL_URL: unsetWhenEmpty(env.CLOUD_GLOBAL_URL),
+    CELL_PRIVATE_KEY: unsetWhenEmpty(env.CELL_PRIVATE_KEY),
     ...runnerValues,
   });
   const missing = runnerSettingProblems(runnerValues);
-  if (!result.success || missing.length > 0) {
+  const sameKey = result.success
+    ? cellKeyProblem(result.data.CELL_PRIVATE_KEY, result.data.PASS_PRIVATE_KEY)
+    : null;
+  if (!result.success || missing.length > 0 || sameKey !== null) {
     const issues = result.success ? [] : result.error.issues;
     throw new ConfigError([
       ...issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
       ...missing,
+      ...(sameKey === null ? [] : [sameKey]),
     ]);
   }
   const parsed = result.data;
@@ -196,6 +235,7 @@ export function loadConfig(env: Record<string, string | undefined>): CellConfig 
       secret !== undefined && workspaceId !== undefined && passPrivateKey !== undefined
         ? { secret, workspaceId, passPrivateKey }
         : null,
+    cellPrivateKey: parsed.CELL_PRIVATE_KEY ?? null,
   };
 }
 

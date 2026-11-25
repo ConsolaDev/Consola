@@ -26,6 +26,17 @@ describe('TOKEN_PURPOSES', () => {
     });
   });
 
+  it("gives a run's read one repository, contents read, and nothing more", () => {
+    expect(TOKEN_PURPOSES['run-read']).toEqual({
+      permissions: { contents: 'read' },
+      maxRepositories: 1,
+    });
+    expect(scopeFor(ask('run-read', [410, 411]))).toEqual({
+      ok: false,
+      problems: ['too-many-repositories'],
+    });
+  });
+
   it('gives a factory one repository: contents read to pull it, write to save it', () => {
     expect(TOKEN_PURPOSES['factory-pull']).toEqual({
       permissions: { contents: 'read' },

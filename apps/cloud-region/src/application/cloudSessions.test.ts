@@ -61,6 +61,8 @@ function setup(connected: Offer | null = offer, passes: PassSigner | null = pass
     connected: vi.fn(() => connected),
     startSession: vi.fn(async () => {}),
     stopSession: vi.fn(async () => {}),
+    handEvent: () => false,
+    passAnswer: () => false,
   };
   const ports: CloudSessionPorts = {
     sessions: createCloudSessionStore(db),

@@ -1,0 +1,2 @@
+ALTER TABLE "github_token_mint" DROP CONSTRAINT "github_token_mint_purpose_check";--> statement-breakpoint
+ALTER TABLE "github_token_mint" ADD CONSTRAINT "github_token_mint_purpose_check" CHECK ("github_token_mint"."purpose" in ('review-run', 'run-read', 'factory-pull', 'factory-save'));

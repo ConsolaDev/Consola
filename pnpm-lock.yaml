@@ -396,6 +396,9 @@ importers:
       jose:
         specifier: ^6.2.10
         version: 6.2.10
+      openapi-fetch:
+        specifier: ^0.17.0
+        version: 0.17.0
       pg:
         specifier: ^8.23.1
         version: 8.23.1
@@ -415,6 +418,9 @@ importers:
       drizzle-kit:
         specifier: ^0.31.11
         version: 0.31.11
+      openapi-typescript:
+        specifier: ^7.13.0
+        version: 7.13.0(typescript@5.9.3)
       tsx:
         specifier: ^4.23.15
         version: 4.23.15

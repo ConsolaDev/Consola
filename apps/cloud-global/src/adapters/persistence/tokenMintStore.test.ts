@@ -87,12 +87,19 @@ describe('the token mint store', () => {
       repositoryIds: [520, 521],
       permissions: { contents: 'read', pull_requests: 'write', metadata: 'read' },
     };
+    const read = {
+      ...review,
+      purpose: 'run-read' as const,
+      repositoryIds: [520],
+      permissions: { contents: 'read', metadata: 'read' },
+    };
     await mints.record(pull);
     await mints.record(save);
     await mints.record(review);
+    await mints.record(read);
 
     expect(await mints.mintsOf('acme')).toEqual([save, pull]);
-    expect(await mints.mintsOf('sprocket')).toEqual([review]);
+    expect(await mints.mintsOf('sprocket')).toEqual([review, read]);
     expect(await mints.mintsOf('nobody')).toEqual([]);
   });
 

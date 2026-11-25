@@ -46,11 +46,21 @@ export const GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS = 60;
  *
  * - `review-run`: a run of the review automation, on its repositories: contents read and pull
  *   requests write;
+ * - `run-read`: a run reading its one repository (its checkout, a step that reads it): contents
+ *   read;
  * - `factory-pull`: pulling a repo-backed factory's files, from its one repository: contents
  *   read;
  * - `factory-save`: saving a repo-backed factory's files, to its one repository: contents write.
+ *
+ * `run-read` and `factory-pull` grant the same, and are kept apart because what a token was for
+ * is recorded with it: a run's token is never recorded as a factory's.
  */
-export const GITHUB_TOKEN_PURPOSES = ['review-run', 'factory-pull', 'factory-save'] as const;
+export const GITHUB_TOKEN_PURPOSES = [
+  'review-run',
+  'run-read',
+  'factory-pull',
+  'factory-save',
+] as const;
 
 export type GitHubTokenPurpose = (typeof GITHUB_TOKEN_PURPOSES)[number];
 

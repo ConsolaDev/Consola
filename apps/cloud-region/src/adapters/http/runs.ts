@@ -1,5 +1,5 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import type { FactoryStore, RunStore, TeamStore } from '../../application/ports.js';
+import type { FactoryStore, RunnerChannel, RunStore, TeamStore } from '../../application/ports.js';
 import { answerRunApproval, listRuns as listRunsUseCase, readRun } from '../../application/runs.js';
 import type { CellEnv } from './caller.js';
 import { getRun, listRuns, postRunApproval } from './contract.js';
@@ -17,6 +17,7 @@ export function runRoutes(
   teams: TeamStore,
   factories: FactoryStore,
   runs: RunStore,
+  runners: Pick<RunnerChannel, 'passAnswer'>,
 ): void {
   app.openapi(listRuns, async (c) => {
     const query = c.req.valid('query');
@@ -49,12 +50,14 @@ export function runRoutes(
     }
   });
 
-  // A person's answer to a run waiting for approval: recorded, never acted on here.
+  // A person's answer to a run waiting for approval: recorded and passed on to the runner, never
+  // acted on here.
   app.openapi(postRunApproval, async (c) => {
     const answer = await answerRunApproval(
       teams,
       factories,
       runs,
+      runners,
       c.var.caller,
       c.req.valid('param').runId,
       c.req.valid('json'),

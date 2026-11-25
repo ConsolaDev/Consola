@@ -2,6 +2,7 @@ import { GITHUB_EVENT_TYPE } from '@consola/cloud-contract';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { systemClock } from './adapters/clock/systemClock.js';
 import type { CellEnv } from './adapters/http/caller.js';
+import { createGitHubTokenMinter } from './adapters/cloudGlobal/gitHubTokens.js';
 import { createApp } from './adapters/http/app.js';
 import type { Database } from './adapters/persistence/database.js';
 import { randomIds } from './adapters/persistence/cloudSessions.js';
@@ -12,6 +13,7 @@ import {
   cloudGlobalKeys,
   createJoseTokenVerifier,
 } from './adapters/token/cellTokens.js';
+import { createGitHubTokenRequestSigner } from './adapters/token/gitHubTokenRequests.js';
 import { createJoseDeliveryVerifier } from './adapters/token/outboxDeliveries.js';
 import { createPassSigner } from './adapters/token/passSigner.js';
 import type { CellConfig } from './config.js';
@@ -38,6 +40,10 @@ export type Cell = {
  * key fails here, as a `ConfigError`), and its public half goes to the runner's socket, which
  * sends it in every `session.start`. With none, the socket refuses every runner and no session
  * starts.
+ *
+ * With a cell key (`CELL_PRIVATE_KEY`), imported the same way, the runner's socket asks
+ * `cloud-global` for its runs' GitHub tokens, at `config.cloudGlobalUrl`. With none, it refuses
+ * every token request in words.
  */
 export async function composeCell(deps: {
   db: Database;
@@ -48,6 +54,12 @@ export async function composeCell(deps: {
   const stores = createDrizzleStores(db);
   const keys = deps.cellTokenKeys ?? cloudGlobalKeys(config.cloudGlobalUrl);
   const passKey = config.runner ? await createPassSigner(config.runner.passPrivateKey) : null;
+  const gitHubTokens = config.cellPrivateKey
+    ? {
+        signer: await createGitHubTokenRequestSigner(config.cellPrivateKey),
+        minter: createGitHubTokenMinter({ baseUrl: config.cloudGlobalUrl }),
+      }
+    : null;
   const runner = createRunnerSocket({
     settings:
       config.runner && passKey
@@ -57,7 +69,14 @@ export async function composeCell(deps: {
             passPublicKeyPem: passKey.publicKeyPem,
           }
         : null,
-    ports: { sessions: stores.cloudSessions, clock: systemClock },
+    ports: {
+      sessions: stores.cloudSessions,
+      clock: systemClock,
+      gitHubEvents: stores.gitHubEvents,
+      runs: stores.runs,
+      factories: stores.factories,
+      gitHubTokens,
+    },
   });
   const app = createApp({
     region: config.region,
@@ -78,6 +97,7 @@ export async function composeCell(deps: {
       clock: systemClock,
       passes: passKey?.signer ?? null,
     },
+    runners: runner.channel,
     runner: runner.routes,
   });
   return {
