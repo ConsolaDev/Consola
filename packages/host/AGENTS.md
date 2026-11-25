@@ -1581,11 +1581,11 @@ Then, from the repository root:
 
 1. `pnpm install`, then `pnpm exec turbo run build --filter=@consola/host^...`
    (what the runner loads from `dist/`).
-2. **Rebuild the template, once**: `pnpm --filter @consola/host template:build`
-   (it reads `packages/sandbox/.env`'s `E2B_API_KEY` and prints the new id;
-   record it in `sandbox-template/README.md`). The template built on
-   2026-11-23 predates the steps' scripts and `consola-host step-tools`, so no
-   step runs on it.
+2. **Rebuild the template** only after changing the host's code or the
+   template: `pnpm --filter @consola/host template:build` (it reads
+   `packages/sandbox/.env`'s `E2B_API_KEY` and prints the id; record it in
+   `sandbox-template/README.md`). It was last built on 2026-11-25, with the
+   steps' scripts and `consola-host step-tools`.
 3. `pnpm dev:cloud`. Sign in, open (or make) the workspace in `eu` whose id is
    the cell's `RUNNER_WORKSPACE_ID`, and connect GitHub from Settings,
    Connections (`http://localhost:5175/#/settings/connections`), installing the
@@ -1653,10 +1653,12 @@ says, and the cell hands it on once and keeps nothing of it.
 **Not yet run for real** (each is held by a test against a stand-in, never
 against the real thing):
 
-- the rebuilt `consola-session` template, with the steps' scripts and
-  `step-tools`, on E2B;
-- the real Claude Code in a step's sandbox: `scripts/step-sandbox-canary.mjs`
-  checks it, spends an API key, and has not been run on this stage;
+- a step on E2B: the `consola-session` template was rebuilt on 2026-11-25
+  with the steps' scripts and `step-tools`, and no step has run in a sandbox
+  made from it;
+- the real Claude Code in a step's sandbox on E2B:
+  `scripts/step-sandbox-canary.mjs` passed every row on 2026-11-25, on folders
+  of this Mac with Claude Code 2.1.332, where the template pins 2.1.330;
 - `cloud-global` minting `run-read` and `review-run` for the cell's signed
   request, and GitHub granting them (its mint was checked against GitHub on
   2026-11-22 for other purposes);

@@ -169,12 +169,9 @@ fff-node patch, and builds it with `@consola/sandbox/e2b`'s builder
 `E2B_API_KEY`, from the environment, or else from `packages/sandbox/.env`; it is
 never an argument and never printed. The build prints the template's id.
 
-**Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
-build prints here, and only the id.
-
-That build predates the steps' scripts and the host's `step-tools` command: a
-step's sandbox needs the template built again (the two commands above) before
-a runner can run steps on E2B.
+**Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-25, with the steps'
+scripts and the host's `step-tools` command). Record the id the build prints
+here, and only the id.
 
 ## The sandbox's lifetime
 
