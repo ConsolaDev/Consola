@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseFactory, storedFactoryFiles } from './factory';
 import { parseFactorySpec } from './parse';
 
 /** One entry, its fields indented under `- name: a`. */
@@ -166,6 +167,38 @@ describe('on:', () => {
         '    on: { github: [pull_request.review_requested, pull_request.assigned] }\n    run: { action: Review }\n',
       ).automations[0].trigger,
     ).toMatchObject({ events: ['pull_request.review_requested', 'pull_request.assigned'] });
+  });
+
+  it("takes a pull request's webhook events, one or all three, as any event: which runner fires one is the runner's", () => {
+    const events = ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'];
+    const fileOn = (on: string) =>
+      parseFactory(
+        storedFactoryFiles([
+          { path: 'factory.yml', content: 'version: 1\n' },
+          {
+            path: 'automations/review.yaml',
+            content: `on: ${on}\nsteps:\n  - prompt: Review it.\n`,
+          },
+        ]),
+      );
+    for (const event of events) {
+      const read = fileOn(`{ github: ${event} }`);
+      expect([event, read.issues, read.notices]).toEqual([event, [], []]);
+      expect(read.automations[0].trigger).toEqual({
+        kind: 'event',
+        connection: 'github',
+        events: [event],
+        params: {},
+      });
+    }
+    const all = fileOn(`{ github: [${events.join(', ')}] }`);
+    expect(all.issues).toEqual([]);
+    expect(all.automations[0].trigger).toEqual({
+      kind: 'event',
+      connection: 'github',
+      events,
+      params: {},
+    });
   });
 
   it('rejects an empty or repeating list', () => {
