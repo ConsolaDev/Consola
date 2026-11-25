@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
 import type { CommandStepRequest, StepCheckout } from './ports.ts';
 import {
+  CHANGES_MAX_BYTES,
+  changesDocument,
   checkoutEnv,
   checkoutProblem,
   commandPlan,
@@ -15,6 +17,7 @@ const CHECKOUT: StepCheckout = {
   repository: 'sprocket/catalog-portal',
   commit: COMMIT,
   pullRequest: 42,
+  baseRef: 'main',
 };
 
 const command = (fields: Partial<CommandStepRequest> = {}): CommandStepRequest => ({
@@ -38,6 +41,10 @@ describe('a step’s sandbox', () => {
     expect(checkoutProblem({ ...CHECKOUT, commit: COMMIT.toUpperCase() })).toMatch(/40 lowercase/);
     expect(checkoutProblem({ ...CHECKOUT, repository: '-x/y/z' })).toMatch(/not a repository/);
     expect(checkoutProblem({ ...CHECKOUT, pullRequest: 0 })).toMatch(/pull request/);
+    expect(checkoutProblem({ ...CHECKOUT, baseRef: 'release/2026-11' })).toBeNull();
+    for (const baseRef of ['', '-main', 'a..b', 'a b', 'a/', '.hidden', 'x.lock', 'a@{1}']) {
+      expect(checkoutProblem({ ...CHECKOUT, baseRef }), baseRef).toMatch(/base branch/);
+    }
   });
 
   it('gives the clone token to the checkout alone, and the API key to the host alone', () => {
@@ -47,6 +54,17 @@ describe('a step’s sandbox', () => {
       CONSOLA_CHECKOUT_PULL_REQUEST: '42',
       GIT_TOKEN: 'ghs_clone',
     });
+    // An agent step's checkout also writes its pull request's changes against the base.
+    expect(checkoutEnv(CHECKOUT, null, { changes: true })).toEqual({
+      CONSOLA_REPOSITORY: 'sprocket/catalog-portal',
+      CONSOLA_CHECKOUT_COMMIT: COMMIT,
+      CONSOLA_CHECKOUT_PULL_REQUEST: '42',
+      CONSOLA_CHECKOUT_BASE_REF: 'main',
+      CONSOLA_CHANGES_MAX_BYTES: String(512 * 1024),
+    });
+    expect(checkoutEnv({ ...CHECKOUT, baseRef: null }, null, { changes: true })).not.toHaveProperty(
+      'CONSOLA_CHECKOUT_BASE_REF',
+    );
     expect(checkoutEnv({ ...CHECKOUT, pullRequest: null }, null)).toEqual({
       CONSOLA_REPOSITORY: 'sprocket/catalog-portal',
       CONSOLA_CHECKOUT_COMMIT: COMMIT,
@@ -121,5 +139,22 @@ describe('a step’s sandbox', () => {
       text: 'You ended without: verdict.',
       dispatchMode: { type: 'start_immediately' },
     });
+  });
+
+  it('hands the changes the checkout wrote to the step, bounded again, or says they are missing', () => {
+    expect(changesDocument('Files changed:\nM\tsrc/a.ts\n', CHECKOUT)).toBe(
+      'Files changed:\nM\tsrc/a.ts\n',
+    );
+    expect(changesDocument(null, CHECKOUT)).toBe(
+      'The changes of pull request #42 were not prepared: the checkout wrote nothing.',
+    );
+    // A sandbox that wrote more than the bound: cut on a character's edge, saying how much.
+    const big = `${'é'.repeat(CHANGES_MAX_BYTES / 2)}tail`;
+    const cut = changesDocument(big, CHECKOUT);
+    const lines = cut.split('\n');
+    expect(lines.at(-1)).toBe('[cut here: the rest is 1 KB more (4 bytes)]');
+    expect(Buffer.byteLength(lines.slice(0, -1).join('\n'))).toBeLessThanOrEqual(CHANGES_MAX_BYTES);
+    expect(cut).not.toContain('�');
+    expect(changesDocument('half a character �', CHECKOUT)).toBe('half a character ');
   });
 });

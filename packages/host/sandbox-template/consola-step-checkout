@@ -1,0 +1,141 @@
+#!/bin/sh
+# consola-step-checkout: puts a step's repository in /workspace/repo at one commit, in a step's
+# sandbox (packages/host/AGENTS.md, "Step sandboxes"), for an agent step or a command step. For an
+# agent step on a pull request it also writes the pull request's changes against its base branch
+# to /workspace/.consola/changes.md, which the runner hands the step as its `changes` document.
+#
+# Its variables are the runner's, for this command alone (checkoutEnv): CONSOLA_REPOSITORY,
+# CONSOLA_CHECKOUT_COMMIT, CONSOLA_CHECKOUT_PULL_REQUEST (a pull request, whose head it fetches),
+# CONSOLA_CHECKOUT_BASE_REF and CONSOLA_CHANGES_MAX_BYTES (an agent step on a pull request), and
+# GIT_TOKEN (for a repository that needs one). CONSOLA_WORKSPACE moves /workspace, for this
+# script's tests (src/stepScripts.test.ts); the runner never sets it.
+#
+# Stdout belongs to the runner: the script prints one line only, `clone-failed`, when the checkout
+# fails, and then exits 1. Changes it cannot read do not fail it: the document then says why in
+# one line. Git hooks are off for every git command it runs, and stay off in the repository
+# (core.hooksPath), and the git token never reaches a command line, a URL, the repository's config
+# or a message.
+set -eu
+
+fail() {
+  printf 'consola-step-checkout: %s\n' "$1" >&2
+  exit 1
+}
+
+for name in CONSOLA_REPOSITORY CONSOLA_CHECKOUT_COMMIT; do
+  eval "value=\${$name-}"
+  [ -n "$value" ] || fail "$name is not set."
+done
+commit="$CONSOLA_CHECKOUT_COMMIT"
+case "$commit" in *[!0-9a-f]*) fail 'CONSOLA_CHECKOUT_COMMIT is not a commit id.' ;; esac
+[ "${#commit}" -eq 40 ] || fail 'CONSOLA_CHECKOUT_COMMIT is not a commit id.'
+pr="${CONSOLA_CHECKOUT_PULL_REQUEST-}"
+case "$pr" in *[!0-9]*) fail 'CONSOLA_CHECKOUT_PULL_REQUEST is not a number.' ;; esac
+
+workspace="${CONSOLA_WORKSPACE:-/workspace}"
+repo="$workspace/repo"
+
+# Asked for github.com's credentials, git runs this, and it answers with $GIT_TOKEN as the
+# environment holds it then: the token is written nowhere.
+helper='!f() { test "$1" = get && test -n "${GIT_TOKEN-}" || return 0; printf "%s\n" username=x-access-token "password=$GIT_TOKEN"; }; f'
+
+# git with no prompt, no hooks, and github.com's credentials from the helper alone.
+g() {
+  GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c credential.helper= \
+    -c "credential.https://github.com.helper=$helper" "$@"
+}
+
+# One clone-failed line with git's own words, the token (as it is and URL-encoded) taken out.
+failed() {
+  CONSOLA_CLONE_OUTPUT="$2" CONSOLA_CLONE_WHAT="$1" node -e '
+    const token = process.env.GIT_TOKEN || "";
+    let said = process.env.CONSOLA_CLONE_OUTPUT || "";
+    if (token !== "") {
+      for (const form of [token, encodeURIComponent(token)]) said = said.split(form).join("[redacted]");
+    }
+    said = said.split("\n").map((line) => line.trim()).filter((line) => line !== "").join(" ");
+    const message = `${process.env.CONSOLA_CLONE_WHAT}: ${said || "git failed."}`;
+    process.stdout.write(`${JSON.stringify({ type: "exit", reason: "clone-failed", message })}\n`);
+  ' || :
+  exit 1
+}
+
+# The whole URL, so a repository whose owner starts with "-" is never an option. No files yet: the
+# commit is checked out below.
+if ! output=$(g clone --quiet --no-checkout -- "https://github.com/$CONSOLA_REPOSITORY.git" "$repo" 2>&1); then
+  failed "Could not clone $CONSOLA_REPOSITORY" "$output"
+fi
+if [ -n "$pr" ]; then
+  if ! output=$(g -C "$repo" fetch --quiet --no-tags origin \
+    "+refs/pull/$pr/head:refs/remotes/origin/pull/$pr" 2>&1); then
+    failed "Could not fetch pull request #$pr of $CONSOLA_REPOSITORY" "$output"
+  fi
+fi
+# A commit no fetched ref holds (a pull request pushed since) is asked for by its id.
+if ! git -C "$repo" cat-file -e "$commit^{commit}" 2>/dev/null; then
+  if ! output=$(g -C "$repo" fetch --quiet --no-tags origin "$commit" 2>&1); then
+    failed "Could not fetch commit $commit of $CONSOLA_REPOSITORY" "$output"
+  fi
+fi
+if ! output=$(g -C "$repo" -c advice.detachedHead=false checkout --quiet --detach "$commit" 2>&1); then
+  failed "Could not check out commit $commit of $CONSOLA_REPOSITORY" "$output"
+fi
+head=$(git -C "$repo" rev-parse HEAD)
+[ "$head" = "$commit" ] || failed "Could not check out commit $commit of $CONSOLA_REPOSITORY" "HEAD is $head."
+
+# The repository keeps hooks off, and the helper (an empty one first, so no helper of the
+# machine's is asked or stores the token): a command given GIT_TOKEN can push, and nothing else can.
+git -C "$repo" config core.hooksPath /dev/null
+git -C "$repo" config credential.helper ''
+git -C "$repo" config credential.https://github.com.helper "$helper"
+git -C "$repo" config user.name 'Consola step'
+git -C "$repo" config user.email step@consola.invalid
+
+base="${CONSOLA_CHECKOUT_BASE_REF-}"
+[ -n "$base" ] && [ -n "$pr" ] || exit 0
+
+# The pull request's changes: the files it changes, then the diff of its head against the merge
+# base with its base branch (no hooks, no external diff driver or text conversion, no colour),
+# cut so the document holds at most CONSOLA_CHANGES_MAX_BYTES, its file list whole.
+mkdir -p "$workspace/.consola"
+changes="$workspace/.consola/changes.md"
+max="${CONSOLA_CHANGES_MAX_BYTES:-524288}"
+case "$max" in '' | *[!0-9]*) max=524288 ;; esac
+missing() {
+  printf 'The changes of pull request #%s could not be read: %s\n' "$pr" "$1" > "$changes"
+  exit 0
+}
+d() {
+  git -C "$repo" -c core.hooksPath=/dev/null diff --no-color --no-ext-diff --no-textconv \
+    --find-renames "refs/remotes/origin/$base...HEAD" "$@"
+}
+git check-ref-format --branch "$base" > /dev/null 2>&1 || missing "$base is not a branch name."
+g -C "$repo" fetch --quiet --no-tags origin "+refs/heads/$base:refs/remotes/origin/$base" \
+  > /dev/null 2>&1 || missing "its base branch $base could not be fetched."
+merge_base=$(git -C "$repo" merge-base "refs/remotes/origin/$base" HEAD 2> /dev/null) ||
+  missing "its head and its base branch $base have no commit in common."
+files="$workspace/.consola/changes.files"
+patch="$workspace/.consola/changes.patch"
+d --name-status > "$files" 2> /dev/null || missing "git could not list the files it changes."
+d > "$patch" 2> /dev/null || missing "git could not make its diff."
+{
+  printf 'Changes of pull request #%s since its merge base with %s (%.7s), at %.7s.\n\n' \
+    "$pr" "$base" "$merge_base" "$commit"
+  printf 'Files changed:\n'
+  cat "$files"
+  printf '\nDiff:\n'
+} > "$changes"
+used=$(wc -c < "$changes" | tr -d ' ')
+size=$(wc -c < "$patch" | tr -d ' ')
+room=$((max - used))
+if [ "$size" -le "$room" ]; then
+  cat "$patch" >> "$changes"
+else
+  # Room for the line that says how much was left out.
+  room=$((room - 80))
+  [ "$room" -gt 0 ] || room=0
+  head -c "$room" "$patch" >> "$changes"
+  left=$((size - room))
+  printf '\n[cut here: the rest is %s KB more (%s bytes)]\n' "$(((left + 1023) / 1024))" "$left" >> "$changes"
+fi
+rm -f "$files" "$patch"

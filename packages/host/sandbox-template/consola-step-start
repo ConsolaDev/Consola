@@ -1,0 +1,107 @@
+#!/bin/sh
+# consola-step-start: becomes an agent step's host in a step's sandbox (packages/host/AGENTS.md,
+# "Step sandboxes"), after consola-step-checkout put the repository in /workspace/repo (or into a
+# step with no checkout, an empty folder). The runner is the host's only client.
+#
+# Before the host, it gives Claude Code, in its own user config, what a step needs:
+#   - the step tools, as a user-scope MCP server named `consola` (`~/.claude.json`, `mcpServers`):
+#     `node /opt/consola/consola-host.mjs step-tools --folder $CONSOLA_STEP_FOLDER`, which the CLI
+#     starts for a turn (t3's capabilities probe and title generation load no MCP server);
+#   - user settings (`~/.claude/settings.json`) that allow those four tools and send every tool that
+#     runs a command, writes a file or reaches the network to the runner: an `ask` rule wins over a
+#     checkout's own `allow`, so a pull request cannot let its step run a shell unasked.
+# With CLAUDE_CONFIG_DIR set, the two files are in that folder (`.claude.json`, `settings.json`).
+# It writes no t3 settings: a provider's launch arguments there would override the host's approval
+# mode (AGENTS.md, "The host never starts a CLI in full access").
+#
+# Its variables are the runner's, for this command alone (stepHostEnv): CONSOLA_SESSION_ID,
+# CONSOLA_HARNESS (claude), CONSOLA_PASS_PUBLIC_KEY, CONSOLA_SESSION_IDLE_MINUTES,
+# CONSOLA_STEP_FOLDER and ANTHROPIC_API_KEY. CONSOLA_WORKSPACE moves /workspace, for this script's
+# tests (src/stepScripts.test.ts); the runner never sets it.
+#
+# Stdout belongs to the runner, which reads the host's JSON lines: the script prints nothing there.
+set -eu
+
+fail() {
+  printf 'consola-step-start: %s\n' "$1" >&2
+  exit 1
+}
+
+for name in CONSOLA_SESSION_ID CONSOLA_PASS_PUBLIC_KEY CONSOLA_STEP_FOLDER; do
+  eval "value=\${$name-}"
+  [ -n "$value" ] || fail "$name is not set."
+done
+[ "${CONSOLA_HARNESS:-claude}" = claude ] || fail 'A step runs on Claude alone.'
+
+workspace="${CONSOLA_WORKSPACE:-/workspace}"
+repo="$workspace/repo"
+key_file="$workspace/.consola/pass-public-key.pem"
+mkdir -p "$repo" "$CONSOLA_STEP_FOLDER" "$workspace/.consola"
+
+# The key the host checks every pass with (a public key): the runner's, made for this attempt.
+key=$(printf '%s' "$CONSOLA_PASS_PUBLIC_KEY")
+printf '%s\n' "$key" > "$key_file"
+
+if [ -n "${CLAUDE_CONFIG_DIR-}" ]; then
+  claude_json="$CLAUDE_CONFIG_DIR/.claude.json"
+  claude_settings="$CLAUDE_CONFIG_DIR/settings.json"
+else
+  claude_json="$HOME/.claude.json"
+  claude_settings="$HOME/.claude/settings.json"
+fi
+
+# Merged into what is there, if anything (Claude keeps its own state in .claude.json).
+CONSOLA_CLAUDE_JSON="$claude_json" CONSOLA_CLAUDE_SETTINGS="$claude_settings" node -e '
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const read = (file) => {
+    try {
+      const value = JSON.parse(fs.readFileSync(file, "utf8"));
+      return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
+    } catch {
+      return {};
+    }
+  };
+  const write = (file, value) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`);
+  };
+  const tools = ["set_outputs", "write_artifact", "read_artifact", "list_artifacts"].map(
+    (name) => `mcp__consola__consola_${name}`,
+  );
+  const asked = ["Bash", "Edit", "MultiEdit", "Write", "NotebookEdit", "WebFetch", "WebSearch"];
+  const config = read(process.env.CONSOLA_CLAUDE_JSON);
+  config.mcpServers = {
+    ...(config.mcpServers ?? {}),
+    consola: {
+      type: "stdio",
+      command: process.execPath,
+      args: ["/opt/consola/consola-host.mjs", "step-tools", "--folder", process.env.CONSOLA_STEP_FOLDER],
+      env: {},
+    },
+  };
+  write(process.env.CONSOLA_CLAUDE_JSON, config);
+  const settings = read(process.env.CONSOLA_CLAUDE_SETTINGS);
+  const permissions = settings.permissions ?? {};
+  const merged = (list, more) => [...new Set([...(Array.isArray(list) ? list : []), ...more])];
+  settings.permissions = {
+    ...permissions,
+    allow: merged(permissions.allow, tools),
+    ask: merged(permissions.ask, asked),
+  };
+  write(process.env.CONSOLA_CLAUDE_SETTINGS, settings);
+' || fail "Could not write Claude's config for the step."
+
+# A document the step reads (its pull request's changes) can be long: the CLI keeps all of a tool's
+# answer up to this many tokens.
+MAX_MCP_OUTPUT_TOKENS=200000
+export MAX_MCP_OUTPUT_TOKENS
+
+exec node /opt/consola/consola-host.mjs session \
+  --session-id "$CONSOLA_SESSION_ID" \
+  --harness claude \
+  --cwd "$repo" \
+  --bind 0.0.0.0 \
+  --port 7420 \
+  --pass-public-key "$key_file" \
+  --idle-minutes "${CONSOLA_SESSION_IDLE_MINUTES:-10}"

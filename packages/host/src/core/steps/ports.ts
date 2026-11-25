@@ -8,6 +8,8 @@ export type StepCheckout = {
   readonly commit: string;
   /** The pull request it belongs to, when there is one: its head is fetched as `pull/<n>/head`. */
   readonly pullRequest: number | null;
+  /** The pull request's base branch, when there is one: what its changes are read against. */
+  readonly baseRef: string | null;
 };
 
 export type StepIdentity = {

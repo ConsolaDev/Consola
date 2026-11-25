@@ -49,16 +49,50 @@ export function checkoutProblem(checkout: StepCheckout): string | null {
   ) {
     return "The step's checkout pull request is not a pull request's number.";
   }
+  if (checkout.baseRef !== null && !isBranchName(checkout.baseRef)) {
+    return "The step's checkout base branch is not a branch's name.";
+  }
   return null;
 }
 
 /**
+ * Whether `name` is a branch name git takes, kept to the plain ones: letters, digits and `._/-`,
+ * no part starting with `-` or `.`, no `..`, `//` or `@{`, not ending in `/`, `.` or `.lock`. The
+ * checkout script asks git as well (`git check-ref-format --branch`).
+ */
+export const isBranchName = (name: string): boolean =>
+  name.length > 0 &&
+  name.length <= 255 &&
+  /^[A-Za-z0-9._/-]+$/.test(name) &&
+  name.split('/').every((part) => part !== '' && !part.startsWith('-') && !part.startsWith('.')) &&
+  !name.includes('..') &&
+  !name.endsWith('.lock') &&
+  !name.endsWith('.');
+
+/** The document an agent step on a pull request reads its changes from. */
+export const CHANGES_DOCUMENT = 'changes';
+/** Where the checkout script writes it. */
+export const CHANGES_FILE = `${STEP_WORKSPACE}/.consola/changes.md`;
+/**
+ * The most it holds, in UTF-8 bytes: the file list whole, the diff cut to what is left, with a
+ * last line that says how much was left out.
+ */
+export const CHANGES_MAX_BYTES = 512 * 1024;
+
+/** Whether an agent step gets its pull request's changes: it has a pull request and its base. */
+export const wantsChanges = (checkout: StepCheckout | null): boolean =>
+  checkout !== null && checkout.pullRequest !== null && checkout.baseRef !== null;
+
+/**
  * What the checkout script is given: the repository, the commit, the pull request whose head it
- * fetches, and the token for the clone, which no other command in the sandbox sees.
+ * fetches, and the token for the clone, which no other command in the sandbox sees. With
+ * `changes`, the pull request's base branch too, which it fetches to write the changes document
+ * (`CHANGES_FILE`).
  */
 export function checkoutEnv(
   checkout: StepCheckout,
   cloneToken: string | null,
+  options: { readonly changes: boolean } = { changes: false },
 ): Record<string, string> {
   return {
     CONSOLA_REPOSITORY: checkout.repository,
@@ -66,9 +100,42 @@ export function checkoutEnv(
     ...(checkout.pullRequest === null
       ? {}
       : { CONSOLA_CHECKOUT_PULL_REQUEST: String(checkout.pullRequest) }),
+    ...(options.changes && wantsChanges(checkout) && checkout.baseRef !== null
+      ? {
+          CONSOLA_CHECKOUT_BASE_REF: checkout.baseRef,
+          CONSOLA_CHANGES_MAX_BYTES: String(CHANGES_MAX_BYTES),
+        }
+      : {}),
     ...(cloneToken === null || cloneToken === '' ? {} : { GIT_TOKEN: cloneToken }),
   };
 }
+
+/** The line a cut document ends with: how much was left out, as the engine words it. */
+export const cutLine = (leftOutBytes: number): string =>
+  `[cut here: the rest is ${Math.ceil(leftOutBytes / 1024)} KB more (${leftOutBytes} bytes)]`;
+
+/**
+ * The changes document as the runner hands it to the step, from what the sandbox wrote (data:
+ * the checkout script bounds it, and the runner bounds it again, on a character's edge, with
+ * `cutLine`). With nothing written, one line that says the changes are missing.
+ */
+export function changesDocument(written: string | null, checkout: StepCheckout): string {
+  if (written === null || written.trim() === '') {
+    return `The changes of pull request #${checkout.pullRequest ?? ''} were not prepared: the checkout wrote nothing.`;
+  }
+  // A cut in the sandbox may leave half a character, which decoding made U+FFFD.
+  const text = written.replace(/�$/, '');
+  const encoded = new TextEncoder().encode(text);
+  if (encoded.length <= CHANGES_MAX_BYTES) return text;
+  let cut = CHANGES_MAX_BYTES;
+  while (cut > 0 && ((encoded[cut] ?? 0) & 0xc0) === 0x80) cut -= 1;
+  const kept = new TextDecoder().decode(encoded.subarray(0, cut));
+  return `${kept}\n${cutLine(encoded.length - cut)}`;
+}
+
+/** The pass the runner signs for its own client of a step's host: names no person or workspace. */
+export const STEP_PASS_SUBJECT = 'consola-runner';
+export const STEP_PASS_WORKSPACE = 'consola-step';
 
 /** What an agent step's host is started with: its session, the key its passes are checked with, the step's folder and the API key. */
 export function stepHostEnv(input: {

@@ -6,9 +6,10 @@
  *   pnpm --filter @consola/host template:build
  *
  * It stages the template's folder in `dist/sandbox-template/` (a Dockerfile's folder is the
- * context its COPY reads): its Dockerfile and start script, the two files `scripts/bundle.ts`
- * writes, and t3's patch to `@ff-labs/fff-node` from the repository's `patches/`, which the
- * Dockerfile applies as pnpm does. Then it builds it there with `@consola/sandbox/e2b`'s builder,
+ * context its COPY reads): its Dockerfile, the session's start script and the steps' two scripts
+ * (`consola-step-checkout`, `consola-step-start`), the two files `scripts/bundle.ts` writes, and
+ * t3's patch to `@ff-labs/fff-node` from the repository's `patches/`, which the Dockerfile applies
+ * as pnpm does. Then it builds it there with `@consola/sandbox/e2b`'s builder,
  * under the name the runner creates sandboxes from (`SESSION_TEMPLATE`). The key is
  * `E2B_API_KEY`, from the environment or else `packages/sandbox/.env`; it is never an argument,
  * and never printed.
@@ -49,7 +50,12 @@ if (apiKey === '') {
 
 rmSync(STAGE, { recursive: true, force: true });
 mkdirSync(STAGE, { recursive: true });
-for (const file of ['Dockerfile', 'consola-session-start']) {
+for (const file of [
+  'Dockerfile',
+  'consola-session-start',
+  'consola-step-checkout',
+  'consola-step-start',
+]) {
   copyFileSync(join(TEMPLATE, file), join(STAGE, file));
 }
 copyFileSync(BUNDLE, join(STAGE, 'consola-host.mjs'));
