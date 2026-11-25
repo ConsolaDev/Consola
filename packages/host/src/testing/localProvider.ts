@@ -12,7 +12,8 @@
  *
  * `bin.test.ts` runs a runner on it (`replayRunner.ts`), and so does `@consola/cloud-session-e2e`,
  * against the built cell. It need not pass the whole sandbox contract; `sandboxesFrom` takes its
- * answers.
+ * answers. A step's sandbox (`adapters/agentSteps.ts`, `commandSteps.ts`) behaves as its `steps`
+ * option says (`LocalStepsOptions`), each `/workspace` path in the sandbox's folder.
  */
 import { type ChildProcess, spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

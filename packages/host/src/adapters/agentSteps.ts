@@ -79,6 +79,8 @@ import {
 export const STEP_POLL_INTERVAL = Duration.millis(500);
 /** How many reads of the thread in a row may fail before the attempt fails. */
 const SNAPSHOT_FAILURES_ALLOWED = 10;
+/** How many times an answer to one request is sent while the host refuses it. */
+const APPROVAL_SENDS = 3;
 /** The step host's idle minutes: it outlives a pause between the runner's calls. */
 const STEP_HOST_IDLE_MINUTES = 10;
 
@@ -380,7 +382,8 @@ const awaitTurn = (
     yield* client
       .dispatch(stepMessage(sessionId, index, text, stepModelSelection(request.model)))
       .pipe(Effect.mapError((error) => fail(error.problem)));
-    const answered = new Set<string>();
+    /** Each request answered, by how many times its answer was sent. */
+    const answered = new Map<string, number>();
     let failures = 0;
     const pollEvery = options.pollEvery ?? STEP_POLL_INTERVAL;
     while (true) {
@@ -403,13 +406,24 @@ const awaitTurn = (
         failures = 0;
         progress.projection = read.projection;
         for (const pending of pendingStepRequests(read.projection)) {
-          if (answered.has(pending.requestId)) continue;
-          answered.add(pending.requestId);
+          const sent = answered.get(pending.requestId) ?? 0;
+          // Taken, and the thread not yet showing it, or sent and refused: the request may have
+          // gone meanwhile (the CLI withdraws one it no longer needs). Asked again while it shows.
+          if (sent < 0) continue;
+          if (sent >= APPROVAL_SENDS) {
+            return yield* fail("The step's host would not take the runner's answer to a request.");
+          }
           const approval = decideStepApproval(request.policy, pending);
-          if (approval.answer === 'refuse') progress.deniedTools.push(approval.tool);
-          yield* client
+          if (sent === 0 && approval.answer === 'refuse') {
+            progress.deniedTools.push(approval.tool);
+          }
+          const taken = yield* client
             .dispatch(approvalCommand(sessionId, pending.requestId, approval))
-            .pipe(Effect.mapError((error) => fail(error.problem)));
+            .pipe(
+              Effect.as(true),
+              Effect.catchTag('StepHostFailed', () => Effect.succeed(false)),
+            );
+          answered.set(pending.requestId, taken ? -1 : sent + 1);
         }
         const run = stepRunOf(read.projection, sessionId, index);
         if (run !== undefined && isRunOver(run)) return run;
