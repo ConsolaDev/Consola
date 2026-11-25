@@ -80,6 +80,12 @@ const SANDBOX = '@consola/sandbox';
  * `import()`), so a session's host, which runs the same file, never loads E2B's SDK.
  */
 const SANDBOX_E2B = '@consola/sandbox/e2b';
+/**
+ * The factory files' schema (MIT), for a step's declared outputs and documents: its types and its
+ * pure checks (`OutputType`, `checkOutputs`, `ARTIFACT_NAME_PATTERN`). It does no I/O, so `core`
+ * may name it, and so may the rings that run steps.
+ */
+const FACTORY_SPEC = '@consola/factory-spec';
 
 const LAYERS: Layer[] = [
   {
@@ -89,8 +95,9 @@ const LAYERS: Layer[] = [
     reaches: ['core'],
     refuses: [NODE_BUILTINS, 'effect/process', 'ws', 'jose'],
     noGlobals: MACHINE_GLOBALS,
-    // The protocol's types and readers, never the sandboxes: starting one is the adapters'.
-    consola: [RUNNER_PROTOCOL],
+    // The protocol's types and readers, and the factory files' output types and checks; never the
+    // sandboxes: starting one is the adapters'.
+    consola: [RUNNER_PROTOCOL, FACTORY_SPEC],
   },
   {
     // Effect services over the vendored packages. Free to use them and `core`, never the
@@ -106,7 +113,7 @@ const LAYERS: Layer[] = [
     reaches: ['core', 'runtime', 'adapters'],
     refuses: [TEST_KITS],
     noGlobals: [],
-    consola: [RUNNER_PROTOCOL, SANDBOX],
+    consola: [RUNNER_PROTOCOL, SANDBOX, FACTORY_SPEC],
   },
   {
     // What tests share (an isolated machine, fake CLIs, the command over a replay). No other ring
@@ -117,14 +124,24 @@ const LAYERS: Layer[] = [
     refuses: [],
     noGlobals: [],
     testSeams: true,
-    consola: [RUNNER_PROTOCOL, SANDBOX],
+    consola: [RUNNER_PROTOCOL, SANDBOX, FACTORY_SPEC],
   },
-  // The bin: signal handlers first, then the program, loaded from `bin.ts` alone. No package,
-  // so its handlers are in place before anything loads.
+  // The bin: signal handlers first, then the program, loaded from `bin.ts` alone, or the step
+  // tools' server from `stepToolsMain.ts` alone. No package, so its handlers are in place before
+  // anything loads.
   {
     at: 'main',
-    reaches: ['bin'],
+    reaches: ['bin', 'stepToolsMain'],
     refuses: [ANY_PACKAGE],
+    noGlobals: [],
+    consola: [],
+  },
+  // The step tools' MCP server, which a step's CLI starts in its sandbox: its own entry, so it
+  // loads the server and its decisions and none of t3's runtime, which `bin.ts` loads.
+  {
+    at: 'stepToolsMain',
+    reaches: ['core', 'adapters'],
+    refuses: [TEST_KITS],
     noGlobals: [],
     consola: [],
   },
@@ -532,8 +549,24 @@ describe('the dependency rule', () => {
     ['bin.ts', './adapters/ws.ts', true],
     ['bin.ts', '@consola/factory-spec', false],
     ['main.ts', './bin.ts', true],
+    ['main.ts', './stepToolsMain.ts', true],
     ['main.ts', './core/pass.ts', false],
     ['main.ts', './adapters/ws.ts', false],
+    ['stepToolsMain.ts', './adapters/stepToolsServer.ts', true],
+    ['stepToolsMain.ts', './core/steps/stepTools.ts', true],
+    ['stepToolsMain.ts', './runtime/threadRuntime.ts', false],
+    ['stepToolsMain.ts', './bin.ts', false],
+    ['stepToolsMain.ts', '@consola/sandbox', false],
+    ['stepToolsMain.ts', '@t3tools/provider-claude/testing', false],
+    // The factory files' schema: its output types and checks, in `core` and the rings that run
+    // steps, never `runtime`, the wiring or a test beside no module.
+    ['core/x.ts', '@consola/factory-spec', true],
+    ['adapters/x.ts', '@consola/factory-spec', true],
+    ['testing/x.ts', '@consola/factory-spec', true],
+    ['core/x.test.ts', '@consola/factory-spec', true],
+    ['runtime/x.ts', '@consola/factory-spec', false],
+    ['main.ts', '@consola/factory-spec', false],
+    ['core/x.ts', '@consola/factory-spec/dist/index.js', false],
     ['main.ts', 'effect', false],
     ['main.ts', 'node:process', false],
     ['main.ts', '@consola/runner-protocol', false],

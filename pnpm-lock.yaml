@@ -1096,6 +1096,9 @@ importers:
 
   packages/host:
     dependencies:
+      '@consola/factory-spec':
+        specifier: workspace:*
+        version: link:../factory-spec
       '@consola/runner-protocol':
         specifier: workspace:*
         version: link:../runner-protocol
