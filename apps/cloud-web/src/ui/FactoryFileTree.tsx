@@ -62,7 +62,12 @@ export const FactoryFileTree = forwardRef<
         ) : (
           groups.map((group) => (
             <FileGroup key={group.folder ?? ''} folder={group.folder}>
-              {group.files.map((file) => (
+              {[
+                ...group.files,
+                ...group.skills.flatMap((skill) =>
+                  skill.files.map((file) => ({ ...file, name: `${skill.skill}/${file.name}` })),
+                ),
+              ].map((file) => (
                 <li key={file.path}>
                   <FileRow
                     path={file.path}

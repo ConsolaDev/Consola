@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closeTab, keptTabs, NO_TABS, openTab } from './factoryTabs';
+import { closeTab, keptTabs, NO_TABS, openTab, renamedTabs } from './factoryTabs';
 
 describe('factory tabs', () => {
   it('opens a tab right of the one in front, and brings an open one forward', () => {
@@ -18,6 +18,19 @@ describe('factory tabs', () => {
     expect(closeTab(tabs, 'a')).toEqual({ open: ['b', 'c'], active: 'b' });
     expect(closeTab({ open: ['a'], active: 'a' }, 'a')).toEqual({ open: [], active: null });
     expect(closeTab(tabs, 'z')).toBe(tabs);
+  });
+
+  it('keeps a renamed file’s tab in its place, in front if it was', () => {
+    const tabs = { open: ['a', 'b', 'c'], active: 'b' };
+    expect(renamedTabs(tabs, new Map([['b', 'z']]))).toEqual({
+      open: ['a', 'z', 'c'],
+      active: 'z',
+    });
+    expect(renamedTabs(tabs, new Map([['c', 'y']]))).toEqual({
+      open: ['a', 'b', 'y'],
+      active: 'b',
+    });
+    expect(renamedTabs(tabs, new Map([['q', 'r']]))).toBe(tabs);
   });
 
   it('closes the tabs of files a version no longer holds', () => {

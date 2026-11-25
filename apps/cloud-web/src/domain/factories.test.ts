@@ -154,30 +154,81 @@ describe("a factory's files", () => {
       ]),
     );
     expect(groups).toEqual([
-      { folder: null, files: [{ path: 'factory.yml', name: 'factory.yml' }] },
+      { folder: null, files: [{ path: 'factory.yml', name: 'factory.yml' }], skills: [] },
       {
         folder: 'automations',
         files: [
           { path: 'automations/deploy.yaml', name: 'deploy.yaml' },
           { path: 'automations/nightly.yaml', name: 'nightly.yaml' },
         ],
+        skills: [],
       },
-      { folder: 'agents', files: [{ path: 'agents/reviewer.md', name: 'reviewer.md' }] },
+      {
+        folder: 'agents',
+        files: [{ path: 'agents/reviewer.md', name: 'reviewer.md' }],
+        skills: [],
+      },
       {
         folder: 'skills',
-        files: [
-          { path: 'skills/release/notes/template.md', name: 'release/notes/template.md' },
-          { path: 'skills/release/SKILL.md', name: 'release/SKILL.md' },
+        files: [],
+        skills: [
+          {
+            skill: 'release',
+            files: [
+              { path: 'skills/release/SKILL.md', name: 'SKILL.md' },
+              { path: 'skills/release/notes/template.md', name: 'notes/template.md' },
+            ],
+          },
         ],
       },
-      { folder: 'environments', files: [{ path: 'environments/ci.yaml', name: 'ci.yaml' }] },
+      {
+        folder: 'environments',
+        files: [{ path: 'environments/ci.yaml', name: 'ci.yaml' }],
+        skills: [],
+      },
+    ]);
+  });
+
+  it('group each skill’s files under it, its SKILL.md first, the skills by name', () => {
+    const [skills] = fileGroups(
+      paths([
+        'skills/triage/refs/queries.md',
+        'skills/catalog/SKILL.md',
+        'skills/triage/SKILL.md',
+        'skills/triage/notes.md',
+      ]),
+    );
+    expect(skills?.skills).toEqual([
+      { skill: 'catalog', files: [{ path: 'skills/catalog/SKILL.md', name: 'SKILL.md' }] },
+      {
+        skill: 'triage',
+        files: [
+          { path: 'skills/triage/SKILL.md', name: 'SKILL.md' },
+          { path: 'skills/triage/notes.md', name: 'notes.md' },
+          { path: 'skills/triage/refs/queries.md', name: 'refs/queries.md' },
+        ],
+      },
+    ]);
+  });
+
+  it('list the format’s folders when asked, empty or not', () => {
+    expect(fileGroups([], { formatFolders: true })).toEqual([
+      { folder: 'automations', files: [], skills: [] },
+      { folder: 'agents', files: [], skills: [] },
+      { folder: 'skills', files: [], skills: [] },
+    ]);
+    expect(fileGroups(paths(['agents/a.md']))).toEqual([
+      { folder: 'agents', files: [{ path: 'agents/a.md', name: 'a.md' }], skills: [] },
     ]);
   });
 
   it('open on factory.yml, else the first listed, else none', () => {
     expect(firstFile(fileGroups(paths(['agents/a.md', 'factory.yml'])))).toBe('factory.yml');
     expect(firstFile(fileGroups(paths(['skills/x/SKILL.md', 'agents/a.md'])))).toBe('agents/a.md');
-    expect(firstFile(fileGroups([]))).toBeNull();
+    expect(firstFile(fileGroups(paths(['skills/x/refs/a.md', 'skills/x/SKILL.md'])))).toBe(
+      'skills/x/SKILL.md',
+    );
+    expect(firstFile(fileGroups([], { formatFolders: true }))).toBeNull();
   });
 });
 
