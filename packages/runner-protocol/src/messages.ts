@@ -32,6 +32,12 @@ import {
 } from './read.js';
 import { isRepository, type Repository } from './repository.js';
 
+/**
+ * The most one message's JSON may be on the runner's socket, in bytes of UTF-8: both sides refuse
+ * a larger frame, closing the socket with 1009 (Message Too Big) before they read it.
+ */
+export const SOCKET_FRAME_MAX_BYTES = 4 * 1024 * 1024;
+
 /** The agent CLIs a runner can start a session with. */
 export const HARNESSES = ['claude', 'codex'] as const;
 export type Harness = (typeof HARNESSES)[number];

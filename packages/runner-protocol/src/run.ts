@@ -1,5 +1,7 @@
+import { GIT_REF_MAX } from './github.js';
 import {
   boolean,
+  isTextUpTo,
   listOf,
   mapOf,
   nullable,
@@ -22,8 +24,9 @@ import {
  * a request (a child, whose `parent` names the request).
  *
  * `readRunRecord` checks the shape alone: every field present and of its type, every word one of
- * its vocabulary, no field the protocol does not name, and every list bounded. What a record
- * means (which combinations hold, ids and times in their form, sizes in bytes) is the cell's
+ * its vocabulary, no field the protocol does not name, and every list bounded. It also checks an
+ * item's `headSha` (40 lowercase hex) and `baseRef` (1 to `GIT_REF_MAX` characters), which a
+ * runner that restarted rebuilds the run's checkout from. What a record means (which combinations hold, ids and times in their form, sizes in bytes) is the cell's
  * `checkRun`, which refuses a record with `run.refused` and every problem named.
  */
 
@@ -102,6 +105,10 @@ export type RunItem = {
   readonly kind: ItemKind | null;
   readonly repo: string | null;
   readonly number: number | null;
+  /** A pull request's head commit when the run was recorded, which is the commit the run reads: 40 lowercase hex. Null for anything else. */
+  readonly headSha: string | null;
+  /** A pull request's base branch. Null for anything else. */
+  readonly baseRef: string | null;
 };
 
 /** A value a step's outputs hold: validated against its declared type by the runner. */
@@ -234,6 +241,9 @@ const outputValue: Reader<OutputValue> = readerOf(
 
 const stepStatus = oneOf(STEP_STATUSES, 'a step status');
 
+/** A commit's id: 40 lowercase hex digits. */
+const SHA = /^[0-9a-f]{40}$/;
+
 const readPrevious = objectOf<PreviousAttempt>({
   attempt: number,
   status: stepStatus,
@@ -298,6 +308,18 @@ const readRun = objectOf<RunRecord>({
       kind: nullable(oneOf(ITEM_KINDS, 'an item kind')),
       repo: nullable(text),
       number: nullable(number),
+      headSha: nullable(
+        readerOf(
+          (value: unknown): value is string => typeof value === 'string' && SHA.test(value),
+          "a commit's 40 lowercase hex digits",
+        ),
+      ),
+      baseRef: nullable(
+        readerOf(
+          (value: unknown): value is string => isTextUpTo(value, GIT_REF_MAX),
+          `a branch's name of at most ${GIT_REF_MAX} characters`,
+        ),
+      ),
     }),
   ),
   runner: text,
