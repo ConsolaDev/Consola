@@ -19,23 +19,31 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   turn, nothing done for the idle minutes) and `SessionSpec`. No
   `node:` builtin, no `effect/process`, `ws` or `jose`, and no global that
   touches the machine (`process`, `fetch`, `WebSocket`, timers). It may name the
-  vendored `@t3tools/contracts` and `@consola/runner-protocol` (below). The
-  runner's decisions live here too (`runnerDecisions.ts`, "The `runner`
-  command"), and the host's stdout lines (`hostLine.ts`: `HostLine` and its
-  reader).
+  vendored `@t3tools/contracts`, `@consola/runner-protocol` and
+  `@consola/factory-spec` (below). The runner's decisions live here too
+  (`runnerDecisions.ts`, "The `runner` command"), the host's stdout lines
+  (`hostLine.ts`: `HostLine` and its reader), and the steps' ports and
+  decisions (`core/steps/`, "Step sandboxes").
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
   verifying a pass's signature, the socket's tickets (`socketTickets.ts`), the
   dev pass (`devPass.ts`), the lines on
-  stdout (`stdoutEvents.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
-  and its socket to the cell (`cellSocket.ts`). It may import `core/` and
-  `runtime/`.
+  stdout (`stdoutEvents.ts`), the runner's sandboxes (`sandboxSessions.ts`)
+  and its socket to the cell (`cellSocket.ts`), and its steps (`agentSteps.ts`,
+  `commandSteps.ts`, `stepSandboxes.ts`, `stepHostClient.ts`) and the step
+  tools' MCP server (`stepToolsServer.ts`, "Step sandboxes"). It may import
+  `core/` and `runtime/`.
 - `src/main.ts` is the bin: it listens for SIGTERM and SIGINT, then imports
-  `bin.ts` and calls its `main` ("Signals", below). It imports no package and
-  nothing else (its `LAYERS` row reaches `bin` alone), so its listeners are
-  there before anything loads.
+  `bin.ts` and calls its `main` ("Signals", below), or, for `step-tools`,
+  imports `stepToolsMain.ts` instead. It imports no package and nothing else
+  (its `LAYERS` row reaches `bin` and `stepToolsMain` alone), so its listeners
+  are there before anything loads.
+- `src/stepToolsMain.ts` is the step tools' server's entry
+  (`consola-host step-tools`): it reaches `core/` and `adapters/`, never
+  `runtime/` or `bin.ts`, so the server a step's CLI starts and waits for loads
+  none of t3's runtime.
 - `src/bin.ts` is the only wiring: it parses the command line, builds the
   adapters and hands them the runtime (`consola-host session`, below), or a
   sandbox provider (`consola-host runner`, below).
@@ -47,7 +55,10 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   (the session command over a replay, which `bin.test.ts` starts with node),
   `cellPass.ts` (a pass signed as the cell's `passSigner` signs one),
   `localProvider.ts` (a `SandboxProvider` whose sandboxes are a temporary
-  folder and a `replaySession.ts` process, its ports `http://127.0.0.1:<port>`)
+  folder and a `replaySession.ts` process, its ports `http://127.0.0.1:<port>`;
+  for a step, a stand-in checkout, a step host over the fixture its `steps`
+  option names after the real step tools' server took its `toolCalls`, and a
+  real `bash`, each `/workspace` path in the sandbox's folder)
   and `replayRunner.ts` (the runner command over it).
   No other ring reaches it, so only `*.test.ts` files, `vite.config.ts` and a
   test's `node` use it; it may use the test runner, t3's test kits and test
@@ -82,10 +93,14 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
 To add a ring, add a row to `LAYERS` and a case to the table in
 `boundary.test.ts`. Test files are exempt from the layer rules.
 
-No file imports another `@consola/*` package, tests included, but two, each by
+No file imports another `@consola/*` package, tests included, but three, each by
 its own name and never a path inside it (`@consola/sandbox/dist/index.js` is
 refused): `@consola/runner-protocol` (MIT), what a runner and its cell say to
-each other, which does no I/O, so every ring may name it; and
+each other, which does no I/O, so every ring may name it;
+`@consola/factory-spec` (MIT), the factory files' schema, for a step's output
+types and its pure checks (`OutputType`, `checkOutputs`,
+`ARTIFACT_NAME_PATTERN`), which does no I/O, in `core`, `adapters` and
+`testing` only; and
 `@consola/sandbox`, the interface the runner starts sandboxes through, in
 `adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. One entry
 point of `@consola/sandbox` is named on its own: `@consola/sandbox/e2b`, the E2B
@@ -1041,6 +1056,89 @@ provider, and `cellSocket.test.ts` the socket against a `ws` server.
 `@consola/cloud-session-e2e` runs the same runner against the built cell, end to end
 (`packages/cloud-session-e2e/AGENTS.md`).
 
+## Step sandboxes
+
+An automation's steps (Linear CON-120, decision D8 in CON-36): the runner's automations ring
+calls two ports, `AgentSteps` and `CommandSteps` (`core/steps/ports.ts`, a contract the ring's
+branch holds word for word), and the host implements them on `@consola/sandbox`
+(`adapters/agentSteps.ts`, `adapters/commandSteps.ts`). The runner stays outside; every attempt
+gets a sandbox of its own.
+
+- **One sandbox per attempt** (`stepSandboxes.ts`), from `consola-session`, made with no
+  variables: each command brings its own (`core/steps/stepSandbox.ts`), so the clone token
+  reaches the checkout alone, the API key the step's host alone, and a command exactly what its
+  request names. Its calls are bounded and its lease renewed as a session's
+  (`SANDBOX_LEASE_SECONDS`), its lifetime capped at the step's timeout and two minutes, and it is
+  stopped however the attempt ends: done, failed, past `timeoutMs` (`The step did not end within
+  <n> s.`) or aborted (`The step was stopped.`). `publicPorts`, as a session's: the host guards its
+  port.
+- **The checkout** (`consola-step-checkout`, `sandbox-template/README.md`): the repository at
+  `checkout.commit`, `pull/<n>/head` fetched for a pull request, hooks off, nothing of the token
+  kept. No checkout: an empty `/workspace/repo`. A failure is the script's `clone-failed` message,
+  scrubbed.
+- **What runs where.** An agent step's host is `consola-host session` on Claude, in the sandbox
+  (`consola-step-start`), driving the CLI through t3's adapters as a cloud session does; its thread
+  opens in `approval-required` and nothing changes that (`SessionSpec` has no access field). A
+  command step's sandbox runs no host: `bash -c` in the checkout.
+- **The runner is the host's only client** (`stepHostClient.ts`). It makes an Ed25519 key pair
+  per attempt (`makeStepKeys`), gives the sandbox the public key (`CONSOLA_PASS_PUBLIC_KEY`),
+  keeps the private key in memory, and signs its own passes with `passClaims` (`sub`
+  `consola-runner`, `ws` `consola-step`, `sid` the attempt's session, `stepSessionId`), a new one
+  before the old has a minute left. It reads the thread over HTTP (the bounded snapshot, the pass
+  as bearer), and sends each command over a socket of its own, opened with a ticket and closed: no
+  socket outlives a pass.
+- **The turn.** It sends `request.prompt`, then reads the thread every `STEP_POLL_INTERVAL`
+  (500 ms) until the run that message started ends. A turn that does not complete fails the step
+  (its error item's message). A host that stops mid-turn fails it with its last line on stderr.
+- **Permission requests are answered by the runner** (`decideStepApproval`, `pendingStepRequests`),
+  each the moment the thread shows it, so no step waits on an approval. A request is paired with
+  its tool call by Claude's tool use id (the turn item sharing its native id). `read-only` allows
+  the four step tools and `READ_ONLY_TOOLS` (to-do list, tool search, a subagent, whose own calls
+  come back here); it declines every command, write, network request, other MCP server's tool,
+  broader permission, elicitation and sign-in, and every `file-read`: the CLI reads inside its
+  folders without asking, so it asks only for a path outside them, where `/proc` holds the API
+  key. A question for the person (`user_input`) is cancelled. Each refusal is named in
+  `deniedTools` (the CLI's tool name where t3 reports it, else t3's kind: `file-change`, `web`).
+- **The step tools live in the sandbox**: `consola-host step-tools --folder <dir>`
+  (`stepToolsMain.ts`, `adapters/stepToolsServer.ts`), a stdio MCP server in the bundle that
+  `consola-step-start` writes into Claude's own user config (`~/.claude.json`, server `consola`),
+  so its tools are `mcp__consola__consola_set_outputs`, `…_write_artifact`, `…_read_artifact` and
+  `…_list_artifacts`, the desktop's names. No t3 setting and no vendored file changes for it.
+  The same script's user settings allow those four and `ask` for every command, write and network
+  tool, which beats a checkout's own `allow`. The server answers from the attempt's folder
+  (`/workspace/.consola/step`): `declaration.json`, which the runner writes before the turn
+  (outputs, writable, required and readable documents), then `outputs.json` and
+  `artifacts/<name>.md`, each replaced whole by a rename, checked as the engine's tools check
+  (`checkOutputs`, `ARTIFACT_NAME_PATTERN`, 256 KB a document; `core/steps/stepTools.ts`), and a
+  document it reads fenced as material.
+- **The runner checks again.** The sandbox is untrusted: the agent runs there. After each turn the
+  runner reads the folder out through the provider's file API and checks it with the same rules
+  (`checkStepFolder`); what fails is dropped and logged by name, never by value. Anything missing
+  gets one reminder (`request.reminder(missing)`) as a second message in the same conversation,
+  then the step fails naming it (`missingSentence`).
+- **A pull request's changes.** For an agent step whose checkout has `pullRequest` and
+  `baseRef`, the checkout also writes the pull request's files and its diff against the merge
+  base with the base branch (512 KiB at most, the file list whole, a cut line saying how much was
+  left out, or one line saying why they are missing), and the runner hands it to the step as the
+  readable document `changes` (`changesDocument`, bounded again), beside the request's own.
+- **Secrets.** The runner's, the clone token and the API key, and a command's `secretEnv`, are
+  masked in everything that comes back, in every printed form (`maskFormsOf`, the engine's,
+  carried over in `core/steps/mask.ts`), the agent's outputs and documents included; errors go
+  through `scrubSecrets` too. Each stream keeps its last 16 KiB (`OUTPUT_TAIL_LENGTH`), masked
+  before it is cut.
+- **What comes back.** `costUsd` and `turns` are null: t3's projection reports neither a turn's
+  cost nor the CLI's count of turns. An agent's `output` is what it said (its messages) and the
+  host's stderr. A command's `outputs` are the `key=value` lines of `$CONSOLA_OUTPUT`
+  (`/workspace/.consola/outputs.env`, 64 KB at most), masked; its files sit under
+  `/workspace/.consola/attempt`; a command the runner stopped reports `SIGTERM`.
+- **Claude alone.** A step for another harness fails at once, with no sandbox. `maxTurns` is not
+  enforced: t3 gives the host no way to pass `--max-turns`.
+
+`agentSteps.test.ts` and `commandSteps.test.ts` drive both on the local provider (replays of t3's
+`simple`, `multi_turn`, `tool_call_denied_write` and `turn_interrupt` fixtures, the real step
+tools' server, a real `bash`); `stepScripts.test.ts` runs both scripts under `sh` against a
+repository on disk.
+
 ## The bundle and the session template
 
 A cloud session's host runs in a sandbox made from the `consola-session`
@@ -1092,8 +1190,9 @@ build it and its id), from a bundle rather than from source.
 - **The template**, `sandbox-template/`: a `Dockerfile` in the format
   `@consola/sandbox/e2b` builds (one stage; `packages/sandbox/AGENTS.md`,
   "Templates") holding Node 26.13.1, git, `gh`, the Claude Code and Codex CLIs at
-  pinned versions, the two bundled files in `/opt/consola`, and
-  `consola-session-start`. No version goes in an `ARG`, which E2B keeps as a
+  pinned versions, the two bundled files in `/opt/consola`,
+  `consola-session-start`, and a step's two scripts, `consola-step-checkout` and
+  `consola-step-start` ("Step sandboxes"). No version goes in an `ARG`, which E2B keeps as a
   variable of every command the sandbox runs, and it writes no t3 settings: a
   `launchArgs` there would override the host's approval mode ("The host never
   starts a CLI in full access"). `pnpm --filter @consola/host template:build`
@@ -1144,8 +1243,8 @@ node packages/host/src/main.ts session --dev --harness claude --cwd <folder>   #
 pnpm --filter @consola/host bundle      # dist/consola-host.mjs ("The bundle and the session template")
 ```
 
-The host loads its two Consola dependencies, `@consola/runner-protocol` and `@consola/sandbox`,
-from their built `dist/`, which a fresh checkout does not have. Build them once first, and after
+The host loads its three Consola dependencies, `@consola/runner-protocol`, `@consola/factory-spec`
+and `@consola/sandbox`, from their built `dist/`, which a fresh checkout does not have. Build them once first, and after
 changing either: `pnpm exec turbo run build --filter=@consola/host^...` (the package's own
 `test` and `typecheck` through Turborepo do it for you, as `pnpm test` does).
 

@@ -8,14 +8,23 @@
  * (`runHostProcess`: the program is interrupted, everything it started stops, exit 0). The
  * listeners swap in one synchronous step, so no signal falls between them.
  *
+ * `consola-host step-tools` loads `stepToolsMain.ts` instead: the step tools' MCP server, which a
+ * step's CLI starts and waits for, and which needs none of t3's runtime.
+ *
  * It imports nothing statically, so its listeners are there as soon as Node runs it.
  */
 const exitBeforeLoading = () => process.exit(0);
 process.on('SIGTERM', exitBeforeLoading);
 process.on('SIGINT', exitBeforeLoading);
 
-const { main } = await import('./bin.ts');
+const argv = process.argv.slice(2);
+if (argv[0] === 'step-tools') {
+  const { stepToolsMain } = await import('./stepToolsMain.ts');
+  await stepToolsMain(argv);
+} else {
+  const { main } = await import('./bin.ts');
 
-process.off('SIGTERM', exitBeforeLoading);
-process.off('SIGINT', exitBeforeLoading);
-main(process.argv.slice(2));
+  process.off('SIGTERM', exitBeforeLoading);
+  process.off('SIGINT', exitBeforeLoading);
+  main(argv);
+}

@@ -3,7 +3,9 @@
 The sandbox a Consola cloud session runs in. A runner (`consola-host runner`,
 `packages/host/AGENTS.md`, "The `runner` command") makes one per session, from
 this template, on Consola's own E2B account, and runs its start script there.
-People never see E2B.
+People never see E2B. An automation's step runs in one too, one per attempt
+(`AGENTS.md`, "Step sandboxes"), with the steps' two scripts instead of the
+session's ("The steps' scripts", below).
 
 The template and the host's bundle in it are Consola's alone: the bundle holds
 the Claude Agent SDK, so neither is ever published, shared or released (root
@@ -33,7 +35,8 @@ the Claude Agent SDK, so neither is ever published, shared or released (root
   (`patches/@ff-labs__fff-node@0.11.0.patch`: its async search methods, and its
   CommonJS entry pointed at them), applied with `git apply`.
 - **The start script**, `consola-session-start` (on the `PATH`), which the
-  runner runs (below).
+  runner runs (below), and the steps' two scripts, `consola-step-checkout` and
+  `consola-step-start` (on the `PATH` too).
 - **`/workspace`**, the session's folder, owned by `user`, the user E2B runs
   commands as.
 
@@ -103,6 +106,49 @@ canary passes on the new version.
 Stdout is the runner's: the script prints nothing else there. Its tests are
 `src/bundle.test.ts`.
 
+## The steps' scripts
+
+A step's sandbox is made with no variables of its own; each command gets its
+own (`core/steps/stepSandbox.ts`).
+
+`consola-step-checkout` (`checkoutEnv`: `CONSOLA_REPOSITORY`,
+`CONSOLA_CHECKOUT_COMMIT`, and as asked `CONSOLA_CHECKOUT_PULL_REQUEST`,
+`CONSOLA_CHECKOUT_BASE_REF`, `CONSOLA_CHANGES_MAX_BYTES`, `GIT_TOKEN`):
+
+1. clones the repository into `/workspace/repo` with no files checked out, git
+   asking the same credential helper as the session's script, hooks off
+   (`core.hooksPath=/dev/null`) for every git command;
+2. fetches `refs/pull/<n>/head` for a pull request, then the commit itself
+   when no fetched ref holds it, checks it out detached and checks `HEAD` is
+   it;
+3. leaves the repository with hooks off, the helper (so a command given
+   `GIT_TOKEN` can push), `user.name` `Consola step`, `user.email`
+   `step@consola.invalid`;
+4. for an agent step on a pull request (`CONSOLA_CHECKOUT_BASE_REF` set),
+   fetches the base branch and writes `/workspace/.consola/changes.md`: the
+   files the pull request changes (`--name-status`), then its diff against the
+   merge base (`origin/<base>...HEAD`, no colour, no external diff driver or
+   text conversion), cut at `CONSOLA_CHANGES_MAX_BYTES` (512 KiB) with the file
+   list whole and a last line `[cut here: the rest is <n> KB more (<b> bytes)]`.
+   A base it cannot fetch, or that shares no commit with the head, is one line
+   saying so, and the script still succeeds.
+
+A failure prints one `clone-failed` line, as the session's script does, and
+exits 1.
+
+`consola-step-start` (`stepHostEnv`: `CONSOLA_SESSION_ID`, `CONSOLA_HARNESS`,
+`CONSOLA_PASS_PUBLIC_KEY`, `CONSOLA_SESSION_IDLE_MINUTES`,
+`CONSOLA_STEP_FOLDER`, `ANTHROPIC_API_KEY`) writes the pass key, then Claude
+Code's own user config: the step tools as a user-scope MCP server `consola` in
+`~/.claude.json` (`node /opt/consola/consola-host.mjs step-tools --folder
+$CONSOLA_STEP_FOLDER`), and in `~/.claude/settings.json` an `allow` rule for
+the four step tools and an `ask` rule for `Bash`, `Edit`, `MultiEdit`,
+`Write`, `NotebookEdit`, `WebFetch` and `WebSearch`, so a checkout's own
+`allow` rules cannot run them without the runner's answer. It sets
+`MAX_MCP_OUTPUT_TOKENS` (a long changes document), then becomes the host as
+the session's script does, on Claude, in `/workspace/repo`. It writes no t3
+settings. Both scripts' tests are `src/stepScripts.test.ts`.
+
 ## Building it
 
 On Consola's E2B account, under the name the runner creates sandboxes from
@@ -123,6 +169,10 @@ never an argument and never printed. The build prints the template's id.
 
 **Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
 build prints here, and only the id.
+
+That build predates the steps' scripts and the host's `step-tools` command: a
+step's sandbox needs the template built again (the two commands above) before
+a runner can run steps on E2B.
 
 ## The sandbox's lifetime
 
