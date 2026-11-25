@@ -29,13 +29,15 @@ The app is built in layers, and imports point inward only.
   factories (`factories.ts`: `Factory`, `checkFactoryName`, `checkNewFactory`,
   `newFactoryDraft`, `owningTeam`, `isMove`, `SOURCE_OPTIONS`,
   `FactoriesState`, `FactoryChange`, `FactoryRead`, `FactorySave`,
-  `fileGroups` and `firstFile`), what is wrong with a factory's files
+  `fileGroups`, `listedPaths` and `firstFile`), what is wrong with a factory's files
   (`factoryProblems.ts`: `FactoryProblem`, `problemOf`, `problemPath`,
   `problemCounts`, `ownProblems`, `sortedProblems`, `messageParts`) and the
   check that finds it as the person edits (`factoryCheck.ts`, factory-spec's
-  parser: see "Factories"), a person's edits over a version
-  (`factoryDraft.ts`: `FactoryDraft`, `draftOf`, `withEdit`, `filesOf`,
-  `broughtIn`, `afterSave`) and the files open as tabs (`factoryTabs.ts`), how
+  parser: see "Factories"), a person's changes over a version
+  (`factoryDraft.ts`: `FactoryDraft`, `draftOf`, `withEdit`, `withFile`,
+  `withoutFile`, `withRestored`, `filesOf`, `broughtIn`, `afterSave`), a new
+  file's path (`factoryNewFile.ts`: `checkNewFilePath`, `NEW_FILE_STARTS`,
+  `withStart`) and the files open as tabs (`factoryTabs.ts`), how
   the sidebar and the address name them (`factoryNav.ts`:
   `FACTORY_PAGES`, `factoryRouteOfHash`, `hashOfFactoryPage`,
   `factoryLanding`, the fold rules `isUnfolded` and `withFold`, and a tile's
@@ -278,9 +280,8 @@ desktop app draws its sidebar.
   the list no longer holds is gone, or now another team's, and the page says
   so.
 - **Factory definition** (`FactoryDefinitionPage`, CON-74) is a window onto
-  the whole factory as files and a quick fix in place, never where a factory
-  is made (a repository, the setup helper): a file is edited here, never
-  added, renamed or removed. It takes the whole width beside the sidebar
+  the whole factory as files and a quick change in place: a file is edited,
+  added and deleted here, never renamed. It takes the whole width beside the sidebar
   (`factoryLayout`) and loads only when it opens (`React.lazy`), since it
   carries the editor. A bar (the factory, "Version N, saved <when>", "by
   you" when it was the person, `savedWords`; Discard and Save), the banner
@@ -288,7 +289,27 @@ desktop app draws its sidebar.
   editor:
   - **The files** (`FactoryFileTree`) as the folder holds them
     (`fileGroups`), under a filter by path (`/` puts the keyboard there).
-    A file the person changed has a dot; its own problems a red count.
+    A file the person changed or added has a dot; its own problems a red
+    count.
+  - **Adding a file**: New file, beside the filter (or in the empty
+    editor of a factory with none), opens a field for its path in the list,
+    checked as the person types (`checkNewFilePath`), quietly, and in red
+    once Enter meets a problem. The rules are the cell's (`setIssues`: a
+    path inside the folder, its length, the file count, no path twice) and
+    factory-spec's (where `storedFactoryFiles` puts a file, the name
+    pattern), copied, since no app may import the cell and factory-spec is
+    the late chunk; each placement sentence is the parser's, word for word,
+    which `factoryNewFile.test.ts` holds. Automation and Agent fill
+    `automations/….yaml` or `agents/….md` around the name typed. Enter adds
+    an empty file, open in front with the keyboard in it; what it must hold
+    is the Problems panel's to say, before Save. The cell's answer on Save
+    stays the authority.
+  - **Deleting a file**: each row's delete button (under the pointer, on
+    the keyboard, on the open row) takes the file out until Save; the editor
+    moves to the tab beside it, else the file beside it in the list
+    (`tabsAfterDelete`), and the keyboard to the row beside it. A strip
+    offers Undo for the last one (`withRestored`, its text as it was), and
+    Discard brings every deleted file back.
   - **The editor** (`CodeEditor`, CodeMirror 6) shows the files open as tabs
     (`EditorTabs`, `factoryTabs.ts`; closing one keeps its edits), each file
     keeping its own undo history and place. YAML, and Markdown with YAML
@@ -313,8 +334,9 @@ desktop app draws its sidebar.
     Someone else's save in between (`version_moved`, or a newer version the
     sidebar's list read) is said in a strip with "Bring in version N"
     (`broughtIn`): files the person did not touch take the newer text, theirs
-    stay, and a file both changed is named. Typing while a save is on its
-    way is kept (`afterSave`).
+    stay (added and deleted ones too), and a file both changed is named, as
+    is one they deleted that the newer version changed. What the person does
+    while a save is on its way is kept (`afterSave`).
   - **Unsaved edits** stay in the page's memory per workspace and factory
     while the person moves around the dashboard (`factoryDrafts.ts`), with a
     dot on the sidebar's Factory definition row; closing or reloading the tab
@@ -809,4 +831,6 @@ They run in Node, so no test touches a DOM: a service takes the API's client
 as an argument (`loadMe(createApi({ fetch, baseUrl }))`, with an absolute
 `baseUrl`, since Node has no page to resolve `/api` against), and
 `signInRedirect.test.ts` stands in for `window` just for the test. Screens are
-checked by running the app (`pnpm dev:cloud`).
+checked by running the app (`pnpm dev:cloud`); what a screen offers in a given
+state can be checked as markup, with `react-dom/server`'s
+`renderToStaticMarkup` (`ui/FactoryFileTree.test.tsx`), which needs no DOM.
