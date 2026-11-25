@@ -194,7 +194,9 @@ export type RunParent = { readonly runId: string; readonly move: number };
 
 /**
  * A run as a runner records it: everything the cell keeps of it. The run's id is the runner's,
- * and a record of an id the workspace already holds replaces it, unless it is older.
+ * and a record of an id the workspace already holds replaces it, unless it is older, or would move
+ * the run backwards: a first record (`needs-approval`, no `startedAt`) never replaces a run that
+ * has moved on, and the cell answers it with `run.refused`.
  */
 export type RunRecord = {
   readonly id: string;

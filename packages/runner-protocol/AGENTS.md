@@ -125,7 +125,11 @@ the runner decides.
   `OUTPUT_TAIL_MAX` and `REQUEST_TEXT_MAX_BYTES` in bytes) is the cell's
   `checkRun`, which answers a record it refuses with `run.refused`, every
   problem named. Keep the two apart: a meaning checked by the reader would be
-  dropped with a log line, and the runner would never hear why.
+  dropped with a log line, and the runner would never hear why. A run never
+  moves backwards, which is the cell's to hold too: a first record
+  (`needs-approval`, no `startedAt`) of a run the cell holds moved on is
+  answered `run.refused`, and the runner drops it
+  (`apps/cloud-region/AGENTS.md`, "Runs").
 - **A run's item carries `headSha` and `baseRef`**: a pull request's head
   commit when the run was recorded (the commit the run reads) and its base
   branch, null for anything else, so a runner that restarted rebuilds the
