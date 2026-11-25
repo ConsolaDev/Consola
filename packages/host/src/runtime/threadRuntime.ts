@@ -274,7 +274,9 @@ const make = (
             commandId: CommandId.make(`command:${sessionId}:thread.create`),
             threadId,
             projectId,
-            title: 'New thread',
+            // A title of its own from the start, t3 keeps (`hasTitleSetBeforeFirstMessage`), so
+            // the CLI is never asked for one.
+            title: spec.title ?? 'New thread',
             modelSelection: spec.modelSelection ?? defaultModelSelection(spec.harness),
             runtimeMode,
             interactionMode: 'default',

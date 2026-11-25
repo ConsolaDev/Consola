@@ -51,6 +51,11 @@ import {
   STEP_HOST_ARGV,
   STEP_TOOLS_FOLDER,
   stepHostEnv,
+  jsonFileText,
+  STEP_MCP_CONFIG_FILE,
+  STEP_T3_SETTINGS_FILE,
+  stepMcpConfig,
+  stepT3Settings,
   wantsChanges,
 } from '../core/steps/stepSandbox.ts';
 import type { StepDeclaration } from '../core/steps/stepTools.ts';
@@ -279,11 +284,19 @@ const prepare = (
       }
     }
     const declaration = declarationOf({ ...request, readable });
-    yield* sandboxCall(
-      () =>
-        sandbox.writeFile(`${STEP_TOOLS_FOLDER}/${DECLARATION_FILE}`, declarationText(declaration)),
-      "The step's folder could not be written",
-    );
+    // The step's folder, then what the host and its CLI start with: t3's settings, whose launch
+    // arguments hold every turn `--restricted` (`STEP_LAUNCH_ARGS`), and the step tools' MCP config.
+    const files: ReadonlyArray<readonly [string, string]> = [
+      [`${STEP_TOOLS_FOLDER}/${DECLARATION_FILE}`, declarationText(declaration)],
+      [STEP_T3_SETTINGS_FILE, jsonFileText(stepT3Settings())],
+      [STEP_MCP_CONFIG_FILE, jsonFileText(stepMcpConfig())],
+    ];
+    for (const [path, content] of files) {
+      yield* sandboxCall(
+        () => sandbox.writeFile(path, content),
+        "The step's folder could not be written",
+      );
+    }
     return declaration;
   });
 

@@ -80,13 +80,14 @@ const withReplay = <A, E>(
   name: string,
   runtimeMode: RuntimeMode | undefined,
   body: (replay: Replay) => Effect.Effect<A, E, Scope.Scope>,
+  fields: Partial<SessionSpec> = {},
 ) =>
   Effect.gen(function* () {
     const { variant, transcript, text, cwd } = yield* loadReplay(name);
     const titleRequests: ModelSelection[] = [];
     return yield* withState((stateDir) =>
       Effect.gen(function* () {
-        const spec = sessionSpec(name, cwd, variant.modelSelection);
+        const spec = { ...sessionSpec(name, cwd, variant.modelSelection), ...fields };
         const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
         const assertT3Output = scenarioResult(handle).pipe(
           Effect.map((result) => variant.assertOutput(result, transcript)),
@@ -206,6 +207,32 @@ describe('ThreadRuntime', () => {
           expect(logged.filter((line) => /event stream/i.test(line))).toEqual([]);
         }).pipe(Effect.provide(ThreadRuntime.layer({ stateDir }))),
       ).pipe(Effect.runPromise),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  // A step's host opens its thread with a title, so no `claude -p` runs in its checkout for one:
+  // that call runs without `--restricted` and would load the checkout's settings.
+  it(
+    'a thread opened with a title keeps it, and its CLI is never asked for one',
+    () =>
+      withReplay(
+        'simple',
+        'full-access',
+        ({ handle, prompt, titleRequests }) =>
+          Effect.gen(function* () {
+            expect(handle.snapshot().thread.title).toBe('Consola step');
+            yield* handle.dispatch(prompt);
+            const projection = yield* waitForSnapshot(handle, (current) =>
+              statuses(current).includes('completed'),
+            );
+            // Long enough for t3's title effect, which runs as the first message is taken.
+            yield* Effect.sleep(Duration.millis(500));
+            expect(statuses(projection)).toEqual(['completed']);
+            expect(handle.snapshot().thread.title).toBe('Consola step');
+            expect(titleRequests).toEqual([]);
+          }),
+        { title: 'Consola step' },
+      ),
     REPLAY_TIMEOUT_MS,
   );
 
