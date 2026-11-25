@@ -369,12 +369,16 @@ function NewMenu({
   );
 }
 
-/** A row's ⋯. */
+/**
+ * A row's ⋯. It and the right-click menu are not modal: each choice unmounts the row the menu
+ * belongs to (Rename swaps it for the naming field, Delete moves it under Removed) while the menu
+ * closes, and a modal menu that goes mid-close can leave the page taking no pointer.
+ */
 function MoreMenu({ label, actions }: { label: string; actions: readonly Action[] }) {
   const acted = useRef(false);
   if (actions.length === 0) return null;
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root modal={false}>
       <DropdownMenu.Trigger>
         <button type="button" className="file-tree-icon-button file-tree-more" aria-label={label}>
           <Ellipsis size={14} aria-hidden="true" />
@@ -411,7 +415,7 @@ function WithMenu({ actions, children }: { actions: readonly Action[]; children:
   const acted = useRef(false);
   if (actions.length === 0) return children;
   return (
-    <ContextMenu.Root>
+    <ContextMenu.Root modal={false}>
       <ContextMenu.Trigger>{children}</ContextMenu.Trigger>
       <ContextMenu.Content
         size="1"

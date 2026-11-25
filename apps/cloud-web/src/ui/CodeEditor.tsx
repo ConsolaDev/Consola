@@ -63,6 +63,7 @@ export function CodeEditor({
   reveal,
   moves,
   onChange,
+  onRevealed,
 }: {
   path: string;
   text: string;
@@ -73,14 +74,20 @@ export function CodeEditor({
   /** Files renamed since the last `seq`: old path to new. */
   moves: { seq: number; moves: readonly (readonly [string, string])[] } | null;
   onChange: (path: string, text: string) => void;
+  /** A reveal was acted on: the page lets it go, so an editor mounted later never acts on it. */
+  onRevealed: (seq: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const states = useRef(new Map<string, EditorState>());
   const shown = useRef<string | null>(null);
   const movedSeq = useRef(0);
+  const revealedSeq = useRef(0);
+  const flashTimer = useRef<number | undefined>(undefined);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onRevealedRef = useRef(onRevealed);
+  onRevealedRef.current = onRevealed;
   // Every change is the file shown's: the view holds one file's state at a time.
   const report = useRef((next: string) => {
     if (shown.current !== null) onChangeRef.current(shown.current, next);
@@ -159,10 +166,13 @@ export function CodeEditor({
     current.dispatch({ effects: setProblemLines.of([...lines]) });
   }, [path, problems]);
 
-  // A line to reveal: scrolled to, the caret put there, lit once.
+  // A line to reveal: scrolled to, the caret put there, lit once. Each reveal acts once, so coming
+  // back to its file (a tab, a rename back) keeps the place the person left there.
   useEffect(() => {
     const current = view.current;
-    if (!current || !reveal || reveal.path !== path) return;
+    if (!current || !reveal || reveal.path !== path || reveal.seq === revealedSeq.current) return;
+    revealedSeq.current = reveal.seq;
+    onRevealedRef.current(reveal.seq);
     const { doc } = current.state;
     const line = doc.line(Math.min(Math.max(reveal.line, 1), doc.lines));
     const lit =
@@ -176,11 +186,15 @@ export function CodeEditor({
     });
     current.focus();
     if (!lit) return;
-    const timer = window.setTimeout(() => {
+    // The light goes out on its own time, not the effect's: the page lets the reveal go at once,
+    // which runs this effect again, and a light left on would replay as its line is redrawn.
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => {
       view.current?.dispatch({ effects: flashLine.of(null) });
     }, FLASH_MS);
-    return () => window.clearTimeout(timer);
   }, [reveal, path]);
+
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   return <div ref={host} className="code-editor" />;
 }

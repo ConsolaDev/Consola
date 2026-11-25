@@ -44,7 +44,6 @@ import {
 import {
   bringInLabel,
   broughtInLine,
-  changeCount,
   changeLine,
   DEFINITION_BANNER_TEXT,
   DEFINITION_BANNER_TITLE,
@@ -248,6 +247,8 @@ function Workbench({
     seq: number;
     flash?: boolean;
   } | null>(null);
+  // Every reveal gets a number of its own, so one is never taken for an earlier one.
+  const revealSeq = useRef(0);
   const [said, setSaid] = useState('');
   const [naming, setNaming] = useState<Naming | null>(null);
   const [definedAutomations, setDefinedAutomations] = useState<string[]>([]);
@@ -503,12 +504,7 @@ function Workbench({
   /** A file just made: in a tab, in front, with the caret at the start of its body. */
   const openMade = (path: string, text: string) => {
     open(path);
-    setReveal((current) => ({
-      path,
-      line: bodyLine(text),
-      seq: (current?.seq ?? 0) + 1,
-      flash: false,
-    }));
+    setReveal({ path, line: bodyLine(text), seq: ++revealSeq.current, flash: false });
   };
 
   const startNaming = (target: NamingTarget) => setNaming({ target, text: namingStart(target) });
@@ -558,11 +554,16 @@ function Workbench({
     setSaid(restoredSaid(label));
   };
 
+  /** A reveal the editor acted on: let go, so an editor mounted later never acts on it again. */
+  const revealed = useCallback((seq: number) => {
+    setReveal((current) => (current?.seq === seq ? null : current));
+  }, []);
+
   const revealProblem = (problem: FactoryProblem, path: string) => {
     open(path);
     if (problem.line !== null) {
       const line = problem.line;
-      setReveal((current) => ({ path, line, seq: (current?.seq ?? 0) + 1 }));
+      setReveal({ path, line, seq: ++revealSeq.current });
     }
   };
 
@@ -653,7 +654,7 @@ function Workbench({
 
       {confirmDiscard && dirty && (
         <div className="definition-strip">
-          <p>{discardQuestion(changeCount(summary))}</p>
+          <p>{discardQuestion(summary.files)}</p>
           <div className="definition-strip-actions">
             <button type="button" className="button" onClick={() => setConfirmDiscard(false)}>
               Keep editing
@@ -729,6 +730,7 @@ function Workbench({
               reveal={reveal}
               moves={editorMoves}
               onChange={edit}
+              onRevealed={revealed}
             />
           ) : paths.length === 0 ? (
             <div className="definition-empty">

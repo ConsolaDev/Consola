@@ -286,11 +286,6 @@ export function changeLine(summary: ChangeSummary): string {
   return parts.join(' · ');
 }
 
-/** How many files a save touches: each new, renamed, removed or changed one, once per kind. */
-export function changeCount(summary: ChangeSummary): number {
-  return summary.added + summary.renamed + summary.removed + summary.changed;
-}
-
 /** What the sidebar's dot on a factory's definition means. */
 export const UNSAVED_EDITS = 'Unsaved changes';
 

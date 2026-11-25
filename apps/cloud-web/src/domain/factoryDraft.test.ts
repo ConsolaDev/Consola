@@ -104,7 +104,13 @@ describe('adding a file', () => {
       renamedFrom: null,
       changed: false,
     });
-    expect(changeSummary(draft)).toEqual({ added: 1, renamed: 0, changed: 0, removed: 0 });
+    expect(changeSummary(draft)).toEqual({
+      added: 1,
+      renamed: 0,
+      changed: 0,
+      removed: 0,
+      files: 1,
+    });
   });
 
   it('keeps an empty file', () => {
@@ -145,7 +151,14 @@ describe('renaming a file', () => {
       changed: true,
     });
     expect(removedPaths(renamed)).toEqual([]);
-    expect(changeSummary(renamed)).toEqual({ added: 0, renamed: 1, changed: 1, removed: 0 });
+    // One file renamed and edited is one file a save changes, whatever it says of it.
+    expect(changeSummary(renamed)).toEqual({
+      added: 0,
+      renamed: 1,
+      changed: 1,
+      removed: 0,
+      files: 1,
+    });
   });
 
   it('counts a rename alone as a change, and renaming back as none', () => {
@@ -239,7 +252,13 @@ describe('removing a file', () => {
     expect(removedPaths(removed)).toEqual(['agents/reviewer.md']);
     expect(heldPaths(removed).has('agents/reviewer.md')).toBe(true);
     expect(isChanged(removed)).toBe(true);
-    expect(changeSummary(removed)).toEqual({ added: 0, renamed: 0, changed: 0, removed: 1 });
+    expect(changeSummary(removed)).toEqual({
+      added: 0,
+      renamed: 0,
+      changed: 0,
+      removed: 1,
+      files: 1,
+    });
 
     expect(canRestore(removed, 'agents/reviewer.md')).toBe(true);
     const restored = withRestored(removed, 'agents/reviewer.md');

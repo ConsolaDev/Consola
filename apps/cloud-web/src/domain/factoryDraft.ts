@@ -286,16 +286,23 @@ export type ChangeSummary = {
   readonly renamed: number;
   readonly changed: number;
   readonly removed: number;
+  /** How many files a save touches, each once: one renamed and edited is one. */
+  readonly files: number;
 };
 
 export function changeSummary(draft: FactoryDraft): ChangeSummary {
   const marks = [...fileMarks(draft).values()];
+  const removed = draft.removed
+    .flatMap((entry) => entry.files)
+    .filter((file) => file.from !== null).length;
   return {
     added: marks.filter((mark) => mark.isNew).length,
     renamed: marks.filter((mark) => mark.renamedFrom !== null).length,
     changed: marks.filter((mark) => mark.changed).length,
-    removed: draft.removed.flatMap((entry) => entry.files).filter((file) => file.from !== null)
-      .length,
+    removed,
+    files:
+      marks.filter((mark) => mark.isNew || mark.renamedFrom !== null || mark.changed).length +
+      removed,
   };
 }
 

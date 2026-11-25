@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   broughtInLine,
-  changeCount,
   changeLine,
   DEFINITION_BANNER_TEXT,
   discardQuestion,
@@ -77,12 +76,13 @@ describe('the definition’s sentences', () => {
   });
 
   it('say what Save will add, rename, remove and change', () => {
-    expect(changeLine({ added: 2, renamed: 0, changed: 3, removed: 1 })).toBe(
+    expect(changeLine({ added: 2, renamed: 0, changed: 3, removed: 1, files: 6 })).toBe(
       '2 new · 1 removed · 3 changed',
     );
-    expect(changeLine({ added: 0, renamed: 1, changed: 0, removed: 0 })).toBe('1 renamed');
-    expect(changeLine({ added: 0, renamed: 0, changed: 0, removed: 0 })).toBe('');
-    expect(changeCount({ added: 2, renamed: 1, changed: 3, removed: 1 })).toBe(7);
+    expect(changeLine({ added: 0, renamed: 1, changed: 0, removed: 0, files: 1 })).toBe(
+      '1 renamed',
+    );
+    expect(changeLine({ added: 0, renamed: 0, changed: 0, removed: 0, files: 0 })).toBe('');
   });
 
   it('say under a naming field what a name needs, and why one cannot be made', () => {
