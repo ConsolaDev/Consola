@@ -1177,20 +1177,26 @@ Code, so none notices it, or a re-synced t3, changing what the above rests on. R
 after every Claude Code upgrade in the template and every t3 re-sync, before steps run on it:
 
 ```bash
+node packages/host/scripts/step-sandbox-canary.mjs --no-model          # no key, nothing spent
 ANTHROPIC_API_KEY=… node packages/host/scripts/step-sandbox-canary.mjs --spend-tokens [--claude <path>]
 ```
 
-It runs one agent step and one command step through the host's own adapters, on sandboxes that
-are folders of this machine running the template's real scripts, the host from source and the
-real `claude` (the template's pinned version; row 0 says which it found), against a repository
-on disk whose pull request carries a hook, an allow rule, an `.mcp.json` server and a skill that
-would each touch a marker. Rows: the step tools load with no approval (1); Bash never runs (2); a
-read outside the checkout is refused (3); no hook runs (4); the allow rule, server and skill take
-no effect (5); a ~200 KB `changes` document is read whole (6, `MAX_MCP_OUTPUT_TOKENS`); the
-reminder lands in the same conversation (7); a command step gets exactly its variables, its
-secret masked (8); no secret comes back (9); every sandbox stopped (10). It refuses to start
-without the key, says what it would spend (at most about US$1 on `claude-haiku-5-5`) and runs
-only with `--spend-tokens`, and masks everything it prints. Never in tests or CI.
+It runs the host's own adapters on sandboxes that are folders of this machine (its own provider,
+held to `@consola/sandbox`'s `ProviderCommand`: `wait` settles with the exit code alone) running
+the template's real scripts, the host from source and the real `claude` (the template's pinned
+version; row 0 says which it found), against a repository on disk whose pull request carries a
+hook, an allow rule, an `.mcp.json` server and a skill that would each touch a marker. Rows that
+need no model, which `--no-model` runs alone: the checkout puts the head at its commit, hooks
+off, with its `changes` document (1); the step's MCP config starts the step tools' server, which
+never holds the API key (2); a command step gets exactly its variables, its secret masked (3).
+Rows that need the agent step: it runs and takes a turn (4); the step tools need no approval
+(5); Bash never runs (6); a read outside the checkout is refused (7); no hook runs (8); the allow
+rule, server and skill take no effect (9); a ~200 KB `changes` document is read whole (10,
+`MAX_MCP_OUTPUT_TOKENS`); the reminder lands in the same conversation (11). Then: no secret comes
+back from a step that ran (12); every sandbox stopped (13). A row whose step did not run says
+SKIP and why, and counts as not verified: the exit code is 0 only when no row failed or was
+skipped. It refuses to spend without the key and `--spend-tokens`, says what it would spend (at
+most about US$1 on `claude-haiku-5-5`), and masks everything it prints. Never in tests or CI.
 
 ## The bundle and the session template
 
