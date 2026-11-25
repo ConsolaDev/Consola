@@ -24,6 +24,7 @@ import {
   type CellMessage,
   type RunnerHello,
   readCellMessage,
+  SOCKET_FRAME_MAX_BYTES,
   type SessionUpdate,
 } from '@consola/runner-protocol';
 import * as Clock from 'effect/Clock';
@@ -45,8 +46,8 @@ import {
 } from '../core/runnerDecisions.ts';
 import type { LiveSessions } from './sandboxSessions.ts';
 
-/** The cell's frame limit (`RUNNER_FRAME_LIMIT_BYTES`), which the runner keeps for what it reads too. */
-export const CELL_FRAME_LIMIT_BYTES = 64 * 1024;
+/** The protocol's frame limit (`SOCKET_FRAME_MAX_BYTES`), which both sides keep for what they read. */
+export const CELL_FRAME_LIMIT_BYTES = SOCKET_FRAME_MAX_BYTES;
 
 /** The cell's close for a socket another socket of the same runner replaced. */
 export const REPLACED_CLOSE_CODE = 4000;

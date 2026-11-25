@@ -60,6 +60,7 @@ export {
   type RunnerHello,
   type RunnerMessage,
   SESSION_STATUSES,
+  SOCKET_FRAME_MAX_BYTES,
   type SessionStart,
   type SessionStatus,
   type SessionStop,
