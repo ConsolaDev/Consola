@@ -1515,6 +1515,149 @@ page, since a connected chat keeps the host from going idle. After 10 minutes,
 reopening the session shows "This session has stopped.", and E2B's dashboard
 lists no sandbox still running.
 
+## Local automations demo
+
+A pull request's run by hand, on this Mac (stage 1 of the cloud's automations,
+CON-116): GitHub sends the App's `pull_request` event through a Cloudflare
+tunnel to `cloud-global`, which passes it on to the EU cell, which hands it to
+the runner; the runner records a run waiting for approval, a person approves
+it in the web app, and the runner reviews the pull request in one E2B sandbox
+and posts the review with `gh` from another. The automated version, with no
+credential, is `packages/cloud-session-e2e/src/triggeredRun.test.ts`.
+
+**Nobody has run this for real yet.** Every step below is read from the code
+and held by that test against stand-ins, but none has run against GitHub,
+E2B, a model or the real `cloud-global` mint: see "Not yet run for real" at
+the end.
+
+It builds on "Local cloud session demo" above: the same three processes, the
+same `.env` files, with these settings added (each `.env.example` says what
+the line is for):
+
+| File | Setting | Value |
+| --- | --- | --- |
+| `apps/cloud-region/.env` | `RUNNER_SECRET`, `RUNNER_WORKSPACE_ID`, `PASS_PRIVATE_KEY` | as in the session demo: the runner's socket needs all three |
+| `apps/cloud-region/.env` | `CELL_PRIVATE_KEY` | the first line `pnpm --filter @consola/cloud-region cell-key:generate` prints (stdout): the cell's own key, which signs its requests for a step's GitHub token. Never `PASS_PRIVATE_KEY` (the cell refuses to start) nor `cloud-global`'s key |
+| `apps/cloud-global/.env` | `CELL_PUBLIC_KEY_EU` | the public half the same command prints after it (stderr), `{"crv":"Ed25519","x":"…","kty":"OKP"}`, never with `d` |
+| `apps/cloud-global/.env` | `GITHUB_APP_CLIENT_ID`, `GITHUB_APP_CLIENT_SECRET`, `GITHUB_APP_SLUG`, `GITHUB_APP_PRIVATE_KEY_PATH` | the development GitHub App's (below); all four or none |
+| `apps/cloud-global/.env` | `GITHUB_WEBHOOK_SECRET` | `openssl rand -hex 32`, the same value as the App's webhook secret |
+| `apps/cloud-global/.env` | `CELL_URL_EU` | `http://127.0.0.1:3101`, the cell's address |
+| `apps/cloud-global/.env` | `CLOUDFLARE_TUNNEL_NAME`, `CLOUDFLARE_TUNNEL_HOSTNAME` | optional: a named tunnel, whose address stays put |
+| `packages/host/.env` | `ANTHROPIC_API_KEY` | required for automations: without it the runner has no step ports, its `hello` says `automations: false`, and its log says `and runs no automations (no claude key)` |
+| `packages/host/.env` | `E2B_API_KEY`, `CONSOLA_RUNNER_SECRET` (the cell's `RUNNER_SECRET`), `CONSOLA_RUNNER_REPOSITORIES` (the test repository, `owner/name`) | as in the session demo. `GIT_TOKEN` is not used by a step: each step's checkout gets a `run-read` token the cell asks `cloud-global` for |
+| `packages/sandbox/.env` | `E2B_API_KEY` | only to rebuild the template (step 2) |
+
+Two generators share the name `cell-key:generate`, and each makes its own key:
+`cloud-global`'s prints its `CELL_TOKEN_PRIVATE_KEY` (the cell token's key),
+the cell's prints `CELL_PRIVATE_KEY` and its public half. `cloud-global`
+refuses its own token key's public half as `CELL_PUBLIC_KEY_EU`.
+
+The migrations apply when each process starts: `pnpm dev:cloud` applies
+`cloud-global`'s `drizzle/` (this stage adds `0005_run_read_purpose`, the
+`run-read` purpose in `github_token_mint`), and `pnpm dev:cloud-region` the
+cell's (`0007_run_item_head`, `0008_github_event_runner`). Nothing is run by
+hand. A PGlite folder is one process's at a time: stop a process before its
+migrations' branch changes under it.
+
+**The GitHub App** is the development App of `apps/cloud-global/README.md`
+("Connect GitHub", "Receive GitHub's webhooks"): callback URL
+`http://localhost:5175/api/github/callback` with "Request user authorization
+(OAuth) during installation" on; repository permissions Metadata read,
+Contents read and write, Pull requests read and write; organization
+permission Members read; the webhook Active, its URL the tunnel's address plus
+`/api/github/webhooks`, its secret `GITHUB_WEBHOOK_SECRET`; and, under
+Permissions & events, the **Pull request** event subscribed. A run asks for
+`run-read` (contents read) for each checkout and `review-run` (contents read,
+pull requests write) for the step that posts, and `cloud-global` hands out a
+token only when GitHub grants exactly that.
+
+Then, from the repository root:
+
+1. `pnpm install`, then `pnpm exec turbo run build --filter=@consola/host^...`
+   (what the runner loads from `dist/`).
+2. **Rebuild the template, once**: `pnpm --filter @consola/host template:build`
+   (it reads `packages/sandbox/.env`'s `E2B_API_KEY` and prints the new id;
+   record it in `sandbox-template/README.md`). The template built on
+   2026-11-23 predates the steps' scripts and `consola-host step-tools`, so no
+   step runs on it.
+3. `pnpm dev:cloud`. Sign in, open (or make) the workspace in `eu` whose id is
+   the cell's `RUNNER_WORKSPACE_ID`, and connect GitHub from Settings,
+   Connections (`http://localhost:5175/#/settings/connections`), installing the
+   App on the account that holds the test repository, with that repository
+   covered. The page lists the installation and the repository.
+4. `pnpm dev:cloud-region` (the cell on 3101). The API's outbox tells it of the
+   workspace within seconds.
+5. `pnpm --filter @consola/cloud-global webhooks:tunnel`, in a terminal of its
+   own, and set the webhook URL it prints on the App. GitHub sends a `ping`,
+   which the API answers `pong` (the App's Advanced page lists it).
+6. The runner:
+   `node --env-file=packages/host/.env packages/host/src/main.ts runner --cell-url ws://127.0.0.1:3101/api/runner --runner-id demo-runner`.
+   Its log on stderr says `… and runs automations; dialling …`, then
+   `connected to the cell: …`.
+7. **The factory.** In the web app, Factories, make one (New factory) on your
+   team: it is made blank, version 1, with no files. Its Definition page
+   (`#/factories/<id>/definition`) edits the files a version holds, and cannot
+   add a file yet, so add the two through the cell's API from that page, as
+   its Save does. Print the body from the repository root:
+
+   ```bash
+   node -e 'const fs=require("fs");const d="packages/factory-spec/src/fixtures/review-pull-requests/";console.log(JSON.stringify({baseVersion:1,files:["automations/review-pr.yaml","agents/reviewer.md"].map((path)=>({path,content:fs.readFileSync(d+path,"utf8")}))}))' | pbcopy
+   ```
+
+   then, in the browser's console on the web app's page (`<factory id>` from
+   the page's address):
+
+   ```js
+   const body = /* paste */;
+   const { token, region } = await (await fetch('/api/cell-token', { method: 'POST' })).json();
+   const saved = await fetch(`/cell/${region}/api/factories/<factory id>/versions`, {
+     method: 'POST',
+     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+     body: JSON.stringify(body),
+   });
+   console.log(saved.status, await saved.json()); // 201, version 2
+   ```
+
+   The automation's file must be `automations/<name>.yaml` (`.yaml`, not
+   `.yml`); `factory.yml` is optional. Reload: the Definition page shows
+   version 2 with `agents/reviewer.md` and `automations/review-pr.yaml`, and
+   no problems.
+8. **The event.** Open a pull request on the test repository. The API logs
+   `Passed GitHub delivery <id> (pull_request) on to workspace <id>'s cell
+   (eu).`; the runner logs `event <id> (pull_request.opened): 1 run recorded`.
+   A draft pull request records nothing: the GitHub connection's filter skips
+   drafts unless the entry's `filter:` says `drafts: true`.
+9. **The run.** Runs (`http://localhost:5175/#/runs`) lists it, Needs approval,
+   titled with the pull request's title; its page (`#/runs/<id>`) shows the
+   two steps, `review` (agent `reviewer`) and `post`, both pending, and the
+   approval card: Approve, or Dismiss run. Dismiss ends it Rejected, with
+   nothing run.
+10. **Approve.** The runner logs `run <id>: approved by <person id>`; the page
+    shows `review` running (its sandbox clones the pull request's head
+    commit, the agent reads the diff and writes the handover), then `post`
+    running (`gh api repos/<owner>/<name>/pulls/<n>/reviews` on that commit),
+    then the run Completed, `review`'s `verdict` set and its handover listed.
+    On GitHub the pull request has a review from the App: the handover as its
+    body, `COMMENT` (or `REQUEST_CHANGES`), never `APPROVE`. E2B's dashboard
+    lists no sandbox still running a minute later.
+
+A step's token is in no log and no record: the runner masks it in what it
+says, and the cell hands it on once and keeps nothing of it.
+
+**Not yet run for real** (each is held by a test against a stand-in, never
+against the real thing):
+
+- the rebuilt `consola-session` template, with the steps' scripts and
+  `step-tools`, on E2B;
+- the real Claude Code in a step's sandbox: `scripts/step-sandbox-canary.mjs`
+  checks it, spends an API key, and has not been run on this stage;
+- `cloud-global` minting `run-read` and `review-run` for the cell's signed
+  request, and GitHub granting them (its mint was checked against GitHub on
+  2026-11-22 for other purposes);
+- `gh` posting a review with a `review-run` token;
+- a webhook through the tunnel reaching the runner, and the web app's Runs
+  pages showing a run a runner recorded.
+
 ## Licensing
 
 `@consola/host` is AGPL-3.0-only, Consola's own code. The vendored packages keep
