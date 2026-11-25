@@ -335,6 +335,28 @@ export function withinFrame(
 }
 
 /**
+ * The least a record says of its steps: each one's id, kind, status and attempt, and nothing it
+ * printed, produced or said. What the ring sends of a run whose record cannot fit the socket's
+ * frame even with no output, once it has failed the run for it.
+ */
+export function strippedRecordOf(run: RunRecord): RunRecord {
+  return {
+    ...run,
+    steps: run.steps.map((step) => ({
+      ...step,
+      error: null,
+      skipped: null,
+      outputs: null,
+      artifacts: [],
+      turn: null,
+      command: null,
+      previous: [],
+      output: null,
+    })),
+  };
+}
+
+/**
  * A record the ring ends without walking it (a refusal of its approval, a factory version gone):
  * every step it had not reached `not-run`, as the engine's `closeSteps` ends a run.
  */

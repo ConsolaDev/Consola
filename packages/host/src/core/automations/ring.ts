@@ -13,11 +13,12 @@ import {
   withUpdate,
 } from '@consola/automation-engine/core';
 import { flatSteps, leafSteps, type RepeatStep, type StepRun } from '@consola/factory-spec';
-import type {
-  GitHubEventNotice,
-  RunAnswered,
-  RunRecord,
-  RunRefused,
+import {
+  type GitHubEventNotice,
+  type RunAnswered,
+  type RunRecord,
+  type RunRefused,
+  SOCKET_FRAME_MAX_BYTES,
 } from '@consola/runner-protocol';
 import type { OutputTail, StepCheckout } from '../steps/ports.ts';
 import { admissionOf } from './approval.ts';
@@ -32,6 +33,7 @@ import {
   rebuildRunState,
   recordOf,
   runIdOf,
+  strippedRecordOf,
   withinFrame,
 } from './runRecord.ts';
 import {
@@ -111,8 +113,15 @@ type Walk = {
   done: boolean;
 };
 
-export function createAutomationsRing(ports: RingPorts): AutomationsRing {
+/** What a ring may be tuned with: the socket's frame cap (`SOCKET_FRAME_MAX_BYTES` unless a test lowers it). */
+export type RingOptions = { readonly frameMaxBytes?: number };
+
+export function createAutomationsRing(
+  ports: RingPorts,
+  options: RingOptions = {},
+): AutomationsRing {
   const { link, log } = ports;
+  const frameMax = options.frameMaxBytes ?? SOCKET_FRAME_MAX_BYTES;
   /** Every run's latest record, open ones always, ended ones `ENDED_KEPT` at most. */
   const held = new Map<string, RunRecord>();
   /** The runs walking, and those approved and being rebuilt, by id. */
@@ -141,27 +150,40 @@ export function createAutomationsRing(ports: RingPorts): AutomationsRing {
    * (false): its steps say no output, and its error why.
    */
   const say = (walk: Walk): boolean => {
-    const fitted = withinFrame(recordOf(walk.state));
+    const fitted = withinFrame(recordOf(walk.state), frameMax);
     if (fitted !== null) {
       sayRecord(fitted);
       return true;
     }
     walk.state.tails.clear();
+    failWalk(walk, 'Its record grew past what the runner’s socket carries, so it was stopped.');
+    const record = recordOf(walk.state);
+    const bare = withinFrame(record, frameMax) ?? withinFrame(strippedRecordOf(record), frameMax);
+    if (bare !== null) sayRecord(bare);
+    else log(`run ${walk.state.engine.id}: its record cannot fit the socket's frame, even bare`);
+    return false;
+  };
+
+  /** The run fails as it stands: a step at work fails with it, saying `error`; the rest not-run. */
+  const failWalk = (walk: Walk, error: string): void => {
     const now = ports.now();
     const { engine } = walk.state;
+    const steps = (engine.steps ?? []).reduce(
+      (rows, step) =>
+        step.status === 'running'
+          ? withStep(rows, step.id, { status: 'failed', error, finishedAt: now })
+          : rows,
+      engine.steps ?? [],
+    );
     walk.state.engine = {
       ...engine,
       status: 'failed',
-      error: 'Its record grew past what the runner’s socket carries, so it was stopped.',
-      steps: closeSteps(engine.steps ?? [], now, [], 'failed'),
+      error,
+      steps: closeSteps(steps, now, [], 'failed'),
       updatedAt: now,
       finishedAt: now,
     };
     end(walk);
-    const bare = withinFrame(recordOf(walk.state));
-    if (bare !== null) sayRecord(bare);
-    else log(`run ${engine.id}: its record cannot fit the socket's frame, even bare`);
-    return false;
   };
 
   const end = (walk: Walk): void => {
@@ -530,7 +552,7 @@ export function createAutomationsRing(ports: RingPorts): AutomationsRing {
       recorded += 1;
       if (admission === 'run') startWalk(state, match.source);
       else {
-        const record = withinFrame(recordOf(state));
+        const record = withinFrame(recordOf(state), frameMax);
         if (record !== null) sayRecord(record);
         else log(`run ${id}: its first record cannot fit the socket's frame`);
       }
@@ -624,23 +646,7 @@ export function createAutomationsRing(ports: RingPorts): AutomationsRing {
       stopping = true;
       for (const walk of [...walks.values()]) {
         if (walk === 'rebuilding') continue;
-        const now = ports.now();
-        const { engine } = walk.state;
-        const running = (engine.steps ?? []).filter((step) => step.status === 'running');
-        const steps = running.reduce(
-          (rows, step) =>
-            withStep(rows, step.id, { status: 'failed', error: RUNNER_STOPPED, finishedAt: now }),
-          engine.steps ?? [],
-        );
-        walk.state.engine = {
-          ...engine,
-          status: 'failed',
-          error: RUNNER_STOPPED,
-          steps: closeSteps(steps, now, [], 'failed'),
-          updatedAt: now,
-          finishedAt: now,
-        };
-        end(walk);
+        failWalk(walk, RUNNER_STOPPED);
         say(walk);
       }
     },

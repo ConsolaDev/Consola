@@ -29,7 +29,7 @@ import type {
   CommandSteps,
 } from '../steps/ports.ts';
 import type { CellLink, RingPorts, TokenAnswer, TokenRequest } from './ports.ts';
-import { createAutomationsRing, RUNNER_STOPPED } from './ring.ts';
+import { createAutomationsRing, RUNNER_STOPPED, type RingOptions } from './ring.ts';
 
 /*
  * The ring over fakes of every port: a cell link that keeps what is said and answers from a
@@ -247,7 +247,7 @@ class FakeSteps implements AgentSteps, CommandSteps {
 }
 
 /** A ring over fakes; `clock` moves a millisecond each read. */
-function ringOver(link: FakeLink, steps = new FakeSteps()) {
+function ringOver(link: FakeLink, steps = new FakeSteps(), options: RingOptions = {}) {
   let ms = Date.parse('2026-11-25T10:00:00.000Z');
   const logged: string[] = [];
   const ports: RingPorts = {
@@ -258,7 +258,7 @@ function ringOver(link: FakeLink, steps = new FakeSteps()) {
     digest: (text) => createHash('sha256').update(text, 'utf8').digest('hex'),
     log: (line) => logged.push(line),
   };
-  return { ring: createAutomationsRing(ports), steps, logged };
+  return { ring: createAutomationsRing(ports, options), steps, logged };
 }
 
 const answered = (run: RunRecord, decision: 'approved' | 'rejected' = 'approved') =>
@@ -637,6 +637,26 @@ describe('an approved run', () => {
     expect(link.latest(stored.id).steps[0]?.error).toBe(
       "Its record does not name the pull request's head commit, so this runner has no commit to check out.",
     );
+  });
+
+  it('fails a run whose record outgrows the socket’s frame, and says so in a record that fits', async () => {
+    const stored = await recordedRun();
+    const frameMaxBytes = JSON.stringify({ type: 'run.record', run: stored }).length + 2000;
+    const link = new FakeLink([REVIEW_FACTORY]);
+    const steps = new FakeSteps();
+    steps.agent = async () =>
+      completedAgent({ status: 'failed', error: `It said ${'x'.repeat(6000)}` });
+    const { ring } = ringOver(link, steps, { frameMaxBytes });
+    ring.receive(answered(stored));
+    await ring.settled();
+    const run = link.latest(stored.id);
+    expect(JSON.stringify({ type: 'run.record', run }).length).toBeLessThanOrEqual(frameMaxBytes);
+    expect(run).toMatchObject({
+      status: 'failed',
+      error: 'Its record grew past what the runner’s socket carries, so it was stopped.',
+    });
+    expect(run.steps.map((step) => step.status)).toEqual(['failed', 'not-run']);
+    expect(steps.commands).toEqual([]);
   });
 
   it('ignores an answer for a run it is already running', async () => {
