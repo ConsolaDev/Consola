@@ -1,12 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import {
   broughtInLine,
+  changeCount,
+  changeLine,
+  DEFINITION_BANNER_TEXT,
   discardQuestion,
   FACTORY_GONE,
   fixToSave,
   messageForSave,
+  NAME_HINT,
+  NO_FILES_HINT,
+  nameSentence,
   noFileMatches,
   problemsCount,
+  renamedTitle,
+  restoreBlocked,
+  SKILL_FILE_HINT,
   savedWords,
 } from './factoryMessages';
 
@@ -62,6 +71,59 @@ describe('the definition’s sentences', () => {
     expect(broughtInLine(8, { ...none, followed: ['agents/a.md', 'agents/b.md'] })).toBe(
       'Brought in version 8. Version 8 changed agents/a.md and agents/b.md under their old names: the changes moved with your renames, so check them before saving.',
     );
+  });
+
+  it('say what Save will add, rename, remove and change', () => {
+    expect(changeLine({ added: 2, renamed: 0, changed: 3, removed: 1 })).toBe(
+      '2 new · 1 removed · 3 changed',
+    );
+    expect(changeLine({ added: 0, renamed: 1, changed: 0, removed: 0 })).toBe('1 renamed');
+    expect(changeLine({ added: 0, renamed: 0, changed: 0, removed: 0 })).toBe('');
+    expect(changeCount({ added: 2, renamed: 1, changed: 3, removed: 1 })).toBe(7);
+  });
+
+  it('say under a naming field what a name needs, and why one cannot be made', () => {
+    const agent = { type: 'new', kind: 'agent' } as const;
+    const inSkill = { type: 'new-in-skill', skill: 'triage' } as const;
+    const hint = nameSentence(agent, { ok: false, problem: 'empty', path: null });
+    expect(hint).toEqual({ text: NAME_HINT, refused: false });
+    expect(nameSentence(agent, { ok: true, path: 'agents/a.md' })).toEqual(hint);
+    expect(nameSentence(inSkill, { ok: true, path: 'skills/triage/a.md' })).toEqual({
+      text: SKILL_FILE_HINT,
+      refused: false,
+    });
+    const rule = nameSentence(agent, { ok: false, problem: 'rule', path: null });
+    expect(rule.refused).toBe(true);
+    expect(rule.text).not.toBe(NAME_HINT);
+    expect(nameSentence(agent, { ok: false, problem: 'taken', path: 'agents/a.md' }).text).toBe(
+      'There’s already a file at agents/a.md.',
+    );
+    expect(
+      nameSentence(
+        { type: 'new', kind: 'skill' },
+        { ok: false, problem: 'taken', path: 'skills/triage/' },
+      ).text,
+    ).toBe('There’s already a skill at skills/triage/.');
+    expect(nameSentence(agent, { ok: false, problem: 'removed', path: 'agents/a.md' }).text).toBe(
+      'agents/a.md is under Removed on save. Restore it, or choose another name.',
+    );
+    expect(
+      nameSentence(
+        { type: 'new', kind: 'automation' },
+        { ok: false, problem: 'defined', path: 'automations/weekly.yaml' },
+      ).text,
+    ).toBe('factory.yml already defines an automation named weekly.');
+    expect(nameSentence(inSkill, { ok: false, problem: 'path', path: null }).refused).toBe(true);
+    expect(nameSentence(inSkill, { ok: false, problem: 'long', path: null }).text).toMatch(/256/);
+  });
+
+  it('say a factory with no files, and what Restore waits for', () => {
+    expect(NO_FILES_HINT).not.toMatch(/setup helper|repository/);
+    expect(DEFINITION_BANNER_TEXT).toMatch(/[Aa]dd/);
+    expect(restoreBlocked('agents/checker.md')).toBe(
+      'agents/checker.md is a file again: rename or remove it to restore this.',
+    );
+    expect(renamedTitle('agents/reviewer.md')).toBe('Renamed from agents/reviewer.md');
   });
 
   it('say a save that did not land', () => {

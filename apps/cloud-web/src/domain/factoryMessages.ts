@@ -7,7 +7,14 @@ import {
   type NewFactoryProblem,
   type SourceOption,
 } from './factories';
-import type { BroughtIn } from './factoryDraft';
+import type { BroughtIn, ChangeSummary } from './factoryDraft';
+import {
+  kindOfPath,
+  type NameCheck,
+  type NamingTarget,
+  type NewKind,
+  PATH_MAX,
+} from './factoryKinds';
 import type { FactoryPageId } from './factoryNav';
 import { messageForTeamsState } from './teamMessages';
 import { regionName } from './workspace';
@@ -171,7 +178,95 @@ export const LOADING_FACTORIES = 'Loading…';
 /** Said where a factory's definition has no files yet, and what fills it. */
 export const NO_FILES = 'No files yet.';
 export const NO_FILES_HINT =
-  'A factory is set up from a repository or the setup helper. Once its files are here, you can read them and make a quick edit.';
+  'Start with an automation, an agent or factory.yml. Nothing is kept until you save.';
+
+/** What the New menu and each folder's + offer. */
+export const NEW_LABELS: Record<NewKind, string> = {
+  automation: 'New automation',
+  agent: 'New agent',
+  skill: 'New skill',
+};
+
+/** A skill's +: a file inside it. */
+export function newInSkillLabel(skill: string): string {
+  return `New file in ${skill}`;
+}
+
+/** A row's ⋯, named for a screen reader. */
+export function moreLabel(name: string): string {
+  return `More for ${name}`;
+}
+
+/** The foot of the tree, where removed files wait until Save. */
+export const REMOVED_ON_SAVE = 'Removed on save';
+
+/** Why Restore waits: a file is at a path the removed one would take. */
+export function restoreBlocked(path: string): string {
+  return `${path} is a file again: rename or remove it to restore this.`;
+}
+
+/** A renamed file's mark, as its title says it. */
+export function renamedTitle(from: string): string {
+  return `Renamed from ${from}`;
+}
+
+/** What a naming field says while the name is fine, or nothing is typed yet. */
+export const NAME_HINT = 'Lowercase letters, numbers and dashes.';
+export const SKILL_FILE_HINT = 'A path inside the skill, such as refs/queries.md.';
+
+/**
+ * The one sentence under a naming field: what a name needs, or why the one typed cannot be made.
+ * A refused name's sentence differs from the hint, so a screen reader hears it change.
+ */
+export function nameSentence(
+  target: NamingTarget,
+  check: NameCheck,
+): { text: string; refused: boolean } {
+  const inSkill =
+    target.type === 'new-in-skill' ||
+    (target.type === 'rename' && kindOfPath(target.path) === 'skill-file');
+  const hint = { text: inSkill ? SKILL_FILE_HINT : NAME_HINT, refused: false };
+  if (check.ok || check.problem === 'empty') return hint;
+  const path = check.path ?? '';
+  const refused = (text: string) => ({ text, refused: true });
+  switch (check.problem) {
+    case 'rule':
+      return refused(
+        'Use only lowercase letters, numbers and dashes, starting with a letter or number, up to 64 characters.',
+      );
+    case 'path':
+      return refused('Use a path inside the skill, with no empty, “.” or “..” part and no “\\”.');
+    case 'long':
+      return refused(`Keep the whole path to ${PATH_MAX} characters.`);
+    case 'taken':
+      return refused(
+        path.endsWith('/')
+          ? `There’s already a skill at ${path}.`
+          : `There’s already a file at ${path}.`,
+      );
+    case 'removed':
+      return refused(`${path} is under Removed on save. Restore it, or choose another name.`);
+    case 'defined': {
+      const name = path.replace(/^automations\//, '').replace(/\.yaml$/, '');
+      return refused(`factory.yml already defines an automation named ${name}.`);
+    }
+  }
+}
+
+/** What Save will do, in a line: "2 new · 1 removed · 3 changed"; empty for nothing. */
+export function changeLine(summary: ChangeSummary): string {
+  const parts: string[] = [];
+  if (summary.added > 0) parts.push(`${summary.added} new`);
+  if (summary.renamed > 0) parts.push(`${summary.renamed} renamed`);
+  if (summary.removed > 0) parts.push(`${summary.removed} removed`);
+  if (summary.changed > 0) parts.push(`${summary.changed} changed`);
+  return parts.join(' · ');
+}
+
+/** How many files a save touches: each new, renamed, removed or changed one, once per kind. */
+export function changeCount(summary: ChangeSummary): number {
+  return summary.added + summary.renamed + summary.removed + summary.changed;
+}
 
 /** What the sidebar's dot on a factory's definition means. */
 export const UNSAVED_EDITS = 'Unsaved changes';
@@ -183,7 +278,7 @@ export const DEFINITION_NOT_LOADED =
 /** The banner over a factory's definition, until the person hides it for good. */
 export const DEFINITION_BANNER_TITLE = 'Your factory is defined in code';
 export const DEFINITION_BANNER_TEXT =
-  'Its automations, agents and skills live as files. Read them here, and make a quick edit when you need one.';
+  'Its automations, agents and skills live as files. Add, edit, rename and remove them here, and Save keeps them as the next version.';
 
 /** Said in the file list when its filter matches no file. */
 export function noFileMatches(filter: string): string {
