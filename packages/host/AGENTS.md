@@ -1173,8 +1173,9 @@ gets a sandbox of its own.
   left out, or one line saying why they are missing), and the runner hands it to the step as the
   readable document `changes` (`changesDocument`, bounded again), beside the request's own.
 - **Secrets.** The runner's, the clone token and the API key, and a command's `secretEnv`, are
-  masked in everything that comes back, in every printed form (`maskFormsOf`, the engine's,
-  carried over in `core/steps/mask.ts`), the agent's outputs and documents included; errors go
+  masked in everything that comes back, in every printed form (`maskFormsOf`, the engine's own,
+  from `@consola/automation-engine/core`, which `core/steps/mask.ts` applies), the agent's outputs
+  and documents included; errors go
   through `scrubSecrets` too. Each stream keeps its last 16 KiB (`OUTPUT_TAIL_LENGTH`), masked
   before it is cut.
 - **What comes back.** `costUsd` and `turns` are null: t3's projection reports neither a turn's
