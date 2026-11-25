@@ -326,8 +326,9 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  * rather than what, and not the workspace, which is where the file lives rather than something it says.
  *
  * A `steps:` entry is covered whole: prompts, action names, agent names,
- * commands, env templates, `if`, outputs, artifacts, reads, timeouts and
- * `dry_run`, and its loops, gates and retries, which its steps carry. Its
+ * commands, env templates, `if`, outputs, artifacts, reads, timeouts,
+ * `dry_run`, a command's `secrets` and `permissions`, and its loops, gates
+ * and retries, which its steps carry. Its
  * `checkout`, `budget` and `on_failure` are covered only when written, so an
  * entry without them hashes as before. Its `resolvedBody` is
  * `stepsResolvedBody`'s: the bodies of the actions its steps name and, when a

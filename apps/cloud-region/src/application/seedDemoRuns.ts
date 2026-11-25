@@ -30,8 +30,66 @@ import { recordRun } from './runs.js';
  * times are counted back from `nowMs`, so seeding again refreshes the runs instead of adding.
  */
 
-/** The demo factory's agent. */
-const REVIEWER = '---\ndescription: Reviews changes.\n---\nYou review changes carefully.\n';
+/**
+ * The Review pull requests files, as `packages/factory-spec`'s fixture folder
+ * (`src/fixtures/review-pull-requests/`) holds them, byte for byte: what a person pastes into a
+ * factory to have a cloud runner review each pull request. The demo's other automations use its
+ * agent too. A test holds the two copies equal.
+ */
+export const REVIEW_PR_YAML = String.raw`# When a pull request opens, gets new commits or reopens, a read-only agent
+# reviews it, and a command posts the review on GitHub, on the commit the run
+# read. Nothing approves unattended: an approving review is posted as a comment.
+on: { github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }
+mode: auto
+steps:
+  - id: review
+    agent: reviewer
+    prompt: >-
+      Review this pull request. Write the review as your handover, in Markdown, addressed
+      to its author and under 60,000 characters: a sentence or two on what it changes, then
+      each finding with its file and line, then what you could not check. Then set verdict:
+      APPROVE if it can be merged as it is, REQUEST_CHANGES if something must change first,
+      COMMENT otherwise.
+    outputs:
+      verdict: { enum: [APPROVE, COMMENT, REQUEST_CHANGES] }
+  - id: post
+    run: |
+      # Nothing approves unattended: APPROVE is posted as COMMENT.
+      case "$VERDICT" in
+        REQUEST_CHANGES) event=REQUEST_CHANGES ;;
+        *) event=COMMENT ;;
+      esac
+      gh api "repos/$REPO/pulls/$NUMBER/reviews" \
+        -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+    env:
+      REPO: "{{item.repo}}"
+      NUMBER: "{{item.number}}"
+      VERDICT: "{{steps.review.verdict}}"
+      BODY_FILE: "{{steps.review.handover.file}}"
+    permissions: { pull_requests: write }
+`;
+export const REVIEWER_MD = `---
+description: Reviews a pull request's changes for correctness, and changes nothing.
+tools: read-only
+---
+You review pull requests. You read; you change nothing and run nothing.
+
+Read the pull request's description first, to learn what it means to do, then its diff, then the code around the diff wherever the diff alone cannot show whether a change is right: the callers of a changed function, the tests of the changed behaviour, the types a change relies on.
+
+Look for these, in this order:
+
+1. Correctness: logic that is wrong, cases it misses (empty input, errors, limits, concurrency, retries), contracts it breaks for its callers, data it can lose or leak, and security holes such as injection or a missing permission check.
+2. Tests: whether the changed behaviour is tested, and whether those tests would fail if it broke.
+3. What the next reader will trip over: a name or a comment that says something the code does not do.
+
+Leave out style, formatting and naming preferences, and anything a linter or a formatter would catch. One real problem is worth more than ten nits.
+
+For each finding, cite the file and line, as \`src/cart/total.ts:42\`, say what goes wrong and when, and suggest a fix when you have one. Say how sure you are when you are not sure.
+
+End with what you could not check: code you could not see, behaviour only running it would show, and anything you assumed.
+
+If nothing must change, say so plainly. Never invent a finding to have one.
+`;
 
 /**
  * A small factory that keeps the schema: what the demo runs ran, each automation in a file of
@@ -39,7 +97,7 @@ const REVIEWER = '---\ndescription: Reviews changes.\n---\nYou review changes ca
  */
 export const DEMO_FACTORY_FILES: readonly FactoryFile[] = [
   { path: 'factory.yml', content: 'version: 1\n' },
-  { path: 'agents/reviewer.md', content: REVIEWER },
+  { path: 'agents/reviewer.md', content: REVIEWER_MD },
   {
     path: 'automations/nightly-build.yaml',
     content: `on: { cron: "0 3 * * *" }
@@ -57,28 +115,7 @@ steps:
     max_turns: 8
 `,
   },
-  {
-    path: 'automations/review-prs.yaml',
-    content: `on: { github: pull_request.opened }
-mode: confirm
-steps:
-  - id: review
-    agent: reviewer
-    prompt: |
-      Review pull request {{item.number}} in {{item.repo}}. Check correctness, tests and
-      naming, count what you found, and write the review in the review artifact.
-    outputs:
-      verdict: { enum: [approve, comment, request-changes] }
-      findings: integer
-    artifacts: [review]
-    max_turns: 12
-  - id: comment
-    if: steps.review.verdict != 'approve'
-    run: gh pr comment "$PR" --body-file "$REVIEW"
-    env: { PR: "{{item.number}}", REVIEW: "{{steps.review.review.file}}" }
-    timeout: 2m
-`,
-  },
+  { path: 'automations/review-pr.yaml', content: REVIEW_PR_YAML },
   {
     path: 'automations/triage-issues.yaml',
     content: `on: { github: issues.opened }
@@ -108,6 +145,12 @@ steps:
     outputs:
       urgent: boolean
     max_turns: 10
+  - id: alert
+    if: steps.check.urgent
+    run: gh issue create --repo acme/storefront --title "An urgent dependency alert" --body-file "$NOTES"
+    env: { NOTES: "{{steps.check.handover.file}}" }
+    permissions: { issues: write }
+    timeout: 2m
 `,
   },
   {
@@ -130,20 +173,31 @@ const AUTOMATIONS = {
     ['build', 'run'],
     ['report', 'agent'],
   ],
-  'review-prs': [
+  'review-pr': [
     ['review', 'agent'],
-    ['comment', 'run'],
+    ['post', 'run'],
   ],
   'triage-issues': [['triage', 'agent']],
-  'dependency-check': [['check', 'agent']],
+  'dependency-check': [
+    ['check', 'agent'],
+    ['alert', 'run'],
+  ],
   deploy: [['deploy', 'run']],
 } as const satisfies Record<string, readonly (readonly [string, StepKind])[]>;
 
 type AutomationName = keyof typeof AUTOMATIONS;
 
+/**
+ * The step whose `if:` every demo run of an automation finds false, and why: it is `skipped`
+ * where it would have run. A dependency alert is never urgent here, so none is filed.
+ */
+const SKIPPED: Partial<Record<AutomationName, { step: string; reason: string }>> = {
+  'dependency-check': { step: 'alert', reason: 'Its condition, steps.check.urgent, was false.' },
+};
+
 const TRIGGER_DETAIL: Record<AutomationName, { trigger: RunTrigger; detail: string | null }> = {
   'nightly-build': { trigger: 'cron', detail: '0 3 * * *' },
-  'review-prs': { trigger: 'event', detail: 'pull_request.opened' },
+  'review-pr': { trigger: 'event', detail: 'pull_request.opened' },
   'triage-issues': { trigger: 'event', detail: 'issues.opened' },
   'dependency-check': {
     trigger: 'poll',
@@ -191,8 +245,8 @@ type Plan = {
   startedBy?: string | null;
   item?: RunItem | null;
   stand?: Stand;
-  /** What a pull request's review said: `approve` skips the comment. */
-  verdict?: 'approve' | 'comment';
+  /** What a pull request's review said; either way it is posted as a comment. */
+  verdict?: 'APPROVE' | 'COMMENT';
   /** The step that is on its second attempt, its first having failed. */
   retried?: string;
   summary?: string;
@@ -264,10 +318,10 @@ function stepsOf(
           ? (stand.status ?? stand.rest ?? 'pending')
           : (stand.rest ?? 'pending'),
   );
-  // A review that approves leaves nothing to comment: the comment's condition is false.
-  const skipsComment =
-    plan.automation === 'review-prs' && (plan.verdict ?? 'approve') === 'approve';
-  if (skipsComment && statuses[1] === 'completed') statuses[1] = 'skipped';
+  // A step whose condition is false is skipped where it would have run.
+  const skip = SKIPPED[plan.automation];
+  const skipAt = skip ? AUTOMATIONS[plan.automation].findIndex(([id]) => id === skip.step) : -1;
+  if (skipAt !== -1 && statuses[skipAt] === 'completed') statuses[skipAt] = 'skipped';
   const ranCount = statuses.filter(
     (status) => status === 'completed' || status === 'failed' || status === 'running',
   ).length;
@@ -294,10 +348,7 @@ function stepsOf(
       finishedAt: ran && status !== 'running' && stepStart !== null ? at(stepStart + slot) : null,
       costUsd: kind === 'agent' && ran ? 0.12 : null,
       error: status === 'failed' ? (plan.error ?? 'The step failed.') : null,
-      skipped:
-        status === 'skipped'
-          ? "Its condition, steps.review.verdict != 'approve', was false."
-          : null,
+      skipped: status === 'skipped' ? (skip?.reason ?? null) : null,
       ...detail,
       ...(retried && stepStart !== null
         ? {
@@ -306,10 +357,10 @@ function stepsOf(
               {
                 attempt: 1,
                 status: 'failed' as const,
-                error: 'Its turn reached its cap of 12 turns without finishing.',
+                error: 'It ended without setting verdict.',
                 finishedAt: at(stepStart - MINUTE),
                 costUsd: 0.41,
-                turns: 12,
+                turns: 9,
               },
             ],
           }
@@ -370,7 +421,7 @@ function printed(stdout: string, stderr: string, exitCode: number | null): StepD
 /** What an agent step did: its turns against its cap, its outputs and its documents. */
 function turned(
   turns: number,
-  maxTurns: number,
+  maxTurns: number | null,
   outputs: Record<string, OutputValue> | null,
   documents: [string, number][],
   extra: Partial<StepDetail> = {},
@@ -426,28 +477,20 @@ function detailOf(plan: Plan, stepId: string, status: StepStatus): StepDetail {
         '',
         running ? null : 0,
       );
-    case 'comment':
-      return printed(
-        `https://github.com/${REPO}/pull/${plan.item?.number ?? 1}#issuecomment-2291834\n`,
-        '',
-        0,
-      );
+    case 'post': {
+      // `gh api` prints the review GitHub made: always a comment, whatever the verdict.
+      const url = `https://github.com/${REPO}/pull/${plan.item?.number ?? 1}#pullrequestreview-2291834`;
+      return printed(`{"id":2291834,"state":"COMMENTED","html_url":"${url}"}\n`, '', 0);
+    }
     case 'report':
       return running
         ? turned(2, 8, null, [])
         : turned(3, 8, { healthy: true }, [['handover', 860]]);
     case 'review':
+      // The review step names no turn cap, so its turns are against none.
       return running
-        ? turned(4, 12, null, [])
-        : turned(
-            7,
-            12,
-            { verdict: plan.verdict ?? 'approve', findings: plan.verdict === 'comment' ? 5 : 3 },
-            [
-              ['handover', 1180],
-              ['review', 2140],
-            ],
-          );
+        ? turned(4, null, null, [])
+        : turned(7, null, { verdict: plan.verdict ?? 'APPROVE' }, [['handover', 2140]]);
     case 'triage':
       return running
         ? turned(2, 6, null, [])
@@ -556,7 +599,7 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
         'Add a euro price toggle to the catalog page, and make sure checkout still works.\nCustomers in Lyon asked for it.',
       ),
       children: [
-        child('review', 'review-prs', 'completed', 40, {
+        child('review', 'review-pr', 'completed', 40, {
           item: pr(482, 'Add a euro price toggle'),
         }),
         child('build', 'nightly-build', 'running', 20, { stand: { done: 0, status: 'running' } }),
@@ -586,9 +629,9 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
       item: issue(311, 'Ship the spring sale banner'),
       request: ask('Ship the spring sale banner to production.'),
       children: [
-        child('review', 'review-prs', 'completed', 125, {
+        child('review', 'review-pr', 'completed', 125, {
           item: pr(490, 'Spring sale banner'),
-          verdict: 'comment',
+          verdict: 'COMMENT',
         }),
         child('deploy', 'deploy', 'needs-approval', 30),
       ],
@@ -628,7 +671,7 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
       summary: 'Shipped the dark mode toggle; both reviews passed.',
       request: ask('Add a dark mode toggle to the account menu.'),
       children: [
-        child('review', 'review-prs', 'completed', 2 * DAY - 5, {
+        child('review', 'review-pr', 'completed', 2 * DAY - 5, {
           item: pr(470, 'Dark mode toggle'),
         }),
         child('deploy', 'deploy', 'completed', 2 * DAY - 40),
@@ -663,10 +706,10 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
         runs: 2,
       }),
       children: [
-        child('review-a', 'review-prs', 'completed', 4 * DAY - 10, {
+        child('review-a', 'review-pr', 'completed', 4 * DAY - 10, {
           item: pr(455, 'Product page layout A'),
         }),
-        child('review-b', 'review-prs', 'cancelled', 4 * DAY - 60, {
+        child('review-b', 'review-pr', 'cancelled', 4 * DAY - 60, {
           item: pr(456, 'Product page layout B'),
           stand: { done: 1, status: 'not-run', rest: 'not-run' },
         }),
@@ -692,23 +735,27 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
       request: ask('Decide which old coupons to retire.'),
     },
     // Background runs, and people's own.
-    child('review-running', 'review-prs', 'running', 3, {
+    child('review-running', 'review-pr', 'running', 3, {
       item: pr(495, 'Lazy-load the product gallery'),
       stand: { done: 0, status: 'running' },
       retried: 'review',
     }),
-    // Both reasons a run asks: an automation that asks every time (review-prs, `confirm`), and
-    // one whose version was not approved to run on its own (nightly-build, `auto`). Neither is
-    // answered, so a person can try it.
-    child('review-approval', 'review-prs', 'needs-approval', 25, {
+    // Both reasons a run asks: an automation that asks every time (deploy, `confirm`), and one
+    // whose version was not approved to run on its own (review-pr and nightly-build, `auto`).
+    // None is answered, so a person can try it.
+    child('review-approval', 'review-pr', 'needs-approval', 25, {
       item: pr(493, 'Bump the analytics script'),
     }),
     child('nightly-approval', 'nightly-build', 'needs-approval', 35),
-    child('review-gate', 'review-prs', 'waiting', 50, {
+    child('deploy-approval', 'deploy', 'needs-approval', 20, {
+      trigger: 'manual',
+      startedBy: person(0),
+    }),
+    child('review-gate', 'review-pr', 'waiting', 50, {
       waitingOn: 'person',
       item: pr(491, 'Refactor the cart service'),
       stand: { done: 1, status: 'waiting' },
-      verdict: 'comment',
+      verdict: 'COMMENT',
     }),
     child('triage-done', 'triage-issues', 'completed', 3 * 60, {
       item: issue(320, 'Footer links are broken on mobile'),
@@ -769,7 +816,7 @@ function otherPlans(people: readonly (string | null)[]): Plan[] {
     },
     child('nightly-01', 'nightly-build', 'completed', DAY, { took: 12 }),
     child('deps-done', 'dependency-check', 'completed', 8 * 60),
-    child('review-approval', 'review-prs', 'needs-approval', 45, {
+    child('review-approval', 'review-pr', 'needs-approval', 45, {
       item: pr(497, 'Translate the checkout into Spanish'),
     }),
   ];

@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { cellTokenClaims, type WorkspaceRole } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
@@ -91,6 +92,22 @@ const NOW = Date.UTC(2026, 10, 23, 12, 0);
 describe('seedDemoRuns', () => {
   it('saves demo files that keep the factory schema', () => {
     expect(checkFactoryFiles(DEMO_FACTORY_FILES)).toEqual({ ok: true, notices: [] });
+  });
+
+  it('carries the Review pull requests files byte for byte', () => {
+    // The canonical copies are factory-spec's fixtures, a package the cell depends on, so a
+    // change to them runs this test too. Read as files: the cell imports only the entry point.
+    const fixture = (path: string) =>
+      readFileSync(
+        new URL(
+          `../../../../packages/factory-spec/src/fixtures/review-pull-requests/${path}`,
+          import.meta.url,
+        ),
+        'utf8',
+      );
+    const demo = (path: string) => DEMO_FACTORY_FILES.find((file) => file.path === path)?.content;
+    for (const path of ['automations/review-pr.yaml', 'agents/reviewer.md'])
+      expect([path, demo(path)]).toEqual([path, fixture(path)]);
   });
 
   it('is pending for a workspace the cell does not hold', async () => {
@@ -197,20 +214,31 @@ describe("seedDemoRuns' steps", () => {
   it('take turns against a cap, produce outputs and documents, and are refused or reminded', async () => {
     const steps = await seededSteps();
     const agents = steps.filter((step) => step.turn !== null);
-    expect(agents.every((step) => (step.turn?.turns ?? 0) <= (step.turn?.maxTurns ?? 0))).toBe(
+    // Every step whose definition caps its turns keeps under the cap; the review names none.
+    const capped = agents.filter((step) => step.turn?.maxTurns !== null);
+    expect(capped.length).toBeGreaterThan(0);
+    expect(capped.every((step) => (step.turn?.turns ?? 0) <= (step.turn?.maxTurns ?? 0))).toBe(
       true,
     );
     expect(
-      agents.some((step) => step.outputs?.verdict === 'approve' && step.outputs.findings === 3),
+      agents
+        .filter((step) => step.turn?.maxTurns === null)
+        .every((step) => step.id === 'review' && (step.turn?.turns ?? 0) > 0),
     ).toBe(true);
+    expect(agents.some((step) => step.outputs?.verdict === 'APPROVE')).toBe(true);
+    expect(agents.some((step) => step.outputs?.urgent === false)).toBe(true);
     expect(
-      agents.some((step) => step.artifacts.some((a) => a.name === 'review' && a.bytes > 1500)),
+      agents.some((step) => step.artifacts.some((a) => a.name === 'handover' && a.bytes > 1500)),
     ).toBe(true);
     expect(agents.some((step) => (step.turn?.deniedTools.length ?? 0) > 0)).toBe(true);
     expect(steps.some((step) => step.reminded)).toBe(true);
     const retried = steps.find((step) => step.attempt === 2);
     expect(retried?.previous).toEqual([expect.objectContaining({ attempt: 1, status: 'failed' })]);
     expect(steps.some((step) => step.status === 'skipped' && step.skipped !== null)).toBe(true);
+    // The review is posted, whatever it said: nothing approves unattended.
+    const posts = steps.filter((step) => step.id === 'post' && step.status === 'completed');
+    expect(posts.length).toBeGreaterThan(0);
+    for (const post of posts) expect(post.output?.stdout).toContain('"state":"COMMENTED"');
   });
 
   it('are defined by the files the demo factory holds, but on the version before them', async () => {
@@ -268,7 +296,8 @@ describe("seedDemoRuns' approvals", () => {
     }
     expect([...reasons]).toEqual(
       expect.arrayContaining([
-        'review-prs asks before every run.',
+        'deploy asks before every run.',
+        "Version 2 of review-pr hasn't been approved to run on its own yet.",
         "Version 2 of nightly-build hasn't been approved to run on its own yet.",
       ]),
     );

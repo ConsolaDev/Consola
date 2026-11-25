@@ -483,6 +483,37 @@ describe('machine checks', () => {
   });
 });
 
+describe('an event only a cloud runner fires', () => {
+  const REVIEW_PR_FILE = 'automations/review-pr.yaml';
+  const REVIEW_PR = `on: { github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }
+mode: auto
+steps:
+  - id: review
+    agent: reviewer
+    outputs:
+      verdict: { enum: [APPROVE, COMMENT, REQUEST_CHANGES] }
+  - id: post
+    run: gh api "repos/$REPO/pulls/$NUMBER/reviews" -f event=COMMENT -F body=@"$BODY_FILE"
+    env: { REPO: "{{item.repo}}", NUMBER: "{{item.number}}", BODY_FILE: "{{steps.review.handover.file}}" }
+    permissions: { pull_requests: write }
+`;
+
+  it('applies with the folder, as a per-entry problem that says where it fires, never a rollback', async () => {
+    const h = await folder();
+    await h.writeFile(REVIEW_PR_FILE, REVIEW_PR);
+    // The folder applied: the file is in the applied version, and nothing else stopped.
+    expect(standing(h)).toBeUndefined();
+    expect(h.service.snapshot(WORKSPACE_ID).issues).toEqual([]);
+    expect(h.appliedStore.records.get(FOLDER)?.texts[REVIEW_PR_FILE]).toBe(REVIEW_PR);
+    expect(viewOf(h)?.problem).toBeUndefined();
+    expect(viewOf(h, 'review-pr')?.problem).toMatch(
+      /^`pull_request\.opened`, `pull_request\.synchronize` and `pull_request\.reopened` come only from GitHub's webhooks, which a cloud runner receives;/,
+    );
+    await expect(h.service.trigger(WORKSPACE_ID, 'review-pr')).rejects.toThrow(/cannot run/);
+    expect(h.world.launches).toEqual([]);
+  });
+});
+
 describe('the entry as written is the version that runs', () => {
   it('the entry as written is the version that runs', async () => {
     const h = await sourcesHarness({

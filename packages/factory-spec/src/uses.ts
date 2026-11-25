@@ -4,11 +4,12 @@
  * `consola` for Consola's own tools. Its arguments are `with:`, as written;
  * any `{{ path }}` in a string is rendered when the step runs.
  *
- * Imports `template.ts` and `servers.ts`; from `steps.ts` only types, since
+ * Imports `template.ts`, `servers.ts` and `permissions.ts`; from `steps.ts` only types, since
  * `steps.ts` imports this file at runtime and hands it the readers every kind
  * of step shares (`StepReaders`), so one implementation reads each key.
  */
 import type { OutputType } from './outputs';
+import { USES_PERMISSIONS_REASON } from './permissions';
 import { MCP_SERVER_NAME_PATTERN } from './servers';
 import { parseTemplate, templatePaths, type TemplatePath } from './template';
 
@@ -81,6 +82,7 @@ function companionProblem(key: string, server: string | undefined): string | und
   if (key === 'secrets')
     return `A tool's credentials belong to its server: name them under \`mcpServers.${server ?? '<server>'}.secrets\`.`;
   if (key === 'artifacts' || key === 'reads') return READS_NOTHING;
+  if (key === 'permissions') return USES_PERMISSIONS_REASON;
   return undefined;
 }
 

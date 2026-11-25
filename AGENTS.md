@@ -1134,6 +1134,21 @@ where the entry lives; an agent's servers and skills are its driver's to
 compile (below); Open shows only the folder's own files, as text. Canary rows
 16–19: `--model`.
 
+### Which Runner Fires an Event Is the Runner's
+
+factory-spec reads `on: { <connection>: <event> | [<event>, …] }` by its
+grammar alone, so the cell stores any well-formed event for whatever runner
+will run it. Which events exist, and which runner fires each, is the runner's
+registry: the engine's connections (`connections.ts`). Its GitHub connection
+fires what the Inbox's poll can show (`pull_request.review_requested`,
+`pull_request.assigned`, each an `entered(view)` rule), and names
+`pull_request.opened`, `pull_request.synchronize` and `pull_request.reopened`
+(`GITHUB_WEBHOOK_EVENTS`) as coming only from GitHub's webhooks, which a cloud
+runner receives. On the desktop an entry that lists one resolves to a
+per-entry problem saying so (the folder still applies), never an entry that
+silently never fires; a name in neither list is "no event … Consola can see
+locally". A runner that receives webhooks adds their detector there.
+
 ### An Agent's Servers and Skills Are Compiled by Its Driver
 
 An agent's `mcpServers:` and `skills:` reach a step only as its driver compiles
@@ -1210,6 +1225,19 @@ whose check uses it baselines rather than firing every item.
   bound, since a label is a reference and a reason can name one. `list()`,
   which `list_automations` returns whole, carries an agent's; only the
   person's panel (`snapshot`) has the person's.
+
+### A Command Names the GitHub Permissions It Needs
+
+`permissions:` on a `run:` step maps GitHub's permission names (`contents`,
+`pull_requests`, `issues`, `checks`, `statuses`, `metadata`) to `read` or
+`write` (`metadata` only `read`). factory-spec's `parsePermissions` puts it on
+`CommandStep.permissions`, in that order and only when written, so a step
+without it hashes as before; with it, it is in the version, and a change asks
+again. An agent step, a gate, a `uses:` call, a loop and an entry refuse it,
+each saying where it goes. Its meaning is the runner's: a cloud runner gives
+such a step a GitHub token narrowed to it, for that step alone, and a step
+without it gets none. The desktop runs every command as the workspace's bound
+account (decision 37), so there it is parsed and has no effect.
 
 ### A Factory's Servers Are the Engine's
 
