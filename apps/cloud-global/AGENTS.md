@@ -625,8 +625,9 @@ run (epic 21), so the cell asks. The request's shape is the contract's
   token key, so nothing `cloud-global` signs passes for a cell's request.
   `cellRequestVerifier.ts` picks the key by `kid` (its thumbprint), allows
   `EdDSA` alone and only the request's `typ`, and the key that checks says
-  which region's cell asked. Its private half is the cell's, configured there
-  when the cell first asks (9.4).
+  which region's cell asked. Its private half is the cell's
+  (`CELL_PRIVATE_KEY` in `apps/cloud-region`), which asks for a run's step's
+  tokens (CON-118).
 - **The purposes fix the permissions** (`TOKEN_PURPOSES`): `review-run`,
   contents read and pull requests write, for at most 10 repositories;
   `run-read`, contents read, for a run's one repository; `factory-pull`,

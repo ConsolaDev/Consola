@@ -184,17 +184,17 @@ What the API answers GitHub:
 
 A regional cell asks the API for a GitHub token narrowed to a workspace's
 repositories (`POST /api/github/tokens`), and signs each request with a key of
-its own. The API needs only each cell's public key. Make a pair with the same
-generator as the cell token's key:
+its own. The API needs only each cell's public key. Make the pair with the
+cell's generator:
 
 ```bash
-pnpm --filter @consola/cloud-global cell-key:generate
+pnpm --filter @consola/cloud-region cell-key:generate
 ```
 
-The line it prints is the cell's private key, which only the cell keeps (its
-setting comes with the cell's first request, 9.4). Its public half is that
-line without its `"d"` member, `{"crv":"Ed25519","x":"…","kty":"OKP"}`: put it
-after `CELL_PUBLIC_KEY_EU=` (or `CELL_PUBLIC_KEY_US=`) in `.env`. A region with
+The first line it prints is the cell's private key, which only the cell keeps,
+as `CELL_PRIVATE_KEY` in `apps/cloud-region/.env`. The second is its public
+half, `{"crv":"Ed25519","x":"…","kty":"OKP"}`: put it after
+`CELL_PUBLIC_KEY_EU=` (or `CELL_PUBLIC_KEY_US=`) in `.env`. A region with
 no key can ask for nothing. The API refuses to start with a private key there,
 the same key for two cells, or the cell token's own key.
 
