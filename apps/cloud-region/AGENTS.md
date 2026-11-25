@@ -453,7 +453,11 @@ changed; every other run is a top-level automation run. The rules are in
   the cell holds: a demo factory per team (`Demo · <team>`, each automation
   in a file of its own, saved as a new version whenever its files differ
   from `DEMO_FACTORY_FILES`), and runs in every status, a request with
-  several runs, background runs and each member's own. Its steps print,
+  several runs, background runs and each member's own. Its review is the
+  Review pull requests files (`automations/review-pr.yaml`,
+  `agents/reviewer.md`), byte for byte factory-spec's fixtures
+  (`src/fixtures/review-pull-requests/`), which a test holds equal: change
+  them there first. Its steps print,
   exit, take turns, produce outputs and documents, retry and are refused a
   tool, as a runner's would. Ids are fixed (`demo-…`) and times counted back
   from now, so seeding again refreshes the same runs. It refuses any
