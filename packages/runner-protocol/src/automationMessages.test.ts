@@ -33,6 +33,8 @@ const run: RunRecord = {
     kind: 'pr',
     repo: 'sprocket/catalog-portal',
     number: 12,
+    headSha: '0123456789abcdef0123456789abcdef01234567',
+    baseRef: 'main',
   },
   runner: 'cloud',
   steps: [

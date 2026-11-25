@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { GIT_REF_MAX } from './github.js';
 import {
   RUN_STEPS_MAX,
   type RunRecord,
@@ -78,6 +79,8 @@ const run: RunRecord = {
     kind: 'pr',
     repo: 'sprocket/catalog-portal',
     number: 12,
+    headSha: '0123456789abcdef0123456789abcdef01234567',
+    baseRef: 'main',
   },
   runner: 'cloud',
   steps: [step, commandStep],
@@ -122,6 +125,19 @@ describe('readRunRecord', () => {
     ['a run a request started', child],
   ])('reads %s', (_name, value) => {
     expect(readRunRecord(wire(value))).toEqual({ ok: true, value });
+  });
+
+  it('reads an item that is no pull request, with no head commit or base branch', () => {
+    const issue = {
+      ...run,
+      item: { ...run.item, kind: 'issue', headSha: null, baseRef: null },
+    } as RunRecord;
+    expect(readRunRecord(wire(issue))).toEqual({ ok: true, value: issue });
+    const longest = {
+      ...run,
+      item: { ...run.item, baseRef: 'b'.repeat(GIT_REF_MAX) },
+    } as RunRecord;
+    expect(readRunRecord(wire(longest)).ok).toBe(true);
   });
 
   it('reads a run with no steps, and a step that has done nothing yet', () => {
@@ -181,6 +197,20 @@ describe('readRunRecord', () => {
     ['an item of an unknown kind', { ...run, item: { ...run.item, kind: 'commit' } }],
     ['an item without a title', { ...run, item: { ...run.item, title: undefined } }],
     ['an item number that is text', { ...run, item: { ...run.item, number: '12' } }],
+    ['an item without its head commit', { ...run, item: { ...run.item, headSha: undefined } }],
+    ['an item without its base branch', { ...run, item: { ...run.item, baseRef: undefined } }],
+    ['a short head commit', { ...run, item: { ...run.item, headSha: '0123456' } }],
+    [
+      'an uppercase head commit',
+      { ...run, item: { ...run.item, headSha: '0123456789ABCDEF0123456789ABCDEF01234567' } },
+    ],
+    ['a head commit that is a number', { ...run, item: { ...run.item, headSha: 12 } }],
+    ['an empty base branch', { ...run, item: { ...run.item, baseRef: '' } }],
+    [
+      'a base branch past its bound',
+      { ...run, item: { ...run.item, baseRef: 'b'.repeat(GIT_REF_MAX + 1) } },
+    ],
+    ['a base branch that is not text', { ...run, item: { ...run.item, baseRef: false } }],
     ['steps that are not a list', { ...run, steps: step }],
     ['too many steps', { ...run, steps: Array.from({ length: RUN_STEPS_MAX + 1 }, () => step) }],
     ['a step that is not an object', { ...run, steps: ['review'] }],

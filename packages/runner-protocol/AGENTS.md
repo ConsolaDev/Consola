@@ -126,6 +126,11 @@ the runner decides.
   `checkRun`, which answers a record it refuses with `run.refused`, every
   problem named. Keep the two apart: a meaning checked by the reader would be
   dropped with a log line, and the runner would never hear why.
+- **A run's item carries `headSha` and `baseRef`**: a pull request's head
+  commit when the run was recorded (the commit the run reads) and its base
+  branch, null for anything else, so a runner that restarted rebuilds the
+  run's checkout from the record alone. The reader requires both and checks
+  `headSha` is 40 lowercase hex and `baseRef` 1 to `GIT_REF_MAX` characters.
 
 ## Changing the protocol
 
