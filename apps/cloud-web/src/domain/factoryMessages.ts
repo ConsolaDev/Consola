@@ -205,9 +205,32 @@ export function restoreBlocked(path: string): string {
   return `${path} is a file again: rename or remove it to restore this.`;
 }
 
+/** Said to a screen reader as a file, or a skill, leaves the tree, and as it comes back. */
+export function removedSaid(label: string): string {
+  return `${label} is under Removed on save, where Restore brings it back.`;
+}
+
+export function restoredSaid(label: string): string {
+  return `Restored ${label}.`;
+}
+
 /** A renamed file's mark, as its title says it. */
 export function renamedTitle(from: string): string {
   return `Renamed from ${from}`;
+}
+
+/** A naming field's name, for a screen reader. */
+export function namingLabel(target: NamingTarget): string {
+  switch (target.type) {
+    case 'new':
+      return `Name the new ${target.kind}`;
+    case 'new-in-skill':
+      return `Path of the new file in ${target.skill}`;
+    case 'rename':
+      return `New name for ${target.path}`;
+    case 'rename-skill':
+      return `New name for the skill ${target.skill}`;
+  }
 }
 
 /** What a naming field says while the name is fine, or nothing is typed yet. */

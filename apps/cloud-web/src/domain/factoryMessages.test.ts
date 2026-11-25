@@ -10,11 +10,14 @@ import {
   messageForSave,
   NAME_HINT,
   NO_FILES_HINT,
+  namingLabel,
   nameSentence,
   noFileMatches,
   problemsCount,
+  removedSaid,
   renamedTitle,
   restoreBlocked,
+  restoredSaid,
   SKILL_FILE_HINT,
   savedWords,
 } from './factoryMessages';
@@ -117,6 +120,19 @@ describe('the definition’s sentences', () => {
     expect(nameSentence(inSkill, { ok: false, problem: 'long', path: null }).text).toMatch(/256/);
   });
 
+  it('name each naming field for a screen reader', () => {
+    expect(namingLabel({ type: 'new', kind: 'automation' })).toBe('Name the new automation');
+    expect(namingLabel({ type: 'new-in-skill', skill: 'triage' })).toBe(
+      'Path of the new file in triage',
+    );
+    expect(namingLabel({ type: 'rename', path: 'agents/reviewer.md' })).toBe(
+      'New name for agents/reviewer.md',
+    );
+    expect(namingLabel({ type: 'rename-skill', skill: 'triage' })).toBe(
+      'New name for the skill triage',
+    );
+  });
+
   it('say a factory with no files, and what Restore waits for', () => {
     expect(NO_FILES_HINT).not.toMatch(/setup helper|repository/);
     expect(DEFINITION_BANNER_TEXT).toMatch(/[Aa]dd/);
@@ -124,6 +140,10 @@ describe('the definition’s sentences', () => {
       'agents/checker.md is a file again: rename or remove it to restore this.',
     );
     expect(renamedTitle('agents/reviewer.md')).toBe('Renamed from agents/reviewer.md');
+    expect(removedSaid('skills/triage/')).toBe(
+      'skills/triage/ is under Removed on save, where Restore brings it back.',
+    );
+    expect(restoredSaid('agents/old.md')).toBe('Restored agents/old.md.');
   });
 
   it('say a save that did not land', () => {

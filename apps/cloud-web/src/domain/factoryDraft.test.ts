@@ -16,6 +16,7 @@ import {
   pathMoves,
   pathsOf,
   removedPaths,
+  restoreBlocker,
   withEdit,
   withFileAdded,
   withRemoved,
@@ -283,6 +284,8 @@ describe('removing a file', () => {
       files: [...removed.files, { id: 99, from: null, path: 'agents/reviewer.md', content: 'x' }],
     };
     expect(canRestore(taken, 'agents/reviewer.md')).toBe(false);
+    expect(restoreBlocker(taken, 'agents/reviewer.md')).toBe('agents/reviewer.md');
+    expect(restoreBlocker(removed, 'agents/reviewer.md')).toBeNull();
     expect(withRestored(taken, 'agents/reviewer.md')).toBe(taken);
     expect(canRestore(removed, 'agents/nothing.md')).toBe(false);
   });

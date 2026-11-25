@@ -205,10 +205,14 @@ export function withSkillRemoved(draft: FactoryDraft, skill: string): FactoryDra
  * newer version put a file at waits until that file is renamed or removed.
  */
 export function canRestore(draft: FactoryDraft, label: string): boolean {
+  return draft.removed.some((entry) => entry.label === label) && !restoreBlocker(draft, label);
+}
+
+/** The file in the tree at a path the entry `label` would take, which Restore waits on; or null. */
+export function restoreBlocker(draft: FactoryDraft, label: string): string | null {
   const entry = draft.removed.find((candidate) => candidate.label === label);
-  if (!entry) return false;
   const live = new Set(pathsOf(draft));
-  return entry.files.every((file) => !live.has(file.path));
+  return entry?.files.find((file) => live.has(file.path))?.path ?? null;
 }
 
 /** The draft with the entry `label` back in the tree, as it was removed, edits included. */
