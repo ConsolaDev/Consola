@@ -368,17 +368,17 @@ class LocalSandbox implements ProviderSandbox {
     if (isSessionStart) writeFileSync(keyFile, env.CONSOLA_PASS_PUBLIC_KEY ?? '');
     const stepArgv = await this.stepArgv(command.argv, env);
     this.ensureRunning();
-    // `bash` runs as itself, its folder and the paths its variables name in this sandbox's folder.
+    // `bash` runs as itself, its folder and the paths its arguments and variables name in this
+    // sandbox's folder. A folder that is not there fails it, as a provider fails it.
     const program = isBash ? '/bin/bash' : process.execPath;
-    const cwd = isBash ? this.mapped(command.cwd ?? STEP_WORKSPACE) : this.record.folder;
-    if (isBash) mkdirSync(cwd, { recursive: true });
+    const cwd = isBash && command.cwd !== undefined ? this.mapped(command.cwd) : this.record.folder;
     const processEnv = isBash
       ? Object.fromEntries(Object.entries(env).map(([name, value]) => [name, this.mapped(value)]))
       : env;
     // `printenv` prints the command's variables, a line each, as a sandbox's would. Anything else
     // but the start scripts is not on this template, as in a shell: exit 127.
     const argv = isBash
-      ? command.argv.slice(1)
+      ? command.argv.slice(1).map((arg) => this.mapped(arg))
       : stepArgv !== null
         ? stepArgv
         : isSessionStart

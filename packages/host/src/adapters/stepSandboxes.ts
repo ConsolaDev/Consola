@@ -12,11 +12,14 @@ import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import type * as Scope from 'effect/Scope';
 import {
+  HostLineBuffer,
+  readSessionLine,
+  StderrTail,
   SANDBOX_LEASE_RENEW_SECONDS,
   SANDBOX_LEASE_SECONDS,
   sandboxLifetimeSeconds,
 } from '../core/runnerDecisions.ts';
-import { STEP_TEMPLATE } from '../core/steps/stepSandbox.ts';
+import { STEP_CHECKOUT_ARGV, STEP_TEMPLATE } from '../core/steps/stepSandbox.ts';
 
 /** How long a provider's call that makes or reaches a sandbox may take, as for a session's. */
 export const STEP_CALL_TIMEOUT = Duration.seconds(60);
@@ -152,4 +155,35 @@ export const attemptSandbox = (
       }).pipe(Effect.forkScoped);
     }
     return sandbox;
+  });
+
+/**
+ * Runs the template's checkout script with `env`. A failure is its `clone-failed` line's message,
+ * or the last line it wrote on stderr, scrubbed.
+ */
+export const runCheckout = (
+  sandbox: Sandbox,
+  env: Readonly<Record<string, string>>,
+  secrets: ReadonlyArray<string>,
+): Effect.Effect<void, StepFailed> =>
+  Effect.gen(function* () {
+    const stderr = new StderrTail(secrets);
+    const ran = yield* sandboxCall(
+      () =>
+        sandbox.run({
+          argv: [...STEP_CHECKOUT_ARGV],
+          env,
+          onStderr: (chunk) => stderr.push(chunk),
+        }),
+      "The step's checkout did not run",
+    );
+    if (ran.exitCode === 0) return;
+    const lines = new HostLineBuffer().push(`${ran.stdout}\n`);
+    const said = lines.map(readSessionLine).find((line) => line.kind === 'clone-failed');
+    const why =
+      said?.kind === 'clone-failed'
+        ? said.message
+        : (stderr.lastLine() ??
+          `The step's checkout ${ran.exitCode === null ? 'was stopped' : `exited with code ${ran.exitCode}`}.`);
+    return yield* new StepFailed({ problem: why });
   });

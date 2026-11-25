@@ -48,7 +48,6 @@ import {
   changesDocument,
   checkoutEnv,
   checkoutProblem,
-  STEP_CHECKOUT_ARGV,
   STEP_HOST_ARGV,
   STEP_TOOLS_FOLDER,
   stepHostEnv,
@@ -68,6 +67,7 @@ import {
 import { makeStepHostClient, makeStepKeys, type StepHostClient } from './stepHostClient.ts';
 import {
   attemptSandbox,
+  runCheckout,
   messageOf,
   STEP_LIFETIME_MARGIN,
   type StepSandboxOptions,
@@ -283,37 +283,6 @@ const prepare = (
       "The step's folder could not be written",
     );
     return declaration;
-  });
-
-/**
- * Runs the template's checkout script with `env`. A failure is its `clone-failed` line's message,
- * or the last line it wrote on stderr, scrubbed.
- */
-export const runCheckout = (
-  sandbox: Sandbox,
-  env: Readonly<Record<string, string>>,
-  secrets: ReadonlyArray<string>,
-): Effect.Effect<void, StepFailed> =>
-  Effect.gen(function* () {
-    const stderr = new StderrTail(secrets);
-    const ran = yield* sandboxCall(
-      () =>
-        sandbox.run({
-          argv: [...STEP_CHECKOUT_ARGV],
-          env,
-          onStderr: (chunk) => stderr.push(chunk),
-        }),
-      "The step's checkout did not run",
-    );
-    if (ran.exitCode === 0) return;
-    const lines = new HostLineBuffer().push(`${ran.stdout}\n`);
-    const said = lines.map(readSessionLine).find((line) => line.kind === 'clone-failed');
-    const why =
-      said?.kind === 'clone-failed'
-        ? said.message
-        : (stderr.lastLine() ??
-          `The step's checkout ${ran.exitCode === null ? 'was stopped' : `exited with code ${ran.exitCode}`}.`);
-    return yield* new StepFailed({ problem: why });
   });
 
 type StartedHost = {

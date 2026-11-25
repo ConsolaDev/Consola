@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { sandboxesFrom } from '@consola/sandbox';
 import { ORCHESTRATOR_REPLAY_FIXTURES } from '@t3tools/server-orchestration/testing';
+import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import { describe, expect, it } from 'vite-plus/test';
 import type { AgentStepRequest, AgentStepResult } from '../core/steps/ports.ts';
@@ -131,13 +132,19 @@ const expectNoSecret = (ran: Ran) => {
   }
 };
 
-const waitFor = async (done: () => boolean, what: string, ms = 60_000) => {
-  const until = Date.now() + ms;
-  while (!done()) {
-    if (Date.now() > until) throw new Error(`timed out waiting for ${what}`);
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-};
+const sleep = (ms: number) => Effect.runPromise(Effect.sleep(Duration.millis(ms)));
+
+const waitFor = (done: () => boolean, what: string) =>
+  Effect.runPromise(
+    Effect.gen(function* () {
+      while (!done()) yield* Effect.sleep(Duration.millis(50));
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: Duration.seconds(60),
+        orElse: () => Effect.die(new Error(`timed out waiting for ${what}`)),
+      }),
+    ),
+  );
 
 describe('AgentSteps on sandboxes', () => {
   it(
@@ -300,7 +307,7 @@ describe('AgentSteps on sandboxes', () => {
         () => (provider.sandboxes[0]?.commands.length ?? 0) >= 2,
         "the step's host to start",
       );
-      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      await sleep(3_000);
       controller.abort();
       const ran = await running;
       expect(ran.result).toMatchObject({ status: 'failed', error: 'The step was stopped.' });
