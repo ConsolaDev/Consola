@@ -61,6 +61,21 @@ export type CellLinkOptions = {
   readonly requestId?: () => string;
 };
 
+/**
+ * What the runner says again once a new socket to the cell is greeted: every run's latest record
+ * first (`AutomationsRing.connected`), then every request still waiting (`CellLinkAdapter.connected`).
+ * The cell handles a socket's messages in order and answers a step's token by the run it holds
+ * (`running`, or no token), so a run's record lost with the last socket must reach it before the
+ * token request that needs it: the other way round, the request is refused and the step fails.
+ */
+export function sayAgainOnGreeting(
+  ring: { readonly connected: () => void } | null,
+  link: Pick<CellLinkAdapter, 'connected'> | null,
+): void {
+  ring?.connected();
+  link?.connected();
+}
+
 export function makeCellLink(options: CellLinkOptions): CellLinkAdapter {
   const timeoutMs = options.timeoutMs ?? REQUEST_TIMEOUT_MS;
   const nextId = options.requestId ?? randomUUID;

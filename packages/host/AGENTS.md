@@ -1270,6 +1270,16 @@ precursor of the engine's whole `AutomationService` on a runner (slices 7 and
   the delivery, the factory and the automation (`runIdOf`), so an event the
   cell delivers twice records one run. A gate parks the run `waiting` on a
   person, its error saying the web cannot answer a gate yet.
+- **A run never moves backwards.** In one process the ring never records a
+  run it holds or walks again (`held`, `walks`), and acknowledges a delivery
+  it acknowledged before at once. Across a restart it remembers nothing, so
+  an event the cell hands again (never acknowledged) is recorded afresh: a
+  first record, waiting for approval, under the same id. The cell keeps the
+  rule where the runs are (`apps/cloud-region/AGENTS.md`, "Runs"): a first
+  record never replaces a run that moved on, and it answers `run.refused`.
+  The ring drops a refused record of a run it is not walking, so it never
+  says it again on a new socket, and the event is acknowledged as ever. An
+  answer for the run as the cell holds it (moved on) starts nothing.
 - **What a restart keeps and loses.** The ring keeps nothing durable. A run
   waiting for approval costs no process: `run.answered` carries the record, and
   the ring rebuilds the run from it and its factory at the record's version
@@ -1287,7 +1297,11 @@ precursor of the engine's whole `AutomationService` on a runner (slices 7 and
   asked again on each new socket until then. A record or an acknowledgement
   goes at once or not at all, and on each new socket the ring says every run's
   latest record again (open ones always, the last 64 ended), so a reconnect
-  loses no record and starts no step again. An event is acknowledged once its
+  loses no record and starts no step again. The records go before the
+  requests asked again (`sayAgainOnGreeting`): the cell handles a socket's
+  messages in order and gives a step a token only for a run it holds
+  `running`, so a run's `running` record lost with the last socket must reach
+  it before the token request that needs it. An event is acknowledged once its
   runs are recorded; without the factories it is not, so the cell sends it
   again.
 - **Stopping.** On SIGTERM the ring fails each running step (`The runner

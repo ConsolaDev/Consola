@@ -343,6 +343,50 @@ describe('a GitHub event', () => {
     expect(new Set(restarted.records().map((run) => run.id)).size).toBe(2);
   });
 
+  it('never moves a run backwards: after a restart, it drops the first record the cell refuses, and still acknowledges', async () => {
+    // The first process recorded the run, which was approved and completed; its acknowledgement
+    // never reached the cell, so a restarted runner is handed the event again.
+    const link = new FakeLink([REVIEW_FACTORY]);
+    const steps = new FakeSteps();
+    steps.agent = async () => reviewed;
+    const first = ringOver(link, steps);
+    first.ring.receive(eventOf('d0c5-0007'));
+    await first.ring.settled();
+    first.ring.receive(answered(link.latest()));
+    await first.ring.settled();
+    const completed = link.latest();
+    expect(completed.status).toBe('completed');
+
+    const restarted = new FakeLink([REVIEW_FACTORY]);
+    const again = ringOver(restarted);
+    again.ring.receive(eventOf('d0c5-0007'));
+    await again.ring.settled();
+    // It records the run afresh, under the same id, and acknowledges the event.
+    expect(restarted.latest()).toMatchObject({ id: completed.id, status: 'needs-approval' });
+    expect(restarted.acks()).toEqual(['d0c5-0007']);
+    // The cell holds the run further on, and a run never moves backwards: it refuses the record.
+    again.ring.receive({
+      type: 'run.refused',
+      runId: completed.id,
+      problems: [{ field: 'status', message: 'The workspace holds this run past waiting.' }],
+    });
+    await again.ring.settled();
+    expect(again.logged.join('\n')).toContain(`the cell refused run ${completed.id}'s record`);
+    // Dropped: a new socket hears nothing of it, so it never overwrites what the cell holds.
+    const said = restarted.said.length;
+    again.ring.connected();
+    expect(restarted.said).toHaveLength(said);
+    // The same delivery again is acknowledged and records nothing; an answer for the run as the
+    // cell holds it (completed) starts nothing.
+    again.ring.receive(eventOf('d0c5-0007'));
+    again.ring.receive(answered(completed));
+    await again.ring.settled();
+    expect(restarted.records()).toHaveLength(1);
+    expect(restarted.acks()).toEqual(['d0c5-0007', 'd0c5-0007']);
+    expect(again.steps.agents).toEqual([]);
+    expect(again.steps.commands).toEqual([]);
+  });
+
   it('acknowledges an event no trigger names, recording nothing', async () => {
     const link = new FakeLink([REVIEW_FACTORY]);
     const { ring } = ringOver(link);

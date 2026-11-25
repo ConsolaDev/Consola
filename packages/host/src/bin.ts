@@ -40,7 +40,7 @@ import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
 import { type SandboxProvider, type Sandboxes, sandboxesFrom } from '@consola/sandbox';
 import { makeAgentSteps } from './adapters/agentSteps.ts';
-import { type CellLinkAdapter, makeCellLink } from './adapters/cellLink.ts';
+import { type CellLinkAdapter, makeCellLink, sayAgainOnGreeting } from './adapters/cellLink.ts';
 import { makeCellSocket } from './adapters/cellSocket.ts';
 import { makeCommandSteps } from './adapters/commandSteps.ts';
 import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
@@ -710,11 +710,8 @@ export const runRunner = (
             return Effect.sync(() => link.answer(message));
         }
       },
-      onConnected: () =>
-        Effect.sync(() => {
-          link?.connected();
-          ring?.connected();
-        }),
+      // The records before the requests: the cell answers a token by the run it holds.
+      onConnected: () => Effect.sync(() => sayAgainOnGreeting(ring, link)),
     });
     yield* socket.replaced;
     return yield* new RunnerReplaced({
