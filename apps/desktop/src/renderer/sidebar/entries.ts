@@ -47,6 +47,7 @@ export function sessionEntries(
       kind: 'session',
       attention: attentionOf(snapshot.attention, session.id),
       createdAt: session.createdAt,
+      ...(record?.settledAt !== undefined ? { settledAt: record.settledAt } : {}),
       ...(record?.unsettledAt !== undefined ? { unsettledAt: record.unsettledAt } : {}),
       activityAt,
       ...(record?.finishedAt !== undefined ? { finishedAt: record.finishedAt } : {}),

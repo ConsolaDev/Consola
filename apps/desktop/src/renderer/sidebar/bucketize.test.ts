@@ -239,13 +239,33 @@ describe('bucketize', () => {
   });
 
   describe('ordering', () => {
-    it('sorts settled by activityAt descending', () => {
+    it('puts the last one settled first, however old it is or when it last worked', () => {
       const result = bucketize([
-        node(entry('a', 'settled', { activityAt: 100 })),
-        node(entry('c', 'settled', { activityAt: 300 })),
-        node(entry('b', 'settled', { activityAt: 200 })),
+        node(entry('old', 'settled', { createdAt: 10, activityAt: 20, settledAt: 900 })),
+        node(entry('new', 'settled', { createdAt: 500, activityAt: 600, settledAt: 700 })),
+        node(entry('mid', 'settled', { createdAt: 300, activityAt: 400, settledAt: 800 })),
+      ]);
+      expect(ids(result.settled)).toEqual(['old', 'mid', 'new']);
+    });
+
+    it('keeps what one sweep settled together in the order it last worked', () => {
+      const result = bucketize([
+        node(entry('a', 'settled', { activityAt: 100, settledAt: 900 })),
+        node(entry('c', 'settled', { activityAt: 300, settledAt: 900 })),
+        node(entry('b', 'settled', { activityAt: 200, settledAt: 900 })),
       ]);
       expect(ids(result.settled)).toEqual(['c', 'b', 'a']);
+    });
+
+    it('files a settled tree by when its last member was put away', () => {
+      const result = bucketize([
+        node(entry('alone', 'settled', { settledAt: 500 })),
+        node(
+          entry('parent', 'settled', { settledAt: 100 }),
+          entry('child', 'settled', { settledAt: 600 }),
+        ),
+      ]);
+      expect(ids(result.settled)).toEqual(['parent', 'alone']);
     });
 
     it.each([
