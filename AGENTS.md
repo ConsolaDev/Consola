@@ -1211,6 +1211,19 @@ whose check uses it baselines rather than firing every item.
   which `list_automations` returns whole, carries an agent's; only the
   person's panel (`snapshot`) has the person's.
 
+### A Command Names the GitHub Permissions It Needs
+
+`permissions:` on a `run:` step maps GitHub's permission names (`contents`,
+`pull_requests`, `issues`, `checks`, `statuses`, `metadata`) to `read` or
+`write` (`metadata` only `read`). factory-spec's `parsePermissions` puts it on
+`CommandStep.permissions`, in that order and only when written, so a step
+without it hashes as before; with it, it is in the version, and a change asks
+again. An agent step, a gate, a `uses:` call, a loop and an entry refuse it,
+each saying where it goes. Its meaning is the runner's: a cloud runner gives
+such a step a GitHub token narrowed to it, for that step alone, and a step
+without it gets none. The desktop runs every command as the workspace's bound
+account (decision 37), so there it is parsed and has no effect.
+
 ### A Factory's Servers Are the Engine's
 
 `factory.yml`'s `mcpServers:` defines servers that only a `uses:` step calls

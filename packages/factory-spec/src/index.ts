@@ -97,6 +97,17 @@ export {
 } from './factory';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
+  AGENT_PERMISSIONS_REASON,
+  ENTRY_PERMISSIONS_REASON,
+  GITHUB_PERMISSIONS,
+  LOOP_PERMISSIONS_REASON,
+  parsePermissions,
+  USES_PERMISSIONS_REASON,
+  type GitHubPermission,
+  type PermissionAccess,
+  type StepPermissions,
+} from './permissions';
+export {
   AGENT_SECRETS_REASON,
   ENTRY_SECRETS_REASON,
   MAX_SECRET_NAME_LENGTH,

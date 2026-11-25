@@ -630,6 +630,28 @@ describe('firing a steps run', () => {
     ]);
   });
 
+  it("a command's permissions are in its version: changing them makes an accepted entry ask again", async () => {
+    const granted = TEMPLATE.replace(
+      '        env: { REPO:',
+      '        permissions: { pull_requests: write }\n        env: { REPO:',
+    );
+    expect(granted).not.toBe(TEMPLATE);
+    // No agent slot, so a run that fires waits in line.
+    const h = await watching({ yaml: granted, maxConcurrentAgents: 0 });
+    acceptEvery(h, granted);
+    await h.poll([PR51]);
+    expect(h.store.runs()[0]).toMatchObject({
+      trigger: { item: { number: 51 } },
+      status: 'queued',
+      mode: 'auto',
+    });
+
+    await h.setYaml(granted.replace('pull_requests: write', 'pull_requests: write, issues: write'));
+    await h.poll([PR51, PR52]);
+    const next = h.store.runs().find((run) => run.trigger.item?.number === 52);
+    expect(next).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+  });
+
   it('confirm waits before the first step', async () => {
     const h = await watching({
       yaml: factory(`${ON_REVIEW}    mode: confirm\n`, '- id: review\n  action: Review'),
