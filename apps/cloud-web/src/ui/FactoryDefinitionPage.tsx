@@ -12,13 +12,14 @@ import {
   afterSave,
   broughtIn,
   contentOf,
+  discarded,
   draftOf,
   type FactoryDraft,
+  fileMarks,
   filesOf,
   isChanged,
   pathsOf,
   withEdit,
-  withoutEdits,
 } from '../domain/factoryDraft';
 import {
   bringInLabel,
@@ -209,7 +210,15 @@ function Workbench({
   const now = useNow(30_000);
 
   const paths = useMemo(() => pathsOf(draft), [draft]);
-  const changed = useMemo(() => new Set(draft.edits.keys()), [draft]);
+  const changed = useMemo(
+    () =>
+      new Set(
+        [...fileMarks(draft)]
+          .filter(([, mark]) => mark.isNew || mark.changed || mark.renamedFrom !== null)
+          .map(([path]) => path),
+      ),
+    [draft],
+  );
   const problems = useMemo(
     () => sortedProblems(fromCell ?? checked, paths),
     [fromCell, checked, paths],
@@ -398,7 +407,7 @@ function Workbench({
   };
 
   const discard = () => {
-    setDraft((current) => withoutEdits(current, [...current.edits.keys()]));
+    setDraft((current) => discarded(current));
     setTabs((current) =>
       keptTabs(
         current,
