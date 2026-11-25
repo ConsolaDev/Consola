@@ -121,7 +121,7 @@ test file takes the list of the module it sits beside (`adapters/x.test.ts`
 `adapters`'s, `bin.test.ts` `bin`'s). Each is its layer's `consola` list in
 `LAYERS`, with a case in the table for every ring. `scripts/`, outside `src/`
 and the rings, holds the two build scripts ("The bundle and the session
-template"); `scripts/build-template.ts` imports `@consola/sandbox/e2b` to build
+template") and the step sandbox's real-CLI canary ("Step sandboxes"); `scripts/build-template.ts` imports `@consola/sandbox/e2b` to build
 the session template.
 
 ## Vendored t3 code is imported, never copied
@@ -471,7 +471,15 @@ instance's settings carry launch arguments, and for Claude a `launchArgs` in
 (`ClaudeAdapterV2.ts:2325-2326`, `:2412-2416`: `bypassPermissions` asks
 nothing). The state folder is the runner's (`--state-dir`, or a temporary one
 the host makes), so the runner must not write such settings; the host does not
-check them.
+check them. The runner writes launch arguments in one place only: an agent
+step's state folder, where Claude's are exactly `STEP_LAUNCH_ARGS`
+(`core/steps/stepSandbox.ts`: `--strict-mcp-config --mcp-config <step tools>
+--allowedTools <the four step tools> --restricted`), flags that only narrow what
+the CLI loads, runs and asks about, and allow Consola's own four tools, which
+the step's policy allows anyway. None names a permission mode or a settings
+source (`LOOSENING_LAUNCH_FLAGS`; `runtime/stepLaunch.test.ts` reads them as
+t3's adapter does and finds the thread's mode untouched). A session's state
+folder holds none.
 Tests that replay a fixture recorded in another mode, or substitute t3's replay
 adapter, use `layerForTests(options, { drivers, runtimeMode })`, which builds on
 `layerOrchestrationForTests(options, drivers)`. `boundary.test.ts` refuses
@@ -771,7 +779,12 @@ consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> 
   [--port <n, default 7420; 0 for a free one>] [--bind <address, default 127.0.0.1>]
   --pass-public-key <Ed25519 public key, SPKI PEM file> | --dev
   [--idle-minutes <n, default 10; fractions allowed>] [--state-dir <dir>]
+  [--title <the thread's title>]
 ```
+
+`--title` opens the thread with that title, which t3 keeps
+(`hasTitleSetBeforeFirstMessage`), so the CLI is never asked for one: no `claude -p` runs in the
+folder for a title. A step's host passes it ("Step sandboxes"); a session's does not.
 
 The runner role (`consola-host runner`) starts it in a sandbox and reads its stdout. It opens the
 session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
@@ -1105,20 +1118,45 @@ gets a sandbox of its own.
   (its error item's message). A host that stops mid-turn fails it with its last line on stderr.
 - **Permission requests are answered by the runner** (`decideStepApproval`, `pendingStepRequests`),
   each the moment the thread shows it, so no step waits on an approval. A request is paired with
-  its tool call by Claude's tool use id (the turn item sharing its native id). `read-only` allows
+  its tool call by Claude's tool use id (the turn item sharing its native id), and each answer is a
+  line of the runner's log (the tool's name, never its input). Under `--restricted` most never
+  come: Bash is not offered, and a read outside the folder is refused by the CLI. `read-only` allows
   the four step tools and `READ_ONLY_TOOLS` (to-do list, tool search, a subagent, whose own calls
   come back here); it declines every command, write, network request, other MCP server's tool,
   broader permission, elicitation and sign-in, and every `file-read`: the CLI reads inside its
   folders without asking, so it asks only for a path outside them, where `/proc` holds the API
   key. A question for the person (`user_input`) is cancelled. Each refusal is named in
   `deniedTools` (the CLI's tool name where t3 reports it, else t3's kind: `file-change`, `web`).
+- **The checkout can run or widen nothing.** A step reviews other people's pull requests, the
+  author controls the checkout, and the sandbox holds the API key. So:
+  - every turn's CLI runs `STEP_LAUNCH_ARGS`: `--restricted` (the checkout's settings, hooks,
+    permission rules, MCP servers, plugins, skills and CLAUDE.md stay out; the tools that run
+    code and WebFetch are dropped; file tools are confined to the folder: the desktop's
+    `readOnlyArgs`, checked live by its canary's row 3), `--strict-mcp-config --mcp-config
+    /workspace/.consola/step-mcp.json` (the step tools' server and no other) and `--allowedTools`
+    for the four step tools. t3 reads them from its Claude instance's `launchArgs` in the step
+    host's own state folder (`/workspace/.consola/t3-state`, `stepT3Settings`), which the runner
+    writes before the host starts, and passes them as the Agent SDK's extra flags, the thread's
+    `approval-required` untouched (`runtime/stepLaunch.test.ts`);
+  - t3 starts Claude in the folder without those flags twice in a session; neither happens with
+    the checkout's settings: no title call, since the thread opens with a title (`--title`,
+    `STEP_THREAD_TITLE`), and t3's workspace probe (user, project and local setting sources, no
+    turn) finds no project settings, since `consola-step-start` takes `.claude/settings.json` and
+    `.claude/settings.local.json` out of the working tree (`CHECKOUT_CLAUDE_SETTINGS`; their
+    changes are in the `changes` document);
+  - git runs no hook of the checkout's (`core.hooksPath=/dev/null` for the clone and after).
+- **Where the secrets are.** The clone token is in the checkout command's environment alone, and
+  gone when it ends: never in a file, a URL or the repository's config, and the host and the CLI
+  never get it. The API key is in the environment of the host process and of the CLI it starts,
+  which need it, and nowhere else: not in a file, not in the step tools' server (started through
+  `env -u ANTHROPIC_API_KEY`, `stepMcpConfig`). Nothing the checkout holds can start a process to
+  read either (above). A command step's sandbox holds the clone token only during its checkout,
+  and its `secretEnv` only in its command.
 - **The step tools live in the sandbox**: `consola-host step-tools --folder <dir>`
-  (`stepToolsMain.ts`, `adapters/stepToolsServer.ts`), a stdio MCP server in the bundle that
-  `consola-step-start` writes into Claude's own user config (`~/.claude.json`, server `consola`),
-  so its tools are `mcp__consola__consola_set_outputs`, `…_write_artifact`, `…_read_artifact` and
-  `…_list_artifacts`, the desktop's names. No t3 setting and no vendored file changes for it.
-  The same script's user settings allow those four and `ask` for every command, write and network
-  tool, which beats a checkout's own `allow`. The server answers from the attempt's folder
+  (`stepToolsMain.ts`, `adapters/stepToolsServer.ts`), a stdio MCP server in the bundle that the
+  step's MCP config names (`consola`), so its tools are `mcp__consola__consola_set_outputs`,
+  `…_write_artifact`, `…_read_artifact` and `…_list_artifacts`, the desktop's names, allowed with
+  no approval. No vendored file changes for it. The server answers from the attempt's folder
   (`/workspace/.consola/step`): `declaration.json`, which the runner writes before the turn
   (outputs, writable, required and readable documents), then `outputs.json` and
   `artifacts/<name>.md`, each replaced whole by a rename, checked as the engine's tools check
@@ -1150,7 +1188,27 @@ gets a sandbox of its own.
 `agentSteps.test.ts` and `commandSteps.test.ts` drive both on the local provider (replays of t3's
 `simple`, `multi_turn`, `tool_call_denied_write` and `turn_interrupt` fixtures, the real step
 tools' server, a real `bash`); `stepScripts.test.ts` runs both scripts under `sh` against a
-repository on disk.
+repository on disk; `runtime/stepLaunch.test.ts` reads the launch arguments as t3 does.
+
+**The real-CLI canary** (`scripts/step-sandbox-canary.mjs`): none of those runs the real Claude
+Code, so none notices it, or a re-synced t3, changing what the above rests on. Rerun it by hand
+after every Claude Code upgrade in the template and every t3 re-sync, before steps run on it:
+
+```bash
+ANTHROPIC_API_KEY=… node packages/host/scripts/step-sandbox-canary.mjs --spend-tokens [--claude <path>]
+```
+
+It runs one agent step and one command step through the host's own adapters, on sandboxes that
+are folders of this machine running the template's real scripts, the host from source and the
+real `claude` (the template's pinned version; row 0 says which it found), against a repository
+on disk whose pull request carries a hook, an allow rule, an `.mcp.json` server and a skill that
+would each touch a marker. Rows: the step tools load with no approval (1); Bash never runs (2); a
+read outside the checkout is refused (3); no hook runs (4); the allow rule, server and skill take
+no effect (5); a ~200 KB `changes` document is read whole (6, `MAX_MCP_OUTPUT_TOKENS`); the
+reminder lands in the same conversation (7); a command step gets exactly its variables, its
+secret masked (8); no secret comes back (9); every sandbox stopped (10). It refuses to start
+without the key, says what it would spend (at most about US$1 on `claude-haiku-5-5`) and runs
+only with `--spend-tokens`, and masks everything it prints. Never in tests or CI.
 
 ## The automations ring
 

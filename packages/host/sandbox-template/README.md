@@ -138,16 +138,18 @@ exits 1.
 
 `consola-step-start` (`stepHostEnv`: `CONSOLA_SESSION_ID`, `CONSOLA_HARNESS`,
 `CONSOLA_PASS_PUBLIC_KEY`, `CONSOLA_SESSION_IDLE_MINUTES`,
-`CONSOLA_STEP_FOLDER`, `ANTHROPIC_API_KEY`) writes the pass key, then Claude
-Code's own user config: the step tools as a user-scope MCP server `consola` in
-`~/.claude.json` (`node /opt/consola/consola-host.mjs step-tools --folder
-$CONSOLA_STEP_FOLDER`), and in `~/.claude/settings.json` an `allow` rule for
-the four step tools and an `ask` rule for `Bash`, `Edit`, `MultiEdit`,
-`Write`, `NotebookEdit`, `WebFetch` and `WebSearch`, so a checkout's own
-`allow` rules cannot run them without the runner's answer. It sets
-`MAX_MCP_OUTPUT_TOKENS` (a long changes document), then becomes the host as
-the session's script does, on Claude, in `/workspace/repo`. It writes no t3
-settings. Both scripts' tests are `src/stepScripts.test.ts`.
+`CONSOLA_STEP_FOLDER`, `ANTHROPIC_API_KEY`) runs only once the runner has
+written the step host's t3 settings (`/workspace/.consola/t3-state`, whose
+Claude launch arguments hold `--restricted` and the step tools' MCP config,
+`/workspace/.consola/step-mcp.json`). It writes the pass key, takes the
+checkout's own `.claude/settings.json` and `.claude/settings.local.json` out of
+the working tree (t3's workspace probe starts Claude there without those
+flags), sets `MAX_MCP_OUTPUT_TOKENS` (a long changes document), then becomes
+the host as the session's script does, on Claude, in `/workspace/repo`, with
+`--state-dir` that folder and `--title 'Consola step'` (no title call). It
+writes neither t3's settings nor Claude's user config itself. Both scripts'
+tests are `src/stepScripts.test.ts`; what the real CLI does with them is
+`scripts/step-sandbox-canary.mjs`'s to show (`AGENTS.md`, "Step sandboxes").
 
 ## Building it
 

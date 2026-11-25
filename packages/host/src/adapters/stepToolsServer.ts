@@ -1,8 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - The server reads stdin and the step's folder, and writes stdout and the folder.
 /**
  * The step tools' MCP server (`consola-host step-tools --folder <dir>`), which an agent step's CLI
- * starts in its sandbox, as a user-scope MCP server of Claude's own config the step's start script
- * writes (`sandbox-template/consola-step-start`). It speaks MCP on stdio (`core/steps/mcpMessages.ts`)
+ * starts in its sandbox, the one server of the MCP config the runner writes there (`stepMcpConfig`,
+ * `--strict-mcp-config --mcp-config`). It speaks MCP on stdio (`core/steps/mcpMessages.ts`)
  * and answers each call from the attempt's folder (`core/steps/stepTools.ts`): the declaration the
  * runner wrote, then the outputs and documents earlier calls wrote. Writes replace a file whole,
  * by a rename, so the runner never reads half of one.
