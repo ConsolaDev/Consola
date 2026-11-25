@@ -15,7 +15,7 @@ const request = (fields: Partial<StepPermissionRequest>): StepPermissionRequest 
 });
 
 describe('decideStepApproval, read-only', () => {
-  it("allows Consola's step tools and the tools that only read", () => {
+  it("allows Consola's step tools and the tools that touch nothing", () => {
     for (const toolName of [
       'mcp__consola__consola_set_outputs',
       'mcp__consola__consola_write_artifact',
@@ -27,9 +27,6 @@ describe('decideStepApproval, read-only', () => {
       ).toEqual({ answer: 'allow', decision: 'accept' });
     }
     expect(
-      decideStepApproval('read-only', request({ kind: 'file-read', toolName: 'Read' })),
-    ).toEqual({ answer: 'allow', decision: 'accept' });
-    expect(
       decideStepApproval(
         'read-only',
         request({ kind: 'command', toolName: 'TodoWrite', itemType: 'dynamic_tool' }),
@@ -37,8 +34,11 @@ describe('decideStepApproval, read-only', () => {
     ).toBe('allow');
   });
 
-  it('declines whatever runs a command, writes, reaches the network or asks for more', () => {
+  it('declines whatever runs a command, writes, reads outside the checkout, reaches the network or asks for more', () => {
     const cases: Array<[Partial<StepPermissionRequest>, string]> = [
+      // The CLI asks to read only outside the step's folders: /proc holds the API key.
+      [{ kind: 'file-read', toolName: 'Read', itemType: 'dynamic_tool' }, 'Read'],
+      [{ kind: 'file-read', toolName: 'Grep', itemType: 'dynamic_tool' }, 'Grep'],
       [{ kind: 'command', toolName: 'Bash', itemType: 'command_execution' }, 'Bash'],
       [{ kind: 'file-change', itemType: 'file_change' }, 'file-change'],
       [{ kind: 'command', itemType: 'web_search' }, 'web'],

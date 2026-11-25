@@ -58,6 +58,10 @@ export function declarationOf(
   };
 }
 
+/** `declaration.json`'s text. */
+export const declarationText = (declaration: StepDeclaration): string =>
+  `${JSON.stringify(declaration)}\n`;
+
 const OUTPUT_TYPES = new Set(['enum', 'integer', 'number', 'boolean', 'string']);
 
 const isOutputType = (value: unknown): value is OutputType => {

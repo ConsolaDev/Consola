@@ -39,16 +39,13 @@ export type StepApproval =
     };
 
 /**
- * The tools a read-only step may use when the CLI asks: reading and searching files, its to-do
- * list, finding a deferred tool, and a subagent (whose own calls are asked about, and answered
- * by this same policy).
+ * The tools that touch nothing a read-only step may use when the CLI asks: its to-do list,
+ * finding a deferred tool, and a subagent (whose own calls are asked about, and answered by this
+ * same policy). Reading files is not among them: the CLI reads inside the step's folders without
+ * asking (`file-read` requests come only for a path outside them), and outside lie the host's own
+ * environment (`/proc`, which holds the API key) and Claude's config, which no step needs.
  */
 export const READ_ONLY_TOOLS: ReadonlySet<string> = new Set([
-  'Read',
-  'Glob',
-  'Grep',
-  'LS',
-  'NotebookRead',
   'TodoWrite',
   'ToolSearch',
   'Agent',
@@ -65,10 +62,10 @@ const toolLabel = (request: StepPermissionRequest): string => {
 
 /**
  * The answer to one request under `policy`. For `read-only`: Consola's step tools and the tools
- * that only read are allowed; anything that runs a command, writes or edits a file, reaches the
- * network, or asks for something else (another MCP server's tool, a broader permission, an MCP
- * server's question, a sign-in) is declined; a question for the person (`user_input`) is
- * cancelled, since nobody watches.
+ * that touch nothing (`READ_ONLY_TOOLS`) are allowed; anything that runs a command, writes or
+ * edits a file, reads outside the step's folders, reaches the network, or asks for something else
+ * (another MCP server's tool, a broader permission, an MCP server's question, a sign-in) is
+ * declined; a question for the person (`user_input`) is cancelled, since nobody watches.
  */
 export function decideStepApproval(
   policy: StepPolicy,
@@ -86,7 +83,6 @@ export function decideStepApproval(
       if (name !== null && STEP_TOOL_CLI_NAMES.includes(name)) {
         return { answer: 'allow', decision: 'accept' };
       }
-      if (request.kind === 'file-read') return { answer: 'allow', decision: 'accept' };
       if (
         request.kind === 'command' &&
         request.itemType === 'dynamic_tool' &&
