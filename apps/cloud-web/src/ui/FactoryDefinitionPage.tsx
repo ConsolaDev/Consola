@@ -1,4 +1,4 @@
-import { Check, FileCode2, FolderOpen, X } from 'lucide-react';
+import { Check, FileCode2, FilePlus, FolderOpen, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   type Factory,
@@ -6,6 +6,7 @@ import {
   type FactoryVersion,
   fileGroups,
   firstFile,
+  listedPaths,
 } from '../domain/factories';
 import type { checkFactory } from '../domain/factoryCheck';
 import {
@@ -16,21 +17,28 @@ import {
   type FactoryDraft,
   filesOf,
   isChanged,
+  isSaved,
   pathsOf,
   withEdit,
+  withFile,
   withoutEdits,
+  withoutFile,
+  withRestored,
 } from '../domain/factoryDraft';
 import {
+  addedLine,
   bringInLabel,
   broughtInLine,
   DEFINITION_BANNER_TEXT,
   DEFINITION_BANNER_TITLE,
+  deletedLine,
   discardQuestion,
   FACTORY_GONE,
   FACTORY_PAGE_LABELS,
   fixToSave,
   messageForFactoriesState,
   messageForSave,
+  NEW_FILE,
   NO_FILES,
   NO_FILES_HINT,
   problemsCount,
@@ -45,7 +53,14 @@ import {
   problemPath,
   sortedProblems,
 } from '../domain/factoryProblems';
-import { closeTab, type FactoryTabs, keptTabs, NO_TABS, openTab } from '../domain/factoryTabs';
+import {
+  closeTab,
+  type FactoryTabs,
+  keptTabs,
+  NO_TABS,
+  openTab,
+  tabsAfterDelete,
+} from '../domain/factoryTabs';
 import type { MyWorkspace } from '../domain/workspace';
 import { hideDefinitionBanner, isDefinitionBannerHidden } from '../services/definitionBanner';
 import { factoriesService } from '../services/factories';
@@ -60,10 +75,10 @@ import './FactoryDefinition.css';
 
 /**
  * A factory's definition (`#/factories/<id>/definition`): the whole factory as files, to read it
- * and to fix it in place. It takes the whole width beside the sidebar: a bar with the factory,
+ * and to change it in place. It takes the whole width beside the sidebar: a bar with the factory,
  * its version and Save; the banner, until hidden; then the files beside the editor, its tabs and
- * the problems under it. A factory is made elsewhere (a repository, the setup helper), so files
- * are edited here, never added, renamed or removed.
+ * the problems under it. A file is edited, added (New file, in the list) or deleted (from its
+ * row) here, each unsaved until Save sends the whole set; nothing is renamed.
  *
  * The files are read from the cell as the page opens (`GET /api/factories/{factoryId}`). A
  * factory the cell no longer shows the person reads the sidebar's list again (`onChanged`), which
@@ -150,6 +165,9 @@ const MOMENT_MS = 1800;
 /** A newer version than the draft's, saved by someone else: `latest` once it is read. */
 type Moved = { latestVersion: number; latest: FactoryVersion | null };
 
+/** The file deleted last, as it was just before, for Undo: its text, and whether it was saved. */
+type Deleted = { path: string; content: string; saved: boolean };
+
 function Workbench({
   factory,
   personId,
@@ -203,6 +221,9 @@ function Workbench({
   const [nudge, setNudge] = useState(0);
   const [reveal, setReveal] = useState<{ path: string; line: number; seq: number } | null>(null);
   const [said, setSaid] = useState('');
+  const [adding, setAdding] = useState<string | null>(null);
+  const [deleted, setDeleted] = useState<Deleted | null>(null);
+  const [focusRow, setFocusRow] = useState<{ path: string; seq: number } | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const filterRef = useRef<HTMLInputElement>(null);
@@ -302,6 +323,39 @@ function Workbench({
     setSaveError(null);
   }, []);
 
+  /** A new, empty file: open in front, the keyboard in it, unsaved until Save. */
+  const add = (path: string) => {
+    setDraft((current) => withFile(current, path));
+    setTabs((current) => openTab(current, path));
+    setAdding(null);
+    setDeleted((current) => (current?.path === path ? null : current));
+    setFromCell(null);
+    setSaveError(null);
+    setReveal((current) => ({ path, line: 1, seq: (current?.seq ?? 0) + 1 }));
+    setSaid(addedLine(path));
+  };
+
+  /** A file deleted until Save; the editor moves to a neighbour, and Undo puts it back. */
+  const remove = (path: string) => {
+    const content = contentOf(draft, path);
+    if (content === undefined) return;
+    setDeleted({ path, content, saved: isSaved(draft, path) });
+    setDraft((current) => withoutFile(current, path));
+    setTabs((current) => tabsAfterDelete(current, path, listedPaths(paths)));
+    setFromCell(null);
+    setSaveError(null);
+  };
+
+  const undoDelete = () => {
+    if (!deleted) return;
+    const { path, content } = deleted;
+    setDraft((current) => withRestored(current, path, content));
+    setTabs((current) => openTab(current, path));
+    setDeleted(null);
+    setFromCell(null);
+    setFocusRow((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
+  };
+
   const save = async () => {
     if (!canSave) return;
     const sent = draft;
@@ -316,6 +370,7 @@ function Workbench({
       case 'saved':
         setVersion(answer.version);
         setDraft((current) => afterSave(current, sent, answer.version));
+        setDeleted(null);
         setFromCell(null);
         setRolled(true);
         setSaving('saved');
@@ -394,7 +449,15 @@ function Workbench({
     setTabs((current) => keptTabs(current, pathsOf(result.draft)));
     setMoved(null);
     setFromCell(null);
-    setBrought(broughtInLine(latestVersion.version, result.bothChanged, result.goneThere));
+    setDeleted(null);
+    setBrought(
+      broughtInLine(
+        latestVersion.version,
+        result.bothChanged,
+        result.goneThere,
+        result.deletedChanged,
+      ),
+    );
   };
 
   const discard = () => {
@@ -405,6 +468,7 @@ function Workbench({
         version.files.map((file) => file.path),
       ),
     );
+    setDeleted(null);
     setFromCell(null);
     setConfirmDiscard(false);
     setSaveError(null);
@@ -540,48 +604,81 @@ function Workbench({
           </button>
         </div>
       )}
+      {deleted && (
+        <div className="definition-strip" role="status">
+          <p>{deletedLine(deleted.path, deleted.saved)}</p>
+          <div className="definition-strip-actions">
+            <button type="button" className="button" onClick={undoDelete}>
+              Undo
+            </button>
+          </div>
+          <button
+            type="button"
+            className="definition-strip-close"
+            aria-label="Dismiss"
+            onClick={() => setDeleted(null)}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {saveError && (
         <div className="definition-strip" data-tone="danger" role="alert">
           <p>{saveError}</p>
         </div>
       )}
 
-      {paths.length === 0 ? (
-        <div className="definition-empty">
-          <FolderOpen size={20} aria-hidden="true" />
-          <p className="definition-empty-title">{NO_FILES}</p>
-          <p>{NO_FILES_HINT}</p>
-        </div>
-      ) : (
-        <div className="workbench">
-          <FactoryFileTree
-            ref={filterRef}
-            paths={paths}
-            active={active}
+      <div className="workbench">
+        <FactoryFileTree
+          ref={filterRef}
+          paths={paths}
+          active={active}
+          changed={changed}
+          counts={counts}
+          adding={adding}
+          focusRow={focusRow}
+          onOpen={open}
+          onAddingChange={setAdding}
+          onAdd={add}
+          onDelete={remove}
+        />
+        <div className="editor-pane">
+          <EditorTabs
+            tabs={tabs}
             changed={changed}
             counts={counts}
-            onOpen={open}
+            onSelect={open}
+            onClose={(path) => setTabs((current) => closeTab(current, path))}
           />
-          <div className="editor-pane">
-            <EditorTabs
-              tabs={tabs}
-              changed={changed}
-              counts={counts}
-              onSelect={open}
-              onClose={(path) => setTabs((current) => closeTab(current, path))}
+          {paths.length === 0 ? (
+            <div className="definition-empty">
+              <FolderOpen size={20} aria-hidden="true" />
+              <p className="definition-empty-title">{NO_FILES}</p>
+              <p>{NO_FILES_HINT}</p>
+              {adding === null && (
+                <button
+                  type="button"
+                  className="button definition-empty-new"
+                  onClick={() => setAdding('')}
+                >
+                  <FilePlus size={14} aria-hidden="true" />
+                  {NEW_FILE}
+                </button>
+              )}
+            </div>
+          ) : active !== null && activeText !== undefined ? (
+            <CodeEditor
+              path={active}
+              text={activeText}
+              problems={activeProblems}
+              reveal={reveal}
+              label={active}
+              onChange={edit}
             />
-            {active !== null && activeText !== undefined ? (
-              <CodeEditor
-                path={active}
-                text={activeText}
-                problems={activeProblems}
-                reveal={reveal}
-                label={active}
-                onChange={edit}
-              />
-            ) : (
-              <p className="editor-none">Choose a file to read it.</p>
-            )}
+          ) : (
+            <p className="editor-none">Choose a file to read it.</p>
+          )}
+          {(paths.length > 0 || problems.length > 0) && (
             <ProblemsPanel
               problems={problems}
               paths={paths}
@@ -593,9 +690,9 @@ function Workbench({
               onToggle={() => setProblemsOpen((shown) => !shown)}
               onReveal={revealProblem}
             />
-          </div>
+          )}
         </div>
-      )}
+      </div>
     </>
   );
 }
