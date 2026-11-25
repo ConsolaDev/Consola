@@ -16,6 +16,8 @@ export interface Entry {
   attention: Attention;
   /** When it first appeared. */
   createdAt: number;
+  /** When it went onto the Settled shelf, by hand or by auto-settle. Orders the shelf, last settled first. */
+  settledAt?: number;
   /** When it last came back from Settled, if it ever has. */
   unsettledAt?: number;
   /** When it was last genuinely active: a turn starting or finishing. */
