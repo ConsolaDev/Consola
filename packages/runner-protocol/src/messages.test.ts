@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  isHarness,
-  isHostUrl,
-  isRepository,
-  readCellMessage,
-  readRunnerMessage,
-} from './messages.js';
+import { isHarness, isHostUrl, readCellMessage, readRunnerMessage } from './messages.js';
+import { isRepository } from './repository.js';
 
 /** What the other side really sends: the value after `JSON.stringify` and `JSON.parse`. */
 const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
@@ -17,6 +12,7 @@ const hello = {
   harnesses: ['claude', 'codex'],
   runningSessionIds: ['s-1'],
   endedSessions: [{ sessionId: 's-2', status: 'failed', error: 'The sandbox stopped.' }],
+  automations: false,
 };
 const update = { type: 'session.update', sessionId: 's-1', status: 'running' };
 const start = {
@@ -89,6 +85,10 @@ describe('readRunnerMessage', () => {
     const empty = { ...hello, repositories: [], runningSessionIds: [], endedSessions: [] };
     expect(readRunnerMessage(wire(empty))).toEqual({ ok: true, value: empty });
   });
+  it('reads a hello from a runner that runs automations', () => {
+    const value = { ...hello, automations: true };
+    expect(readRunnerMessage(wire(value))).toEqual({ ok: true, value });
+  });
   it('reads an ended session without an error', () => {
     const value = { ...hello, endedSessions: [{ sessionId: 's-2', status: 'stopped' }] };
     expect(readRunnerMessage(wire(value)).ok).toBe(true);
@@ -118,6 +118,8 @@ describe('readRunnerMessage', () => {
     ['a hello without a runnerId', { ...hello, runnerId: undefined }],
     ['an empty runnerId', { ...hello, runnerId: '' }],
     ['a hello without endedSessions', { ...hello, endedSessions: undefined }],
+    ['a hello without automations', { ...hello, automations: undefined }],
+    ['a hello with automations not a boolean', { ...hello, automations: 'yes' }],
     ['a bad repository', { ...hello, repositories: ['../etc'] }],
     ['an unknown harness', { ...hello, harnesses: ['cursor'] }],
     ['repositories not an array', { ...hello, repositories: 'sprocket/a' }],

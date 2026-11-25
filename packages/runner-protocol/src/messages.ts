@@ -1,4 +1,36 @@
-import { fieldProblem, isId, isRecord, type ReadResult, read, refused } from './read.js';
+import {
+  type FactoriesAnswer,
+  type FactoriesRequest,
+  type GitHubEventAck,
+  type GitHubEventNotice,
+  type GitHubStepToken,
+  type GitHubStepTokenRefused,
+  type GitHubStepTokenRequest,
+  type RunAnswered,
+  type RunRecordMessage,
+  type RunRefused,
+  readFactoriesAnswer,
+  readFactoriesRequest,
+  readGitHubEventAck,
+  readGitHubEventNotice,
+  readGitHubStepToken,
+  readGitHubStepTokenRefused,
+  readGitHubStepTokenRequest,
+  readRunAnswered,
+  readRunRecordMessage,
+  readRunRefused,
+} from './automationMessages.js';
+import {
+  fieldProblem,
+  isId,
+  isOneOf,
+  isRecord,
+  type ReadResult,
+  read,
+  readList,
+  refused,
+} from './read.js';
+import { isRepository, type Repository } from './repository.js';
 
 /** The agent CLIs a runner can start a session with. */
 export const HARNESSES = ['claude', 'codex'] as const;
@@ -6,20 +38,6 @@ export type Harness = (typeof HARNESSES)[number];
 
 export function isHarness(value: unknown): value is Harness {
   return typeof value === 'string' && (HARNESSES as readonly string[]).includes(value);
-}
-
-/** A repository as `owner/name`, the way a runner offers it and a session asks for it. */
-export type Repository = string;
-
-const REPOSITORY = /^[A-Za-z0-9-]+\/[A-Za-z0-9._-]+$/;
-
-/**
- * `owner/name`. The name may not be `.` or `..` or start with `.`, so a repository can never name
- * a path above the folder it is cloned into, nor `.git`.
- */
-export function isRepository(value: unknown): value is Repository {
-  if (typeof value !== 'string' || !REPOSITORY.test(value)) return false;
-  return !(value.split('/')[1] ?? '.').startsWith('.');
 }
 
 const LOCAL_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
@@ -68,6 +86,11 @@ export type RunnerHello = {
   runningSessionIds: string[];
   /** The sessions that ended since the runner last spoke to the cell. */
   endedSessions: EndedSession[];
+  /**
+   * Whether this runner runs automations: only then does the cell send it GitHub's events and a
+   * person's answers to runs, and take its runs and token requests.
+   */
+  automations: boolean;
 };
 
 /** A session's change, as the runner learned of it. */
@@ -80,7 +103,13 @@ export type SessionUpdate = {
   error?: string;
 };
 
-export type RunnerMessage = RunnerHello | SessionUpdate;
+export type RunnerMessage =
+  | RunnerHello
+  | SessionUpdate
+  | FactoriesRequest
+  | RunRecordMessage
+  | GitHubEventAck
+  | GitHubStepTokenRequest;
 
 export type SessionStart = {
   type: 'session.start';
@@ -94,21 +123,15 @@ export type SessionStart = {
 
 export type SessionStop = { type: 'session.stop'; sessionId: string };
 
-export type CellMessage = SessionStart | SessionStop;
-
-const isOneOf = <T extends string>(list: readonly T[], value: unknown): value is T =>
-  typeof value === 'string' && (list as readonly string[]).includes(value);
-
-/** Reads each item of an array field, naming the field (never the item) on a refusal. */
-function readList<T>(
-  value: unknown,
-  field: string,
-  isItem: (item: unknown) => item is T,
-): ReadResult<T[]> {
-  if (!Array.isArray(value)) return refused(`\`${field}\` is not a list`);
-  if (!value.every(isItem)) return refused(`\`${field}\` holds an item that is not valid`);
-  return read([...value]);
-}
+export type CellMessage =
+  | SessionStart
+  | SessionStop
+  | GitHubEventNotice
+  | FactoriesAnswer
+  | RunAnswered
+  | GitHubStepToken
+  | GitHubStepTokenRefused
+  | RunRefused;
 
 const ENDED_FIELDS = ['sessionId', 'status', 'error'] as const;
 
@@ -133,6 +156,7 @@ const HELLO = [
   'harnesses',
   'runningSessionIds',
   'endedSessions',
+  'automations',
 ] as const;
 
 function readHello(message: Record<string, unknown>): ReadResult<RunnerHello> {
@@ -148,6 +172,8 @@ function readHello(message: Record<string, unknown>): ReadResult<RunnerHello> {
   if (!running.ok) return running;
   const ended = readList(message.endedSessions, 'endedSessions', isEndedSession);
   if (!ended.ok) return ended;
+  const { automations } = message;
+  if (typeof automations !== 'boolean') return refused('`automations` is not true or false');
   return read({
     type: 'hello',
     runnerId,
@@ -155,6 +181,7 @@ function readHello(message: Record<string, unknown>): ReadResult<RunnerHello> {
     harnesses: harnesses.value,
     runningSessionIds: running.value,
     endedSessions: ended.value,
+    automations,
   });
 }
 
@@ -195,9 +222,22 @@ function readUpdate(message: Record<string, unknown>): ReadResult<SessionUpdate>
  */
 export function readRunnerMessage(json: unknown): ReadResult<RunnerMessage> {
   if (!isRecord(json)) return refused('the message is not an object');
-  if (json.type === 'hello') return readHello(json);
-  if (json.type === 'session.update') return readUpdate(json);
-  return refused('`type` is not a runner message');
+  switch (json.type) {
+    case 'hello':
+      return readHello(json);
+    case 'session.update':
+      return readUpdate(json);
+    case 'factories.request':
+      return readFactoriesRequest(json);
+    case 'run.record':
+      return readRunRecordMessage(json);
+    case 'github.event.ack':
+      return readGitHubEventAck(json);
+    case 'github.token.request':
+      return readGitHubStepTokenRequest(json);
+    default:
+      return refused('`type` is not a runner message');
+  }
 }
 
 const START = [
@@ -239,7 +279,24 @@ function readStop(message: Record<string, unknown>): ReadResult<SessionStop> {
 /** Reads what the cell sent a runner, as strictly as `readRunnerMessage`. */
 export function readCellMessage(json: unknown): ReadResult<CellMessage> {
   if (!isRecord(json)) return refused('the message is not an object');
-  if (json.type === 'session.start') return readStart(json);
-  if (json.type === 'session.stop') return readStop(json);
-  return refused('`type` is not a cell message');
+  switch (json.type) {
+    case 'session.start':
+      return readStart(json);
+    case 'session.stop':
+      return readStop(json);
+    case 'github.event':
+      return readGitHubEventNotice(json);
+    case 'factories':
+      return readFactoriesAnswer(json);
+    case 'run.answered':
+      return readRunAnswered(json);
+    case 'github.token':
+      return readGitHubStepToken(json);
+    case 'github.token.refused':
+      return readGitHubStepTokenRefused(json);
+    case 'run.refused':
+      return readRunRefused(json);
+    default:
+      return refused('`type` is not a cell message');
+  }
 }
