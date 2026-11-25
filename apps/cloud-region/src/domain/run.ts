@@ -7,6 +7,34 @@ import {
   type RunStatus as EngineRunStatus,
   type StepRunStatus,
 } from '@consola/factory-spec';
+import {
+  ITEM_KINDS,
+  type ItemKind,
+  OUTPUT_TAIL_MAX,
+  type OutputValue,
+  type PreviousAttempt,
+  REQUEST_TEXT_MAX_BYTES,
+  type RequestFacts,
+  RUN_PROBLEM_TEXT_MAX,
+  RUN_PROBLEMS_MAX,
+  RUN_STATUSES,
+  RUN_TRIGGERS,
+  type RunItem,
+  type RunParent,
+  type RunProblem,
+  type RunRecord,
+  type RunRefused,
+  type RunStatus,
+  type RunTrigger,
+  STEP_KINDS,
+  STEP_STATUSES,
+  type Spend,
+  type StepKind,
+  type StepRecord,
+  type StepStatus,
+  WAITING_ON,
+  type WaitingOn,
+} from '@consola/runner-protocol';
 
 /**
  * A workspace's runs, held in its region's cell: what each factory's runners ran, for the web's
@@ -31,50 +59,39 @@ import {
 export const PHASES = ['active', 'needs-you', 'completed', 'failed', 'stopped'] as const;
 export type Phase = (typeof PHASES)[number];
 
-/** The run statuses: the engine's, and the ones slices 4 and 6b add. The set only grows. */
-export const RUN_STATUSES = [
-  'queued',
-  'running',
-  'needs-approval',
-  'completed',
-  'failed',
-  'rejected',
-  'waiting',
-  'expired',
-  'cancelled',
-] as const;
-export type RunStatus = (typeof RUN_STATUSES)[number];
-
-/** How a run was started: a schedule, an event, a poll's check, or someone's act. */
-export const RUN_TRIGGERS = ['cron', 'event', 'poll', 'manual'] as const;
-export type RunTrigger = (typeof RUN_TRIGGERS)[number];
+/**
+ * A run on the wire is the protocol's `RunRecord` (`@consola/runner-protocol`), its one
+ * definition, which a runner records and the cell hands back: its vocabularies and its parts are
+ * the protocol's, and the cell's own word for one is `RunWrite`. The protocol's reader checks a
+ * record's shape alone; what it means is `checkRun`'s, below.
+ */
+export {
+  ITEM_KINDS,
+  type ItemKind,
+  OUTPUT_TAIL_MAX,
+  type OutputValue,
+  type PreviousAttempt,
+  REQUEST_TEXT_MAX_BYTES,
+  type RequestFacts,
+  RUN_STATUSES,
+  RUN_TRIGGERS,
+  type RunItem,
+  type RunParent,
+  type RunProblem,
+  type RunStatus,
+  type RunTrigger,
+  STEP_KINDS,
+  STEP_STATUSES,
+  type Spend,
+  type StepKind,
+  type StepRecord,
+  type StepStatus,
+  WAITING_ON,
+  type WaitingOn,
+};
 
 export const RUN_KINDS = ['request', 'automation'] as const;
 export type RunKind = (typeof RUN_KINDS)[number];
-
-/** What a waiting run waits on: its open child, or a person's answer. */
-export const WAITING_ON = ['run', 'person'] as const;
-export type WaitingOn = (typeof WAITING_ON)[number];
-
-export const STEP_KINDS = ['agent', 'run', 'orchestrator'] as const;
-export type StepKind = (typeof STEP_KINDS)[number];
-
-/** A step's statuses: the engine's, and `waiting`, a step parked on a gate or a child. */
-export const STEP_STATUSES = [
-  'pending',
-  'queued',
-  'running',
-  'completed',
-  'failed',
-  'skipped',
-  'reported',
-  'not-run',
-  'waiting',
-] as const;
-export type StepStatus = (typeof STEP_STATUSES)[number];
-
-export const ITEM_KINDS = ['pr', 'issue'] as const;
-export type ItemKind = (typeof ITEM_KINDS)[number];
 
 // The engine's words are all the cell's: a status the engine records is never refused here.
 type Missing<Engine, Cell> = Exclude<Engine, Cell> extends never ? true : Exclude<Engine, Cell>;
@@ -82,83 +99,6 @@ const engineRunStatusesHeld: Missing<EngineRunStatus, RunStatus> = true;
 const engineStepStatusesHeld: Missing<StepRunStatus, StepStatus> = true;
 void engineRunStatusesHeld;
 void engineStepStatusesHeld;
-
-/** The item a run is about: a pull request or an issue, as its runner saw it. */
-export type RunItem = {
-  /** Its page: an https address, never another scheme. */
-  readonly url: string;
-  /** Author-controlled: shown as text, never as markup. */
-  readonly title: string;
-  readonly kind: ItemKind | null;
-  readonly repo: string | null;
-  readonly number: number | null;
-};
-
-/** A value a step's outputs hold: validated against its declared type by the runner. */
-export type OutputValue = string | number | boolean;
-
-/** An earlier attempt of a step, in the same run. */
-export type PreviousAttempt = {
-  readonly attempt: number;
-  readonly status: StepStatus;
-  readonly error: string | null;
-  readonly finishedAt: string | null;
-  readonly costUsd: number | null;
-  readonly turns: number | null;
-};
-
-/**
- * One step of a run, as its runner records it: the engine's `StepRun` (factory-spec), as much
- * of it as the web shows, and the end of what it printed.
- */
-export type StepRecord = {
-  /** The step's id in its automation, or `orchestrator`, a request's one step. */
-  readonly id: string;
-  readonly kind: StepKind;
-  readonly status: StepStatus;
-  /** From 1: the nth time this step ran in this run. */
-  readonly attempt: number;
-  /** The agent file's name (`agents/<name>.md`), when the step names one. */
-  readonly agent: string | null;
-  readonly model: string | null;
-  readonly startedAt: string | null;
-  readonly finishedAt: string | null;
-  readonly costUsd: number | null;
-  readonly error: string | null;
-  /** Why it was skipped. */
-  readonly skipped: string | null;
-  /** The latest execution's validated outputs. */
-  readonly outputs: Record<string, OutputValue> | null;
-  /** The documents it wrote, by name, and their size. */
-  readonly artifacts: { readonly name: string; readonly bytes: number }[];
-  /** An agent step's turns over its latest attempt: how many, its cap, the tools refused. */
-  readonly turn: {
-    readonly turns: number | null;
-    readonly maxTurns: number | null;
-    readonly deniedTools: string[];
-  } | null;
-  /** A command step's result. */
-  readonly command: {
-    readonly exitCode: number | null;
-    readonly signal: string | null;
-    readonly stdoutBytes: number | null;
-    readonly stderrBytes: number | null;
-    readonly truncated: boolean;
-  } | null;
-  /** Earlier attempts, oldest first. */
-  readonly previous: PreviousAttempt[];
-  /** Whether Consola reminded the agent to finish its step. */
-  readonly reminded: boolean;
-  /**
-   * The end of what its latest attempt printed, as the runner last sent it: at most
-   * `OUTPUT_TAIL_MAX` bytes of each, `truncated` when more came before. Untrusted text.
-   */
-  readonly output: {
-    readonly stdout: string;
-    readonly stderr: string;
-    readonly truncated: boolean;
-  } | null;
-};
 
 /** What a step did, printed and produced, beside what it is and where it stands. */
 export type StepDetail = Pick<StepRecord, NewStepFields>;
@@ -305,65 +245,15 @@ type NewStepFields =
   | 'reminded'
   | 'output';
 
-/** The most of each of a step's stdout and stderr the cell keeps: the end of it, in UTF-8 bytes. */
-export const OUTPUT_TAIL_MAX = 16 * 1024;
-
-/** What a request spent or may spend: dollars, by the CLI's estimate, and runs started. */
-export type Spend = { readonly usd: number; readonly runs: number };
-
-/** A request's own facts. Its text lives beside them (`RunWrite.request.text`). */
-export type RequestFacts = {
-  readonly budget: Spend | null;
-  /** Its turns and its children's runs, as the engine sums them. */
-  readonly spent: Spend;
-  /** The orchestrator's open question, while one is open: when it was asked, and its deadline. */
-  readonly question: { readonly at: string; readonly until: string } | null;
-};
-
-/** The longest a request's text may be, in bytes of UTF-8: the engine's `request.md` limit. */
-export const REQUEST_TEXT_MAX_BYTES = 64 * 1024;
-
 /** The longest a run's title may be, in characters. */
 export const TITLE_MAX = 120;
 
 /**
- * A run as a runner records it: everything the cell keeps of it. The run's id is the runner's,
- * and a record of an id the workspace already holds replaces it (`RunStore.record`).
+ * A run as a runner records it: everything the cell keeps of it, the protocol's `RunRecord`. The
+ * run's id is the runner's, and a record of an id the workspace already holds replaces it
+ * (`RunStore.record`), unless it is older.
  */
-export type RunWrite = {
-  readonly id: string;
-  /** The factory it belongs to, and the version of it that it ran. */
-  readonly factoryId: string;
-  readonly factoryVersion: number;
-  /** On a run a request started: the request, and which of its moves started it. */
-  readonly parent: { readonly runId: string; readonly move: number } | null;
-  /** The automation's name; null exactly for a request. */
-  readonly automation: string | null;
-  readonly status: RunStatus;
-  readonly waitingOn: WaitingOn | null;
-  readonly trigger: RunTrigger;
-  /** The event's name, the cron schedule or the poll's check: what the trigger was. */
-  readonly triggerDetail: string | null;
-  /** The global id of the person who started it, for a run a person started. */
-  readonly startedBy: string | null;
-  readonly item: RunItem | null;
-  /** Which runner ran it: `cloud` for now; the set grows. */
-  readonly runner: string;
-  /** An automation run's steps in file order; a request's one `orchestrator` step. */
-  readonly steps: readonly StepRecord[];
-  /** A request's text and facts; null exactly for an automation run. */
-  readonly request: (RequestFacts & { readonly text: string }) | null;
-  /** One human sentence once it ends. */
-  readonly summary: string | null;
-  readonly error: string | null;
-  /** The CLI's estimate, summed; a request's is its `spent.usd`. Null while none was reported. */
-  readonly costUsd: number | null;
-  readonly createdAt: string;
-  readonly startedAt: string | null;
-  readonly finishedAt: string | null;
-  /** When the runner last changed it: an older record never replaces a newer one. */
-  readonly updatedAt: string;
-};
+export type RunWrite = RunRecord;
 
 /** A record `checkRun` found nothing wrong with, with what the cell derives from it. */
 export type CheckedRun = RunWrite & {
@@ -543,6 +433,9 @@ function stringsIn(value: unknown, at: string, found: [string, string][]): [stri
 }
 
 const isCount = (n: number) => Number.isSafeInteger(n) && n >= 0;
+
+/** A commit's id as a pull request's head names it: 40 lowercase hex digits. */
+const HEAD_SHA = /^[0-9a-f]{40}$/;
 const isMoney = (n: number) => Number.isFinite(n) && n >= 0;
 
 function isHttps(url: string): boolean {
@@ -623,9 +516,6 @@ function stepDetailProblems(
   }
 }
 
-/** Why a record is refused: each problem, naming the field it is in. */
-export type RunProblem = { readonly field: string; readonly message: string };
-
 /**
  * Whether a record may be stored, and if so what the cell derives from it: its kind, its title
  * and its own phase. Every problem is named at once. A runner's record is checked as factory
@@ -687,6 +577,16 @@ export function checkRun(
     }
     if (run.item.number !== null && (!isCount(run.item.number) || run.item.number < 1)) {
       refuse('item.number', "An item's number is a whole number from 1.");
+    }
+    const { headSha, baseRef } = run.item;
+    if (run.item.kind !== 'pr' && (headSha !== null || baseRef !== null)) {
+      refuse('item', 'Only a pull request has a head commit and a base branch.');
+    }
+    if (headSha !== null && !HEAD_SHA.test(headSha)) {
+      refuse('item.headSha', "A head commit is a commit's 40 lowercase hex digits.");
+    }
+    if (baseRef !== null && baseRef.trim() === '') {
+      refuse('item.baseRef', 'A base branch has a name.');
     }
   }
 
@@ -764,6 +664,33 @@ export function checkRun(
       title: titleOf(run),
       ownPhase: phaseOf(run.status, run.waitingOn),
     },
+  };
+}
+
+/** `text` cut to at most `max` UTF-16 code units, never between the two halves of a pair. */
+function cut(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const end = /[\uD800-\uDBFF]/.test(text.charAt(max - 1)) ? max - 1 : max;
+  return text.slice(0, end);
+}
+
+const REFUSED = 'The cell refused the record.';
+
+/**
+ * The `run.refused` the cell answers a runner's record with: its problems, at most
+ * `RUN_PROBLEMS_MAX`, each `field` and `message` cut to `RUN_PROBLEM_TEXT_MAX`, so the answer is
+ * always one the protocol reads. A message may quote a word the runner sent (`` `x` is no
+ * automation's name. ``), never more than that cut of it.
+ */
+export function refusalOf(runId: string, problems: readonly RunProblem[]): RunRefused {
+  const kept = problems.slice(0, RUN_PROBLEMS_MAX).map(({ field, message }) => ({
+    field: cut(field, RUN_PROBLEM_TEXT_MAX) || 'run',
+    message: cut(message, RUN_PROBLEM_TEXT_MAX) || REFUSED,
+  }));
+  return {
+    type: 'run.refused',
+    runId,
+    problems: kept.length > 0 ? kept : [{ field: 'run', message: REFUSED }],
   };
 }
 

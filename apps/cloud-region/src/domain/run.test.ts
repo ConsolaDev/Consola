@@ -1,4 +1,10 @@
 import { parseFactory } from '@consola/factory-spec';
+import {
+  readCellMessage,
+  RUN_PROBLEM_TEXT_MAX,
+  RUN_PROBLEMS_MAX,
+  type RunRecord,
+} from '@consola/runner-protocol';
 import { describe, expect, it } from 'vitest';
 import {
   checkRun,
@@ -10,6 +16,7 @@ import {
   progressOf,
   RUN_STATUSES,
   type RunWrite,
+  refusalOf,
   requestPhase,
   NO_STEP_DETAIL,
   OUTPUT_TAIL_MAX,
@@ -151,6 +158,8 @@ describe('titleOf', () => {
       kind: 'pr' as const,
       repo: 'a/b',
       number: 1,
+      headSha: null,
+      baseRef: null,
     };
     expect(titleOf({ ...request(), item })).toBe('Fix login');
     expect(titleOf({ ...automationRun(), item })).toBe('Fix login');
@@ -184,6 +193,8 @@ describe('titleOf', () => {
       kind: null,
       repo: null,
       number: null,
+      headSha: null,
+      baseRef: null,
     };
     expect(titleOf({ ...automationRun(), item })).toBe('a b c');
   });
@@ -243,6 +254,8 @@ describe('checkRun', () => {
       kind: 'pr' as const,
       repo: 'a/b',
       number: 1,
+      headSha: null,
+      baseRef: null,
     };
     expect(problemsOf(automationRun({ item }))).toEqual(['item.url']);
     expect(problemsOf(automationRun({ item: { ...item, url: 'javascript:alert(1)' } }))).toEqual([
@@ -254,6 +267,37 @@ describe('checkRun', () => {
     expect(
       problemsOf(automationRun({ item: { ...item, url: 'https://x.test', number: 0 } })),
     ).toEqual(['item.number']);
+  });
+
+  it('gives only a pull request a head commit, of 40 lowercase hex, and a base branch', () => {
+    const head = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
+    const pr = {
+      url: 'https://github.com/sprocket/catalog-portal/pull/7',
+      title: 'Price the catalog in euros',
+      kind: 'pr' as const,
+      repo: 'sprocket/catalog-portal',
+      number: 7,
+      headSha: head,
+      baseRef: 'main',
+    };
+    expect(problemsOf(automationRun({ item: pr }))).toEqual([]);
+    expect(problemsOf(automationRun({ item: { ...pr, headSha: null, baseRef: null } }))).toEqual(
+      [],
+    );
+    expect(problemsOf(automationRun({ item: { ...pr, headSha: head.toUpperCase() } }))).toEqual([
+      'item.headSha',
+    ]);
+    expect(problemsOf(automationRun({ item: { ...pr, headSha: 'c0ffee' } }))).toEqual([
+      'item.headSha',
+    ]);
+    expect(problemsOf(automationRun({ item: { ...pr, baseRef: ' ' } }))).toEqual(['item.baseRef']);
+    for (const kind of ['issue', null] as const) {
+      expect(problemsOf(automationRun({ item: { ...pr, kind, baseRef: null } }))).toEqual(['item']);
+      expect(problemsOf(automationRun({ item: { ...pr, kind, headSha: null } }))).toEqual(['item']);
+      expect(
+        problemsOf(automationRun({ item: { ...pr, kind, headSha: null, baseRef: null } })),
+      ).toEqual([]);
+    }
   });
 
   it('refuses text a database cannot hold, wherever it is', () => {
@@ -278,6 +322,52 @@ describe('checkRun', () => {
     expect(problemsOf(request({ request: { ...facts, text: 'a'.repeat(64 * 1024 + 1) } }))).toEqual(
       ['request.text'],
     );
+  });
+});
+
+describe('RunWrite', () => {
+  it("is the protocol's RunRecord, both ways", () => {
+    const write: RunWrite = automationRun();
+    const record: RunRecord = write;
+    const back: RunWrite = record;
+    expect(back).toBe(write);
+  });
+});
+
+describe('refusalOf', () => {
+  it("names every problem checkRun found, as the protocol's run.refused", () => {
+    const checked = checkRun(automationRun({ status: 'waiting', costUsd: -1 }));
+    expect(checked.ok).toBe(false);
+    if (checked.ok) return;
+    const refusal = refusalOf('run-1', checked.problems);
+    expect(refusal).toEqual({ type: 'run.refused', runId: 'run-1', problems: checked.problems });
+    expect(readCellMessage(JSON.parse(JSON.stringify(refusal)))).toEqual({
+      ok: true,
+      value: refusal,
+    });
+  });
+
+  it('keeps within the bounds, never quoting more of what the runner sent', () => {
+    const long = `\`${'a'.repeat(5000)}\` is no automation's name.`;
+    const many = Array.from({ length: RUN_PROBLEMS_MAX + 10 }, (_, i) => ({
+      field: `steps[${i}].${'x'.repeat(2000)}`,
+      message: long,
+    }));
+    const refusal = refusalOf('run-1', many);
+    expect(refusal.problems).toHaveLength(RUN_PROBLEMS_MAX);
+    for (const { field, message } of refusal.problems) {
+      expect(field.length).toBeLessThanOrEqual(RUN_PROBLEM_TEXT_MAX);
+      expect(message.length).toBe(RUN_PROBLEM_TEXT_MAX);
+    }
+    expect(readCellMessage(JSON.parse(JSON.stringify(refusal))).ok).toBe(true);
+    // A pair of surrogates is never cut in two.
+    const emoji = `${'a'.repeat(RUN_PROBLEM_TEXT_MAX - 1)}😀`;
+    const [cut] = refusalOf('run-1', [{ field: 'summary', message: emoji }]).problems;
+    expect(cut?.message).toBe('a'.repeat(RUN_PROBLEM_TEXT_MAX - 1));
+  });
+
+  it('names a problem even when it is handed none', () => {
+    expect(refusalOf('run-1', []).problems).toHaveLength(1);
   });
 });
 

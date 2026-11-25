@@ -210,12 +210,18 @@ const REPO = 'acme/storefront';
 const MINUTE = 60_000;
 const DAY = 24 * 60;
 
+/** A pull request's head commit, made up from its number, the same at every seed. */
+const headOf = (number: number): string =>
+  ((number * 2654435761) >>> 0).toString(16).padStart(8, '0').repeat(5);
+
 const pr = (number: number, title: string): RunItem => ({
   url: `https://github.com/${REPO}/pull/${number}`,
   title,
   kind: 'pr',
   repo: REPO,
   number,
+  headSha: headOf(number),
+  baseRef: 'main',
 });
 
 const issue = (number: number, title: string): RunItem => ({
@@ -224,6 +230,8 @@ const issue = (number: number, title: string): RunItem => ({
   kind: 'issue',
   repo: REPO,
   number,
+  headSha: null,
+  baseRef: null,
 });
 
 /**

@@ -323,6 +323,12 @@ export const runs = pgTable(
       'run_parent_check',
       sql`(${table.parentRunId} is null) = (${table.parentMove} is null) and (${table.parentRunId} is null or ${table.kind} = 'automation')`,
     ),
+    // An item holds its head commit and base branch (`->` is SQL null for a key it lacks, JSON
+    // null for one it holds as null), and only a pull request's are other than null.
+    check(
+      'run_item_head_check',
+      sql`${table.item} is null or (${table.item}->'headSha' is not null and ${table.item}->'baseRef' is not null and (${table.item}->>'kind' = 'pr' or (jsonb_typeof(${table.item}->'headSha') = 'null' and jsonb_typeof(${table.item}->'baseRef') = 'null')))`,
+    ),
   ],
 );
 

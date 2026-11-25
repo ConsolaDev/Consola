@@ -2931,6 +2931,10 @@ export interface components {
             /** @description `owner/name`, when known. */
             repo: string | null;
             number: number | null;
+            /** @description A pull request's head commit when the run was recorded, the commit the run reads: 40 lowercase hex. Null for anything else. */
+            headSha: string | null;
+            /** @description A pull request's base branch. Null for anything else. */
+            baseRef: string | null;
         };
         /** @description How many runs are in each phase. */
         PhaseCounts: {

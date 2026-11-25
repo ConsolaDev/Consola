@@ -248,6 +248,8 @@ describe('the run store', () => {
           kind: 'pr',
           repo: 'acme/api',
           number: 7,
+          headSha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
+          baseRef: 'main',
         },
       }),
     );

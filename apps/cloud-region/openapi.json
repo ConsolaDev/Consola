@@ -888,6 +888,20 @@
               "integer",
               "null"
             ]
+          },
+          "headSha": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A pull request's head commit when the run was recorded, the commit the run reads: 40 lowercase hex. Null for anything else."
+          },
+          "baseRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A pull request's base branch. Null for anything else."
           }
         },
         "required": [
@@ -895,7 +909,9 @@
           "title",
           "kind",
           "repo",
-          "number"
+          "number",
+          "headSha",
+          "baseRef"
         ],
         "additionalProperties": false,
         "description": "The pull request or issue a run is about."
