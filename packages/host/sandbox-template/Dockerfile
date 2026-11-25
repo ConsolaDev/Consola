@@ -79,7 +79,7 @@ RUN mkdir -p /opt/consola \
 COPY consola-host.mjs claude-history-worker.mjs /opt/consola/
 COPY --chmod=0755 consola-session-start /usr/local/bin/consola-session-start
 # A step's sandbox (an automation's agent or command step) runs these instead: the checkout at one
-# commit, then, for an agent step, its host with the step tools in Claude's own config.
+# commit, then, for an agent step, its host on Claude, `--restricted` (AGENTS.md, "Step sandboxes").
 COPY --chmod=0755 consola-step-checkout /usr/local/bin/consola-step-checkout
 COPY --chmod=0755 consola-step-start /usr/local/bin/consola-step-start
 

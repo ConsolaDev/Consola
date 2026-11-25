@@ -427,8 +427,12 @@ const awaitTurn = (
             return yield* fail("The step's host would not take the runner's answer to a request.");
           }
           const approval = decideStepApproval(request.policy, pending);
-          if (sent === 0 && approval.answer === 'refuse') {
-            progress.deniedTools.push(approval.tool);
+          if (sent === 0) {
+            if (approval.answer === 'refuse') progress.deniedTools.push(approval.tool);
+            // The runner's log keeps every answer: a tool's name, never what it was asked to do.
+            yield* options.log(
+              `step ${request.runId}/${request.stepId} attempt ${request.attempt}: ${pending.toolName ?? pending.kind} asked (${pending.kind}), ${approval.decision}`,
+            );
           }
           const taken = yield* client
             .dispatch(approvalCommand(sessionId, pending.requestId, approval))
