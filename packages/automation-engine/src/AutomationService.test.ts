@@ -2335,8 +2335,12 @@ describe('saving an entry', () => {
         /no Consola tool named "nope"/,
       ],
       [
+        '- name: a\n  on: { github: pull_request.closed }\n  run: { action: Review }\n',
+        /github has no event "pull_request\.closed"/,
+      ],
+      [
         '- name: a\n  on: { github: pull_request.opened }\n  run: { action: Review }\n',
-        /github has no event "pull_request\.opened"/,
+        /`pull_request\.opened` comes only from GitHub's webhooks, which a cloud runner receives/,
       ],
       [
         '- name: a\n  on: { cron: "0 9 * * *" }\n  run: { prompt: "Summarise." }\n  scope: web\n',

@@ -28,6 +28,14 @@ import type { InboxItemView, ItemRef } from './views';
  * one person, so `review_requested` is a request of *them*: the cloud runner
  * applies the same reviewer.
  *
+ * Which runner fires an event is said here, never in factory-spec, whose
+ * grammar takes any well-formed event name so a cell stores a file for any
+ * runner. An event no list can show (a pull request opened by anyone, a push
+ * to one) comes only from the provider's webhooks, which a cloud runner
+ * receives: a connection names such events (`webhookEvents`), and an entry
+ * that lists one resolves here to a problem saying where it fires, never to
+ * an entry that silently never fires.
+ *
  * Jira, Linear, Slack and manifest-defined connections plug in here as more
  * entries; nothing else in the runner names GitHub.
  */
@@ -137,6 +145,19 @@ const GITHUB_EVENTS: Record<string, EventDefinition> = {
   },
 };
 
+/**
+ * GitHub's events that only its webhooks say, so only a runner that receives
+ * them fires them (a cloud runner): the Inbox lists what asks something of
+ * the person, and a pull request opened, reopened or pushed to by anyone else
+ * is none of that. No `entered(view)` rule says them, so this runner has no
+ * detector for them.
+ */
+const GITHUB_WEBHOOK_EVENTS: readonly string[] = [
+  'pull_request.opened',
+  'pull_request.synchronize',
+  'pull_request.reopened',
+];
+
 const ITEM_NOUN: Record<EventDefinition['itemType'], string> = {
   pr: 'pull request',
   issue: 'issue',
@@ -175,14 +196,21 @@ function githubMatcher(filter: GitHubFilter): (item: InboxItemView) => boolean {
 const CONNECTIONS: Record<
   string,
   {
+    /** The provider's name, for words. */
+    name: string;
+    /** The events this runner fires, each from its list (`entered(view)`). */
     events: Record<string, EventDefinition>;
+    /** The events only the provider's webhooks say: a cloud runner fires them, this one never does. */
+    webhookEvents: readonly string[];
     filter: z.ZodObject;
     resolve: typeof resolveGitHub;
     workItemSource: typeof githubWorkItemSource;
   }
 > = {
   github: {
+    name: 'GitHub',
     events: GITHUB_EVENTS,
+    webhookEvents: GITHUB_WEBHOOK_EVENTS,
     filter: GITHUB_FILTER,
     resolve: resolveGitHub,
     workItemSource: githubWorkItemSource,
@@ -318,6 +346,14 @@ const GITHUB_ITEM_FIELDS: ItemFieldTable = {
 
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 
+/** `` `a` ``, `` `a` and `b` ``, `` `a`, `b` and `c` ``. */
+function joinNames(names: readonly string[]): string {
+  const quoted = names.map((name) => `\`${name}\``);
+  return quoted.length <= 1
+    ? quoted.join('')
+    : `${quoted.slice(0, -1).join(', ')} and ${quoted[quoted.length - 1]}`;
+}
+
 function githubItemValue(item: RunItem, field: string): ExprValue | undefined {
   if (!own(GITHUB_ITEM_FIELDS, field) || !own(item, field)) return undefined;
   return (item as unknown as Record<string, ExprValue | undefined>)[field];
@@ -410,8 +446,9 @@ export function resolveEventSource(
       problem: `there is no connection named "${trigger.connection}" yet; the ones that exist are: ${Object.keys(CONNECTIONS).join(', ')}`,
     };
   }
+  const local = Object.keys(connection.events);
   const unknown = trigger.events.filter(
-    (event) => !Object.prototype.hasOwnProperty.call(connection.events, event),
+    (event) => !own(connection.events, event) && !connection.webhookEvents.includes(event),
   );
   if (unknown.length > 0) {
     const named = unknown.map((event) => `"${event}"`).join(' or ');
@@ -419,7 +456,18 @@ export function resolveEventSource(
       ok: false,
       problem:
         `${trigger.connection} has no ${unknown.length === 1 ? 'event' : 'events'} ${named} Consola can see locally; ` +
-        `the ones it has: ${Object.keys(connection.events).join(', ')}`,
+        `the ones it has: ${local.join(', ')}`,
+    };
+  }
+  const webhookOnly = trigger.events.filter((event) => connection.webhookEvents.includes(event));
+  if (webhookOnly.length > 0) {
+    const one = webhookOnly.length === 1;
+    return {
+      ok: false,
+      problem:
+        `${joinNames(webhookOnly)} ${one ? 'comes' : 'come'} only from ${connection.name}'s webhooks, which a cloud runner receives; ` +
+        `this computer sees ${connection.name} through its Inbox, so here ${one ? 'it' : 'they'} would never fire. ` +
+        `Run this automation on a cloud runner, or use what fires here: ${local.join(', ')}`,
     };
   }
   const params = Object.keys(trigger.params);
