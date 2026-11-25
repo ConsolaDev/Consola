@@ -277,6 +277,12 @@ export function createRunnerSocket(deps: {
           return;
         }
         const message = read.value;
+        if (message.type !== 'hello' && message.type !== 'session.update') {
+          // The automations' messages (CON-116): the protocol reads them, and the cell acts on
+          // none yet. Each is logged by its type alone and dropped; the socket stays open.
+          report(`The cell dropped a runner's \`${message.type}\`, which it does not act on yet.`);
+          return;
+        }
         // A handler that throws must neither stop the later messages nor leave an unhandled
         // rejection (which ends the process): log the reason alone, never a body.
         queue = queue

@@ -157,6 +157,7 @@ const hello = (over: Partial<RunnerHello> = {}): RunnerHello => ({
   harnesses: ['claude'],
   runningSessionIds: [],
   endedSessions: [],
+  automations: false,
   ...over,
 });
 
@@ -441,6 +442,33 @@ describe('the runner socket', () => {
       expect(lines[1]).toMatch(/not JSON/);
       expect(lines.join('\n')).not.toContain('what-the-frame-held');
       expect(await sessions.find('s-1')).toMatchObject({ status: 'starting', title: null });
+
+      // Still open: the next update applies.
+      connected.send({ type: 'session.update', sessionId: 's-1', status: 'running' });
+      await waitFor(async () =>
+        expect(await sessions.find('s-1')).toMatchObject({ status: 'running' }),
+      );
+      expect(connected.socket.readyState).toBe(WebSocket.OPEN);
+    });
+
+    it('for runs, which the cell does not act on yet, is logged by its type and dropped, keeping the socket', async () => {
+      await holds('s-1', 'starting');
+      const connected = await connect({ runningSessionIds: ['s-1'], automations: true });
+      connected.send({ type: 'factories.request', requestId: 'what-the-frame-held' });
+      connected.send({ type: 'github.event.ack', deliveryId: 'what-the-frame-held' });
+      connected.send({
+        type: 'github.token.request',
+        requestId: 'req-1',
+        runId: 'what-the-frame-held',
+        stepId: 'review',
+        repository: 'sprocket/catalog-portal',
+        permissions: { contents: 'read' },
+      });
+      await waitFor(() => expect(lines).toHaveLength(3));
+      expect(lines[0]).toMatch(/`factories.request`, which it does not act on yet/);
+      expect(lines[1]).toMatch(/`github.event.ack`/);
+      expect(lines[2]).toMatch(/`github.token.request`/);
+      expect(lines.join('\n')).not.toContain('what-the-frame-held');
 
       // Still open: the next update applies.
       connected.send({ type: 'session.update', sessionId: 's-1', status: 'running' });

@@ -52,6 +52,7 @@ const hello = (over: Partial<RunnerHello> = {}): RunnerHello => ({
   harnesses: ['claude'],
   runningSessionIds: [],
   endedSessions: [],
+  automations: false,
   ...over,
 });
 

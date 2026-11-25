@@ -179,6 +179,8 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
           harnesses: [...options.offer.harnesses],
           runningSessionIds: live.sessionIds.filter((sessionId) => !ended.has(sessionId)),
           endedSessions,
+          // It runs no automations yet, so the cell sends it no events, runs or tokens.
+          automations: false,
         };
         // Within the cell's frame limit: past it, the ends go without their messages (the cell
         // then records `runner_failed` for a failure), rather than the cell closing the socket.

@@ -184,6 +184,7 @@ describe('makeCellSocket', () => {
           harnesses: ['claude'],
           runningSessionIds: ['session-acme-1', 'session-acme-2'],
           endedSessions: [],
+          automations: false,
         });
         expect(yield* connection.next).toEqual(running('session-acme-1', 'Sprocket catalog'));
         yield* runner.socket.send(running('session-acme-2'));

@@ -934,6 +934,7 @@ describe('consola-host runner', () => {
           harnesses: ['claude'],
           runningSessionIds: [],
           endedSessions: [],
+          automations: false,
         });
         expect(cell.authorizations).toEqual([`Bearer ${RUNNER_SECRET}`]);
 

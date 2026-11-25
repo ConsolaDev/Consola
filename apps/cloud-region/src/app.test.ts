@@ -2030,6 +2030,7 @@ describe('a runner and its passes', () => {
         harnesses: ['claude'],
         runningSessionIds: [],
         endedSessions: [],
+        automations: false,
       }),
     );
     const token = await mint();

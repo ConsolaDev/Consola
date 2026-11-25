@@ -594,11 +594,18 @@ export const runRunner = (
     );
     yield* socket.connect({
       live: sessions.liveNow,
-      onMessage: (message) =>
-        message.type === 'session.start'
-          ? sessions.start(message)
-          : // A stop waits for the sandbox; the socket's next message does not.
-            sessions.stop(message.sessionId).pipe(Effect.forkDetach, Effect.asVoid),
+      onMessage: (message) => {
+        switch (message.type) {
+          case 'session.start':
+            return sessions.start(message);
+          case 'session.stop':
+            // A stop waits for the sandbox; the socket's next message does not.
+            return sessions.stop(message.sessionId).pipe(Effect.forkDetach, Effect.asVoid);
+          default:
+            // The automations' messages: its hello says it runs none, so the cell sends none.
+            return log(`the cell sent \`${message.type}\`, which this runner does not act on`);
+        }
+      },
     });
     yield* socket.replaced;
     return yield* new RunnerReplaced({
