@@ -263,7 +263,8 @@ in every cloud app, a new app included:
   `fetch` in its services.
 - The package graph cannot see a file read across apps, so
   `.github/scripts/ci-scope.mjs` checks the client with every change to the
-  API (`cloud-global` → `cloud-web`), and a new pair is added there.
+  API (`cloud-global` → `cloud-web` and `cloud-region`, `cloud-region` →
+  `cloud-web`), and a new pair is added there.
 
 A cell is no exception: `cloud-region` declares its routes in a contract of its
 own, and a client of the cell gets its own generated types and client, the

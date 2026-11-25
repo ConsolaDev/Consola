@@ -81,8 +81,9 @@ on to that workspace's cell at `POST /api/github/events`, one a request, with
 no cell token: like an outbox delivery, the body is the event signed with the
 cell token's key (`packages/cloud-contract`, "Passing on a GitHub event"). The
 cell records each delivery once, by GitHub's id of it, in the `github_event`
-table, the payload as GitHub sent it, for the workspace's runners and triggers
-to read later:
+table, the payload as GitHub sent it. A pull request's event is also handed to
+the workspace's runner, as narrowed facts (below, "The runner and session
+passes"), and held until the runner acknowledges it:
 
 | Answer | When |
 | --- | --- |
@@ -141,9 +142,10 @@ file (400 `invalid_files`), and when `baseVersion` is no longer the latest
 
 ## Runs
 
-What each factory's runners ran. No route writes a run (a runner will record
-them; until then, the demo seed below does): a person only answers one that
-waits for approval. A **request** is a
+What each factory's runners ran. No route writes a run: the workspace's
+runner records each over its socket (below), and the demo seed writes some; a
+person only answers one that waits for approval, and the cell passes the answer
+on to the runner. A **request** is a
 run a person starts with text, whose orchestrator starts automation runs of
 its own; those are listed under it, not on their own. Who sees a run follows
 its factory, as factories do.
@@ -152,7 +154,7 @@ its factory, as factories do.
 | --- | --- |
 | `GET /api/runs` | the top-level runs the caller sees, newest first, with the counts per phase and what the filters offer; filters `phase` and `trigger` (repeatable), `factoryId`, `teamId`, `automation`, `mine`, `q`; pages by `cursor` and `limit` |
 | `GET /api/runs/{runId}` | one run: its steps, the file behind it, its approval, a request's text and facts and the runs it started, a run's request |
-| `POST /api/runs/{runId}/approval` `{"decision","version"}` | approve or dismiss a run waiting for approval: anyone on its factory's team; the first answer stands, and the run is left to its runner |
+| `POST /api/runs/{runId}/approval` `{"decision","version"}` | approve or dismiss a run waiting for approval: anyone on its factory's team; the first answer stands, the run is left to its runner, and the answer is passed on to it |
 
 To see the pages with something in them, seed demo runs into every workspace
 the cell holds, with the cell stopped (PGlite takes one process per folder):
@@ -199,6 +201,35 @@ A person asks for a pass to their own running session with
 `{ "pass": "…", "hostUrl": "https://…", "expiresAt": <seconds> }`, never
 cached (`Cache-Control: no-store`). The pass lasts five minutes; the page asks
 for another. Any session that is not theirs, or not running, is 404.
+
+### Automations
+
+A runner whose hello says `automations: true` runs the workspace's
+automations, and the cell stays their store:
+
+- it hands the runner each pull request event it records (`github.event`),
+  and every one the runner has not acknowledged again on its next hello (the
+  last day's, at most 200);
+- it answers `factories.request` with the factories' files;
+- it records each run the runner sends (`run.record`), or answers why not
+  (`run.refused`);
+- it passes on a person's answer to a run waiting for approval
+  (`run.answered`), at once or on the runner's next hello;
+- it gives a step a GitHub token (`github.token`) only for what the step's
+  `permissions:` declare, asked of `cloud-global` with the cell's own key.
+
+That key is one more variable in `.env`, optional:
+
+| Variable | What it is |
+| --- | --- |
+| `CELL_PRIVATE_KEY` | The cell's own Ed25519 private key, as a JSON Web Key on one line, which signs its requests to `cloud-global` for GitHub tokens: `pnpm --filter @consola/cloud-region cell-key:generate`. Never the pass key, nor `cloud-global`'s. |
+
+The generator prints the key, and after it the key's public half, which goes
+in `cloud-global`'s `.env` as `CELL_PUBLIC_KEY_EU` (or `CELL_PUBLIC_KEY_US`)
+for this cell's region. Without the key, the cell refuses every token request
+in words; a key that is no Ed25519 private key stops the cell from starting.
+The cell asks `cloud-global` at `CLOUD_GLOBAL_URL`. A token is never logged or
+stored.
 
 ## The shared packages
 
@@ -256,4 +287,11 @@ Migrations apply when the cell starts.
 ```bash
 pnpm --filter @consola/cloud-region test
 pnpm --filter @consola/cloud-region typecheck
+```
+
+The cell calls `cloud-global` through types generated from its
+`openapi.json`. After `cloud-global`'s contract changes, rewrite them:
+
+```bash
+pnpm --filter @consola/cloud-region api:generate
 ```
