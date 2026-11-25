@@ -83,19 +83,32 @@ const hostClaudeDriver = hostDriverFor('claude');
  *
  * Each title t3 asks this instance for is pushed to `titleRequests` (its model selection): a
  * title t3 asked of any other provider never reaches it.
+ *
+ * With `standIn`, a stand-in rather than a replay of what was sent: every turn reaches the
+ * recording with the fixture's own first message and model (`standIn`), whatever was sent. The
+ * recording compares each frame it is sent, so a prompt the test does not write (an automation
+ * step's, which the engine words from the run) or a model the fixture was not recorded with (a
+ * step's agent that names none runs on t3's default) would otherwise fail the turn. Only those two
+ * are replaced; everything else the host sends is still held to the recording.
  */
 export const replayClaudeDriver = (
   transcript: ReplayTranscript,
   titleRequests: ModelSelection[] = [],
+  standIn?: ReplayStandIn,
 ): AnyProviderDriver<HostDriversEnv> => ({
   ...hostClaudeDriver,
-  create: (input) => replayInstance(hostClaudeDriver.create(input), transcript, titleRequests),
+  create: (input) =>
+    replayInstance(hostClaudeDriver.create(input), transcript, titleRequests, standIn),
 });
+
+/** What a stand-in takes every turn as: the fixture's first message and the model it was recorded on. */
+export type ReplayStandIn = { readonly text: string; readonly modelSelection: ModelSelection };
 
 const replayInstance = Effect.fn('replayInstance')(function* <E, R>(
   created: Effect.Effect<ProviderInstance, E, R>,
   transcript: ReplayTranscript,
   titleRequests: ModelSelection[],
+  standIn: ReplayStandIn | undefined,
 ) {
   const instance = yield* created;
   const replay = yield* Layer.build(
@@ -112,7 +125,26 @@ const replayInstance = Effect.fn('replayInstance')(function* <E, R>(
       refresh: instance.snapshot.refresh.pipe(Effect.map(asInstalled)),
       streamChanges: instance.snapshot.streamChanges.pipe(Stream.map(asInstalled)),
     },
-    orchestrationAdapter: adapter,
+    orchestrationAdapter:
+      standIn === undefined
+        ? adapter
+        : {
+            ...adapter,
+            openSession: (input: Parameters<typeof adapter.openSession>[0]) =>
+              adapter.openSession({ ...input, modelSelection: standIn.modelSelection }).pipe(
+                Effect.map((session) => ({
+                  ...session,
+                  ensureThread: (thread: Parameters<typeof session.ensureThread>[0]) =>
+                    session.ensureThread({ ...thread, modelSelection: standIn.modelSelection }),
+                  startTurn: (turn: Parameters<typeof session.startTurn>[0]) =>
+                    session.startTurn({
+                      ...turn,
+                      modelSelection: standIn.modelSelection,
+                      message: { ...turn.message, text: standIn.text },
+                    }),
+                })),
+              ),
+          },
     textGeneration: {
       ...instance.textGeneration,
       generateThreadTitle: (request: ThreadTitleGenerationInput) =>

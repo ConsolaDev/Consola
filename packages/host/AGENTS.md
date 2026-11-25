@@ -87,9 +87,15 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `sendMessage`, `REPLAY_TITLE`), `t3Client.ts` (`connectHost`) and
   `localProvider.ts` (`RUNNER_SECRET_VARIABLES`, which it re-exports from
   `core/runnerDecisions.ts`, so no secret of the developer's shell reaches the
-  runner), and spawns
+  runner, and the `LocalStepsOptions` type), and spawns
   `replayRunner.ts` with node (`runner --cell-url ws://127.0.0.1:<port>/api/runner
-  --runner-id …`), whose sandboxes are `localProvider.ts`'s. Run
+  --runner-id …`), whose sandboxes are `localProvider.ts`'s. Its triggered run
+  (`src/triggeredRun.test.ts`) hands the runner `CONSOLA_TEST_STEPS`, how its
+  step sandboxes behave (`LocalStepsOptions` as JSON), with `anyPrompt`: the
+  step's host is then `replaySession.ts` with `CONSOLA_TEST_REPLAY_ANY_PROMPT`,
+  a stand-in whose turns reach the recording with the fixture's own message
+  and model (`replayClaudeDriver`'s `standIn`), since the engine words a
+  step's prompt. Run
   `pnpm exec turbo run test --filter=@consola/cloud-session-e2e` after changing
   any of these, or the runner command.
 

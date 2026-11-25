@@ -122,6 +122,13 @@ export type LocalStepsOptions = {
   readonly checkoutFails?: string;
   /** What the checkout writes as a pull request's changes; a line saying they are missing when absent. */
   readonly changes?: string;
+  /**
+   * The step's host is a stand-in: whatever prompt and model the runner sends reach the recording
+   * as the fixture's own first message and model (`replaySession.ts`,
+   * `CONSOLA_TEST_REPLAY_ANY_PROMPT`), so a step whose prompt the engine words, for an agent that
+   * names no model, runs on a replay.
+   */
+  readonly anyPrompt?: boolean;
 };
 
 export type LocalProviderOptions = {
@@ -378,9 +385,14 @@ class LocalSandbox implements ProviderSandbox {
     // sandbox's folder. A folder that is not there fails it, as a provider fails it.
     const program = isBash ? '/bin/bash' : process.execPath;
     const cwd = isBash && command.cwd !== undefined ? this.mapped(command.cwd) : this.record.folder;
+    const isStepHost =
+      command.argv.length === STEP_HOST_ARGV.length &&
+      command.argv.every((arg, index) => arg === STEP_HOST_ARGV[index]);
     const processEnv = isBash
       ? Object.fromEntries(Object.entries(env).map(([name, value]) => [name, this.mapped(value)]))
-      : env;
+      : isStepHost && this.steps.anyPrompt === true
+        ? { ...env, CONSOLA_TEST_REPLAY_ANY_PROMPT: '1' }
+        : env;
     // `printenv` prints the command's variables, a line each, as a sandbox's would. Anything else
     // but the start scripts is not on this template, as in a shell: exit 127.
     const argv = isBash

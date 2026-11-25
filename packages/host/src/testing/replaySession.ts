@@ -11,7 +11,9 @@
  * names it, or its first frame would not match the recording. With
  * `CONSOLA_TEST_SESSION_STOP=hangs`, the session's thread never finishes closing, as a provider
  * session whose stop hangs; with `CONSOLA_TEST_EVENT_STREAM=ends`, the stream that keeps the
- * thread's snapshot current ends at once (`endEventsAfter`).
+ * thread's snapshot current ends at once (`endEventsAfter`); with `CONSOLA_TEST_REPLAY_ANY_PROMPT=1`,
+ * a stand-in: every turn reaches the recording with the fixture's own message and model, whatever
+ * was sent (`replayClaudeDriver`'s `standIn`), for a step whose prompt the engine words.
  */
 import type { RuntimeMode } from '@t3tools/contracts';
 import * as Effect from 'effect/Effect';
@@ -23,6 +25,7 @@ import { loadReplay, replayClaudeDriver, withState } from './replay.ts';
 const [fixture = '', mode = 'default', ...argv] = process.argv.slice(2);
 const stopHangsForTests = process.env.CONSOLA_TEST_SESSION_STOP === 'hangs';
 const eventStreamEnds = process.env.CONSOLA_TEST_EVENT_STREAM === 'ends';
+const anyPrompt = process.env.CONSOLA_TEST_REPLAY_ANY_PROMPT === '1';
 
 /** `runtime`, its threads' close hanging: each `open` leaves a finalizer that never returns. */
 const withHangingStop = (
@@ -43,11 +46,12 @@ const withHangingStop = (
 
 runHostProcess(
   Effect.gen(function* () {
-    const { transcript, cwd } = yield* loadReplay(fixture);
+    const { transcript, cwd, text, variant } = yield* loadReplay(fixture);
+    const standIn = anyPrompt ? { text, modelSelection: variant.modelSelection } : undefined;
     return yield* withState((stateDir) =>
       sessionCommand([...argv, '--cwd', cwd, '--state-dir', stateDir], (options) => {
         const runtime = ThreadRuntime.layerForTests(options, {
-          drivers: [replayClaudeDriver(transcript)],
+          drivers: [replayClaudeDriver(transcript, [], standIn)],
           ...(mode === 'default' ? {} : { runtimeMode: mode as RuntimeMode }),
           ...(eventStreamEnds ? { endEventsAfter: 0 } : {}),
         });

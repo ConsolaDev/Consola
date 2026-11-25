@@ -16,12 +16,10 @@
  * `/usr/bin:/bin`. A fake records its call and exits 1, so no CLI of the developer's can run; after
  * each test every recorded call must have seen that home and no config folder.
  */
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import { generateKeyPairSync, type KeyObject } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as createHttpServer, type Server } from 'node:http';
 import { createRequire } from 'node:module';
-import { type AddressInfo, createServer as createNetServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import {
@@ -51,6 +49,19 @@ import * as Option from 'effect/Option';
 import * as Stream from 'effect/Stream';
 import { calculateJwkThumbprint, exportJWK, type JWK, SignJWT } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import {
+  descendantsOf,
+  freePort,
+  isAlive,
+  isRunning,
+  noneAlive,
+  portOf,
+  type Started,
+  sleep,
+  startNode,
+  WAIT_MS,
+  waitFor,
+} from './processes.ts';
 
 const resolve = createRequire(import.meta.url).resolve;
 /** The cell as `pnpm --filter @consola/cloud-region build` writes it (turbo's `^build` does). */
@@ -74,21 +85,9 @@ const PERSON_ID = 'person-acme-1';
 /** What the `simple` fixture's Claude answers (`claude_transcript.ndjson`). */
 const ASSISTANT_TEXT = 'fixture simple ok';
 
-/** Starting node and loading t3 takes seconds; under load, far more. */
-const WAIT_MS = 90_000;
 const TEST_TIMEOUT_MS = 240_000;
 /** How long the teardown gives the cell to stop on SIGTERM before it kills it. */
 const CELL_STOP_GRACE_MS = 10_000;
-
-type Exited = { readonly code: number | null; readonly signal: NodeJS.Signals | null };
-
-/** A process the test started: what it printed, and how it ended. */
-type Started = {
-  readonly child: ChildProcess;
-  readonly stdout: () => string;
-  readonly stderr: () => string;
-  readonly exited: Promise<Exited>;
-};
 
 /** The cell's answer to a request: its status and its JSON body. */
 type Answer<A> = { readonly status: number; readonly body: A };
@@ -122,89 +121,6 @@ type Cloud = {
   readonly sandboxPids: number[];
 };
 
-const sleep = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
-
-/** `probe`'s first answer that is not undefined, asked every 100 ms until `timeoutMs`. */
-const waitFor = async <A>(
-  probe: () => A | undefined | Promise<A | undefined>,
-  what: string,
-  timeoutMs: number = WAIT_MS,
-): Promise<A> => {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const answer = await probe();
-    if (answer !== undefined) return answer;
-    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
-    await sleep(100);
-  }
-};
-
-/** Starts `node <script> <args>` with `env`, collecting what it prints. */
-const startNode = (script: string, args: ReadonlyArray<string>, env: NodeJS.ProcessEnv) => {
-  // The machine's PATH holds only fake CLIs and /usr/bin:/bin, so node is named by its path.
-  const child = spawn(process.execPath, [script, ...args], {
-    env,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
-  let stdout = '';
-  let stderr = '';
-  child.stdout?.setEncoding('utf8');
-  child.stdout?.on('data', (chunk: string) => {
-    stdout += chunk;
-  });
-  child.stderr?.setEncoding('utf8');
-  child.stderr?.on('data', (chunk: string) => {
-    stderr += chunk;
-  });
-  const exited = new Promise<Exited>((done) =>
-    child.on('exit', (code, signal) => done({ code, signal })),
-  );
-  const started: Started = { child, stdout: () => stdout, stderr: () => stderr, exited };
-  return started;
-};
-
-const isRunning = (child: ChildProcess) => child.exitCode === null && child.signalCode === null;
-
-const isAlive = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-/** Every process below `pid`: a runner's sandboxes are its children. */
-const descendantsOf = (pid: number): number[] => {
-  const table = execFileSync('ps', ['-A', '-o', 'pid=', '-o', 'ppid='], { encoding: 'utf8' })
-    .split('\n')
-    .map((row) => row.trim().split(/\s+/).map(Number))
-    .filter((row): row is [number, number] => row.length === 2 && row.every(Number.isFinite));
-  const found: number[] = [];
-  const queue = [pid];
-  while (queue.length > 0) {
-    const parent = queue.shift();
-    for (const [child, ppid] of table) {
-      if (ppid === parent && !found.includes(child)) {
-        found.push(child);
-        queue.push(child);
-      }
-    }
-  }
-  return found;
-};
-
-/** A port nothing listens on just now, for the cell (its `PORT` takes no 0). */
-const freePort = () =>
-  new Promise<number>((done, fail) => {
-    const server = createNetServer();
-    server.once('error', fail);
-    server.listen(0, '127.0.0.1', () => {
-      const { port } = server.address() as AddressInfo;
-      server.close(() => done(port));
-    });
-  });
-
 /** `cloud-global`'s key route, on a port of its own, publishing `jwk` alone. */
 const serveKeys = (jwk: JWK) =>
   new Promise<Server>((done) => {
@@ -216,8 +132,6 @@ const serveKeys = (jwk: JWK) =>
     });
     server.listen(0, '127.0.0.1', () => done(server));
   });
-
-const portOf = (server: Server) => (server.address() as AddressInfo).port;
 
 let cloud: Cloud | undefined;
 
@@ -296,9 +210,6 @@ const sandboxProcesses = (): number[] => {
   running.sandboxPids.push(...pids);
   return pids;
 };
-
-const noneAlive = (pids: ReadonlyArray<number>, what: string) =>
-  waitFor(() => (pids.every((pid) => !isAlive(pid)) ? true : undefined), what);
 
 /** The answer's text, when `item` carries the `simple` fixture's complete answer. */
 const answerIn = (item: OrchestrationV2ThreadStreamItem): string | undefined => {

@@ -59,8 +59,9 @@ All commands above run from the repository root. The pnpm workspace contains
 (`@consola/cloud-contract`), `packages/runner-protocol`
 (`@consola/runner-protocol`, MIT), `packages/host` (`@consola/host`, AGPL),
 `packages/agent-ui` (`@consola/agent-ui`, MIT), `packages/cloud-session-e2e`
-(`@consola/cloud-session-e2e`, a cloud session end to end: the built cell, a
-runner on local sandboxes and t3's client, with no credential) and the copied
+(`@consola/cloud-session-e2e`, a cloud session and a pull request's triggered
+run end to end: the built cell, a runner on local sandboxes and t3's client,
+with no credential) and the copied
 t3code packages under `vendor/t3code/` ("Vendored t3code", below). Turborepo
 orchestrates builds, tests, and typechecking; the root runs leave `vendor/`
 out. Paths below beginning with `src/`, `scripts/`, or `dist/` are relative to

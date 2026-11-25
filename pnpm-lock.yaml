@@ -1047,6 +1047,9 @@ importers:
       '@consola/cloud-region':
         specifier: workspace:*
         version: link:../../apps/cloud-region
+      '@consola/factory-spec':
+        specifier: workspace:*
+        version: link:../factory-spec
       '@consola/host':
         specifier: workspace:*
         version: link:../host
