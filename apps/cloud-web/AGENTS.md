@@ -525,7 +525,11 @@ person sees only their own sessions, and every status is the cell's.
   the runner's message as it came, or the sentence for the cell's code
   (`runner_restarted`, `runner_unreachable`, `runner_failed`), never a code.
 - **The chat** (`ui/SessionChat.tsx`) is `AgentChat` with its stylesheet,
-  which styles nothing outside it (`packages/agent-ui/AGENTS.md`). It is most
+  which styles nothing outside it (`packages/agent-ui/AGENTS.md`). It fills
+  `.session-chat-frame`, the rest of the window under the warning, and scrolls
+  its conversation inside it; it shows no header of its own, since the page's
+  names the session. agent-ui's `AgentChat.layout.browser.test.tsx` mounts it
+  in this page's elements and CSS (`ui/Sessions.css` too). It is most
   of the app's weight, so `SessionPage` loads it only for a running session
   (`React.lazy`), and a chunk that cannot load says so in its place. The page
   asks the cell for a pass (`POST /api/cloud-sessions/{sessionId}/pass`) once
