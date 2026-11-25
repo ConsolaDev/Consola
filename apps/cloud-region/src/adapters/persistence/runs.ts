@@ -10,6 +10,7 @@ import {
   phaseOf,
   progressOf,
   type RunSummary,
+  type RunWrite,
   requestPhase,
   stepRecordOf,
 } from '../../domain/run.js';
@@ -59,6 +60,73 @@ type SummaryRow = {
 };
 
 const iso = (time: Date | null) => (time === null ? null : time.toISOString());
+
+/** What a run's record reads of its row: every column the runner's record was stored in. */
+const RECORD = {
+  runId: runs.runId,
+  factoryId: runs.factoryId,
+  factoryVersion: runs.factoryVersion,
+  parentRunId: runs.parentRunId,
+  parentMove: runs.parentMove,
+  automation: runs.automation,
+  status: runs.status,
+  waitingOn: runs.waitingOn,
+  trigger: runs.trigger,
+  triggerDetail: runs.triggerDetail,
+  startedBy: runs.startedBy,
+  item: runs.item,
+  runner: runs.runner,
+  steps: runs.steps,
+  request: runs.request,
+  requestText: runs.requestText,
+  summary: runs.summary,
+  error: runs.error,
+  costUsd: runs.costUsd,
+  createdAt: runs.createdAt,
+  startedAt: runs.startedAt,
+  finishedAt: runs.finishedAt,
+  updatedAt: runs.updatedAt,
+};
+
+type RecordRow = {
+  [Key in keyof typeof RECORD]: (typeof RECORD)[Key]['_']['notNull'] extends true
+    ? (typeof RECORD)[Key]['_']['data']
+    : (typeof RECORD)[Key]['_']['data'] | null;
+};
+
+/** The record a row holds, as its runner sent it, its times as the cell stores them. */
+function recordOfRow(row: RecordRow): RunWrite {
+  return {
+    id: row.runId,
+    factoryId: row.factoryId,
+    factoryVersion: row.factoryVersion,
+    parent:
+      row.parentRunId === null || row.parentMove === null
+        ? null
+        : { runId: row.parentRunId, move: row.parentMove },
+    automation: row.automation,
+    status: row.status,
+    waitingOn: row.waitingOn,
+    trigger: row.trigger,
+    triggerDetail: row.triggerDetail,
+    startedBy: row.startedBy,
+    item: row.item,
+    runner: row.runner,
+    // A step stored before a field existed reads as having none of it.
+    steps: row.steps.map(stepRecordOf),
+    request:
+      row.request !== null && row.requestText !== null
+        ? { ...row.request, text: row.requestText }
+        : null,
+    summary: row.summary,
+    error: row.error,
+    costUsd: row.costUsd,
+    createdAt: row.createdAt.toISOString(),
+    startedAt: iso(row.startedAt),
+    finishedAt: iso(row.finishedAt),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
 
 /** What an answer reads of its row. */
 const ANSWER = {
@@ -369,6 +437,35 @@ export function createRunStore(db: Database): RunStore {
         )
         .orderBy(asc(runs.automation), asc(runs.factoryId));
       return rows.flatMap(({ factoryId, name }) => (name === null ? [] : [{ factoryId, name }]));
+    },
+
+    async recordOf(workspaceId, runId) {
+      const [row] = await db
+        .select(RECORD)
+        .from(runs)
+        .where(and(eq(runs.workspaceId, workspaceId), eq(runs.runId, runId)));
+      return row ? recordOfRow(row) : null;
+    },
+
+    async answeredWaiting(workspaceId, limit) {
+      const rows = await db
+        .select({ ...RECORD, ...ANSWER })
+        .from(runs)
+        .innerJoin(
+          runApprovals,
+          and(
+            eq(runApprovals.workspaceId, runs.workspaceId),
+            eq(runApprovals.runId, runs.runId),
+            eq(runApprovals.version, runs.factoryVersion),
+          ),
+        )
+        .where(and(eq(runs.workspaceId, workspaceId), eq(runs.status, 'needs-approval')))
+        .orderBy(asc(runApprovals.answeredAt), asc(runs.runId))
+        .limit(limit);
+      return rows.map(({ decision, by, at, ...row }) => ({
+        run: recordOfRow(row),
+        answer: answerOfRow({ decision, by, at }),
+      }));
     },
 
     async answerOf(workspaceId, runId, version) {

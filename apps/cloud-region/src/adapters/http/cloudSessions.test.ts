@@ -68,6 +68,8 @@ function build(connected: Offer | null = offer, passSigner: PassSigner | null = 
     connected: () => connected,
     startSession: vi.fn(async () => {}),
     stopSession: vi.fn(async () => {}),
+    handEvent: () => false,
+    passAnswer: () => false,
   };
   const ports: CloudSessionPorts = {
     sessions: createCloudSessionStore(db),

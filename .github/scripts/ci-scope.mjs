@@ -83,8 +83,10 @@ export function scope({ event, changedFiles, affected, all, vendored = [] }) {
   // package.json cannot declare that: Vercel uploads the site without
   // `packages/` (`.vercelignore`), so a workspace dependency would not install.
   if (packages.has(DESKTOP)) packages.add(WEBSITE);
-  // The web app's API types are generated from cloud-global's and the cell's openapi.json, read
-  // as files: no app imports another, so the graph cannot say the web app depends on either.
+  // The web app's API types are generated from cloud-global's and the cell's openapi.json, and
+  // the cell's client of cloud-global from cloud-global's, each read as a file: no app imports
+  // another, so the graph cannot say one depends on the other.
+  if (packages.has(CLOUD_GLOBAL)) packages.add(CLOUD_REGION);
   if (packages.has(CLOUD_GLOBAL) || packages.has(CLOUD_REGION)) packages.add(CLOUD_WEB);
   if (changedFiles.some((file) => WEBSITE_DEPLOY.includes(file))) packages.add(WEBSITE);
   // The chat view's page tests read the desktop's and cloud-web's CSS as

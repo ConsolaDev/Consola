@@ -104,6 +104,7 @@ const waitFor = <T>(callback: () => T | Promise<T>) =>
   vi.waitFor(callback, { timeout: 10_000, interval: 25 });
 
 const config: CellConfig = {
+  cellPrivateKey: null,
   databaseUrl: 'pglite:memory',
   region: 'eu',
   port: 3101,
@@ -1651,10 +1652,17 @@ describe('POST /api/github/events', () => {
         event: 'pull_request',
         installationId: 41,
         payload: JSON.stringify(event.payload),
+        // This payload is trimmed past what a runner's facts need: kept, and never handed over.
+        repositoryId: null,
+        repository: null,
+        runnerState: 'not-for-runners',
+        runnerFacts: null,
       },
     ]);
-    // Ids and names reach the log, never what the event says.
-    expect(logged.mock.calls.flat().join('\n')).not.toContain('Lyon');
+    // Ids, names and the reason it is not for runners reach the log, never what the event says.
+    const lines = logged.mock.calls.flat().join('\n');
+    expect(lines).toMatch(/as not for runners: `repository` does not name a repository/);
+    expect(lines).not.toContain('Lyon');
   });
 
   it('records a delivery once, however often it arrives, at once or later', async () => {
@@ -2092,6 +2100,105 @@ describe('a runner and its passes', () => {
 
     expect(logs()).not.toContain(RUNNER_SECRET);
     expect(logs()).not.toContain(String(passJwk.d));
+    socket.terminate();
+    await cell.close();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it("hands a pull request's event to a runner that runs automations, and holds it until its acknowledgement", async () => {
+    const logs = captureLogs();
+    const cell = await openCell(runnerConfig);
+    const server = await new Promise<ReturnType<typeof serve>>((resolve) => {
+      const started = serve({ fetch: cell.app.fetch, hostname: '127.0.0.1', port: 0 }, () =>
+        resolve(started),
+      );
+      cell.injectWebSocket(started);
+    });
+    const port = (server.address() as AddressInfo).port;
+    expect((await postDelivery(await signDelivery(created()), { cell: cell.app })).status).toBe(
+      200,
+    );
+
+    const received: CellMessage[] = [];
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/api/runner`, {
+      headers: { authorization: `Bearer ${RUNNER_SECRET}` },
+    });
+    socket.on('message', (data) => {
+      const read = readCellMessage(JSON.parse(String(data)));
+      if (read.ok) received.push(read.value);
+    });
+    await new Promise((resolve) => socket.once('open', resolve));
+    socket.send(
+      JSON.stringify({
+        type: 'hello',
+        runnerId: 'runner-1',
+        repositories: [],
+        harnesses: [],
+        runningSessionIds: [],
+        endedSessions: [],
+        automations: true,
+      }),
+    );
+    const token = await mint();
+    await waitFor(async () => {
+      const options = await cell.app.request('/api/cloud-sessions/options', {
+        headers: bearer(token),
+      });
+      expect(options.status).toBe(200);
+    });
+
+    const head = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
+    const event = pullRequestOpened({
+      payload: {
+        action: 'opened',
+        number: 7,
+        pull_request: {
+          number: 7,
+          html_url: 'https://github.com/sprocket/catalog-portal/pull/7',
+          title: 'Price the catalog in euros',
+          body: 'Customers in Lyon asked.',
+          user: { login: 'dana-sprocket' },
+          draft: false,
+          head: { sha: head, ref: 'euro-prices', repo: { id: 410 } },
+          base: { ref: 'main', repo: { id: 410 } },
+        },
+        repository: { id: 410, full_name: 'sprocket/catalog-portal', private: true },
+        installation: { id: 41 },
+      },
+    });
+    const delivery = await signEvent(event);
+    expect((await postEvent(delivery, { cell: cell.app })).status).toBe(201);
+    // GitHub's Redeliver: recorded before, and never handed twice.
+    expect((await postEvent(delivery, { cell: cell.app })).status).toBe(200);
+
+    await waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).toEqual({
+      type: 'github.event',
+      deliveryId: event.deliveryId,
+      event: {
+        name: 'pull_request',
+        action: 'opened',
+        repository: 'sprocket/catalog-portal',
+        number: 7,
+        url: 'https://github.com/sprocket/catalog-portal/pull/7',
+        title: 'Price the catalog in euros',
+        author: 'dana-sprocket',
+        draft: false,
+        headSha: head,
+        headRef: 'euro-prices',
+        baseRef: 'main',
+        fork: false,
+      },
+    });
+
+    socket.send(JSON.stringify({ type: 'github.event.ack', deliveryId: event.deliveryId }));
+    await waitFor(async () => {
+      const [row] = await cell.db.select().from(gitHubEvents);
+      expect(row?.runnerState).toBe('acknowledged');
+    });
+    expect(received).toHaveLength(1);
+    expect(logs()).not.toContain('Lyon');
+    expect(logs()).not.toContain(RUNNER_SECRET);
     socket.terminate();
     await cell.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));

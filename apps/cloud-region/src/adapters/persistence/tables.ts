@@ -6,6 +6,7 @@
 // checks both.
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { GitHubEventFacts } from '@consola/runner-protocol';
 import { type SQLWrapper, sql } from 'drizzle-orm';
 import {
   bigint,
@@ -25,6 +26,7 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { CellFailureCode, CloudSessionStatus } from '../../domain/cloudSession.js';
 import type { FactorySource } from '../../domain/factory.js';
+import { RUNNER_STATES, type RunnerState } from '../../domain/gitHubEvent.js';
 import { APPROVAL_DECISIONS, type ApprovalDecision } from '../../domain/runApproval.js';
 import {
   PHASES,
@@ -204,13 +206,23 @@ export const factoryFiles = pgTable(
   ],
 );
 
+/** `column in (…)`, for a check: the words are the domain's own constants, written as literals. */
+const oneOf = (column: SQLWrapper, words: readonly string[]) =>
+  sql`${column} in (${sql.raw(words.map((word) => `'${word}'`).join(', '))})`;
+
 /**
  * The GitHub events `cloud-global` passed on for each workspace (14.2), kept here because what
  * happens in a company's repositories is the company's. One row per GitHub delivery, keyed by
  * the workspace and GitHub's id of the delivery, which GitHub keeps when it sends one again, so
  * an event is recorded once. The payload is GitHub's JSON as text: `json` and `jsonb` both
- * refuse a `\u0000` escape, which a pull request's body or a comment can hold. The workspace's
- * runners and triggers read them later (epics 21 and 39).
+ * refuse a `\u0000` escape, which a pull request's body or a comment can hold.
+ *
+ * The repository it happened in is kept beside it (`repository_id`, GitHub's id, and its name
+ * then), read from the payload, so a run's token is asked for by id. An event handed to the
+ * workspace's runner (`domain/gitHubEvent.ts`) keeps its narrowed facts (`runner_facts`) and
+ * where it stands (`runner_state`): `held` until the runner acknowledges it, then
+ * `acknowledged`; `not-for-runners` for one that did not read into facts; null for an event no
+ * runner takes, and every event recorded before runners took any.
  */
 export const gitHubEvents = pgTable(
   'github_event',
@@ -223,19 +235,31 @@ export const gitHubEvents = pgTable(
     installationId: bigint('installation_id', { mode: 'number' }).notNull(),
     payload: text('payload').notNull(),
     receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+    repositoryId: bigint('repository_id', { mode: 'number' }),
+    repository: text('repository'),
+    runnerState: text('runner_state').$type<RunnerState>(),
+    runnerFacts: jsonb('runner_facts').$type<GitHubEventFacts>(),
   },
   (table) => [
     primaryKey({ columns: [table.workspaceId, table.deliveryId] }),
     index('github_event_received_idx').on(table.workspaceId, table.receivedAt),
+    // The events a runner's hello sends again: its workspace's held ones, by when they came.
+    index('github_event_held_idx')
+      .on(table.workspaceId, table.receivedAt)
+      .where(sql`${table.runnerState} = 'held'`),
+    check(
+      'github_event_repository_check',
+      sql`(${table.repositoryId} is null) = (${table.repository} is null)`,
+    ),
+    check(
+      'github_event_runner_check',
+      sql`(${table.runnerState} is null or ${oneOf(table.runnerState, RUNNER_STATES)}) and (${table.runnerState} is not null and ${table.runnerState} <> 'not-for-runners') = (${table.runnerFacts} is not null)`,
+    ),
   ],
 );
 
 /** A run's time, to the millisecond, as runners write it: a cursor holding one finds it again. */
 const runTime = (name: string) => timestamp(name, { withTimezone: true, precision: 3 });
-
-/** `column in (…)`, for a check: the words are the domain's own constants, written as literals. */
-const oneOf = (column: SQLWrapper, words: readonly string[]) =>
-  sql`${column} in (${sql.raw(words.map((word) => `'${word}'`).join(', '))})`;
 
 /**
  * A workspace's runs (`domain/run.ts`), each as its runner last recorded it, keyed by the

@@ -1,3 +1,4 @@
+import { readRunRecord } from '@consola/runner-protocol';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FactoryStore, RunFilter, RunStore, TeamStore } from '../../application/ports.js';
@@ -444,6 +445,84 @@ describe('the run store', () => {
     expect(await runs.answerOf('acme', 'deploy', 2)).toBeNull();
     // The run is the runner's: an answer changes none of it.
     expect((await runs.get('acme', 'deploy'))?.run.status).toBe('needs-approval');
+  });
+
+  it('gives back the record a runner sent, whole, as the protocol reads it', async () => {
+    const pr = automationRun('review', {
+      trigger: 'event',
+      triggerDetail: 'pull_request.opened',
+      item: {
+        url: 'https://github.com/sprocket/catalog-portal/pull/7',
+        title: 'Price the catalog in euros',
+        kind: 'pr',
+        repo: 'sprocket/catalog-portal',
+        number: 7,
+        headSha: 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00',
+        baseRef: 'main',
+      },
+      steps: [
+        {
+          ...step('post', 'completed', 'run'),
+          command: {
+            exitCode: 0,
+            signal: null,
+            stdoutBytes: 4,
+            stderrBytes: 0,
+            truncated: false,
+          },
+          output: { stdout: 'done', stderr: '', truncated: false },
+        },
+      ],
+    });
+    await record(pr);
+    await record(request('ask'));
+    await record(childOf('ask', 2, 'ask-child'));
+
+    expect(await runs.recordOf('acme', 'review')).toEqual(pr);
+    expect(await runs.recordOf('acme', 'ask')).toEqual(request('ask'));
+    expect(await runs.recordOf('acme', 'ask-child')).toEqual(childOf('ask', 2, 'ask-child'));
+    const back = await runs.recordOf('acme', 'review');
+    expect(readRunRecord(JSON.parse(JSON.stringify(back)))).toEqual({ ok: true, value: pr });
+
+    expect(await runs.recordOf('acme', 'nothing')).toBeNull();
+    const globex = await workspaceWithFactory('globex');
+    await record({ ...automationRun('theirs'), factoryId: globex.id }, 'globex');
+    expect(await runs.recordOf('acme', 'theirs')).toBeNull();
+  });
+
+  it('lists the runs that wait for approval with an answer for their version, earliest first', async () => {
+    const waiting = (id: string, overrides: Partial<RunWrite> = {}) =>
+      automationRun(id, { status: 'needs-approval', startedAt: null, ...overrides });
+    const answer = (runId: string, version = 1, decision: 'approved' | 'dismissed' = 'approved') =>
+      runs.answer('acme', runId, { version, decision, personId: 'person-fay' });
+
+    await record(waiting('second'));
+    await record(waiting('first'));
+    await record(waiting('unanswered'));
+    await record(waiting('moved'));
+    await record(automationRun('started'));
+    await answer('first', 1, 'dismissed');
+    await answer('second');
+    await answer('started');
+    // Answered at version 1, and its runner has since moved it to version 2: not answered there.
+    await answer('moved');
+    await factories.save('acme', factoryId, { baseVersion: 1, files: [], personId: 'person-dana' });
+    await record(waiting('moved', { factoryVersion: 2, updatedAt: at(1) }));
+
+    const found = await runs.answeredWaiting('acme', 10);
+    expect(found.map(({ run, answer }) => [run.id, answer.decision])).toEqual([
+      ['first', 'dismissed'],
+      ['second', 'approved'],
+    ]);
+    expect(found[0]?.run).toEqual(waiting('first'));
+    expect(await runs.answeredWaiting('acme', 1)).toHaveLength(1);
+
+    const globex = await workspaceWithFactory('globex');
+    await record({ ...waiting('theirs'), factoryId: globex.id }, 'globex');
+    await runs.answer('globex', 'theirs', { version: 1, decision: 'approved', personId: 'p' });
+    expect((await runs.answeredWaiting('acme', 10)).map(({ run }) => run.id)).not.toContain(
+      'theirs',
+    );
   });
 
   it("answers no run the workspace does not hold, another workspace's included", async () => {

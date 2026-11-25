@@ -61,6 +61,7 @@ const ADAPTERS = [
   'adapters/token',
   'adapters/clock',
   'adapters/runner',
+  'adapters/cloudGlobal',
 ];
 const RING = ['compose', 'main', 'startupError', 'seed'];
 
@@ -108,6 +109,15 @@ const LAYERS: Layer[] = [
     at: 'adapters/runner',
     reaches: ['domain', 'application', 'adapters/runner', 'config'],
     refuses: [...DATABASE_LIBRARIES, ...TOKEN_LIBRARIES],
+    noGlobals: [],
+  },
+  // `cloud-global`'s API, as the cell calls it: an `openapi-fetch` client typed by the types
+  // generated from its `openapi.json`. No database, no route of the cell's, and no token library,
+  // since the cell's requests are signed in `adapters/token`.
+  {
+    at: 'adapters/cloudGlobal',
+    reaches: ['domain', 'application', 'adapters/cloudGlobal', 'config'],
+    refuses: [...DATABASE_LIBRARIES, ...HTTP_LIBRARIES, ...TOKEN_LIBRARIES],
     noGlobals: [],
   },
   // A pure parser of the environment: no I/O, and nothing but `domain`, whose region it checks.

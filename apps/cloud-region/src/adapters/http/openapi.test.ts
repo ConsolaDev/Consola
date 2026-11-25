@@ -26,6 +26,7 @@ const app = createApp({
   runs: unreachable as never,
   clock: unreachable as never,
   cloudSessions: unreachable as never,
+  runners: unreachable as never,
   // The real socket route, so what the app serves is what it serves in a cell.
   runner: createRunnerSocket({ settings: null, ports: unreachable as never }).routes,
   report: () => {},

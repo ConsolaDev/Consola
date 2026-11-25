@@ -6,7 +6,14 @@ import { admitClaims, type Caller } from '../domain/caller.js';
 import type { Factory } from '../domain/factory.js';
 import { NO_RUNS, NO_STEP_DETAIL, type RunWrite, type StepRecord } from '../domain/run.js';
 import type { Team } from '../domain/team.js';
-import type { FactoryStore, RunStore, TeamStore, WorkspaceCopies } from './ports.js';
+import type {
+  FactoryStore,
+  PassedAnswer,
+  RunnerChannel,
+  RunStore,
+  TeamStore,
+  WorkspaceCopies,
+} from './ports.js';
 import { answerRunApproval, listRuns, type RunsQuery, readRun, recordRun } from './runs.js';
 
 let db: Database;
@@ -479,8 +486,22 @@ steps:
     return made;
   }
 
+  /** What the cell passed on to the workspace's runner, and whether a runner took it. */
+  let passed: PassedAnswer[] = [];
+  let runnerTakes = true;
+  const runner: Pick<RunnerChannel, 'passAnswer'> = {
+    passAnswer: (_workspaceId, answer) => {
+      if (runnerTakes) passed.push(answer);
+      return runnerTakes;
+    },
+  };
+  beforeEach(() => {
+    passed = [];
+    runnerTakes = true;
+  });
+
   const answer = (who: Caller, runId: string, decision: 'approve' | 'dismiss', version = 2) =>
-    answerRunApproval(teams, factories, runs, who, runId, { decision, version });
+    answerRunApproval(teams, factories, runs, runner, who, runId, { decision, version });
 
   const approvalSeenBy = async (who: Caller, runId: string) => {
     const read = await readRun(teams, factories, runs, who, runId);
@@ -525,12 +546,39 @@ steps:
     expect(read.kind === 'found' && read.approval?.answer?.by).toBe('person-fay');
   });
 
-  it('record a dismissal as one', async () => {
+  it("pass the stored answer on to the workspace's runner, with the run as stored", async () => {
+    await acmeWaiting();
+    await answer(fay(), 'deploy-run', 'approve');
+    const stored = await runs.recordOf('acme', 'deploy-run');
+    expect(passed).toEqual([{ run: stored, decision: 'approved', personId: 'person-fay' }]);
+  });
+
+  it('record a dismissal as one, and tell the runner the run is rejected', async () => {
     await acmeWaiting();
     expect(await answer(gus(), 'nightly-run', 'dismiss')).toMatchObject({
       kind: 'answered',
       approval: { answer: { decision: 'dismissed', by: 'person-gus' } },
     });
+    expect(passed.map(({ decision, personId }) => [decision, personId])).toEqual([
+      ['rejected', 'person-gus'],
+    ]);
+  });
+
+  it('store an answer no runner takes, and keep it for the next hello', async () => {
+    await acmeWaiting();
+    runnerTakes = false;
+    expect((await answer(fay(), 'deploy-run', 'approve')).kind).toBe('answered');
+    expect(passed).toEqual([]);
+    expect(
+      (await runs.answeredWaiting('acme', 10)).map(({ run, answer }) => [run.id, answer.by]),
+    ).toEqual([['deploy-run', 'person-fay']]);
+  });
+
+  it('pass on nothing for an answer refused', async () => {
+    await acmeWaiting();
+    await answer(dana(), 'deploy-run', 'approve');
+    await answer(fay(), 'deploy-run', 'approve', 1);
+    expect(passed).toEqual([]);
   });
 
   it('are not found by a member of another team, and refused to one who sees the run but is not on its team', async () => {
