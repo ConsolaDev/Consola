@@ -7,8 +7,9 @@ Paths below are relative to `packages/runner-protocol`.
 
 ## What it is
 
-What a runner (`consola-host runner`) and a regional cell (`apps/cloud-region`)
-say to each other, written once so that neither keeps its own copy:
+What a runner (`consola-host runner`) and its cell, the cloud app
+(`apps/cloud-api`), say to each other, written once so that neither keeps its
+own copy:
 
 - the messages over the runner's socket. Runner to cell: `hello`
   (`runnerId`, the `repositories` and `harnesses` it offers, the
@@ -27,8 +28,9 @@ It signs nothing and verifies nothing. The cell signs a pass; the host checks
 its signature, the time against now (`exp <= now` is expired, and the clock
 skew applies to `iat` only) and `sid`.
 
-The cell and the host import it, from any layer (the cell's `domain` and
-`application` included). It is MIT, with its own `LICENSE`, because people who
+The cloud app's `company` part and the host import it, from any layer
+(`company`'s `domain` and `application` included); the app's `accounts` part
+never does. It is MIT, with its own `LICENSE`, because people who
 run their own runners build against it (root `AGENTS.md`, Licensing). It must
 not import from `apps/*` or any other workspace package.
 
@@ -43,11 +45,10 @@ The package does no I/O, so inner layers can import it:
   clock and the timers. Globals that do no I/O (`URL`, `Number`, `JSON`) are
   fine;
 - `src/index.ts` holds only `export … from`;
-- `src/read.ts` is this package's own copy of the readers' helpers, since it
-  may import no workspace package, `@consola/cloud-contract` included.
+- `src/read.ts` holds the readers' helpers, since the package may import no
+  workspace package.
 
-`src/boundary.test.ts` enforces it from the syntax tree, like
-`cloud-contract`'s.
+`src/boundary.test.ts` enforces it from the syntax tree.
 
 ## Reading what the other side sent
 
