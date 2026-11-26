@@ -1,4 +1,4 @@
-import type { components as cell } from './cellApiContract';
+import type { components } from './apiContract';
 
 /**
  * What is wrong with a factory's files, wherever it was found: by the page's own check as the
@@ -23,7 +23,7 @@ export type FactoryProblem = {
 };
 
 /** An issue as the cell answers one. */
-export type FactoryIssue = cell['schemas']['FactoryIssue'];
+export type FactoryIssue = components['schemas']['FactoryIssue'];
 
 /** A problem, from an issue in factory-spec's shape (the parser's or the cell's). */
 export function problemOf(issue: {

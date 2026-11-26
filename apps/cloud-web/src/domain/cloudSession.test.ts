@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { paths } from './cellApiContract';
+import type { paths } from './apiContract';
 import {
   agentRunPhase,
   agentRunPhaseWords,

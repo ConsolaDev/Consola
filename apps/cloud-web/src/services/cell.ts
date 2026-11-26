@@ -1,6 +1,6 @@
 import createClient from 'openapi-fetch';
 import type { Client } from 'openapi-fetch';
-import type { paths } from '../domain/cellApiContract';
+import type { paths } from '../domain/apiContract';
 import type { CellRefusal } from '../domain/cell';
 import { createApi } from './api';
 import type { Api } from './api';

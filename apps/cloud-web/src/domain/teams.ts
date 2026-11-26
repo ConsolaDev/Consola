@@ -1,5 +1,4 @@
-import type { components as global } from './apiContract';
-import type { components as cell } from './cellApiContract';
+import type { components } from './apiContract';
 
 /**
  * A workspace's teams as the web app sees them. They live in the workspace's regional cell,
@@ -12,13 +11,13 @@ import type { components as cell } from './cellApiContract';
  * page puts the two together (`memberOf`).
  */
 
-export type Team = cell['schemas']['Team'];
+export type Team = components['schemas']['Team'];
 
 /** A member of the workspace, from `cloud-global`: who they are, and their role. */
-export type WorkspaceMember = global['schemas']['WorkspaceMember'];
+export type WorkspaceMember = components['schemas']['WorkspaceMember'];
 
 /** What the cell names as a problem with a team's name. */
-export type TeamProblem = cell['schemas']['InvalidTeam']['problems'][number];
+export type TeamProblem = components['schemas']['InvalidTeam']['problems'][number];
 
 /** Every problem the cell names; `teamMessages.ts` has a sentence for each, keyed by the type. */
 const TEAM_PROBLEMS: Record<TeamProblem, true> = {

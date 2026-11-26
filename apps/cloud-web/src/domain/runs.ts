@@ -1,5 +1,5 @@
 import type { CellRefusal } from './cell';
-import type { components } from './cellApiContract';
+import type { components } from './apiContract';
 import type { WorkspaceMember } from './teams';
 
 /**

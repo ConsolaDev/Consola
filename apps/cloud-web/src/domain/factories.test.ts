@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { components } from './cellApiContract';
+import type { components } from './apiContract';
 import {
   checkFactoryName,
   checkNewFactory,

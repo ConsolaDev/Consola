@@ -10,8 +10,8 @@
  * What it does to the two files:
  * - the union of their paths, less the routes that only connected the two apps
  *   (`REMOVED`) and the cell's own health check (cloud-global's stands for both);
- * - their components merged, refusing a name both define differently, then pruned to what
- *   the paths still reach;
+ * - their components merged, refusing a name both define differently, less those only the
+ *   routes left out used;
  * - on every company route (the cell's, and `/api/connections…`), the cell token's answers
  *   (401 `token_required`/`invalid_token`, 421 `wrong_region`, 503 `token_check_unavailable`)
  *   and every 409 `workspace_pending` replaced by the caller's five: 401 `signed_out`,
@@ -140,6 +140,8 @@ function asCompanyRoute(method, operation) {
 }
 
 const paths = {};
+/** The operations left out, whose components go unless a kept route uses them too. */
+const dropped = [];
 for (const [source, spec] of [
   ['global', global],
   ['cell', cell],
@@ -147,9 +149,14 @@ for (const [source, spec] of [
   for (const [path, operations] of Object.entries(spec.paths)) {
     for (const [method, operation] of Object.entries(operations)) {
       const route = `${method.toUpperCase()} ${path}`;
-      if (REMOVED.has(route)) continue;
       // The cell's own `GET /api/me` and health check: cloud-global's cover both.
-      if (source === 'cell' && (path === '/api/me' || path === '/api/health')) continue;
+      if (
+        REMOVED.has(route) ||
+        (source === 'cell' && (path === '/api/me' || path === '/api/health'))
+      ) {
+        dropped.push(operation);
+        continue;
+      }
       if (paths[path]?.[method]) throw new Error(`${route} is in both files`);
       const company = source === 'cell' || path.startsWith('/api/connections');
       paths[path] = {
@@ -219,6 +226,7 @@ function reachable(roots) {
   return seen;
 }
 const used = reachable(paths);
+const gone = new Set([...reachable(dropped)].filter((name) => !used.has(name)));
 
 const merged = {
   openapi: global.openapi,
@@ -229,7 +237,7 @@ const merged = {
       "Consola Cloud's one API: who is signed in, their workspaces, and what each holds (teams, factories, runs, cloud sessions, connections). A company route reads the workspace from the session and takes `x-consola-workspace`, the workspace the page shows, as a guard. Sign-in itself is Better Auth's, under /api/auth, and is not described here.",
   },
   components: {
-    schemas: Object.fromEntries(Object.entries(schemas).filter(([name]) => used.has(name))),
+    schemas: Object.fromEntries(Object.entries(schemas).filter(([name]) => !gone.has(name))),
     parameters: {},
   },
   paths,

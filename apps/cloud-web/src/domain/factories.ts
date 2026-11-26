@@ -1,5 +1,5 @@
 import type { CellRefusal } from './cell';
-import type { components as cell } from './cellApiContract';
+import type { components } from './apiContract';
 import type { FactoryIssue } from './factoryProblems';
 import type { Team } from './teams';
 
@@ -12,13 +12,13 @@ import type { Team } from './teams';
  * exactly the teams the cell lets them make or move a factory for.
  */
 
-export type Factory = cell['schemas']['Factory'];
+export type Factory = components['schemas']['Factory'];
 
 /** Where a factory's files come from, as the cell names it. */
 export type FactorySourceKind = Factory['source']['kind'];
 
 /** What the cell names as a problem with a factory's name. */
-export type FactoryNameProblem = cell['schemas']['InvalidFactory']['problems'][number];
+export type FactoryNameProblem = components['schemas']['InvalidFactory']['problems'][number];
 
 /** A problem with a new factory: its name's, or no team chosen to own it. */
 export type NewFactoryProblem = FactoryNameProblem | 'team_missing';
@@ -150,16 +150,16 @@ export type FactoryChange =
   | { kind: 'unavailable' };
 
 /** A factory's version of its files, as saved. */
-export type FactoryVersion = cell['schemas']['FactoryVersion'];
+export type FactoryVersion = components['schemas']['FactoryVersion'];
 
-export type FactoryFile = cell['schemas']['FactoryFile'];
+export type FactoryFile = components['schemas']['FactoryFile'];
 
 /**
  * Ready-made factory files a person can start from (`GET /api/factory-templates`), such as the
  * code review team: they join a factory's files as unsaved changes (`withFiles`), and reach the
  * cell only through the ordinary save, which checks them as any other files.
  */
-export type FactoryTemplate = cell['schemas']['FactoryTemplate'];
+export type FactoryTemplate = components['schemas']['FactoryTemplate'];
 
 /** What reading the templates came to. */
 export type TemplatesAnswer = { kind: 'listed'; templates: FactoryTemplate[] } | CellRefusal;

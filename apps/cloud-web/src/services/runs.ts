@@ -1,5 +1,5 @@
 import type { CellRefusal } from '../domain/cell';
-import type { paths } from '../domain/cellApiContract';
+import type { paths } from '../domain/apiContract';
 import type { ApprovalDecision, ApproveAnswer } from '../domain/runApproval';
 import type { RunFilters } from '../domain/runFilters';
 import type { MembersAnswer, RunAnswer, RunsAnswer } from '../domain/runs';

@@ -1,5 +1,5 @@
 import type { CellRefusal } from './cell';
-import type { components, paths } from './cellApiContract';
+import type { components, paths } from './apiContract';
 import {
   AGENT_RUN_PHASE_WORDS,
   failedWords,
