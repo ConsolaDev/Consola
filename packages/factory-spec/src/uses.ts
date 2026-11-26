@@ -17,6 +17,9 @@ export const USES_REF_PATTERN = /^([a-z][a-z0-9-]{0,63})#([A-Za-z0-9._-]{1,128})
 export const DEFAULT_CALL_TIMEOUT_MS = 60_000;
 export const MAX_CALL_TIMEOUT_MS = 600_000;
 export const ENTRY_USES_REASON = '`uses:` is a step: put it under `steps:`.';
+/** What a `with:` that is not a mapping is told, a YAML null (`with:` and nothing after it) included: a tool's run and a call alike. */
+export const WITH_IS_A_MAPPING =
+  "Expected `with:` to be a mapping of the tool's arguments; leave `with:` out when the tool takes none.";
 
 export interface UsesStep {
   id: string;
@@ -120,11 +123,14 @@ function walk(
   }
 }
 
-/** `with:` as written, or null once anything in it was reported. Absent or YAML null is `{}`. */
+/**
+ * `with:` as written, or null once anything in it was reported. Left out, it
+ * is `{}`; written, it is a mapping, never a YAML null standing for none.
+ */
 function readWith(raw: unknown, bad: Fail): Record<string, unknown> | null {
-  if (raw === undefined || raw === null) return {};
+  if (raw === undefined) return {};
   if (!isRecord(raw)) {
-    bad("Expected `with:` to be a mapping of the tool's arguments.", ['with']);
+    bad(WITH_IS_A_MAPPING, ['with']);
     return null;
   }
   let ok = true;

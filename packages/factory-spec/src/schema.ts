@@ -6,7 +6,7 @@ import { MANUAL_IS_A_WORD, parsePollTrigger, type ManualTrigger, type PollTrigge
 import { parseToolRef, type RunTarget } from './runTarget';
 import { ENTRY_PERMISSIONS_REASON } from './permissions';
 import { ENTRY_SECRETS_REASON } from './secrets';
-import { ENTRY_USES_REASON } from './uses';
+import { ENTRY_USES_REASON, WITH_IS_A_MAPPING } from './uses';
 import {
   ACTION_ON_KEYED_POLL,
   checkSteps,
@@ -384,8 +384,9 @@ const runSchema = z.unknown().transform((run, ctx): RunTarget => {
       return fail(`${JSON.stringify(run.tool)} is not a tool reference (namespace#tool).`, [
         'tool',
       ]);
-    const args = run.with ?? {};
-    if (!isRecord(args)) return fail('Expected `with:` to be a mapping of arguments.', ['with']);
+    // Left out, a tool takes no arguments; written, `with:` is their mapping, never an empty value standing for none.
+    const args = run.with === undefined ? {} : run.with;
+    if (!isRecord(args)) return fail(WITH_IS_A_MAPPING, ['with']);
     return { kind: 'tool', ...ref, with: args };
   }
   const value = run[kind];

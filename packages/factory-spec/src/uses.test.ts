@@ -162,8 +162,22 @@ describe('a uses: step', () => {
       'steps[0].with.t',
     ],
     ['  with: { t: "{{ item.title" }', 'Unclosed `{{` in `{{ item.title`.', 'steps[0].with.t'],
-    ['  with: [a]', "Expected `with:` to be a mapping of the tool's arguments.", 'steps[0].with'],
-    ['  with: text', "Expected `with:` to be a mapping of the tool's arguments.", 'steps[0].with'],
+    [
+      '  with: [a]',
+      "Expected `with:` to be a mapping of the tool's arguments; leave `with:` out when the tool takes none.",
+      'steps[0].with',
+    ],
+    [
+      '  with: text',
+      "Expected `with:` to be a mapping of the tool's arguments; leave `with:` out when the tool takes none.",
+      'steps[0].with',
+    ],
+    // Left out, a call takes no arguments; an empty `with:` (a YAML null) is not a second way to say so.
+    [
+      '  with:',
+      "Expected `with:` to be a mapping of the tool's arguments; leave `with:` out when the tool takes none.",
+      'steps[0].with',
+    ],
   ])('refuses %s', (lines, message, path) => {
     expect(issuesOf(call(lines))).toEqual([{ message, path }]);
   });

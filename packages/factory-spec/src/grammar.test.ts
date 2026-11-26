@@ -79,6 +79,19 @@ describe('run:', () => {
     expect(result.issues[0].message).toMatch(/under `run:`/);
   });
 
+  it('takes no empty with: on a tool: left out, it has no arguments', () => {
+    expect(one(`${DAILY}    run: { tool: consola#x }\n`).automations[0].run).toMatchObject({
+      with: {},
+    });
+    expect(one(`${DAILY}    run:\n      tool: consola#x\n      with:\n`).issues).toEqual([
+      expect.objectContaining({
+        path: 'automations[0].run.with',
+        message:
+          "Expected `with:` to be a mapping of the tool's arguments; leave `with:` out when the tool takes none.",
+      }),
+    ]);
+  });
+
   it('takes with only under a tool', () => {
     const result = one(`${REVIEW}    run: { action: Review, with: { a: 1 } }\n`);
     expect(result.issues[0]).toMatchObject({
