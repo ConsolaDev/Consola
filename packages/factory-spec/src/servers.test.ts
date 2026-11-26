@@ -26,9 +26,9 @@ const RELATIVE = (command: string) =>
   `\`${command}\` would run whatever is at that path in the folder the server starts in. Use an absolute path, or a program on your \`PATH\`.`;
 const HELPER =
   'A helper is a command Consola would run on your machine to make headers, and it would be outside what you approved. Put the token in `secrets:` and use it in `headers:`.';
-const SSE =
-  "The HTTP+SSE transport is deprecated (MCP 2025-03-26). Point `url` at the server's Streamable HTTP endpoint, usually `/mcp`.";
-const OTHER_TYPE = 'Consola speaks MCP over stdio and Streamable HTTP.';
+const NO_TYPE =
+  'Remove `type:`: a server is the kind its key says, `command` for one Consola starts (stdio), `url` for one it calls (Streamable HTTP).';
+const SSE = `The HTTP+SSE transport is deprecated (MCP 2025-03-26). Point \`url\` at the server's Streamable HTTP endpoint, usually \`/mcp\`. ${NO_TYPE}`;
 const CWD = 'Consola decides where a server starts, and it is never a checkout.';
 const SIGN_IN =
   'A sign-in for the engine is not supported yet: give the server a token in `secrets:`.';
@@ -39,8 +39,6 @@ const UNKNOWN = (key: string) => `Unrecognized key in a server: \`${key}\`.`;
 const UNPINNED = 'This runs the newest version at every call, unattended; pin one.';
 const EXACTLY_ONE =
   'A server has exactly one of `command` (a program Consola starts) or `url` (a server Consola calls).';
-const MISMATCH = (type: string) =>
-  `\`type: ${type}\` does not match: \`stdio\` needs \`command\`, \`http\` needs \`url\`.`;
 const NAME = 'Use lowercase letters, digits and dashes, starting with a letter, e.g. slack.';
 const CONSOLA = "`consola` is Consola's own tools; name this server something else.";
 const TOO_MANY = '`mcpServers:` defines at most 20 servers.';
@@ -202,23 +200,23 @@ describe('parseMcpServers: what is refused, each with its reason', () => {
     expect(result.broken).toEqual(['slack']);
   });
 
-  it('refuses type: sse, and any type but stdio and http', () => {
-    expect(issuesOf({ ...HTTP, type: 'sse' })).toEqual([{ message: SSE, path: ['slack', 'type'] }]);
-    for (const type of ['ws', 'websocket', 'streamable-http', 3])
-      expect(issuesOf({ ...HTTP, type })).toEqual([
-        { message: OTHER_TYPE, path: ['slack', 'type'] },
+  it('refuses type:, whatever it says: the key written, command or url, says which kind a server is', () => {
+    for (const [definition, type] of [
+      [STDIO, 'stdio'],
+      [HTTP, 'http'],
+      [STDIO, 'http'],
+      [HTTP, 'stdio'],
+      [HTTP, 'streamable-http'],
+      [HTTP, 3],
+    ] as const)
+      expect(issuesOf({ ...definition, type }), String(type)).toEqual([
+        { message: NO_TYPE, path: ['slack', 'type'] },
       ]);
+    expect(one({ ...HTTP, type: 'http' }).broken).toEqual(['slack']);
   });
 
-  it('takes a type that matches, and refuses one that does not', () => {
-    expect(issuesOf({ ...STDIO, type: 'stdio' })).toEqual([]);
-    expect(issuesOf({ ...HTTP, type: 'http' })).toEqual([]);
-    expect(issuesOf({ ...STDIO, type: 'http' })).toEqual([
-      { message: MISMATCH('http'), path: ['slack', 'type'] },
-    ]);
-    expect(issuesOf({ ...HTTP, type: 'stdio' })).toEqual([
-      { message: MISMATCH('stdio'), path: ['slack', 'type'] },
-    ]);
+  it('refuses type: sse, saying the transport is deprecated and where to point url', () => {
+    expect(issuesOf({ ...HTTP, type: 'sse' })).toEqual([{ message: SSE, path: ['slack', 'type'] }]);
   });
 
   it('wants exactly one of command and url', () => {

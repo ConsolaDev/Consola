@@ -68,7 +68,23 @@ const REFUSED_KEYS: Readonly<Record<string, string>> = {
   auth: SIGN_IN,
   timeout: 'Set `timeout:` on the step that calls it.',
 };
-const KEYS = ['command', 'args', 'env', 'url', 'headers', 'secrets', 'description', 'type'];
+const KEYS = ['command', 'args', 'env', 'url', 'headers', 'secrets', 'description'];
+
+/**
+ * Why a server has no `type:`, whatever it says: the key written says which
+ * kind it is, `command` a server Consola starts (stdio) and `url` one it
+ * calls (Streamable HTTP), so `type:` could only repeat it or contradict it.
+ * `type: sse` also learns that the HTTP+SSE transport is deprecated. If a
+ * second kind of server that also uses `url:` ever arrives, `type:` comes back
+ * then, to tell the two apart.
+ */
+function typeRefusal(written: unknown): string {
+  const remove =
+    'Remove `type:`: a server is the kind its key says, `command` for one Consola starts (stdio), `url` for one it calls (Streamable HTTP).';
+  return written === 'sse'
+    ? `The HTTP+SSE transport is deprecated (MCP 2025-03-26). Point \`url\` at the server's Streamable HTTP endpoint, usually \`/mcp\`. ${remove}`
+    : remove;
+}
 
 /** A header name: an HTTP token. */
 const HEADER_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
@@ -127,28 +143,16 @@ function parseServer(
     return null;
   }
   for (const key of Object.keys(raw)) {
-    if (own(REFUSED_KEYS, key)) bad(REFUSED_KEYS[key], [key]);
+    if (key === 'type') bad(typeRefusal(raw.type), [key]);
+    else if (own(REFUSED_KEYS, key)) bad(REFUSED_KEYS[key], [key]);
     else if (!KEYS.includes(key)) bad(`Unrecognized key in a server: \`${key}\`.`, [key]);
-  }
-  let type: 'stdio' | 'http' | undefined;
-  if ('type' in raw) {
-    if (raw.type === 'sse')
-      bad(
-        "The HTTP+SSE transport is deprecated (MCP 2025-03-26). Point `url` at the server's Streamable HTTP endpoint, usually `/mcp`.",
-        ['type'],
-      );
-    else if (raw.type === 'stdio' || raw.type === 'http') type = raw.type;
-    else bad('Consola speaks MCP over stdio and Streamable HTTP.', ['type']);
   }
   if ('command' in raw === 'url' in raw) {
     bad(EXACTLY_ONE);
     return null;
   }
+  // Which key is written says which kind of server it is.
   const transport = 'command' in raw ? 'stdio' : 'http';
-  if (type !== undefined && type !== transport)
-    bad(`\`type: ${type}\` does not match: \`stdio\` needs \`command\`, \`http\` needs \`url\`.`, [
-      'type',
-    ]);
   let description: string | undefined;
   if ('description' in raw) {
     if (typeof raw.description === 'string' && !/[\r\n]/.test(raw.description))
