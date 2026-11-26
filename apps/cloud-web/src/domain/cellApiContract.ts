@@ -3295,7 +3295,7 @@ export interface components {
             factoryName: string;
             /** @description The automation that fired, by name. */
             automation: string;
-            /** @description The agent that takes the first turn: the automation's, by default the foreman. */
+            /** @description The agent that takes the first turn: the automation's, by default the orchestrator. */
             agent: string;
             /** @description The GitHub pull request the event was about. */
             item: {

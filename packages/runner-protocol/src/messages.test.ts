@@ -29,7 +29,7 @@ const start = {
 };
 const stop = { type: 'session.stop', sessionId: 's-1' };
 const agentRun = {
-  agent: 'foreman',
+  agent: 'orchestrator',
   prompt: 'Review pull request 7.',
   checkout: { ref: 'refs/pull/7/head', sha: 'b'.repeat(40) },
   agents: [{ name: 'review', description: 'Reviews.', instructions: 'You review.' }],
@@ -185,7 +185,7 @@ describe('readCellMessage', () => {
   });
 
   it.each([
-    ['not an object', 'foreman'],
+    ['not an object', 'orchestrator'],
     ['without a prompt', { ...agentRun, prompt: undefined }],
     ['with a path climbing out', { ...agentRun, files: [{ path: '../x', content: '' }] }],
   ])('refuses a session.start whose agent run is %s, naming the field', (_name, run) => {

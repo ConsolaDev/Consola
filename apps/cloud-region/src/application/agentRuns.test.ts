@@ -190,7 +190,7 @@ async function runOf(id: string) {
 }
 
 describe('an event starts agent runs', () => {
-  it("starts one foreman run for an opened pull request, with the plan's prompt and the head to check out", async () => {
+  it("starts one orchestrator run for an opened pull request, with the plan's prompt and the head to check out", async () => {
     await holdAcme();
     const factory = await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, starts } = portsFor();
@@ -218,7 +218,7 @@ describe('an event starts agent runs', () => {
         factoryId: factory.id,
         factoryName: 'Reviews',
         automation: 'review-pull-requests',
-        agent: 'foreman',
+        agent: 'orchestrator',
         item: {
           kind: 'pull_request',
           repository: 'sprocket/catalog-portal',
@@ -252,7 +252,7 @@ describe('an event starts agent runs', () => {
       harness: 'claude',
     });
     const agentRun = request?.agentRun as AgentRun;
-    expect(agentRun.agent).toBe('foreman');
+    expect(agentRun.agent).toBe('orchestrator');
     expect(agentRun.prompt).toBe(plan.prompt);
     expect(agentRun.checkout).toEqual({ ref: 'refs/pull/7/head', sha: HEAD });
     expect(agentRun.agents.map((agent) => agent.name)).toEqual(['review']);
@@ -458,7 +458,7 @@ describe("an agent run's run", () => {
     return { ...fake, factory };
   }
 
-  it('is a request of the Runs pages: the foreman its one step, the pull request its item, the session its conversation', async () => {
+  it('is a request of the Runs pages: the orchestrator its one step, the pull request its item, the session its conversation', async () => {
     const { factory, starts } = await started();
     const read = await runOf('run-1');
     expect(read.run).toMatchObject({
@@ -485,15 +485,15 @@ describe("an agent run's run", () => {
       finishedAt: null,
     });
     expect(read.steps).toMatchObject([
-      { id: 'orchestrator', kind: 'orchestrator', status: 'queued', agent: 'foreman' },
+      { id: 'orchestrator', kind: 'orchestrator', status: 'queued', agent: 'orchestrator' },
     ]);
-    // Its text is what the foreman is sent, and its conversation the session it works in.
+    // Its text is what the orchestrator is sent, and its conversation the session it works in.
     expect(read.request?.text).toBe(starts[0]?.[1].agentRun?.prompt);
     expect(read.conversation).toBe('run-1');
     expect(read.children).toEqual([]);
   });
 
-  it('follows its session: at work, waiting on a question, then done with the foreman’s first line', async () => {
+  it('follows its session: at work, waiting on a question, then done with the orchestrator’s first line', async () => {
     const { ports } = await started();
     const update = (over: Record<string, unknown>) =>
       applyRunnerUpdate(ports, RUNNER, { type: 'session.update', sessionId: 'run-1', ...over });

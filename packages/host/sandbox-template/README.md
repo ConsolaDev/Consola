@@ -115,7 +115,7 @@ Stdout is the runner's: the script prints nothing else there. Its tests are
 On Consola's E2B account, under the name the runner creates sandboxes from
 (`SESSION_TEMPLATE`, `consola-session`). Building again replaces it. To build
 another one beside it (a branch's own), set `CONSOLA_SESSION_TEMPLATE`
-(`consola-session-foreman`, say) for the build and for the runner that should
+(`consola-session-orchestrator`, say) for the build and for the runner that should
 use it. From the repository root:
 
 ```bash
@@ -133,8 +133,8 @@ never an argument and never printed. The build prints the template's id.
 **Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
 build prints here, and only the id.
 
-**`consola-session-foreman`** (the agent runs' template, which the runner uses
-with `CONSOLA_SESSION_TEMPLATE=consola-session-foreman`): `5uzguxofe57tlv8e7eo4`
+**`consola-session-orchestrator`** (the agent runs' template, which the runner uses
+with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`): `4s8mieamplpn8bzyi9vg`
 (built 2026-11-26).
 
 ## The sandbox's lifetime

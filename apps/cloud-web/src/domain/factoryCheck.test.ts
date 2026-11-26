@@ -111,7 +111,7 @@ const TEAM = readdirSync(TEMPLATE_ROOT, { recursive: true, withFileTypes: true }
 describe('checkFactory on an agent team', () => {
   it('reads the code review team’s files', () => {
     expect(TEAM.map((file) => file.path)).toEqual([
-      'agents/foreman/agent.md',
+      'agents/orchestrator/agent.md',
       'agents/review/agent.md',
       'automations/review-pull-requests/automation.md',
       'skills/code-quality/SKILL.md',
@@ -161,7 +161,7 @@ describe('checkFactory on an agent team', () => {
     // No agent.md or automation.md: no team, so the steps design reads the folder as strays.
     const problems = checkFactory([
       ...FACTORY,
-      { path: 'agents/foreman/notes.md', content: 'Notes' },
+      { path: 'agents/orchestrator/notes.md', content: 'Notes' },
     ]);
     expect(problems.length).toBeGreaterThan(0);
   });

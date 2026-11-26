@@ -1210,15 +1210,15 @@ describe('makeSandboxSessions', () => {
     run(
       Effect.gen(function* () {
         const h = yield* harness({
-          template: 'consola-session-foreman',
+          template: 'consola-session-orchestrator',
           fake: {
-            templates: { 'consola-session-foreman': {} },
+            templates: { 'consola-session-orchestrator': {} },
             programs: { 'consola-session-start': readyUntilStopped() },
           },
         });
-        yield* h.sessions.start(startOf('session-acme-foreman'));
+        yield* h.sessions.start(startOf('session-acme-orchestrator'));
         expect(yield* h.next).toMatchObject({ status: 'running' });
-        expect(h.fake.sandboxes[0]?.template).toBe('consola-session-foreman');
+        expect(h.fake.sandboxes[0]?.template).toBe('consola-session-orchestrator');
         yield* h.sessions.stopAll;
       }),
     ));
@@ -1226,7 +1226,7 @@ describe('makeSandboxSessions', () => {
 
 describe('makeSandboxSessions, for an agent run', () => {
   const AGENT_RUN: AgentRun = {
-    agent: 'foreman',
+    agent: 'orchestrator',
     prompt: 'Review pull request 12 and post the review with gh.',
     checkout: { ref: 'refs/pull/12/head', sha: 'b'.repeat(40) },
     agents: [{ name: 'reviewer', description: 'Reviews a diff', instructions: 'Review it.' }],

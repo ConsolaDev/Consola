@@ -11,9 +11,9 @@ import { REQUEST_TEXT_MAX_BYTES, stepRecordOf } from './run.js';
 import type { RunStatus, RunWrite, StepStatus, WaitingOn } from './run.js';
 
 /**
- * Agent runs: Warp's software-factory model, an alternative to the steps design. A GitHub event
+ * Agent runs: a software factory led by one agent, an alternative to the steps design. A GitHub event
  * fires an automation of a factory's team, which starts a cloud session nobody types into, whose
- * first agent is the automation's (by default the team's foreman). These are the rules the cell
+ * first agent is the automation's (by default the team's orchestrator). These are the rules the cell
  * keeps about one: what it is called, where it came from, and the start it hands the runner.
  */
 
@@ -143,7 +143,7 @@ function fitRequestText(text: string): string {
   return kept;
 }
 
-/** The first line of the foreman's result that says something, cut to one line of the list. */
+/** The first line of the orchestrator's result that says something, cut to one line of the list. */
 function summaryLine(summary: string | undefined): string | null {
   const line = summary
     ?.split(/\r\n|\r|\n/)
@@ -186,7 +186,7 @@ function standingOf(session: CloudSession): Standing {
 
 /**
  * An agent run as the Runs pages show it: a **request** (the orchestrator spec, "A request is a
- * run"), since an automation of a team hands its event to an agent (by default the foreman) rather
+ * run"), since an automation of a team hands its event to an agent (by default the orchestrator) rather
  * than running steps of its own. Its one step is that agent (`orchestrator`), its trigger the
  * event, its item the pull request, its text what the agent was sent, and its conversation the
  * cloud session the agent works in. Its id is the session's. Where it stands follows the session

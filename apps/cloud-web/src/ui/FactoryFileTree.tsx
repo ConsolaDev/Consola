@@ -656,7 +656,7 @@ function RemovedGroup({
 
 /**
  * A name with the filter's match set in the text's full weight. A name inside a folder of its
- * folder (an agent team's `foreman/agent.md`, a skill's `code-review/SKILL.md`) sets that inner
+ * folder (an agent team's `orchestrator/agent.md`, a skill's `code-review/SKILL.md`) sets that inner
  * folder quieter, and it is the folder that gives way when the row is narrow, never the file.
  */
 function Matched({ text, needle }: { text: string; needle: string }) {

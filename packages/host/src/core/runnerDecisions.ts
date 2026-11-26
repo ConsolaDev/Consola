@@ -29,7 +29,7 @@ export const SESSION_TEMPLATE = 'consola-session';
 
 /**
  * The variable naming another template to build and start sessions from, in place of
- * `SESSION_TEMPLATE`: a branch can build its own (`consola-session-foreman`, say) while another
+ * `SESSION_TEMPLATE`: a branch can build its own (`consola-session-orchestrator`, say) while another
  * runner keeps using the real one. It is not a secret.
  */
 export const SESSION_TEMPLATE_VARIABLE = 'CONSOLA_SESSION_TEMPLATE';

@@ -22,7 +22,7 @@ import type { AgentRunPorts, Clock, CloudSessionStore, RunStore } from './ports.
 import { recordRun } from './runs.js';
 
 /*
- * Agent runs: Warp's software-factory model, beside the steps design. A GitHub `pull_request`
+ * Agent runs: a software factory led by one agent, beside the steps design. A GitHub `pull_request`
  * event fires the automations of a workspace's factories' agent teams whose triggers match it,
  * and each starts an agent run: a cloud session no person started or types into, whose first
  * agent is the automation's. The cell records it, hands its start to the workspace's runner, and

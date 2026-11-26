@@ -308,12 +308,12 @@ round). The web app's footer links to the source of the commit it runs
 
 ### Agent teams (an experiment)
 
-Beside the steps design, the cloud runs an experiment in Warp's software-factory
-model, which deliberately breaks the north star's rule that the file decides the
+Beside the steps design, the cloud runs an experiment: a software factory led by
+one agent, which deliberately breaks the north star's rule that the file decides the
 route. A factory may hold an agent team (`agents/<name>/agent.md`,
 `automations/<name>/automation.md`, `skills/<name>/…`, factory-spec's
 `parseAgentTeam`), whose automations hand a pull request's event to one agent, the
-foreman, which dispatches the others and posts the result itself. The cell starts
+orchestrator, which dispatches the others and posts the result itself. The cell starts
 each as an agent run, a cloud session no person started, and records it as a
 request in Runs whose conversation is that session
 (`apps/cloud-region/AGENTS.md`, "Agent runs"); the host runs every agent of it in

@@ -949,7 +949,7 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   secret; `sessionTemplateFrom`, `^[a-z0-9][a-z0-9-]{0,62}$`, a start failure
   otherwise) names the template to start sessions from instead of
   `consola-session`, and `template:build` builds under the same name: a branch
-  can build `consola-session-foreman` while another runner keeps the real one.
+  can build `consola-session-orchestrator` while another runner keeps the real one.
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
   not `wss:` or is `ws:` to a host that is not loopback, or carries user info,

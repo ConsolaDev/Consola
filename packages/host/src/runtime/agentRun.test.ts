@@ -146,7 +146,7 @@ const makeFakeOrchestrator = Effect.gen(function* () {
 });
 
 const agentRun: AgentRun = {
-  agent: 'foreman',
+  agent: 'orchestrator',
   prompt: 'Review Sprocket#12 with the review agent, then post it.',
   agents: [
     { name: 'review', description: 'Reviews a pull request.', instructions: 'You review.' },

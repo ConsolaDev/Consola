@@ -1218,8 +1218,9 @@ describe('parseRunnerArgs', () => {
 
   it('starts sessions from the template CONSOLA_SESSION_TEMPLATE names, and refuses a name no template has', () => {
     expect(
-      parse(flags, { ...RUNNER_ENV, CONSOLA_SESSION_TEMPLATE: 'consola-session-foreman' }).template,
-    ).toBe('consola-session-foreman');
+      parse(flags, { ...RUNNER_ENV, CONSOLA_SESSION_TEMPLATE: 'consola-session-orchestrator' })
+        .template,
+    ).toBe('consola-session-orchestrator');
     const refused = refusal(flags, { ...RUNNER_ENV, CONSOLA_SESSION_TEMPLATE: 'Consola Session' });
     expect(refused._tag).toBe('StartFailed');
     expect(refused.message).toContain('CONSOLA_SESSION_TEMPLATE');

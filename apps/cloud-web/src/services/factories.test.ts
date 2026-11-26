@@ -445,9 +445,9 @@ describe('loadTemplates', () => {
   const team = {
     id: 'code-review-team',
     name: 'Code review team',
-    description: 'A foreman that reviews every pull request with a review agent.',
+    description: 'An orchestrator that reviews every pull request with a review agent.',
     files: [
-      { path: 'agents/foreman/agent.md', content: '---\ndescription: Leads.\n---\nLead.\n' },
+      { path: 'agents/orchestrator/agent.md', content: '---\ndescription: Leads.\n---\nLead.\n' },
       { path: 'skills/code-review/SKILL.md', content: 'Review well.\n' },
     ],
   };

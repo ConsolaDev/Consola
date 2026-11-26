@@ -27,19 +27,21 @@ const sectionsOf = (text: string) => text.split('\n').filter((line) => /^# /.tes
 describe('planAgentRun on the code-review template', () => {
   const plan = planAgentRun(team, automation, event, places);
 
-  it('gives the foreman the first turn, on its model', () => {
-    expect(plan.agent).toBe('foreman');
+  it('gives the orchestrator the first turn, on its model', () => {
+    expect(plan.agent).toBe('orchestrator');
     expect(plan.model).toBe('claude-sonnet-5-5');
   });
 
   it('composes the three sections in order, with the role verbatim', () => {
     expect(sectionsOf(plan.prompt)).toEqual([
       '# Your role',
-      '# Foreman',
+      '# Orchestrator',
       '# How this factory runs in Consola',
       '# What started this run',
     ]);
-    expect(plan.prompt.startsWith(`# Your role\n\n${team.foreman?.instructions}\n\n#`)).toBe(true);
+    expect(plan.prompt.startsWith(`# Your role\n\n${team.orchestrator?.instructions}\n\n#`)).toBe(
+      true,
+    );
     expect(plan.prompt).toContain(automation.prompt);
   });
 
@@ -124,7 +126,7 @@ describe('planAgentRun on hostile event text', () => {
     expect(inside.split('\n')).toHaveLength(11);
     expect(sectionsOf(plan.prompt)).toEqual([
       '# Your role',
-      '# Foreman',
+      '# Orchestrator',
       '# How this factory runs in Consola',
       '# What started this run',
     ]);
@@ -133,7 +135,7 @@ describe('planAgentRun on hostile event text', () => {
 
 describe('planAgentRun on a hand-built team', () => {
   const files: TeamFile[] = [
-    { path: 'agents/lead/agent.md', content: '---\nagentType: FOREMAN\n---\nLead.\n' },
+    { path: 'agents/lead/agent.md', content: '---\nagentType: ORCHESTRATOR\n---\nLead.\n' },
     { path: 'agents/solo/agent.md', content: '---\nspawnableBy: []\n---\nAlone.\n' },
     { path: 'agents/scout/agent.md', content: '---\ndescription: Scouts.\n---\nScout.\n' },
     {
@@ -164,7 +166,7 @@ describe('planAgentRun on a hand-built team', () => {
   it('writes an agent file for an agent built by hand', () => {
     const handMade: AgentTeam = {
       agents: [
-        { name: 'boss', description: 'Runs it.', agentType: 'FOREMAN', instructions: 'Boss.' },
+        { name: 'boss', description: 'Runs it.', agentType: 'ORCHESTRATOR', instructions: 'Boss.' },
       ],
       automations: [],
       skills: [],
@@ -178,7 +180,7 @@ describe('planAgentRun on a hand-built team', () => {
     expect(plan.files).toEqual([
       {
         path: 'agents/boss/agent.md',
-        content: '---\ndescription: Runs it.\nagentType: FOREMAN\n---\nBoss.\n',
+        content: '---\ndescription: Runs it.\nagentType: ORCHESTRATOR\n---\nBoss.\n',
       },
     ]);
   });

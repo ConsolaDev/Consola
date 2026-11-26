@@ -4,7 +4,7 @@ Two files of the code review team are adapted from Warp's factory examples,
 [warpdotdev/warp-factory-examples](https://github.com/warpdotdev/warp-factory-examples)
 (commit `76f0f06f59a3c3d5fc29eb7699fe281073fa58c1`), under the MIT licence below:
 
-- `code-review-team/agents/foreman/agent.md`, from
+- `code-review-team/agents/orchestrator/agent.md`, from
   `examples/00-warp-default-agents/agents/foreman/agent.md`
 - `code-review-team/agents/review/agent.md`, from
   `examples/00-warp-default-agents/agents/review/agent.md`

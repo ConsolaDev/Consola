@@ -13,7 +13,7 @@ import type { FactoryProblem } from './factoryProblems';
  * what the page says before a save is what the cell would say, but for the limits only the cell
  * keeps (how many files and bytes a factory may hold), which its answer to the save says.
  *
- * A set may also hold an agent team, Warp's layout (`agents/<name>/agent.md`,
+ * A set may also hold an agent team, in its own layout (`agents/<name>/agent.md`,
  * `automations/<name>/automation.md`, `skills/<name>/…`). As the cell's `checkFactoryFiles`
  * (`apps/cloud-region/src/domain/factory.ts`) does, the files in the team's own trees are left
  * out of the steps design's parse when the set holds a team (`hasAgentTeam`), which would take

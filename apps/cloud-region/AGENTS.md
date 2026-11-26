@@ -286,7 +286,7 @@ and the routes in `adapters/http/factories.ts`.
 - **The files** are a factory folder's, in the format `packages/factory-spec`
   defines: `factory.yml`, `automations/<name>.yaml`, `agents/<name>.md` and
   `skills/<name>/…`, each a path inside the folder and its text. A factory may
-  also hold an agent team, Warp's layout (`agents/<name>/agent.md`,
+  also hold an agent team, in a layout of its own (`agents/<name>/agent.md`,
   `automations/<name>/automation.md`, `skills/<name>/…`; below, "Agent
   runs"). Runners and scorers have no format there yet, so the cell takes
   none. A file under a
@@ -473,7 +473,7 @@ changed; every other run is a top-level automation run. The rules are in
   files are exactly `CODE_REVIEW_TEAM_FILES`, made when missing and saved
   again only when they differ, after `checkFactoryFiles`, with a finished
   agent run of it (`seedDemoAgentRun`: a stopped session holding the
-  foreman's report, and its run, once per workspace,
+  orchestrator's report, and its run, once per workspace,
   `demo-agent-run-<workspace>`). It refuses any database but a PGlite
   folder (`seedRefusal`, in `config.ts`), and refuses
   while anything answers on the configuration's `PORT`, since PGlite takes
@@ -722,8 +722,8 @@ runner through the `RunnerChannel` port.
 
 ## Agent runs
 
-An experiment beside the steps design, which it leaves untouched: Warp's
-software-factory model. A factory may hold an agent team
+An experiment beside the steps design, which it leaves untouched: a software
+factory led by one agent. A factory may hold an agent team
 (`agents/<name>/agent.md`, `automations/<name>/automation.md`,
 `skills/<name>/…`), which factory-spec reads (`parseAgentTeam`). The cell's
 rules are in `domain/agentRun.ts`, the use cases in `application/agentRuns.ts`.
@@ -750,7 +750,7 @@ rules are in `domain/agentRun.ts`, the use cases in `application/agentRuns.ts`.
   sent, its conversation the session, and its id the session's. Where it
   stands follows the session and the runner's last report: `starting` is
   `queued`; running, the report's `working`, `waiting` (on a person, so
-  `needs-you`), `done` (`completed`, its summary the foreman's first line)
+  `needs-you`), `done` (`completed`, its summary the orchestrator's first line)
   or `failed`; stopped, `completed` or `failed` by the report, else
   `cancelled`; failed, `failed`, with the runner's message or the cell's
   sentence for its own code. The cell writes this run itself, the one run

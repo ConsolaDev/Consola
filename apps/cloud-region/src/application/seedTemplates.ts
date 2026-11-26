@@ -79,7 +79,7 @@ export async function seedCodeReviewTeam(
   return { kind, factoryId: factory.id, version: factory.latestVersion };
 }
 
-/** The demo agent run's foreman sent its review and finished: what its report says. */
+/** The demo agent run's orchestrator sent its review and finished: what its report says. */
 const DEMO_AGENT_RUN_REPORT = {
   state: 'done',
   summary:
@@ -97,7 +97,7 @@ const DEMO_AGENT_RUN_REPORT = {
 
 /**
  * A finished agent run of the code review team, for the demo seed, so a run's page shows one
- * before any runner has run one: a cloud session that ended after its foreman reported, and its run
+ * before any runner has run one: a cloud session that ended after its orchestrator reported, and its run
  * (`agentRunRecord`), a request in Runs whose conversation is that session. Its ids are fixed per
  * workspace (`demo-agent-run-<workspace>`), so seeding again changes nothing; a session already
  * there is left as it is.
@@ -130,7 +130,7 @@ export async function seedDemoAgentRun(
       factoryId: factory.id,
       factoryName: factory.name,
       automation: 'review-pull-requests',
-      agent: 'foreman',
+      agent: 'orchestrator',
       item: {
         kind: 'pull_request',
         repository: 'sprocket/catalog-portal',

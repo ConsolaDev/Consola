@@ -49,7 +49,7 @@ export type SessionOrigin = {
   factoryId: string;
   factoryName: string;
   automation: string;
-  /** The agent that takes the first turn: the automation's, by default the team's foreman. */
+  /** The agent that takes the first turn: the automation's, by default the team's orchestrator. */
   agent: string;
   item: AgentRunItem;
 };

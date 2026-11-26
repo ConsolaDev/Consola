@@ -218,7 +218,7 @@ describe('an agent run, as the cell lists it', () => {
     factoryId: 'f-1',
     factoryName: 'Code review',
     automation: 'review-pull-requests',
-    agent: 'foreman',
+    agent: 'orchestrator',
     item: {
       kind: 'pull_request',
       repository: 'sprocket/catalog-portal',

@@ -1919,7 +1919,7 @@ describe('agent teams', () => {
         status: 'failed',
         errorCode: 'runner_unavailable',
         title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
-        origin: expect.objectContaining({ factoryId: factory.id, agent: 'foreman' }),
+        origin: expect.objectContaining({ factoryId: factory.id, agent: 'orchestrator' }),
         agentRun: null,
       }),
     });

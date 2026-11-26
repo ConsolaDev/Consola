@@ -1242,7 +1242,8 @@ export const CloudSessionOrigin = z
     factoryName: z.string(),
     automation: z.string().openapi({ description: 'The automation that fired, by name.' }),
     agent: z.string().openapi({
-      description: "The agent that takes the first turn: the automation's, by default the foreman.",
+      description:
+        "The agent that takes the first turn: the automation's, by default the orchestrator.",
     }),
     item: z
       .strictObject({

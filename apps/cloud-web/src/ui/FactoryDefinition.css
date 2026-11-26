@@ -795,7 +795,7 @@
   font-size: var(--font-size-md);
 }
 
-/* A file inside a folder of its folder (`foreman/agent.md`): the inner folder quieter, and the
+/* A file inside a folder of its folder (`orchestrator/agent.md`): the inner folder quieter, and the
    one that gives way when the row is narrow. */
 .file-tree-nested-name {
   display: flex;

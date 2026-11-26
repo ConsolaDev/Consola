@@ -241,7 +241,7 @@ describe('an agent run’s lines', () => {
           Effect.gen(function* () {
             const spec: SessionSpec = {
               ...sessionSpec('agent-run', cwd, variant.modelSelection),
-              agentRun: { agent: 'foreman', prompt: text, agents: [], files: [] },
+              agentRun: { agent: 'orchestrator', prompt: text, agents: [], files: [] },
             };
             const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
             const agentRun = handle.agentRun;

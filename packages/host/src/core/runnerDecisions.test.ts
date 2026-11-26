@@ -553,7 +553,7 @@ describe('sandboxEnvFor', () => {
   });
 
   const run: AgentRun = {
-    agent: 'foreman',
+    agent: 'orchestrator',
     prompt: 'Review pull request 12.',
     checkout: { ref: 'refs/pull/12/head', sha: 'a'.repeat(40) },
     agents: [{ name: 'reviewer', description: 'Reviews', instructions: 'Review it.' }],
@@ -615,9 +615,11 @@ describe('sessionTemplateFrom', () => {
       ok: true,
       template: 'consola-session',
     });
-    expect(sessionTemplateFrom({ CONSOLA_SESSION_TEMPLATE: 'consola-session-foreman' })).toEqual({
+    expect(
+      sessionTemplateFrom({ CONSOLA_SESSION_TEMPLATE: 'consola-session-orchestrator' }),
+    ).toEqual({
       ok: true,
-      template: 'consola-session-foreman',
+      template: 'consola-session-orchestrator',
     });
   });
 

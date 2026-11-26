@@ -1,5 +1,5 @@
 ---
-agent: foreman
+agent: orchestrator
 triggers:
   - provider: github
     event: pull_request_opened

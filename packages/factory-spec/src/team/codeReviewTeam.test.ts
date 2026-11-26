@@ -24,7 +24,7 @@ describe('CODE_REVIEW_TEAM_FILES', () => {
   it('pins the two agents to their models', () => {
     const contentOf = (path: string) =>
       CODE_REVIEW_TEAM_FILES.find((f) => f.path === path)?.content;
-    expect(contentOf('agents/foreman/agent.md')).toContain('\nmodel: claude-sonnet-5-5\n');
+    expect(contentOf('agents/orchestrator/agent.md')).toContain('\nmodel: claude-sonnet-5-5\n');
     expect(contentOf('agents/review/agent.md')).toContain('\nmodel: claude-opus-5-5\n');
   });
 });

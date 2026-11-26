@@ -29,24 +29,29 @@ function fenced(body: string, info: string): string {
   return `${fence}${info}\n${body}\n${fence}`;
 }
 
-const foremanOf = (team: AgentTeam): TeamAgent | undefined =>
-  team.foreman ?? team.agents.find((agent) => agent.agentType === 'FOREMAN');
+const orchestratorOf = (team: AgentTeam): TeamAgent | undefined =>
+  team.orchestrator ?? team.agents.find((agent) => agent.agentType === 'ORCHESTRATOR');
 
 /**
  * Whether `dispatcher` may dispatch `candidate`: its `spawnableBy` list when it has one; else
- * only the foreman may dispatch a non-foreman agent, and nobody a foreman. Never itself.
+ * only the orchestrator may dispatch a non-orchestrator agent, and nobody an orchestrator. Never itself.
  */
 function maySpawn(team: AgentTeam, dispatcher: string, candidate: TeamAgent): boolean {
   if (candidate.name === dispatcher) return false;
   if (candidate.spawnableBy !== undefined) return candidate.spawnableBy.includes(dispatcher);
-  if (candidate.agentType === 'FOREMAN') return false;
-  return foremanOf(team)?.name === dispatcher;
+  if (candidate.agentType === 'ORCHESTRATOR') return false;
+  return orchestratorOf(team)?.name === dispatcher;
 }
 
 const dispatchableBy = (team: AgentTeam, dispatcher: string) =>
   team.agents.filter((candidate) => maySpawn(team, dispatcher, candidate));
 
-const withoutTrailingSlash = (dir: string) => (dir === '/' ? '' : dir.replace(/\/+$/, ''));
+/** `dir` without the slashes it ends in (the root, `/`, is none), read in one pass. */
+function withoutTrailingSlash(dir: string): string {
+  let end = dir.length;
+  while (end > 0 && dir[end - 1] === '/') end -= 1;
+  return dir.slice(0, end);
+}
 
 /**
  * The sandbox, the repository and the skills catalog: what every agent of the run is told.

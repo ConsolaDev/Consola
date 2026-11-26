@@ -17,7 +17,7 @@ const review = {
   model: 'claude-sonnet-5',
 };
 const run = {
-  agent: 'foreman',
+  agent: 'orchestrator',
   prompt: 'Review pull request 7 of sprocket/catalog-portal.',
   model: 'claude-opus-5-5',
   checkout: { ref: 'refs/pull/7/head', sha: 'a'.repeat(40) },
@@ -39,7 +39,7 @@ describe('readAgentRun', () => {
   });
 
   it('reads one with only what it needs', () => {
-    const bare = { agent: 'foreman', prompt: 'Go.', agents: [], files: [] };
+    const bare = { agent: 'orchestrator', prompt: 'Go.', agents: [], files: [] };
     expect(readAgentRun(wire(bare))).toEqual({ ok: true, value: bare });
   });
 
@@ -62,15 +62,15 @@ describe('readAgentRun', () => {
     Array.from({ length: count }, (_, index) => ({ path: `f/${index}.md`, content: '' }));
 
   it.each([
-    ['not an object', 'foreman'],
+    ['not an object', 'orchestrator'],
     ['an array', [run]],
     ['no agent', { ...run, agent: undefined }],
     ['no prompt', { ...run, prompt: undefined }],
     ['no agents', { ...run, agents: undefined }],
     ['no files', { ...run, files: undefined }],
     ['an unknown field', { ...run, token: 'x' }],
-    ['an agent name with capitals', { ...run, agent: 'Foreman' }],
-    ['an agent name starting with a dash', { ...run, agent: '-foreman' }],
+    ['an agent name with capitals', { ...run, agent: 'Orchestrator' }],
+    ['an agent name starting with a dash', { ...run, agent: '-orchestrator' }],
     ['an agent name too long', { ...run, agent: `a${'b'.repeat(63)}` }],
     ['an empty prompt', { ...run, prompt: '' }],
     ['a prompt too long', { ...run, prompt: 'p'.repeat(AGENT_RUN_PROMPT_MAX + 1) }],

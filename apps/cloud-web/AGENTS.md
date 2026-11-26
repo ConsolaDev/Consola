@@ -304,7 +304,7 @@ desktop app draws its sidebar.
     with no match. A file the person changed has a dot, one the saved
     version lacks "new", one renamed "renamed" with its old path in the
     title; its own problems a red count. A file in a folder of its folder
-    (`foreman/agent.md` under `agents`, an agent team's layout) sets that
+    (`orchestrator/agent.md` under `agents`, an agent team's layout) sets that
     inner folder quieter, and it gives way first when the row is narrow. A
     factory with no files shows its empty folders, and offers New automation, New agent, `factory.yml` and
     Add a template where the editor would be.
@@ -626,7 +626,7 @@ id, and every status is the cell's.
 
 An agent run is a cloud session an automation of a factory's agent team
 started on a pull request (`origin` set), which nobody types into: its first
-agent (the foreman) dispatches others and posts on the pull request. Every
+agent (the orchestrator) dispatches others and posts on the pull request. Every
 member opens and may stop one.
 
 - **It is in Runs, not in Sessions.** The cell lists each agent run as a run,
@@ -636,7 +636,7 @@ member opens and may stop one.
   "Runs"). The Sessions list never holds one.
 - **Its session** is shown as a person's is (`useCloudSession`,
   `SessionConversation`): `AgentRunReport` shows the runner's last report,
-  the foreman's result (`agentRun.summary`, as text with its line breaks
+  the orchestrator's result (`agentRun.summary`, as text with its line breaks
   kept: no Markdown renderer) and each dispatched agent, folded, opening on
   its report. While it runs that sits above the chat (at most two fifths of
   its frame) and it is read every 5 s (`sessionPollIntervalMs`); once ended

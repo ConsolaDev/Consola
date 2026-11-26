@@ -18,7 +18,7 @@ import type { Team } from './team.js';
  *
  * The files are the factory folder's, in the format `packages/factory-spec` defines
  * (`factory.yml`, `automations/<name>.yaml`, `agents/<name>.md`, `skills/<name>/…`), each a path
- * inside the folder and its text. A factory may also hold an agent team, Warp's layout
+ * inside the folder and its text. A factory may also hold an agent team, in its own layout
  * (`agents/<name>/agent.md`, `automations/<name>/automation.md`, `skills/<name>/…`), which
  * factory-spec reads apart (`parseAgentTeam`). A set is stored only when factory-spec's parsers
  * find no issue in it, so the cell holds no version a runner would refuse to load.

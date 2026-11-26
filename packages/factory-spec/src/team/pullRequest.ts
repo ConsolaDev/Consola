@@ -11,7 +11,7 @@ import type {
   TeamTriggerFilter,
 } from './types';
 
-/** Warp's pull-request event names, and the webhook `pull_request` events each stands for. */
+/** The pull-request event names a team's triggers use, and the webhook `pull_request` events each stands for. */
 export const PULL_REQUEST_EVENTS: Readonly<Record<string, (event: PullRequestEvent) => boolean>> = {
   pull_request_opened: (event) => event.action === 'opened',
   pull_request_ready: (event) => event.action === 'ready_for_review',

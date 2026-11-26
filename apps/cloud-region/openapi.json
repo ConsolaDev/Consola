@@ -2015,7 +2015,7 @@
           },
           "agent": {
             "type": "string",
-            "description": "The agent that takes the first turn: the automation's, by default the foreman."
+            "description": "The agent that takes the first turn: the automation's, by default the orchestrator."
           },
           "item": {
             "type": "object",

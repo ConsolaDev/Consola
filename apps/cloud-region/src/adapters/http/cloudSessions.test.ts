@@ -255,7 +255,7 @@ describe('agent runs', () => {
         factoryId: 'factory-1',
         factoryName: 'Reviews',
         automation: 'review-pull-requests',
-        agent: 'foreman',
+        agent: 'orchestrator',
         item: {
           kind: 'pull_request',
           repository: 'sprocket/catalog-portal',
@@ -315,7 +315,10 @@ describe('agent runs', () => {
         id: 'run-1',
         personId: null,
         status: 'running',
-        origin: expect.objectContaining({ automation: 'review-pull-requests', agent: 'foreman' }),
+        origin: expect.objectContaining({
+          automation: 'review-pull-requests',
+          agent: 'orchestrator',
+        }),
         agentRun: {
           state: 'working',
           summary: 'Dispatched a review.',

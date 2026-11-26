@@ -78,7 +78,7 @@ A test earns its place by failing when the behaviour it covers breaks.
 
 The repository says how it wants its code. Before writing or judging a change, read:
 
-- the root `AGENTS.md`, `CLAUDE.md` or `WARP.md`, and any nearer one in the folders the change
+- the root `AGENTS.md` or `CLAUDE.md`, and any nearer one in the folders the change
   touches;
 - the contributing guide, if there is one;
 - the code beside the change: follow its patterns, its error handling, its test style.

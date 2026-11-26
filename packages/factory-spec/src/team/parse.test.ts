@@ -9,12 +9,12 @@ const agent = (name: string, front: string, body = `# ${name}\n\nDo the work.\n`
 const automation = (name: string, front: string, body = 'Review it.\n') =>
   file(`automations/${name}/automation.md`, `---\n${front}\n---\n${body}`);
 const GITHUB_OPENED = 'triggers:\n  - provider: github\n    event: pull_request_opened';
-const FOREMAN = agent('foreman', 'agentType: FOREMAN');
+const ORCHESTRATOR = agent('orchestrator', 'agentType: ORCHESTRATOR');
 
 describe('hasAgentTeam', () => {
-  it('sees an agent or an automation of the Warp layout', () => {
+  it('sees an agent or an automation of the agent team layout', () => {
     expect(hasAgentTeam(CODE_REVIEW_TEAM_FILES)).toBe(true);
-    expect(hasAgentTeam([FOREMAN])).toBe(true);
+    expect(hasAgentTeam([ORCHESTRATOR])).toBe(true);
     expect(hasAgentTeam([automation('x', GITHUB_OPENED)])).toBe(true);
   });
 
@@ -34,15 +34,15 @@ describe('parseAgentTeam', () => {
   it('reads the code-review template with no issues', () => {
     const { team, issues } = parseAgentTeam(CODE_REVIEW_TEAM_FILES);
     expect(issues).toEqual([]);
-    expect(team.foreman?.name).toBe('foreman');
-    expect(team.foreman?.model).toBe('claude-sonnet-5-5');
+    expect(team.orchestrator?.name).toBe('orchestrator');
+    expect(team.orchestrator?.model).toBe('claude-sonnet-5-5');
     const review = team.agents.find((a) => a.name === 'review');
     expect(review).toMatchObject({ agentType: 'REVIEW', model: 'claude-opus-5-5' });
     expect(team.automations).toHaveLength(1);
     expect(team.automations[0]).toMatchObject({
       name: 'review-pull-requests',
       enabled: true,
-      agent: 'foreman',
+      agent: 'orchestrator',
     });
     expect(team.automations[0].triggers.map((t) => t.event)).toEqual([
       'pull_request_opened',
@@ -64,7 +64,7 @@ describe('parseAgentTeam', () => {
       ),
     ]);
     expect(issues).toEqual([]);
-    expect(team.foreman).toMatchObject({ name: 'lead', agentType: 'FOREMAN', harness: 'codex' });
+    expect(team.orchestrator).toMatchObject({ name: 'lead', agentType: 'ORCHESTRATOR', harness: 'codex' });
     expect(team.agents.find((a) => a.name === 'helper')).toMatchObject({
       agentType: 'CUSTOM',
       description: 'Helps.',
@@ -83,88 +83,88 @@ describe('parseAgentTeam', () => {
     });
   });
 
-  it('defaults an automation to the foreman', () => {
-    const { team, issues } = parseAgentTeam([FOREMAN, automation('a', GITHUB_OPENED)]);
+  it('defaults an automation to the orchestrator', () => {
+    const { team, issues } = parseAgentTeam([ORCHESTRATOR, automation('a', GITHUB_OPENED)]);
     expect(issues).toEqual([]);
-    expect(team.automations[0].agent).toBe('foreman');
+    expect(team.automations[0].agent).toBe('orchestrator');
   });
 
   const issueCases: Array<[string, TeamFile[], string, RegExp]> = [
     [
       'an unknown agent key',
-      [agent('foreman', 'agentType: FOREMAN\ntools: write')],
-      'agents/foreman/agent.md',
+      [agent('orchestrator', 'agentType: ORCHESTRATOR\ntools: write')],
+      'agents/orchestrator/agent.md',
       /Unknown key `tools`/,
     ],
     [
       'an unknown filter key',
-      [FOREMAN, automation('a', `${GITHUB_OPENED}\n    filter:\n      branches: [main]`)],
+      [ORCHESTRATOR, automation('a', `${GITHUB_OPENED}\n    filter:\n      branches: [main]`)],
       'automations/a/automation.md',
       /Unknown key `branches`/,
     ],
     [
-      'two foremen',
-      [FOREMAN, agent('second', 'agentType: FOREMAN')],
+      'two orchestrators',
+      [ORCHESTRATOR, agent('second', 'agentType: ORCHESTRATOR')],
       'agents/second/agent.md',
-      /at most one foreman/,
+      /at most one orchestrator/,
     ],
     [
       'both agentType and workerRole',
-      [agent('foreman', 'agentType: FOREMAN\nworkerRole: MAIN')],
-      'agents/foreman/agent.md',
+      [agent('orchestrator', 'agentType: ORCHESTRATOR\nworkerRole: MAIN')],
+      'agents/orchestrator/agent.md',
       /`agentType` and `workerRole` are one setting/,
     ],
     [
       'both agent and worker',
-      [FOREMAN, automation('a', `agent: foreman\nworker: foreman\n${GITHUB_OPENED}`)],
+      [ORCHESTRATOR, automation('a', `agent: orchestrator\nworker: orchestrator\n${GITHUB_OPENED}`)],
       'automations/a/automation.md',
       /`agent` and `worker` are one setting/,
     ],
     [
       'an unknown target agent',
-      [FOREMAN, automation('a', `agent: nobody\n${GITHUB_OPENED}`)],
+      [ORCHESTRATOR, automation('a', `agent: nobody\n${GITHUB_OPENED}`)],
       'automations/a/automation.md',
       /`nobody`, which is not an agent/,
     ],
     [
-      'no foreman to default to',
+      'no orchestrator to default to',
       [agent('helper', 'description: Helps.'), automation('a', GITHUB_OPENED)],
       'automations/a/automation.md',
-      /no foreman/,
+      /no orchestrator/,
     ],
     [
       'missing triggers',
-      [FOREMAN, automation('a', 'agent: foreman')],
+      [ORCHESTRATOR, automation('a', 'agent: orchestrator')],
       'automations/a/automation.md',
       /needs `triggers:`/,
     ],
     [
       'a bad name',
-      [FOREMAN, agent('Bad_Name', 'description: x')],
+      [ORCHESTRATOR, agent('Bad_Name', 'description: x')],
       'agents/Bad_Name/agent.md',
       /`Bad_Name` is not a name/,
     ],
     [
       'an unknown agent type',
-      [agent('foreman', 'agentType: BOSS')],
-      'agents/foreman/agent.md',
+      [agent('orchestrator', 'agentType: BOSS')],
+      'agents/orchestrator/agent.md',
       /Expected `agentType`/,
     ],
     [
       'spawnableBy naming no agent',
-      [FOREMAN, agent('helper', 'spawnableBy: [ghost]')],
+      [ORCHESTRATOR, agent('helper', 'spawnableBy: [ghost]')],
       'agents/helper/agent.md',
       /`ghost`, which is not an agent/,
     ],
     [
       'an unclosed frontmatter',
-      [file('agents/foreman/agent.md', '---\nagentType: FOREMAN\n# Foreman\n')],
-      'agents/foreman/agent.md',
+      [file('agents/orchestrator/agent.md', '---\nagentType: ORCHESTRATOR\n# Orchestrator\n')],
+      'agents/orchestrator/agent.md',
       /ends with a line of `---`/,
     ],
     [
       'a skill folder with no SKILL.md',
-      [FOREMAN, file('skills/notes/README.md', 'Notes.\n')],
+      [ORCHESTRATOR, file('skills/notes/README.md', 'Notes.\n')],
       'skills/notes/',
       /has none/,
     ],
@@ -177,28 +177,28 @@ describe('parseAgentTeam', () => {
 
   it('leaves a file with problems out, and an automation that names it', () => {
     const { team, issues } = parseAgentTeam([
-      agent('foreman', 'agentType: FOREMAN\ncolour: blue'),
+      agent('orchestrator', 'agentType: ORCHESTRATOR\ncolour: blue'),
       automation('a', GITHUB_OPENED),
     ]);
     expect(team.agents).toEqual([]);
-    expect(team.foreman).toBeUndefined();
+    expect(team.orchestrator).toBeUndefined();
     expect(team.automations).toEqual([]);
     expect(issues.map((issue) => issue.file)).toEqual([
-      'agents/foreman/agent.md',
+      'agents/orchestrator/agent.md',
       'automations/a/automation.md',
     ]);
   });
 
   it("ignores files outside the three trees and the steps design's files", () => {
     const { team, issues } = parseAgentTeam([
-      FOREMAN,
+      ORCHESTRATOR,
       file('factory.yml', 'nonsense: ['),
       file('agents/investigator.md', 'Not a team agent.'),
       file('README.md', '# Hi'),
       file('skills/x/.DS_Store', ''),
     ]);
     expect(issues).toEqual([]);
-    expect(team.agents.map((a) => a.name)).toEqual(['foreman']);
+    expect(team.agents.map((a) => a.name)).toEqual(['orchestrator']);
     expect(team.skills).toEqual([]);
   });
 });

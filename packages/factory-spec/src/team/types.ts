@@ -1,8 +1,8 @@
 /**
- * An agent team: Warp's software-factory layout, an alternative to the steps design.
+ * An agent team: a software factory led by one agent, an alternative to the steps design.
  *
  * Triggers live in automation files; each automation hands its event to one agent (by default
- * the team's orchestrator, the "foreman"), which dispatches the other agents and is the only
+ * the team's orchestrator, the "orchestrator"), which dispatches the other agents and is the only
  * one that speaks for the factory.
  */
 
@@ -14,7 +14,7 @@ export type TeamIssue = { readonly file: string; readonly message: string };
 
 export type AgentType =
   | 'CUSTOM'
-  | 'FOREMAN'
+  | 'ORCHESTRATOR'
   | 'TRIAGE'
   | 'SPEC'
   | 'IMPLEMENT'
@@ -29,8 +29,8 @@ export type TeamAgent = {
   model?: string;
   harness?: 'claude' | 'codex';
   /**
-   * Who may dispatch this agent. Absent: only the foreman may dispatch a non-foreman agent, and
-   * nobody a foreman. `[]`: nobody. A list: only those agents.
+   * Who may dispatch this agent. Absent: only the orchestrator may dispatch a non-orchestrator agent, and
+   * nobody an orchestrator. `[]`: nobody. A list: only those agents.
    */
   spawnableBy?: string[];
   /** Its `agent.md` body, without the blank lines around it. */
@@ -74,7 +74,7 @@ export type AgentTeam = {
   agents: TeamAgent[];
   automations: TeamAutomation[];
   skills: TeamSkill[];
-  foreman?: TeamAgent;
+  orchestrator?: TeamAgent;
 };
 
 /** The facts of a GitHub `pull_request` webhook event that matching and prompts read. */

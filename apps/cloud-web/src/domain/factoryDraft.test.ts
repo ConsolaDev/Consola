@@ -341,25 +341,25 @@ describe('discarded', () => {
 
 describe('withFiles (a template’s files, merged in)', () => {
   const TEAM = [
-    { path: 'agents/foreman/agent.md', content: 'foreman' },
+    { path: 'agents/orchestrator/agent.md', content: 'orchestrator' },
     { path: 'agents/reviewer.md', content: 'the template’s reviewer' },
     { path: 'factory.yml', content: 'version: 1\n' },
   ];
 
   it('adds the files the draft lacks and replaces those it holds, as unsaved changes', () => {
     const { draft, added, replaced, skipped } = withFiles(draftOf(V3), TEAM);
-    expect(added).toEqual(['agents/foreman/agent.md']);
+    expect(added).toEqual(['agents/orchestrator/agent.md']);
     expect(replaced).toEqual(['agents/reviewer.md']);
     expect(skipped).toEqual([]);
     expect(isChanged(draft)).toBe(true);
-    expect(fileMarks(draft).get('agents/foreman/agent.md')?.isNew).toBe(true);
+    expect(fileMarks(draft).get('agents/orchestrator/agent.md')?.isNew).toBe(true);
     expect(fileMarks(draft).get('agents/reviewer.md')?.changed).toBe(true);
     // The version's files keep their order; an added file follows them.
     expect(filesOf(draft)).toEqual([
       { path: 'factory.yml', content: 'version: 1\n' },
       { path: 'agents/reviewer.md', content: 'the template’s reviewer' },
       { path: 'automations/triage.yaml', content: 'triage v3' },
-      { path: 'agents/foreman/agent.md', content: 'foreman' },
+      { path: 'agents/orchestrator/agent.md', content: 'orchestrator' },
     ]);
   });
 
@@ -380,7 +380,7 @@ describe('withFiles (a template’s files, merged in)', () => {
     const removed = withRemoved(draftOf(V3), 'agents/reviewer.md');
     const { draft, added, replaced, skipped } = withFiles(removed, TEAM);
     expect(skipped).toEqual(['agents/reviewer.md']);
-    expect(added).toEqual(['agents/foreman/agent.md']);
+    expect(added).toEqual(['agents/orchestrator/agent.md']);
     expect(replaced).toEqual([]);
     expect(removedPaths(draft)).toEqual(['agents/reviewer.md']);
     expect(contentOf(draft, 'agents/reviewer.md')).toBeUndefined();

@@ -109,7 +109,10 @@ describe('matchPullRequestAutomations on the template', () => {
 describe('matchPullRequestAutomations with filters', () => {
   const teamWith = (triggers: string, front = '') =>
     parseAgentTeam([
-      { path: 'agents/foreman/agent.md', content: '---\nagentType: FOREMAN\n---\nLead.\n' },
+      {
+        path: 'agents/orchestrator/agent.md',
+        content: '---\nagentType: ORCHESTRATOR\n---\nLead.\n',
+      },
       {
         path: 'automations/a/automation.md',
         content: `---\n${front}triggers:\n${triggers}\n---\nGo.\n`,

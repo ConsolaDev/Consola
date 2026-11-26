@@ -14,7 +14,7 @@ export const CODE_REVIEW_TEAM_TEMPLATE: FactoryTemplate = {
   id: 'code-review-team',
   name: 'Code review team',
   description:
-    'A foreman and a review agent that review every pull request opened, reopened or marked ready in the repositories the runner offers, and post the review on GitHub.',
+    'An orchestrator and a review agent that review every pull request opened, reopened or marked ready in the repositories the runner offers, and post the review on GitHub.',
   files: CODE_REVIEW_TEAM_FILES,
 };
 

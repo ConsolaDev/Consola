@@ -226,7 +226,7 @@ export {
   USES_REF_PATTERN,
   usesTexts,
 } from './uses';
-// Agent teams: Warp's software-factory layout (agents/<name>/agent.md,
+// Agent teams: a software factory led by one agent (agents/<name>/agent.md,
 // automations/<name>/automation.md, skills/<name>/), an alternative to the steps design.
 export {
   CODE_REVIEW_TEAM_FILES,

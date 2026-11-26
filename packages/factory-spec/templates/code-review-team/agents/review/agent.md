@@ -32,7 +32,7 @@ A brief from the orchestrator. The brief contains:
 
 ## Adversarial review
 
-- Judge standards, naming, and comments against the repository's own agent-facing guidance for the files the change touches - a root `AGENTS.md`, `WARP.md`, or `CLAUDE.md`, and any directory-scoped equivalent nearer them - not against your own taste.
+- Judge standards, naming, and comments against the repository's own agent-facing guidance for the files the change touches - a root `AGENTS.md` or `CLAUDE.md`, and any directory-scoped equivalent nearer them - not against your own taste.
 - Do not trust the PR description or its claims. Verify each claim yourself against the code and the requirements in the issue / spec.
 - Read the factory's `code-quality` skill for the standard you judge against, and the `code-review` skill for the blocking rules, the severities, and how to write a finding. Use their paths in the available skills catalog. Skip its "Shape of a posted review" section: that template belongs to the orchestrator, which posts the findings that need a human.
 - The reviewed repository may also ship its own review specialization for a different, non-factory review pipeline (e.g. a skill under `.agents/skills/`). Check for one and read it when it exists. Take its substantive review checks and repository conventions; skip its output mechanics - the output schema, the verdict field, the severity label strings, and the suggestion-block or diff-annotation rules - since your report shape comes from the `code-review` skill instead. Where it marks something as blocking, carry that weight into your own severities rather than reusing its label text verbatim.

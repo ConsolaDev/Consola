@@ -1,5 +1,5 @@
 /**
- * Reading Warp's factory layout into an agent team:
+ * Reading a factory's agent team from its files:
  *
  *   agents/<name>/agent.md              frontmatter + the agent's instructions
  *   automations/<name>/automation.md    frontmatter (triggers, target agent) + the starting prompt
@@ -30,7 +30,7 @@ export const TEAM_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 
 const AGENT_TYPES: readonly AgentType[] = [
   'CUSTOM',
-  'FOREMAN',
+  'ORCHESTRATOR',
   'TRIAGE',
   'SPEC',
   'IMPLEMENT',
@@ -186,10 +186,12 @@ function parseAgent(name: string, file: TeamFile, problem: (message: string) => 
   const type = aliased(data, 'agentType', 'workerRole', fail);
   if (type !== undefined) {
     const upper = typeof type === 'string' ? type.trim().toUpperCase() : '';
-    const read = upper === 'MAIN' ? 'FOREMAN' : AGENT_TYPES.find((known) => known === upper);
+    const read = upper === 'MAIN' ? 'ORCHESTRATOR' : AGENT_TYPES.find((known) => known === upper);
     if (read) agent.agentType = read;
     else {
-      fail(`Expected \`agentType\` to be one of ${AGENT_TYPES.join(', ')} (or MAIN, a foreman).`);
+      fail(
+        `Expected \`agentType\` to be one of ${AGENT_TYPES.join(', ')} (or MAIN, an orchestrator).`,
+      );
     }
   }
   if (has(data, 'model')) {
@@ -207,7 +209,7 @@ function parseAgent(name: string, file: TeamFile, problem: (message: string) => 
       if (bad.length > 0) fail(`\`spawnableBy\` names \`${bad[0]}\`, which ${BAD_NAME}`);
       else agent.spawnableBy = [...list];
     } else {
-      fail('Expected `spawnableBy` to be a list of agent names, e.g. `[foreman]`, or `[]`.');
+      fail('Expected `spawnableBy` to be a list of agent names, e.g. `[orchestrator]`, or `[]`.');
     }
   }
   if (agent.instructions === '') {
@@ -380,19 +382,19 @@ export function parseAgentTeam(files: readonly TeamFile[]): {
       );
     }
   }
-  let foreman: TeamAgent | undefined;
+  let orchestrator: TeamAgent | undefined;
   for (const parsed of parsedAgents) {
-    if (parsed.agent.agentType !== 'FOREMAN') continue;
-    if (!foreman) foreman = parsed.agent;
+    if (parsed.agent.agentType !== 'ORCHESTRATOR') continue;
+    if (!orchestrator) orchestrator = parsed.agent;
     else {
       parsed.ok = false;
       problemIn(parsed.file.path)(
-        `A factory has at most one foreman, and \`${foreman.name}\` is one already.`,
+        `A factory has at most one orchestrator, and \`${orchestrator.name}\` is one already.`,
       );
     }
   }
-  if (foreman && !parsedAgents.some((parsed) => parsed.ok && parsed.agent === foreman)) {
-    foreman = undefined;
+  if (orchestrator && !parsedAgents.some((parsed) => parsed.ok && parsed.agent === orchestrator)) {
+    orchestrator = undefined;
   }
   const agents: TeamAgent[] = [];
   for (const parsed of parsedAgents) {
@@ -408,10 +410,10 @@ export function parseAgentTeam(files: readonly TeamFile[]): {
     const problem = problemIn(file.path);
     const parsed = parseAutomation(name, file, problem);
     if (!parsed) continue;
-    const target = parsed.target ?? foreman?.name;
+    const target = parsed.target ?? orchestrator?.name;
     if (target === undefined) {
       problem(
-        'It names no `agent:`, and the factory has no foreman (an agent with `agentType: FOREMAN`) to take it.',
+        'It names no `agent:`, and the factory has no orchestrator (an agent with `agentType: ORCHESTRATOR`) to take it.',
       );
     } else if (!allAgentNames.has(target)) {
       problem(
@@ -452,5 +454,8 @@ export function parseAgentTeam(files: readonly TeamFile[]): {
     });
   }
 
-  return { team: { agents, automations, skills, ...(foreman ? { foreman } : {}) }, issues };
+  return {
+    team: { agents, automations, skills, ...(orchestrator ? { orchestrator } : {}) },
+    issues,
+  };
 }
