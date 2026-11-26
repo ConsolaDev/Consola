@@ -2,7 +2,7 @@ import { createPrivateKey, sign } from 'node:crypto';
 import type { KeyObject } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
-import type { GitHubApp, GitHubTokenMinter, MintAnswer } from '../../application/ports.js';
+import type { GitHubApp, GitHubTokenMinter, MintAnswer } from '../../application/gitHubPorts.js';
 import type {
   GitHubInstallation,
   GitHubRepository,

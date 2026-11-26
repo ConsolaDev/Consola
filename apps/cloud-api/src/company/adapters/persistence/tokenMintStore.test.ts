@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { TokenMintStore } from '../../application/ports.js';
+import type { TokenMintStore } from '../../application/gitHubPorts.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
 import { migrateDatabase, openDatabase } from './database.js';
 import type { Database } from './database.js';

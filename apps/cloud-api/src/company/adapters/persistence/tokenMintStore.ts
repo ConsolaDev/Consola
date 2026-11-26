@@ -1,6 +1,6 @@
 import { isGitHubTokenPurpose } from '../../domain/gitHubTokens.js';
 import { and, asc, eq } from 'drizzle-orm';
-import type { TokenMintStore } from '../../application/ports.js';
+import type { TokenMintStore } from '../../application/gitHubPorts.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
 import type { Database } from './database.js';
 import { regionOf } from './regionOf.js';

@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import type { GitHubEventStore } from '../../application/ports.js';
+import type { GitHubEventStore } from '../../application/gitHubPorts.js';
 import type { Database } from './database.js';
 import { gitHubEvents, workspaces } from './tables.js';
 

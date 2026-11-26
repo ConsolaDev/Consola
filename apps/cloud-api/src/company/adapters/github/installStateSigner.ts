@@ -1,6 +1,6 @@
 import { createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
-import type { InstallStateSigner } from '../../application/ports.js';
+import type { InstallStateSigner } from '../../application/gitHubPorts.js';
 
 /** What the state's key is derived for, so it is never the same key as anything else's. */
 const KEY_PURPOSE = 'consola cloud: the state of a GitHub Connect';

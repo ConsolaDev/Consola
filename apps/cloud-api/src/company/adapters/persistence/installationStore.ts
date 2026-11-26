@@ -1,5 +1,5 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { InstallationStore } from '../../application/ports.js';
+import type { InstallationStore } from '../../application/gitHubPorts.js';
 import type { GitHubAccount } from '../../domain/connections.js';
 import type { Database } from './database.js';
 import { regionOf } from './regionOf.js';
