@@ -263,8 +263,9 @@ async function buildRunClone(
         '--shared',
         '--no-checkout',
         '--template=',
-        '--separate-git-dir',
-        gitDir,
+        `--separate-git-dir=${gitDir}`,
+        // Neither path can be read as an option (`--upload-pack=…`).
+        '--',
         source,
         dir,
       ],
@@ -293,7 +294,7 @@ async function buildRunClone(
         if (!match) throw new Error("the remote didn't say its default branch");
         from = match[1];
       }
-      await git(['fetch', '--no-tags', 'origin', `refs/heads/${from}`], remote);
+      await git(['fetch', '--no-tags', '--', 'origin', `refs/heads/${from}`], remote);
       base = await git(['rev-parse', '--verify', 'FETCH_HEAD^{commit}'], local);
     }
 
@@ -1010,7 +1011,14 @@ export async function fetchKeepRef(input: {
   };
   const inSource = { cwd: source, env };
   await git(
-    ['fetch', '--no-tags', '--quiet', runCloneGitDirFor(dir), `+refs/heads/${branch}:${keepRef}`],
+    [
+      'fetch',
+      '--no-tags',
+      '--quiet',
+      '--',
+      runCloneGitDirFor(dir),
+      `+refs/heads/${branch}:${keepRef}`,
+    ],
     inSource,
   );
   const kept = await git(['rev-parse', '--verify', `${keepRef}^{commit}`], inSource).catch(

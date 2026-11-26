@@ -14,11 +14,21 @@ import type { RunDefinition } from './definition';
 export const ERROR_LINE_MAX = 300;
 
 /**
+ * The text without its trailing full stops and spaces. A loop rather than
+ * `/[.\s]+$/`, which backtracks quadratically over a long run of them.
+ */
+function withoutTrailingStops(text: string): string {
+  let end = text.length;
+  while (end > 0 && (text[end - 1] === '.' || /\s/.test(text[end - 1]))) end--;
+  return text.slice(0, end);
+}
+
+/**
  * The CLI's text as an error quotes it: its own trailing full stops and
  * spaces dropped, so none is doubled, and cut at `ERROR_LINE_MAX` characters.
  */
 function quoted(text: string): string {
-  const said = text.trim().replace(/[.\s]+$/, '');
+  const said = withoutTrailingStops(text.trim());
   return said.length > ERROR_LINE_MAX ? `${said.slice(0, ERROR_LINE_MAX)}…` : said;
 }
 
@@ -27,10 +37,10 @@ export function turnFailure(outcome: TurnOutcome): string | null {
   if (outcome.stopped) {
     // Stopped before it answered — by the person, the limit, or a
     // signal — whatever code the process exited with.
-    return `It stopped before finishing: ${outcome.stopped.trim().replace(/[.\s]+$/, '')}.`;
+    return `It stopped before finishing: ${withoutTrailingStops(outcome.stopped.trim())}.`;
   }
   if (outcome.exitCode === 0) return null;
-  const said = outcome.lastLine?.trim().replace(/[.\s]+$/, '');
+  const said = outcome.lastLine == null ? undefined : withoutTrailingStops(outcome.lastLine.trim());
   return `It stopped before finishing (exit ${outcome.exitCode})${said ? `: ${said}` : ''}.`;
 }
 

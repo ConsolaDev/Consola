@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
   createSessionRecord,
@@ -17,6 +17,21 @@ const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f
 describe('generateUuid', () => {
   it('produces a v4 UUID, which is what `claude --session-id` requires', () => {
     expect(generateUuid()).toMatch(UUID_V4);
+  });
+
+  it('makes one from random bytes where randomUUID is missing (not a secure context)', () => {
+    const random = vi.spyOn(Math, 'random');
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    try {
+      const made = [generateUuid(), generateUuid()];
+      expect(made[0]).toMatch(UUID_V4);
+      expect(made[1]).toMatch(UUID_V4);
+      expect(made[0]).not.toBe(made[1]);
+      expect(random).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      random.mockRestore();
+    }
   });
 });
 

@@ -98,7 +98,9 @@ export function checkOutputs(
 }
 
 const INTEGER_TEXT = /^-?\d+$/;
-const NUMBER_TEXT = /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+// Digits after a point only follow the point, so no run of digits can be
+// split two ways (`\d+\.?\d*` backtracks quadratically on `000…0x`).
+const NUMBER_TEXT = /^-?(\d+(\.\d*)?|\.\d+)([eE][+-]?\d+)?$/;
 
 /** Text from a command (`key=value`) becomes a typed value, or says why not. */
 export function coerceOutput(
