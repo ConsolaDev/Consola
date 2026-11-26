@@ -24,6 +24,19 @@ export type HealthProbe = {
   databaseAnswers(): Promise<boolean>;
 };
 
+/**
+ * Who belongs to which workspace, as accounts' `member` holds it now. Accounts implements it and
+ * the composition hands it in, so company code reads membership through it alone, by ids.
+ */
+export interface MembershipReader {
+  /** The person's role in the workspace, or null when they are not a member of it. */
+  roleOf(personId: string, workspaceId: string): Promise<WorkspaceRole | null>;
+  /** The ids of the workspace's members, in the order they joined it. */
+  memberIds(workspaceId: string): Promise<readonly string[]>;
+  /** The id of every workspace there is, for the demo seed. */
+  workspaceIds(): Promise<readonly string[]>;
+}
+
 /** What checking a token's signature found. */
 export type SignatureCheck =
   /** Signed by one of `cloud-global`'s keys, for a cell, and in date: its claims, still unread. */

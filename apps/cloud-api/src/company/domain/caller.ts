@@ -1,47 +1,62 @@
-import { readCellTokenClaims } from '@consola/cloud-contract';
 import type { WorkspaceRole } from '../../shared/workspaceRole.js';
-import type { Region } from './region.js';
 
-declare const fromCheckedToken: unique symbol;
+declare const admitted: unique symbol;
+
+/** What only `admitCaller` gives a caller. It exists for the type checker alone. */
+type CallerBrand = { readonly [admitted]: true };
 
 /**
- * Who is asking, as the cell sees them: what a cell token `cloud-global` signed says, once its
- * signature, its claims and its region have been checked, and nothing else. The cell holds no
- * accounts, so a person is their global id and no more.
+ * Who is asking, on a company route: the person their session names, the workspace the session
+ * has active, and their role there as `member` holds it at this request. A person is their id
+ * and no more: company code never reads an account.
  *
- * Only `admitClaims` makes one (the brand below exists only for the type checker), so a use case
- * that takes a `Caller` gets the person and the workspace from the token, never from the request.
+ * Only `admitCaller` makes one (the brand), so a use case that takes a `Caller` gets the person
+ * and the workspace from the session, never from the request.
  */
 export type Caller = {
-  /** The person's global id, the one `cloud-global` gives them. */
+  /** The person's id, the one accounts gives them. */
   readonly personId: string;
-  /** The workspace the token was minted for: its id in `cloud-global`. */
+  /** The workspace the session has active, which the page showed too. */
   readonly workspaceId: string;
-  /** The person's role in that workspace when the token was minted. */
+  /** The person's role in that workspace, read for this request. */
   readonly role: WorkspaceRole;
-  /** The workspace's region, always the region of the cell that admitted it. */
-  readonly region: Region;
-  readonly [fromCheckedToken]: true;
-};
+} & CallerBrand;
 
-/** What the claims of a token whose signature checked say about letting it in. */
-export type Admission =
-  | { kind: 'accepted'; caller: Caller }
-  /** Claims the contract's reader refuses: a claim missing or extra, expired, too long-lived. */
-  | { kind: 'invalid' }
-  /** A good token for a workspace in another region, which this cell does not serve. */
-  | { kind: 'other-region' };
+/** A signed-in person as their session says: who they are and which workspace is active. */
+export type SignedInPerson = { personId: string; activeWorkspaceId: string | null };
+
+/** Why a request is not let onto a company route, with the status it is answered with. */
+export type CallerRefusal =
+  /** No session. */
+  | { status: 401; error: 'signed_out' }
+  /** No `x-consola-workspace`: the request does not say which workspace its page shows. */
+  | { status: 400; error: 'invalid_request' }
+  /** The session has no workspace active. */
+  | { status: 409; error: 'no_active_workspace' }
+  /** The page shows another workspace than the session has active: another tab switched it. */
+  | { status: 409; error: 'workspace_switched' }
+  /** The person is not a member of the active workspace, or no longer. */
+  | { status: 403; error: 'not_a_member' };
 
 /**
- * The rule for a token whose signature has been checked: it is accepted only if the contract
- * reads its claims at `nowSeconds`, and only then if its region is `cellRegion`. The region is
- * judged only on claims that read, so only a good token is told it reached the wrong cell.
+ * The rule for letting a request onto a company route, checked in this order: signed out, no
+ * workspace shown, no active workspace, a shown workspace that is not the active one, and no
+ * role. `role` is the person's role in the session's active workspace (null when `member` holds
+ * none), never in the one shown. The shown workspace is only a guard: the caller's workspace is
+ * the session's.
  */
-export function admitClaims(payload: unknown, nowSeconds: number, cellRegion: Region): Admission {
-  const claims = readCellTokenClaims(payload, nowSeconds);
-  if (!claims.ok) return { kind: 'invalid' };
-  const { sub, ws, role, region } = claims.value;
-  if (region !== cellRegion) return { kind: 'other-region' };
-  const caller = { personId: sub, workspaceId: ws, role, region } as Caller;
-  return { kind: 'accepted', caller };
+export function admitCaller(asking: {
+  signedIn: SignedInPerson | null;
+  shownWorkspaceId: string | null;
+  role: WorkspaceRole | null;
+}): { ok: true; caller: Caller } | ({ ok: false } & CallerRefusal) {
+  const { signedIn, shownWorkspaceId, role } = asking;
+  if (signedIn === null) return { ok: false, status: 401, error: 'signed_out' };
+  if (shownWorkspaceId === null) return { ok: false, status: 400, error: 'invalid_request' };
+  const active = signedIn.activeWorkspaceId;
+  if (active === null) return { ok: false, status: 409, error: 'no_active_workspace' };
+  if (shownWorkspaceId !== active) return { ok: false, status: 409, error: 'workspace_switched' };
+  if (role === null) return { ok: false, status: 403, error: 'not_a_member' };
+  const caller = { personId: signedIn.personId, workspaceId: active, role } as Caller;
+  return { ok: true, caller };
 }

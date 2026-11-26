@@ -1,62 +1,88 @@
-import type { Context } from 'hono';
+import { z } from '@hono/zod-openapi';
+import type { MiddlewareHandler } from 'hono';
 import { createMiddleware } from 'hono/factory';
-import { authenticate } from '../../application/authenticate.js';
-import type { Authentication } from '../../application/authenticate.js';
-import type { Clock, TokenVerifier } from '../../application/ports.js';
-import type { Caller } from '../../domain/caller.js';
-import type { Region } from '../../domain/region.js';
+import type { MembershipReader } from '../../application/ports.js';
+import { admitCaller } from '../../domain/caller.js';
+import type { Caller, SignedInPerson } from '../../domain/caller.js';
 
 /**
- * What a route behind `requireCaller` has on its context: the caller, read from the request's
- * checked cell token, and nothing else about who is asking.
+ * The header every company request carries: the id of the workspace its page shows. It is only
+ * a guard against a session another tab switched; the workspace acted on is the session's.
  */
-export type CellEnv = { Variables: { caller: Caller } };
+export const WORKSPACE_HEADER = 'x-consola-workspace';
 
 /**
- * The credentials of an `Authorization: Bearer <token>` header, or null when the request has no
- * bearer credentials at all (no header, or another scheme). Whatever follows `Bearer` is handed
- * on as it is, empty or malformed included, and refused as an invalid token.
+ * What a route behind `requireCaller` has on its context: the caller, admitted from the
+ * request's session and the person's membership, and nothing else about who is asking.
  */
-export function bearerToken(header: string | undefined): string | null {
-  const match = header === undefined ? null : /^bearer(?:\s+(.*))?$/is.exec(header.trim());
-  return match ? (match[1] ?? '').trim() : null;
-}
+export type CompanyEnv = { Variables: { caller: Caller } };
 
-/** The answer to a request whose token was not accepted. Never says more than why. */
-function refusal(
-  c: Context,
-  answer: Exclude<Authentication, { kind: 'accepted' }>,
-  region: Region,
-): Response {
-  switch (answer.kind) {
-    case 'missing':
-      c.header('WWW-Authenticate', 'Bearer');
-      return c.json({ error: 'token_required' }, 401);
-    case 'invalid':
-      c.header('WWW-Authenticate', 'Bearer error="invalid_token"');
-      return c.json({ error: 'invalid_token' }, 401);
-    case 'other-region':
-      // A good token that reached the wrong cell: another token will not help, another cell
-      // will. The region is this cell's, which its health route says anyway.
-      return c.json({ error: 'wrong_region', region }, 421);
-    case 'keys-unavailable':
-      // The cell cannot check any token just now; the token itself may be fine.
-      return c.json({ error: 'token_check_unavailable' }, 503);
-  }
+/** The cell's name for `CompanyEnv`, kept until every route file says `CompanyEnv`. */
+export type CellEnv = CompanyEnv;
+
+/** Who a request's session says is asking (accounts' `currentSession`), or null for none. */
+export type WhoIsAsking = (headers: Headers) => Promise<SignedInPerson | null>;
+
+/** The workspace a request's page shows, or null when the header is missing or empty. */
+function shownWorkspaceOf(header: string | undefined): string | null {
+  const shown = header?.trim() ?? '';
+  return shown === '' ? null : shown;
 }
 
 /**
- * Lets a request through only with a cell token this cell accepts (`authenticate`), and sets
- * its caller on the context. Every route after it gets the caller and nothing else: none reads
- * who is asking, or which workspace, from the request.
+ * Lets a request through only for a member asking about the workspace their session has active
+ * (`admitCaller`), and sets its caller on the context. The role is read for the session's active
+ * workspace alone, never for the one the header names, and only once the two agree, since any
+ * refusal before it needs no role. Every route after it gets the caller and nothing else: none
+ * reads who is asking, or which workspace, from the request.
  */
-export function requireCaller(deps: { region: Region; tokens: TokenVerifier; clock: Clock }) {
-  const { region, tokens, clock } = deps;
-  return createMiddleware<CellEnv>(async (c, next) => {
-    const token = bearerToken(c.req.header('authorization'));
-    const answer = await authenticate({ tokens, clock }, region, token);
-    if (answer.kind !== 'accepted') return refusal(c, answer, region);
-    c.set('caller', answer.caller);
+export function requireCaller(deps: {
+  whoIsAsking: WhoIsAsking;
+  membership: MembershipReader;
+}): MiddlewareHandler<CompanyEnv> {
+  const { whoIsAsking, membership } = deps;
+  return createMiddleware<CompanyEnv>(async (c, next) => {
+    const signedIn = await whoIsAsking(c.req.raw.headers);
+    const shownWorkspaceId = shownWorkspaceOf(c.req.header(WORKSPACE_HEADER));
+    const active = signedIn?.activeWorkspaceId ?? null;
+    const role =
+      signedIn !== null && active !== null && shownWorkspaceId === active
+        ? await membership.roleOf(signedIn.personId, active)
+        : null;
+    const admission = admitCaller({ signedIn, shownWorkspaceId, role });
+    if (!admission.ok) return c.json({ error: admission.error }, admission.status);
+    c.set('caller', admission.caller);
     await next();
   });
 }
+
+const failure = <const Code extends string>(code: Code) =>
+  z.strictObject({ error: z.literal(code) });
+
+const json = <Schema extends z.ZodType>(schema: Schema, description: string) => ({
+  content: { 'application/json': { schema } },
+  description,
+});
+
+/**
+ * What every route behind `requireCaller` can answer before it runs. Spread into each such
+ * route's responses, so the contract says it once. A route that answers one of these statuses
+ * itself declares it after the spread, as one union with the code here, since a status holds
+ * one answer.
+ */
+export const callerFailures = {
+  400: json(
+    failure('invalid_request'),
+    `No \`${WORKSPACE_HEADER}\` header: the request does not say which workspace its page shows.`,
+  ),
+  401: json(failure('signed_out'), 'No session: the person is signed out.'),
+  403: json(
+    failure('not_a_member'),
+    'The person is not a member of the workspace their session has active, or no longer.',
+  ),
+  409: json(
+    z.union([failure('no_active_workspace'), failure('workspace_switched')]),
+    'The session has no workspace active (`no_active_workspace`), or another than the page ' +
+      'shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.',
+  ),
+} as const;
