@@ -183,7 +183,7 @@ automations:
       - id: post
         uses: slack#chat_post_message
         with: { channel: "#support-2nd-line", text: "{{steps.brief.handover}}" }
-        outputs: { ts: string }
+        outputs: { ts: { type: string } }
 `,
       }),
     );

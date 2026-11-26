@@ -353,7 +353,7 @@ function briefingFactory(options: FactoryOptions & { log: string; pids: string }
       : `      - id: post
         uses: slack#chat_post_message
         with: { channel: C0SUPPORT1, text: "{{steps.brief.handover}}" }
-        outputs: { ts: string }`;
+        outputs: { ts: { type: string } }`;
   return `version: 1
 mcpServers:
   slack:
@@ -927,7 +927,7 @@ test("A poll entry's Allow card names its call and its server, and nothing start
       - id: post
         uses: slack#chat_post_message
         with: { channel: C0SUPPORT1, text: "Something new." }
-        outputs: { ts: string }
+        outputs: { ts: { type: string } }
 `);
     await calls.bind('SLACK_BOT_TOKEN', 'STUB_SLACK_TOKEN');
     const row = rowOf(calls.page, 'watch-posts');

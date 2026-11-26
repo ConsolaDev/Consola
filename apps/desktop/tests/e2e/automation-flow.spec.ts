@@ -66,7 +66,7 @@ const GATED_LOOP = `- name: gated-loop
       steps:
         - id: look
           prompt: Count the findings.
-          outputs: { findings: integer }
+          outputs: { findings: { type: integer } }
         - id: fix
           if: steps.look.findings > 0
           run: echo fixed

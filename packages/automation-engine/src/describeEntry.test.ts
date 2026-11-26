@@ -200,7 +200,7 @@ const POLISH = [
   '  repeat: { max: 3, until: steps.review.findings == 0 }',
   '  on_exhausted: { gate: "Open it anyway?" }',
   '  steps:',
-  '    - id: review\n      prompt: Review it.\n      outputs: { findings: integer }',
+  '    - id: review\n      prompt: Review it.\n      outputs: { findings: { type: integer } }',
   '    - id: address\n      if: steps.review.findings > 0\n      run: echo\n      dry_run: run',
 ].join('\n');
 
@@ -240,7 +240,7 @@ describe('an entry with a loop (slice 3)', () => {
   it("counts a loop's agent, or its dry_run: run command, as starting in a dry run", () => {
     const inner = (step: string) =>
       looped(
-        `- id: polish\n  repeat: { max: 2, until: steps.s.ok }\n  steps:\n    - id: s\n${step.replace(/^/gm, '      ')}\n      outputs: { ok: boolean }`,
+        `- id: polish\n  repeat: { max: 2, until: steps.s.ok }\n  steps:\n    - id: s\n${step.replace(/^/gm, '      ')}\n      outputs: { ok: { type: boolean } }`,
       );
     expect(dryRunStarts(inner('prompt: Look.').steps!)).toBe(true);
     expect(dryRunStarts(inner('run: echo\ndry_run: run').steps!)).toBe(true);
@@ -291,7 +291,7 @@ const SECTION_41 = parsedEntry(`- name: ui-bug-to-pr
         - id: review
           prompt: Review the fix.
           reads: [fix.handover]
-          outputs: { findings: integer }
+          outputs: { findings: { type: integer } }
         - id: address
           if: steps.review.findings > 0
           prompt: Address the findings in the review handover.
@@ -314,7 +314,7 @@ const GATED_REVIEW = parsedEntry(`- name: review-gated
   steps:
     - id: fresh
       run: echo "needed=true" >> "$CONSOLA_OUTPUT"
-      outputs: { needed: boolean }
+      outputs: { needed: { type: boolean } }
       dry_run: run
     - id: review
       if: steps.fresh.needed
@@ -343,7 +343,7 @@ const LOOP_WITH_NOTIFY = parsedEntry(`- name: looped
       steps:
         - id: look
           prompt: Count the findings.
-          outputs: { findings: integer }
+          outputs: { findings: { type: integer } }
           on_failure: { retry: 2 }
         - id: notify-slack
           run: echo posted`);
@@ -390,7 +390,7 @@ describe('describeFlow (slice 3, the cards)', () => {
       steps:
         - id: a
           prompt: A.
-          outputs: { done: boolean }
+          outputs: { done: { type: boolean } }
           on_failure: { retry: 1 }
         - id: b
           run: echo b
@@ -424,7 +424,7 @@ describe('describeFlow (slice 3, the cards)', () => {
       steps:
         - id: look
           prompt: Look.
-          outputs: { ok: boolean }
+          outputs: { ok: { type: boolean } }
           on_failure: { retry: 0 }
         - id: check
           gate: { ask: Still going? }
@@ -470,7 +470,7 @@ describe('describeFlow (slice 3, the cards)', () => {
       steps:
         - id: look
           prompt: Look.
-          outputs: { ok: boolean }`);
+          outputs: { ok: { type: boolean } }`);
     expect(describeFlow(solo)[0]).toBe(
       'Repeats `look` up to 4 times until `steps.look.ok`; then fails.',
     );
@@ -548,7 +548,7 @@ automations:
         steps:
           - id: review
             agent: pre-pr-reviewer
-            outputs: { findings: integer }
+            outputs: { findings: { type: integer } }
           - id: address
             if: steps.review.findings > 0
             agent: ui-bugfixer
@@ -809,7 +809,7 @@ automations:
           - id: check
             agent: ui-bugfixer
             prompt: Fix what failed.
-            outputs: { ok: boolean }
+            outputs: { ok: { type: boolean } }
 `;
     const { automation, agents } = parsed(yml, { 'ui-bugfixer': AGENTS_41['ui-bugfixer'] });
     // `test` runs before `check` in round 1 and after it in round 2; `lint` never after a write.

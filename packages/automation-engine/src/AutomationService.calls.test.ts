@@ -61,12 +61,12 @@ const factory = (servers: string, ...entries: string[]) =>
 
 /** A scheduled steps entry in api: an agent step `triage`, then `steps` (each a `      - …` item). */
 function entry(name: string, steps: string, extra = '    mode: auto\n'): string {
-  return `  - name: ${name}\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n${extra}    steps:\n      - id: triage\n        prompt: Triage what came in.\n        outputs: { verdict: { enum: [post, skip] }, note: string }\n${steps}`;
+  return `  - name: ${name}\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n${extra}    steps:\n      - id: triage\n        prompt: Triage what came in.\n        outputs: { verdict: { enum: [post, skip] }, note: { type: string } }\n${steps}`;
 }
 const POST = `      - id: post
         uses: slack#chat_post_message
         with: { channel: C0SUPPORT1, text: "{{steps.triage.note}}" }
-        outputs: { ts: string }
+        outputs: { ts: { type: string } }
 `;
 /** A `uses:` step `id` calling `ref` with `with` (flow YAML). */
 const call = (id: string, ref: string, withYaml: string, extra = '') =>
@@ -1493,7 +1493,7 @@ describe("a call's secrets and its run's snapshot (5a-2 Task 8, review S8, Minor
     const onItem = (server: string) =>
       factory(
         server,
-        `  - name: brief\n    on: manual\n    applies_to: [pr]\n    steps:\n      - id: triage\n        prompt: Triage it.\n        outputs: { verdict: { enum: [post, skip] }, note: string }\n${POST}`,
+        `  - name: brief\n    on: manual\n    applies_to: [pr]\n    steps:\n      - id: triage\n        prompt: Triage it.\n        outputs: { verdict: { enum: [post, skip] }, note: { type: string } }\n${POST}`,
       );
     const h = await harness({
       yaml: onItem(SLACK),
@@ -1624,7 +1624,10 @@ describe('a server that echoes its credential (5a-2 Task 8, Review Focus 1)', ()
 
     const yaml = factory(
       SLACK,
-      entry('brief', POST.replace('outputs: { ts: string }', 'outputs: { echoed: string }')),
+      entry(
+        'brief',
+        POST.replace('outputs: { ts: { type: string } }', 'outputs: { echoed: { type: string } }'),
+      ),
     );
     const echoing = await posting(
       slack({
@@ -1662,7 +1665,10 @@ describe('a server that echoes its credential (5a-2 Task 8, Review Focus 1)', ()
         }),
       }),
       {
-        yaml: factory(SLACK, entry('brief', POST.replace('        outputs: { ts: string }\n', ''))),
+        yaml: factory(
+          SLACK,
+          entry('brief', POST.replace('        outputs: { ts: { type: string } }\n', '')),
+        ),
       },
     );
     expect(texts.post().status).toBe('completed');
@@ -1677,7 +1683,7 @@ describe('a result too big or the wrong shape (5a-2 Task 8, Review Focus 3)', ()
       SLACK,
       entry(
         'brief',
-        `${POST.replace('        outputs: { ts: string }\n', '')}      - id: after\n        run: echo "$OUT"\n        env: { OUT: "{{steps.post.output}}" }\n`,
+        `${POST.replace('        outputs: { ts: { type: string } }\n', '')}      - id: after\n        run: echo "$OUT"\n        env: { OUT: "{{steps.post.output}}" }\n`,
       ),
     );
     const { h, run, post } = await posting(
@@ -2416,7 +2422,7 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
     ref = 'slack#chat_post_message',
     withYaml = '{ channel: C0SUPPORT1, text: hello }',
   ) =>
-    `  - name: rounds\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: polish\n        repeat: { max: 2, until: "steps.post.ts == 'done'" }\n        steps:\n          - id: post\n            uses: ${ref}\n            with: ${withYaml}\n            outputs: { ts: string }\n`;
+    `  - name: rounds\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: polish\n        repeat: { max: 2, until: "steps.post.ts == 'done'" }\n        steps:\n          - id: post\n            uses: ${ref}\n            with: ${withYaml}\n            outputs: { ts: { type: string } }\n`;
   const answering = (...ts: string[]): FakeServer => {
     let at = 0;
     return slack({
@@ -2462,7 +2468,7 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
 
   it("checks a loop's consola# call: a selector fed an untrusted value is the entry's problem", async () => {
     const tidy = (withYaml: string) =>
-      `  - name: tidy\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: triage\n        prompt: Triage what came in.\n        outputs: { verdict: { enum: [post, skip] }, note: string }\n      - id: polish\n        repeat: { max: 2, until: "steps.clean.removed == 0" }\n        steps:\n          - id: clean\n            uses: consola#cleanup_stale_sessions\n            with: ${withYaml}\n            outputs: { removed: integer }\n`;
+      `  - name: tidy\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: triage\n        prompt: Triage what came in.\n        outputs: { verdict: { enum: [post, skip] }, note: { type: string } }\n      - id: polish\n        repeat: { max: 2, until: "steps.clean.removed == 0" }\n        steps:\n          - id: clean\n            uses: consola#cleanup_stale_sessions\n            with: ${withYaml}\n            outputs: { removed: { type: integer } }\n`;
     expect(
       await problemOf(
         { yaml: factory(SLACK, tidy('{ session_ids: ["{{steps.triage.note}}"] }')) },
@@ -2524,7 +2530,7 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
 describe('a call where neither branch alone could see it (the merge with slice 3, brief item 4)', () => {
   const ROUNDS = factory(
     SLACK,
-    `  - name: rounds\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: polish\n        repeat: { max: 2, until: "steps.post.ts == 'done'" }\n        steps:\n          - id: post\n            uses: slack#chat_post_message\n            with: { channel: C0SUPPORT1, text: hello }\n            outputs: { ts: string }\n`,
+    `  - name: rounds\n    on: { cron: "0 9 * * 1-5" }\n    scope: api\n    mode: auto\n    steps:\n      - id: polish\n        repeat: { max: 2, until: "steps.post.ts == 'done'" }\n        steps:\n          - id: post\n            uses: slack#chat_post_message\n            with: { channel: C0SUPPORT1, text: hello }\n            outputs: { ts: { type: string } }\n`,
   );
   const acceptAll = (h: StepsHarness) => {
     for (const view of h.service.list(WORKSPACE_ID)) {

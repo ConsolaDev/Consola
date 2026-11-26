@@ -65,7 +65,7 @@ steps:
     steps:
       - id: label
         run: echo "done=true" >> "$CONSOLA_OUTPUT"
-        outputs: { done: boolean }
+        outputs: { done: { type: boolean } }
         permissions: { issues: write, contents: write }
 `;
 

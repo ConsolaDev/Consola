@@ -90,7 +90,7 @@ const PAGE_ON_CALL = `- name: page-on-call
         printf 'note=%s\\n' "$PAGER_TOKEN" >> "$CONSOLA_OUTPUT"
         printenv PAGER_TOKEN
         echo done
-      outputs: { note: string }
+      outputs: { note: { type: string } }
       secrets: [PAGER_TOKEN]`;
 
 /** `watch-tickets`: a check command that prints its secret on stderr and fails. */

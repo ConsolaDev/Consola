@@ -116,7 +116,7 @@ steps:
   - id: report
     agent: reviewer
     prompt: Summarise last night's build for the team, and name anything that made it slower.
-    outputs: { healthy: boolean }
+    outputs: { healthy: { type: boolean } }
     max_turns: 8
 `,
   },
@@ -151,7 +151,7 @@ steps:
     prompt: |
       Check whether the dependency alert below affects code we ship, and say how urgent it is.
     outputs:
-      urgent: boolean
+      urgent: { type: boolean }
     max_turns: 10
   - id: alert
     if: steps.check.urgent

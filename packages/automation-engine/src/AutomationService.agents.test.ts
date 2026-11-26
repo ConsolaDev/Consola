@@ -616,7 +616,7 @@ describe("an entry's agents, with their servers and skills (2-C, Task 13)", () =
   it("gives an agent that only a loop's step names", async () => {
     const looped = POLL.replace(
       steps,
-      'steps:\n  - id: polish\n    repeat: { max: 2, until: steps.investigate.done }\n    steps:\n      - id: investigate\n        agent: summariser\n        outputs: { done: boolean }\n',
+      'steps:\n  - id: polish\n    repeat: { max: 2, until: steps.investigate.done }\n    steps:\n      - id: investigate\n        agent: summariser\n        outputs: { done: { type: boolean } }\n',
     );
     const h = await investigating(looped);
     expect(

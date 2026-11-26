@@ -121,7 +121,7 @@ describe('templates', () => {
   steps:
     - id: review
       action: Review
-      outputs: { verdict: string }
+      outputs: { verdict: { type: string } }
     - id: fresh
       if: steps.review.verdict == 'request-changes'
       dry_run: run

@@ -155,7 +155,7 @@ describe('gate:', () => {
     for (const key of [
       'run: echo',
       'prompt: hi',
-      'outputs: { a: string }',
+      'outputs: { a: { type: string } }',
       'on_failure: { retry: 1 }',
     ]) {
       const name = key.split(':')[0];
@@ -194,7 +194,7 @@ describe('gate:', () => {
     expect(
       only(steps('- id: decide\n  gate: { ask: ok, show: [review.handover] }')).message,
     ).toMatch(/there is no step `review`/);
-    const review = '- id: review\n  run: echo\n  outputs: { n: integer }';
+    const review = '- id: review\n  run: echo\n  outputs: { n: { type: integer } }';
     expect(only(steps(review, '- gate: { ask: ok, show: [review.n] }')).message).toMatch(
       /`n` is an output, not a document/,
     );
@@ -219,7 +219,7 @@ const LOOP = [
   '- id: polish',
   '  repeat: { max: 3, until: steps.review.findings == 0 }',
   '  steps:',
-  '    - id: review\n      prompt: Review it.\n      outputs: { findings: integer }',
+  '    - id: review\n      prompt: Review it.\n      outputs: { findings: { type: integer } }',
   '    - id: address\n      if: steps.review.findings > 0\n      prompt: Address it.\n      reads: [review.handover]',
 ].join('\n');
 
@@ -349,7 +349,7 @@ describe('repeat:', () => {
       '- id: polish',
       '  repeat: { max: 2, until: steps.a.n == 0 }',
       '  steps:',
-      '    - id: a\n      run: echo\n      outputs: { n: integer }',
+      '    - id: a\n      run: echo\n      outputs: { n: { type: integer } }',
       '    - id: b\n      run: echo',
       '    - id: c\n      run: echo',
     ].join('\n');
@@ -405,7 +405,7 @@ describe('repeat:', () => {
       only(
         steps(
           loopWith('repeat: { max: 3, until: steps.later.n == 0 }'),
-          '- id: later\n  run: echo\n  outputs: { n: integer }',
+          '- id: later\n  run: echo\n  outputs: { n: { type: integer } }',
         ),
       ).message,
     ).toBe(
@@ -467,7 +467,7 @@ describe('repeat:', () => {
   it("lets a loop's if: read the steps before it", () => {
     expect(
       steps(
-        '- id: triage\n  run: echo\n  outputs: { bug: boolean }',
+        '- id: triage\n  run: echo\n  outputs: { bug: { type: boolean } }',
         loopPlus('  if: steps.triage.bug'),
       ).issues,
     ).toEqual([]);
@@ -488,7 +488,7 @@ describe('a loop, read by every other part of the format', () => {
   it("points at a loop's step that names an agent, read without its folder", () => {
     const issue = only(
       steps(
-        '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      agent: reviewer\n      outputs: { done: boolean }',
+        '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      agent: reviewer\n      outputs: { done: { type: boolean } }',
       ),
     );
     expect(issue).toMatchObject({
@@ -741,7 +741,7 @@ describe('on_failure, budget and checkout', () => {
     expect(
       only(
         steps(
-          '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      prompt: Look.\n      outputs: { done: boolean }\n    - id: post\n      run: gh pr comment\n      on_failure: { retry: 2 }',
+          '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      prompt: Look.\n      outputs: { done: { type: boolean } }\n    - id: post\n      run: gh pr comment\n      on_failure: { retry: 2 }',
         ),
       ),
     ).toMatchObject({

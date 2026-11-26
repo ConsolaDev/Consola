@@ -17,7 +17,7 @@ const LOOP = [
   '- id: polish',
   '  repeat: { max: 3, until: steps.review.findings == 0 }',
   '  steps:',
-  '    - id: review\n      prompt: Review it.\n      outputs: { findings: integer }',
+  '    - id: review\n      prompt: Review it.\n      outputs: { findings: { type: integer } }',
   '    - id: address\n      if: steps.review.findings > 0\n      prompt: Address it.',
 ].join('\n');
 

@@ -44,7 +44,7 @@ describe('a uses: step', () => {
     const [, step] = stepsOf(
       entry(
         '- id: brief\n  prompt: Brief it.',
-        '- id: post\n  uses: slack#chat_post_message\n  with: { channel: C0SUPPORT1, text: "{{steps.brief.handover}}" }\n  outputs: { ts: string }\n  timeout: 30s',
+        '- id: post\n  uses: slack#chat_post_message\n  with: { channel: C0SUPPORT1, text: "{{steps.brief.handover}}" }\n  outputs: { ts: { type: string } }\n  timeout: 30s',
       ),
     );
     expect(step).toEqual({
@@ -194,11 +194,11 @@ describe('a uses: step', () => {
     expect(issuesOf(call('  outputs: { from: stdout, format: json }'))).toEqual([
       {
         message:
-          "A tool's outputs are its result's fields: declare them by name, e.g. `outputs: { ts: string }`.",
+          "A tool's outputs are its result's fields: declare them by name, e.g. `outputs: { ts: { type: string } }`.",
         path: 'steps[0].outputs',
       },
     ]);
-    expect(issuesOf(call('  outputs: { handover: string }'))[0]).toEqual({
+    expect(issuesOf(call('  outputs: { handover: { type: string } }'))[0]).toEqual({
       message:
         "`handover` is reserved: a step's handover and its `output` are artifacts, read as `steps.<id>.handover`.",
       path: 'steps[0].outputs.handover',
@@ -358,8 +358,8 @@ const TRIAGE = `- id: triage
   prompt: Triage it.
   outputs:
     verdict: { enum: [page, ignore] }
-    count: integer
-    note: string`;
+    count: { type: integer }
+    note: { type: string }`;
 const BRIEF = '- id: brief\n  prompt: Brief it.';
 /** An entry on `on`, whose `post` call takes `withYaml` (one line, a flow mapping) after `triage` and `brief`. */
 function callEntry(
@@ -618,7 +618,7 @@ describe('interpretedNotice', () => {
         '      - id: post',
         '        uses: slack#chat_post_message',
         '        with: { query: "{{steps.brief.handover}}" }',
-        '        outputs: { ts: string }',
+        '        outputs: { ts: { type: string } }',
       ].join('\n'),
     );
     if (!result.ok) throw new Error(JSON.stringify(result.issues));

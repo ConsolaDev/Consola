@@ -247,7 +247,7 @@ describe('agentIssues', () => {
     const looped = read({
       ...BASE,
       'automations/looped.yaml':
-        'on: { cron: "0 7 * * 1-5" }\nscope: api\nsteps:\n  - id: plain\n    prompt: Plain.\n  - id: polish\n    repeat: { max: 2, until: steps.a.ok }\n    steps:\n      - id: a\n        agent: tidier\n        outputs: { ok: boolean }\n',
+        'on: { cron: "0 7 * * 1-5" }\nscope: api\nsteps:\n  - id: plain\n    prompt: Plain.\n  - id: polish\n    repeat: { max: 2, until: steps.a.ok }\n    steps:\n      - id: a\n        agent: tidier\n        outputs: { ok: { type: boolean } }\n',
     });
     expect(looped.issues).toEqual([]);
     const ask = vi.fn((_agent: AgentDefinition, _checkout: CheckoutKind) => answer({}));

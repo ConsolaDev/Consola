@@ -508,7 +508,7 @@ steps:
     prompt: Review pull request {{item.number}}.
     outputs:
       verdict: { enum: [approve, comment] }
-      findings: integer
+      findings: { type: integer }
     artifacts: [review]
     max_turns: 12
   - id: comment
@@ -591,7 +591,7 @@ steps:
       - id: tidy
         uses: consola#cleanup_stale_sessions
         with: { pr_states: [merged] }
-        outputs: { done: boolean }
+        outputs: { done: { type: boolean } }
 `;
     const [ship] = parseFactory({
       factoryYml: 'version: 1\nmcpServers:\n  slack:\n    command: /opt/sprocket/bin/slack-mcp\n',
@@ -624,7 +624,7 @@ steps:
     steps:
       - id: check
         run: pnpm lint --format json
-        outputs: { clean: boolean }
+        outputs: { clean: { type: boolean } }
       - id: tidy
         agent: reviewer
         prompt: Tidy what the check found.

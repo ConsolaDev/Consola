@@ -68,7 +68,7 @@ const PR_A_REVIEW_YAML = String.raw`- name: review-assigned-prs
         if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
         echo "needed=$needed" >> "$CONSOLA_OUTPUT"
       env: { PR: "{{item.url}}" }
-      outputs: { needed: boolean }
+      outputs: { needed: { type: boolean } }
       dry_run: run
     - id: review
       if: steps.fresh.needed
@@ -256,7 +256,7 @@ describe('automationVersion', () => {
       '      run: |',
       '        echo "needed=true" >> "$CONSOLA_OUTPUT"',
       '      env: { PR: "{{item.url}}" }',
-      '      outputs: { needed: boolean }',
+      '      outputs: { needed: { type: boolean } }',
       '      dry_run: run',
       '    - id: review',
       '      if: steps.fresh.needed',
@@ -341,7 +341,10 @@ describe('automationVersion', () => {
           'verdict: { enum: [approve, comment] }',
           'verdict: { enum: [approve, comment, other] }',
         ),
-        edit('outputs: { needed: boolean }', 'outputs: { needed: boolean, extra: string }'),
+        edit(
+          'outputs: { needed: { type: boolean } }',
+          'outputs: { needed: { type: boolean }, extra: { type: string } }',
+        ),
         edit(
           'prompt: Review this pull request.',
           'prompt: Review this pull request.\n      artifacts: [notes]',
@@ -533,7 +536,7 @@ describe('the version of an entry with a uses: step', () => {
       version,
     );
     expect(versionOf(`${BASE}\ntimeout: 30s`)).not.toBe(version);
-    expect(versionOf(`${BASE}\noutputs: { ts: string }`)).not.toBe(version);
+    expect(versionOf(`${BASE}\noutputs: { ts: { type: string } }`)).not.toBe(version);
     expect(versionOf(`${BASE}\ndry_run: run`)).not.toBe(version);
   });
 });
@@ -727,7 +730,7 @@ describe('the version of what slice 3 adds (Task 5)', () => {
     '      steps:',
     '        - id: review',
     '          prompt: Review it.',
-    '          outputs: { findings: integer }',
+    '          outputs: { findings: { type: integer } }',
     '    - id: decide',
     '      gate: { ask: Post it? }',
   ].join('\n');

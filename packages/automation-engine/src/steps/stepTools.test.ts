@@ -27,7 +27,7 @@ automations:
         reads: [research.handover]
         artifacts: [notes]
         outputs:
-          findings: integer
+          findings: { type: integer }
           verdict: { enum: [approve, comment, request-changes] }
 `;
 

@@ -957,7 +957,7 @@ describe("every step in a run's checkout ends with Consola's checks and commit (
 describe("a reminder and a resume start a step's CLI in its run's checkout: the git folder is checked first (Task 13 review)", () => {
   /** `fix` writes and must set `done`, then `pr` a command. */
   const OUTPUT_WRITE = file(
-    `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.\n  outputs: { done: boolean }', '- id: pr\n  run: "true"')}`,
+    `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.\n  outputs: { done: { type: boolean } }', '- id: pr\n  run: "true"')}`,
   );
   /** `look` a read-only agent in the run's checkout, then `pr` a command. */
   const READ_ENTRY = file(
@@ -1280,7 +1280,7 @@ describe("a person's session in a run's checkout holds the run, and what it leav
 
   it("a loop's round is one boundary with its first step, checked once, and each later round's again", async () => {
     const LOOP_WRITE = file(
-      `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: boolean }')}`,
+      `  - name: write\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: { type: boolean } }')}`,
     );
     const h = await writing(LOOP_WRITE);
     const run = await runNow(h, 'write');
@@ -1501,7 +1501,7 @@ describe("what later steps read of a run's checkout (Task 15)", () => {
 
 describe('a host says whether its launch holds a write agent (Call 2, Task 13)', () => {
   const LOOP = file(
-    `  - name: loop\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: boolean }')}`,
+    `  - name: loop\n    on: manual\n    mode: auto\n${owned('fix/{{run.id}}')}${steps('- id: polish\n  repeat: { max: 2, until: steps.fix.done }\n  steps:\n    - id: fix\n      agent: fixer\n      prompt: Fix it.\n      outputs: { done: { type: boolean } }')}`,
   );
 
   it.each(['edit', 'write'])(

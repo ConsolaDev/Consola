@@ -325,7 +325,7 @@ describe('the names an entry uses', () => {
         '          run: page "$PAGER_TOKEN"',
         '          secrets: [PAGER_TOKEN]',
         '          dry_run: run',
-        '          outputs: { clean: boolean }',
+        '          outputs: { clean: { type: boolean } }',
         '        - id: post',
         '          uses: slack#chat_post_message',
         '          with: { channel: "#ops" }',

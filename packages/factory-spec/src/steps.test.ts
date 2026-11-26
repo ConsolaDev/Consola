@@ -278,7 +278,7 @@ describe('agent', () => {
   });
 
   it('says a step has one of the five', () => {
-    expect(only(inFolder('- id: x\n  outputs: { ok: boolean }'))).toMatchObject({
+    expect(only(inFolder('- id: x\n  outputs: { ok: { type: boolean } }'))).toMatchObject({
       path: 'automations[0].steps[0]',
       message: 'A step has one of `prompt`, `action`, `agent`, `run`, `uses`, `gate` or `repeat`.',
     });
@@ -587,7 +587,9 @@ describe('a command', () => {
   });
 
   it('declares typed outputs like an agent', () => {
-    expect(firstStep<CommandStep>(command('  outputs: { count: integer }')).outputs).toEqual({
+    expect(
+      firstStep<CommandStep>(command('  outputs: { count: { type: integer } }')).outputs,
+    ).toEqual({
       count: { type: 'integer' },
     });
   });
@@ -688,11 +690,11 @@ describe('outputs', () => {
       outputs(
         [
           'verdict: { enum: [approve, comment] }',
-          'findings: integer',
+          'findings: { type: integer }',
           'confidence: { type: number, minimum: 0, maximum: 1 }',
-          'blocking: boolean',
+          'blocking: { type: boolean }',
           'summary: { type: string, maxLength: 500 }',
-          'note: string',
+          'note: { type: string }',
         ].join('\n'),
       ),
     );
@@ -716,14 +718,18 @@ describe('outputs', () => {
   });
 
   it('allows at most 10', () => {
-    const eleven = Array.from({ length: 11 }, (_, index) => `o${index}: boolean`).join('\n');
+    const eleven = Array.from({ length: 11 }, (_, index) => `o${index}: { type: boolean }`).join(
+      '\n',
+    );
     expect(only(outputs(eleven)).message).toMatch(/at most 10/);
-    const ten = Array.from({ length: 10 }, (_, index) => `o${index}: boolean`).join('\n');
+    const ten = Array.from({ length: 10 }, (_, index) => `o${index}: { type: boolean }`).join('\n');
     expect(agent(`  outputs:\n${ten.replace(/^/gm, '    ')}`).issues).toEqual([]);
   });
 
   it('holds names to the pattern', () => {
-    expect(only(outputs('Verdict: boolean')).path).toBe('automations[0].steps[0].outputs.Verdict');
+    expect(only(outputs('Verdict: { type: boolean }')).path).toBe(
+      'automations[0].steps[0].outputs.Verdict',
+    );
   });
 
   it('refuses a bad enum', () => {
@@ -739,6 +745,18 @@ describe('outputs', () => {
     for (const body of bad) expect(only(outputs(body)).path, body).toMatch(/outputs\.v\.enum$/);
   });
 
+  it('refuses a bare type name, showing the mapping to write', () => {
+    for (const type of ['integer', 'number', 'boolean', 'string']) {
+      expect(only(outputs(`v: ${type}`)), type).toMatchObject({
+        path: 'automations[0].steps[0].outputs.v',
+        message: `An output's type is a mapping: write \`v: { type: ${type} }\`.`,
+      });
+    }
+    expect(only(outputs('v: text')).message).toBe(
+      '`text` is not an output type. Use `{ type: integer }`, `{ type: number }`, `{ type: boolean }`, `{ type: string }` or `{ enum: [...] }`.',
+    );
+  });
+
   it('refuses objects, arrays and nulls', () => {
     expect(only(outputs('v: { type: object }')).message).toMatch(/no objects, arrays or nulls/);
     expect(only(outputs('v: object')).message).toMatch(/no objects, arrays or nulls/);
@@ -746,8 +764,8 @@ describe('outputs', () => {
   });
 
   it('reserves handover and output', () => {
-    expect(only(outputs('handover: boolean')).message).toMatch(/reserved/);
-    expect(only(outputs('output: boolean')).message).toMatch(/reserved/);
+    expect(only(outputs('handover: { type: boolean }')).message).toMatch(/reserved/);
+    expect(only(outputs('output: { type: boolean }')).message).toMatch(/reserved/);
   });
 
   it('refuses an unknown key or an inverted range', () => {
@@ -779,7 +797,7 @@ describe('artifacts', () => {
   });
 
   it('shares one namespace with outputs', () => {
-    const issue = only(agent('  outputs: { notes: boolean }\n  artifacts: [notes]'));
+    const issue = only(agent('  outputs: { notes: { type: boolean } }\n  artifacts: [notes]'));
     expect(issue.message).toMatch(/one namespace/);
   });
 });
@@ -836,10 +854,10 @@ const REVIEW_STEP = [
   '  prompt: Review it.',
   '  outputs:',
   '    verdict: { enum: [approve, comment, request-changes] }',
-  '    count: integer',
-  '    score: number',
-  '    ok: boolean',
-  '    note: string',
+  '    count: { type: integer }',
+  '    score: { type: number }',
+  '    ok: { type: boolean }',
+  '    note: { type: string }',
   '  artifacts: [notes]',
 ].join('\n');
 
@@ -886,7 +904,7 @@ describe('across steps', () => {
     it('refuses a later step', () => {
       const built = entry([
         '- id: first\n  run: echo\n  if: "steps.second.x == 1"',
-        '- id: second\n  run: echo\n  outputs: { x: integer }',
+        '- id: second\n  run: echo\n  outputs: { x: { type: integer } }',
       ]);
       expectIssue(
         built,
@@ -898,7 +916,7 @@ describe('across steps', () => {
 
     it('refuses the step itself', () => {
       const built = entry([
-        '- id: me\n  run: echo\n  if: "steps.me.x == 1"\n  outputs: { x: integer }',
+        '- id: me\n  run: echo\n  if: "steps.me.x == 1"\n  outputs: { x: { type: integer } }',
       ]);
       expectIssue(
         built,
@@ -927,7 +945,7 @@ describe('across steps', () => {
 
     it('refuses an unnamed step', () => {
       const built = entry([
-        '- run: echo\n  outputs: { x: integer }',
+        '- run: echo\n  outputs: { x: { type: integer } }',
         '- id: next\n  if: "steps.step-1.x == 1"\n  run: echo',
       ]);
       expectIssue(
@@ -1206,7 +1224,7 @@ describe('across steps', () => {
     it('takes outputs of earlier steps', () => {
       const built = entry(
         [
-          '- id: a\n  run: echo\n  outputs: { n: integer }',
+          '- id: a\n  run: echo\n  outputs: { n: { type: integer } }',
           '- id: b\n  if: "steps.a.n > 1"\n  run: echo',
         ],
         DAILY,
@@ -1407,7 +1425,7 @@ describe('items per trigger', () => {
       expect(env('{{item.head}}', POLL_ITEM).result.issues).toEqual([]);
       const built = entry(
         [
-          '- id: x\n  run: echo\n  outputs: { ok: boolean }',
+          '- id: x\n  run: echo\n  outputs: { ok: { type: boolean } }',
           `- id: y\n  if: "steps.x.ok && item.head == 'abc'"\n  run: echo`,
         ],
         POLL_ITEM,
@@ -1762,7 +1780,7 @@ describe('what a step may say about writing (slice 3-B)', () => {
     expect(
       only(
         steps(
-          '- id: checkout\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      prompt: x\n      outputs: { done: boolean }',
+          '- id: checkout\n  repeat: { max: 2, until: steps.look.done }\n  steps:\n    - id: look\n      prompt: x\n      outputs: { done: { type: boolean } }',
         ),
       ).message,
     ).toBe('`checkout` is reserved; name this step something else.');
@@ -1795,7 +1813,7 @@ describe('what a step may say about writing (slice 3-B)', () => {
     const ok = owned(
       '- id: review\n  prompt: x\n  reads: [checkout.changes]',
       '- id: decide\n  gate: { ask: Go?, show: [checkout.changes, review.handover] }',
-      '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  on_exhausted: { gate: { ask: Stop?, show: [checkout.changes] } }\n  steps:\n    - id: look\n      prompt: x\n      outputs: { done: boolean }',
+      '- id: polish\n  repeat: { max: 2, until: steps.look.done }\n  on_exhausted: { gate: { ask: Stop?, show: [checkout.changes] } }\n  steps:\n    - id: look\n      prompt: x\n      outputs: { done: { type: boolean } }',
     );
     expect(ok.issues).toEqual([]);
     const [automation] = ok.automations;

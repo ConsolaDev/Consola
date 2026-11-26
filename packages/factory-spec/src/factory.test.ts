@@ -218,7 +218,7 @@ automations:
             '        steps:',
             '          - id: look',
             '            agent: noter',
-            '            outputs: { done: boolean }',
+            '            outputs: { done: { type: boolean } }',
             '',
           ].join('\n'),
         }),
@@ -563,7 +563,7 @@ automations:
 
     it("refuses a loop's call naming a server factory.yml does not define, at its line (the merge with slice 3)", () => {
       const LOOP =
-        '- id: polish\n  repeat: { max: 2, until: "steps.file.key != \x27\x27" }\n  steps:\n    - id: file\n      uses: jira#create_issue\n      with: { title: Shipped }\n      outputs: { key: string }';
+        '- id: polish\n  repeat: { max: 2, until: "steps.file.key != \x27\x27" }\n  steps:\n    - id: file\n      uses: jira#create_issue\n      with: { title: Shipped }\n      outputs: { key: { type: string } }';
       const result = parseFactory(files({ factoryYml: yml(SLACK, LOOP) }));
       expect(names(result)).toEqual([]);
       expect(result.issues).toEqual([
@@ -667,7 +667,7 @@ automations:
         files({
           factoryYml: yml(
             SLACK,
-            '- id: post\n  uses: slack#chat_post_message\n  outputs: { ts: string }',
+            '- id: post\n  uses: slack#chat_post_message\n  outputs: { ts: { type: string } }',
             '- id: follow\n  run: echo "$TS"\n  env: { TS: "{{steps.post.ts}}", BODY: "{{steps.post.output}}" }',
             '- id: tell\n  prompt: Say what was posted.\n  reads: [post.output]',
           ),
@@ -807,7 +807,7 @@ automations:
         '    steps:',
         '      - id: investigate',
         '        agent: investigator',
-        '        outputs: { done: boolean }',
+        '        outputs: { done: { type: boolean } }',
         '',
       ].join('\n');
       const result = parseFactory(
@@ -863,7 +863,7 @@ automations:
                   '    steps:',
                   '      - id: look',
                   `        agent: ${agent}`,
-                  '        outputs: { done: boolean }',
+                  '        outputs: { done: { type: boolean } }',
                   `        on_failure: { retry: ${retry} }`,
                 ]
               : ['  - id: look', `    agent: ${agent}`, `    on_failure: { retry: ${retry} }`]),
@@ -1193,7 +1193,7 @@ describe('write agents across the folder (slice 3-B)', () => {
         agents: { fixer: WRITE_AGENT.replace('tools: write', 'tools: edit') },
         environments: { sandboxed: 'isolation: sandbox\n' },
         factoryYml:
-          'version: 1\nautomations:\n  - name: fix\n    on: { github: { events: [pull_request.opened] } }\n    checkout: { pr: item }\n    steps:\n      - id: polish\n        repeat: { max: 2, until: steps.fix.done }\n        steps:\n          - id: fix\n            agent: fixer\n            prompt: Fix.\n            outputs: { done: boolean }\n',
+          'version: 1\nautomations:\n  - name: fix\n    on: { github: { events: [pull_request.opened] } }\n    checkout: { pr: item }\n    steps:\n      - id: polish\n        repeat: { max: 2, until: steps.fix.done }\n        steps:\n          - id: fix\n            agent: fixer\n            prompt: Fix.\n            outputs: { done: { type: boolean } }\n',
       }),
     );
     expect(names(parsed)).toEqual([]);

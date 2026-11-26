@@ -303,25 +303,31 @@ type Fail = (message: string, path?: Array<string | number>) => void;
 
 const NO_COMPLEX_OUTPUTS =
   'An output is an enum, integer, number, boolean or string: no objects, arrays or nulls.';
+/** Every output type as it is written: a mapping, whatever the type. */
+const OUTPUT_TYPES =
+  '`{ type: integer }`, `{ type: number }`, `{ type: boolean }`, `{ type: string }` or `{ enum: [...] }`';
 
+/**
+ * One output's type, written as a mapping: `{ type: <name> }` (with its own
+ * keys: a number's `minimum` and `maximum`, a string's `maxLength`) or
+ * `{ enum: [...] }`. A bare type name meant the same as its mapping with no
+ * other key, and is refused with the mapping to write.
+ */
 function parseOutputType(name: string, value: unknown, fail: Fail): OutputType | undefined {
   const at = ['outputs', name];
   if (typeof value === 'string') {
-    if (value === 'integer' || value === 'number' || value === 'boolean') return { type: value };
-    if (value === 'string') return { type: 'string', maxLength: DEFAULT_STRING_MAX };
     fail(
-      value === 'object' || value === 'array' || value === 'null'
-        ? NO_COMPLEX_OUTPUTS
-        : `\`${value}\` is not an output type. Use integer, number, boolean, string, or \`{ enum: [...] }\`.`,
+      value === 'integer' || value === 'number' || value === 'boolean' || value === 'string'
+        ? `An output's type is a mapping: write \`${name}: { type: ${value} }\`.`
+        : value === 'object' || value === 'array' || value === 'null'
+          ? NO_COMPLEX_OUTPUTS
+          : `\`${value}\` is not an output type. Use ${OUTPUT_TYPES}.`,
       at,
     );
     return undefined;
   }
   if (!isRecord(value)) {
-    fail(
-      `Expected a type for \`${name}\`: integer, number, boolean, string, or \`{ enum: [...] }\`. ${NO_COMPLEX_OUTPUTS}`,
-      at,
-    );
+    fail(`Expected a type for \`${name}\`: ${OUTPUT_TYPES}. ${NO_COMPLEX_OUTPUTS}`, at);
     return undefined;
   }
   const keys = Object.keys(value);
@@ -413,7 +419,7 @@ function parseOutputType(name: string, value: unknown, fail: Fail): OutputType |
   fail(
     type === 'object' || type === 'array' || type === 'null' || type === undefined
       ? NO_COMPLEX_OUTPUTS
-      : `\`${String(type)}\` is not an output type. Use integer, number, boolean, string, or \`{ enum: [...] }\`.`,
+      : `\`${String(type)}\` is not an output type. Use ${OUTPUT_TYPES}.`,
     type === undefined ? at : [...at, 'type'],
   );
   return undefined;

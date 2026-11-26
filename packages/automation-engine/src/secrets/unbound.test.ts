@@ -88,7 +88,7 @@ describe('unboundOf', () => {
         '        - id: check',
         '          run: page "$PAGER_TOKEN"',
         '          secrets: [PAGER_TOKEN]',
-        '          outputs: { clean: boolean }',
+        '          outputs: { clean: { type: boolean } }',
       ].join('\n'),
     );
     expect(unboundOf(loop, portBinding(), 'ws-1')).toEqual({

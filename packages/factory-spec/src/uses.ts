@@ -188,7 +188,7 @@ export function parseUsesStep(
     const given = raw.outputs;
     if (isRecord(given) && given.from === 'stdout')
       bad(
-        "A tool's outputs are its result's fields: declare them by name, e.g. `outputs: { ts: string }`.",
+        "A tool's outputs are its result's fields: declare them by name, e.g. `outputs: { ts: { type: string } }`.",
         ['outputs'],
       );
     else {

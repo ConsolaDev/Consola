@@ -316,7 +316,7 @@ describe('a steps entry, resolved against its workspace', () => {
   it("refuses a loop's command on Windows, as any command", async () => {
     const looped = factory(
       ON_REVIEW,
-      '- id: polish\n  repeat: { max: 2, until: steps.check.ok }\n  steps:\n    - id: check\n      run: gh pr checks\n      outputs: { ok: boolean }',
+      '- id: polish\n  repeat: { max: 2, until: steps.check.ok }\n  steps:\n    - id: check\n      run: gh pr checks\n      outputs: { ok: { type: boolean } }',
     );
     expect((await listed({ yaml: looped, platform: 'win32' })).problem).toBe(
       'run: steps need a POSIX shell, which Windows does not have',
@@ -1918,7 +1918,7 @@ describe('running a steps run', () => {
 
 /** The shipped review template, shortened: fresh asks whether a review is needed, then the review, then the post. */
 const FRESH =
-  '- id: fresh\n  run: echo "needed=true" >> "$CONSOLA_OUTPUT"\n  env: { PR: "{{item.url}}" }\n  outputs: { needed: boolean }\n  dry_run: run';
+  '- id: fresh\n  run: echo "needed=true" >> "$CONSOLA_OUTPUT"\n  env: { PR: "{{item.url}}" }\n  outputs: { needed: { type: boolean } }\n  dry_run: run';
 const REVIEW_IT =
   '- id: review\n  if: steps.fresh.needed\n  prompt: Review this pull request and write the review as your handover.\n  outputs:\n    verdict: { enum: [approve, comment, request-changes] }';
 const POST =
@@ -2335,7 +2335,7 @@ describe('command steps', () => {
   it('an output that repeats the token is recorded masked', async () => {
     const yaml = factory(
       DAILY_AUTO,
-      '- id: whoami\n  run: echo "note=signed in as $GH_TOKEN" >> "$CONSOLA_OUTPUT"\n  outputs: { note: string }',
+      '- id: whoami\n  run: echo "note=signed in as $GH_TOKEN" >> "$CONSOLA_OUTPUT"\n  outputs: { note: { type: string } }',
     );
     const h = await accepted(yaml);
     const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;

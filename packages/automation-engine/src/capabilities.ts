@@ -211,7 +211,7 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
           prompt: >-
             Review this pull request with Consola's work_item_context tool. Write each finding that must
             be fixed, with its file and line, as your handover, and set findings to how many there are.
-          outputs: { findings: integer }
+          outputs: { findings: { type: integer } }
     - id: decide
       gate: { ask: Post the review? }
     - id: publish
@@ -261,7 +261,7 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
         - id: review
           agent: pre-pr-reviewer
           reads: [checkout.changes, fix.handover]
-          outputs: { findings: integer }
+          outputs: { findings: { type: integer } }
         - id: address
           if: steps.review.findings > 0
           agent: ui-bugfixer
@@ -276,7 +276,7 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
         git push origin "HEAD:refs/heads/$CONSOLA_BRANCH"
         echo "url=$(gh pr create --head "$CONSOLA_BRANCH" --title "$TITLE" --body-file "$BODY_FILE")" >> "$CONSOLA_OUTPUT"
       env: { TITLE: "{{item.key}}: {{item.title}}", BODY_FILE: "{{steps.fix.handover.file}}" }
-      outputs: { url: string }
+      outputs: { url: { type: string } }
     - id: ticket
       run: |
         acli jira workitem transition --key "$KEY" --status "In Review"
@@ -529,7 +529,7 @@ Steps. Each step has one of prompt:, action:, agent: <name>, run:, uses: (see Ca
 - env: these names and prefixes are refused because they make a program run a value: ${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')} (${ENV_PREFIX_EXCEPTIONS.join(' and ')} are the bound account's: Consola sets them). Values stay data; set such a variable inside run: if you must.
 - dry_run: report (default) or run: what a notify run does with the command; run is for a command that only reads.
 - permissions: { <name>: read | write } on a run: step only: the GitHub permissions its command needs, from contents, pull_requests, issues, checks, statuses and metadata (metadata only read). A cloud runner gives the step a GitHub token narrowed to them, and a step without it none; on this computer a command runs as the workspace's bound account, so here it has no effect. Changing it asks again.
-- outputs: typed values the step must end with, at most 10, named ^[a-z][a-z0-9_]{0,31}$, never handover or output (reserved, like artifact names): { verdict: { enum: [a, b] } (1 to 20 values, each 1 to 64 characters, no line breaks), n: integer, x: { type: number, minimum: 0, maximum: 1 }, ok: boolean, s: { type: string, maxLength: 500 } }. A string defaults to 1000 characters, at most 4000. A run: step may instead say outputs: { from: stdout, format: json | text }: stdout becomes its artifact \`output\`.
+- outputs: typed values the step must end with, at most 10, named ^[a-z][a-z0-9_]{0,31}$, never handover or output (reserved, like artifact names): { verdict: { enum: [a, b] } (1 to 20 values, each 1 to 64 characters, no line breaks), n: { type: integer }, x: { type: number, minimum: 0, maximum: 1 }, ok: { type: boolean }, s: { type: string, maxLength: 500 } }. Each type is a mapping, { type: <name> } or { enum: [...] }, never a bare name. A string defaults to 1000 characters, at most 4000. A run: step may instead say outputs: { from: stdout, format: json | text }: stdout becomes its artifact \`output\`.
 - artifacts: [names] an agent step must write before it ends; it may always write a handover. reads: [<step>.<artifact>] are the only earlier documents an agent step sees (<step>.handover, <step>.output).
 - max_turns: 1 to 500, an agent step's turn cap: the step fails when its turn reaches it ("It hit its limit of <n> turns before finishing."), with no reminder. Without it a turn runs until it ends, at most an hour. Each agent step's cost and turns are recorded on its run.
 Not supported yet, refused with a reason: ${REFUSED_KEYS}. A step has no inputs: use reads:.
@@ -600,12 +600,12 @@ export const USES_EXAMPLE = `- name: post-shipped
     - id: post
       uses: slack#chat_post_message
       with: { channel: C0SUPPORT1, text: "Shipped last week: {{steps.shipped.output}}" }
-      outputs: { ts: string }`;
+      outputs: { ts: { type: string } }`;
 
 /** What an agent is told of a `uses:` step: one tool call, with no agent. */
 export const USES_GRAMMAR = `Calls. uses: <server>#<tool> is a step that calls one tool itself, with no agent and no shell: a server under mcpServers:, or consola for Consola's own tools. It takes none of prompt:, action:, agent:, run:, env:, secrets:, artifacts: or reads:; its keys are id:, if:, uses:, with:, outputs:, timeout:, dry_run:, then: and on_failure: (a retry above 0 only with dry_run: run, as a command's).
 - with: the tool's arguments, any YAML. A string may hold {{ path }}, any path env: takes, untrusted ones included: Consola reads none of it, so a value someone else wrote reaches the tool as it is, and an argument named like query, sql, command, url, path or prompt given one gets a notice. Never .file, a {{ }} in an argument's name, or {{secrets.X}} (a tool's credentials belong to its server's secrets:). A string that is exactly one {{ path }} keeps the path's type: a number output arrives as a number.
-- outputs: the result's own top-level fields, by name and type ({ ts: string }); the whole result is the step's output artifact (steps.<id>.output).
+- outputs: the result's own top-level fields, by name and type ({ ts: { type: string } }); the whole result is the step's output artifact (steps.<id>.output).
 - timeout: the whole call, default 60s, at most 10m.
 - dry_run: in a dry run (notify) the call is reported, not made, unless dry_run: run.
 A call that was sent and may have happened (it timed out, it was stopped, the server closed the connection, its result reported an error) is never repeated by Consola: the step fails, and a person retries it. uses: consola#<tool> calls one of targets.tools in process; an argument whose role is prompt or selector takes only trusted values, and a tool that changes things cannot have dry_run: run. run: { tool: consola#<tool>, with: … } keeps working as it does.

@@ -75,7 +75,7 @@ const SPEC_ENTRY = String.raw`- name: review-assigned-prs
         if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
         echo "needed=$needed" >> "$CONSOLA_OUTPUT"
       env: { PR: "{{item.url}}" }
-      outputs: { needed: boolean }
+      outputs: { needed: { type: boolean } }
       dry_run: run
     - id: review
       if: steps.fresh.needed

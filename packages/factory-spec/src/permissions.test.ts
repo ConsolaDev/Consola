@@ -161,7 +161,7 @@ describe('permissions: on a step', () => {
 
     const loop = only(
       steps(
-        '- id: polish\n  repeat: { max: 2, until: steps.post.done }\n  permissions: { pull_requests: write }\n  steps:\n    - id: post\n      run: echo "done=true" >> "$CONSOLA_OUTPUT"\n      outputs: { done: boolean }',
+        '- id: polish\n  repeat: { max: 2, until: steps.post.done }\n  permissions: { pull_requests: write }\n  steps:\n    - id: post\n      run: echo "done=true" >> "$CONSOLA_OUTPUT"\n      outputs: { done: { type: boolean } }',
       ),
     );
     expect(loop.path).toBe('automations[0].steps[0].permissions');
@@ -170,7 +170,7 @@ describe('permissions: on a step', () => {
 
   it('is taken by a run: step inside a loop', () => {
     const result = steps(
-      '- id: polish\n  repeat: { max: 2, until: steps.post.done }\n  steps:\n    - id: post\n      run: echo "done=true" >> "$CONSOLA_OUTPUT"\n      outputs: { done: boolean }\n      permissions: { contents: write }',
+      '- id: polish\n  repeat: { max: 2, until: steps.post.done }\n  steps:\n    - id: post\n      run: echo "done=true" >> "$CONSOLA_OUTPUT"\n      outputs: { done: { type: boolean } }\n      permissions: { contents: write }',
     );
     expect(result.issues).toEqual([]);
     const [automation] = result.automations;

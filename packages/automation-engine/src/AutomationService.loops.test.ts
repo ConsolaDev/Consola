@@ -349,7 +349,7 @@ describe('retries inside and of a loop', () => {
           polish(
             '',
             LOOK,
-            'id: fix\nif: steps.look.findings > 0\nrun: ./fix\ndry_run: run\noutputs: { clean: boolean }',
+            'id: fix\nif: steps.look.findings > 0\nrun: ./fix\ndry_run: run\noutputs: { clean: { type: boolean } }',
           ).replace('until: steps.look.findings == 0', 'until: steps.fix.clean'),
           DONE,
         ),
@@ -421,7 +421,7 @@ describe('retries inside and of a loop', () => {
       entry(
         'loops',
         MANUAL('notify'),
-        polish('', LOOK, 'id: check\nrun: ./check\noutputs: { clean: boolean }').replace(
+        polish('', LOOK, 'id: check\nrun: ./check\noutputs: { clean: { type: boolean } }').replace(
           'until: steps.look.findings == 0',
           'until: steps.check.clean == true',
         ),

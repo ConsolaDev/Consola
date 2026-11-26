@@ -560,7 +560,7 @@ describe("a run's secrets", () => {
 
 describe("a value's printed forms", () => {
   const firstLine = PAGER_VALUE.split('\n')[0];
-  const NOTED = file(entryOf('noted', `${PAGE}\n  outputs: { note: string }`));
+  const NOTED = file(entryOf('noted', `${PAGE}\n  outputs: { note: { type: string } }`));
   const printed = () => ({
     stdout: `${PAGER_VALUE}\n`,
     stderr: [
@@ -661,7 +661,9 @@ describe("a value's printed forms", () => {
   });
 
   it("empty a cut-off $CONSOLA_OUTPUT in a run that names none: the bound account's token is masked there too", async () => {
-    const h = await accepted(file(entryOf('tidy', `${TIDY}\n  outputs: { note: string }`)));
+    const h = await accepted(
+      file(entryOf('tidy', `${TIDY}\n  outputs: { note: { type: string } }`)),
+    );
     const runId = await runNow(h, 'tidy');
     const out = attemptFile(h, runId, 'tidy', 'outputs.env');
     fs.appendFileSync(out, 'note=gho_stub\n');
@@ -938,7 +940,7 @@ describe("a check's secrets", () => {
 
 describe("a run's secrets, with slice 3's loops, gates and retry waits (the merge)", () => {
   const CHECK =
-    '- id: polish\n  repeat: { max: 2, until: steps.check.clean }\n  steps:\n    - id: check\n      run: page --service api\n      secrets: [PAGER_TOKEN]\n      outputs: { clean: boolean }';
+    '- id: polish\n  repeat: { max: 2, until: steps.check.clean }\n  steps:\n    - id: check\n      run: page --service api\n      secrets: [PAGER_TOKEN]\n      outputs: { clean: { type: boolean } }';
   const LOOPED = file(entryOf('looped', CHECK));
 
   it("a command inside a repeat: loop needs its names bound, is read once, and every round's spec carries them", async () => {
