@@ -227,7 +227,7 @@ export const deleteTeamMember = createRoute({
   },
 });
 
-// Factories: a team's, its files stored in the cell and versioned (`domain/factory.ts`).
+// Factories: a team's, its files stored here and versioned (`domain/factory.ts`).
 
 const factoryNotFound = json(
   failure('factory_not_found'),
@@ -247,7 +247,7 @@ export const FactorySource = z
   .strictObject({ kind: z.literal('stored') })
   .openapi('FactorySource', {
     description:
-      "Where the factory's files come from: `stored`, saved in the cell. A GitHub repository comes later.",
+      "Where the factory's files come from: `stored`, saved in Consola. A GitHub repository comes later.",
   });
 
 export const Factory = z
@@ -286,7 +286,7 @@ export const FactoryVersion = z
     factoryId: z.string(),
     version: z.number().int(),
     savedAt: z.string().openapi({ description: 'When it was saved, as an ISO 8601 time.' }),
-    savedBy: z.string().openapi({ description: 'The global id of the person who saved it.' }),
+    savedBy: z.string().openapi({ description: 'The id of the person who saved it.' }),
     files: z.array(FactoryFile).openapi({ description: 'Its files, by path.' }),
   })
   .openapi('FactoryVersion', { description: "One version of a factory's files, as saved." });
@@ -401,7 +401,7 @@ export const postFactory = createRoute({
   path: '/api/factories',
   summary: 'Make a blank factory, owned by a team',
   description:
-    'Its files are stored in the cell, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.',
+    'Its files are stored in Consola, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.',
   request: body(NewFactory),
   responses: {
     ...callerFailures,
@@ -550,7 +550,7 @@ const iso = (what: string) => z.string().openapi({ description: `${what}, as an 
 
 export const Phase = z.enum(PHASES).openapi('Phase', {
   description:
-    "The cell's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected).",
+    "Consola's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected).",
 });
 
 export const RunStatus = z.enum(RUN_STATUSES).openapi('RunStatus', {
@@ -625,7 +625,7 @@ export const RunSummary = z
     }),
     startedBy: z.string().nullable().openapi({
       description:
-        'The global id of the person who started it, who may no longer be a member; null for a run no person started.',
+        'The id of the person who started it, who may no longer be a member; null for a run no person started.',
     }),
     item: z.union([RunItem, z.null()]),
     runner: z.string().openapi({ description: 'Which runner ran it: `cloud` for now.' }),
@@ -800,7 +800,7 @@ export const RunSource = z
   })
   .openapi('RunSource', {
     description:
-      "The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in the cell yet), and when that version does not define the automation.",
+      "The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in Consola yet), and when that version does not define the automation.",
   });
 
 export const RunApproval = z
@@ -832,7 +832,7 @@ export const RunApproval = z
     answer: z
       .strictObject({
         decision: z.enum(APPROVAL_DECISIONS),
-        by: z.string().openapi({ description: 'The global id of the person who answered.' }),
+        by: z.string().openapi({ description: 'The id of the person who answered.' }),
         at: z.string().openapi({ description: 'When, as an ISO 8601 time.' }),
       })
       .nullable()
@@ -840,7 +840,7 @@ export const RunApproval = z
   })
   .openapi('RunApproval', {
     description:
-      "A run's request to be approved: present while the run needs approval, and once answered. The cell records the answer; the run's runner acts on it.",
+      "A run's request to be approved: present while the run needs approval, and once answered. Consola records the answer; the run's runner acts on it.",
   });
 
 export const RunDetail = z
@@ -865,7 +865,7 @@ export const RunDetail = z
         }),
         question: z.strictObject({ at: z.string(), until: z.string() }).nullable().openapi({
           description:
-            "The orchestrator's open question: when it was asked, and its deadline. Its text is not in the cell.",
+            "The orchestrator's open question: when it was asked, and its deadline. Its text is not in Consola.",
         }),
       })
       .nullable()
@@ -968,7 +968,7 @@ export const listRuns = createRoute({
     200: json(RunList, 'A page of runs, the counts and what the filters offer.'),
     400: badRequest(
       failure('invalid_request'),
-      'A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long.',
+      'A phase or trigger Consola does not know, a cursor it did not give, a `limit` out of range or a `q` too long.',
     ),
   },
 });
@@ -1000,7 +1000,7 @@ export const postRunApproval = createRoute({
   path: '/api/runs/{runId}/approval',
   summary: 'Approve or dismiss a run that waits for approval',
   description:
-    "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.",
+    "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. Consola records it and does not change the run: its runner acts on it.",
   request: { params: z.object({ runId: RunId }), ...body(ApprovalAnswer) },
   responses: {
     ...callerFailures,
@@ -1094,7 +1094,7 @@ export const CloudSession = z
     workspaceId: z.string(),
     personId: z.string().nullable().openapi({
       description:
-        'The global id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees.',
+        'The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees.',
     }),
     repository: z.string().openapi({ description: 'The repository, as `owner/name`.' }),
     harness: Harness,
@@ -1104,7 +1104,7 @@ export const CloudSession = z
     }),
     title: z.string().nullable().openapi({
       description:
-        "What the runner named it; for an agent run, the cell's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces.",
+        "What the runner named it; for an agent run, Consola's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces.",
     }),
     hostUrl: z.string().nullable().openapi({
       description: "The origin the session's host listens on, once the runner reported it.",
@@ -1115,7 +1115,7 @@ export const CloudSession = z
     }),
     errorCode: z.enum(CELL_FAILURE_CODES).nullable().openapi({
       description:
-        'A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start the cell could not compose (`agent_run_invalid`).',
+        'A failure Consola decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start Consola could not compose (`agent_run_invalid`).',
     }),
     runnerId: z.string().nullable().openapi({
       description:
@@ -1165,7 +1165,7 @@ export const CloudSessionPass = z
   .strictObject({
     pass: z.string().openapi({
       description:
-        "The session pass, a compact JWS signed with the cell's own key, which the session's host checks.",
+        "The session pass, a compact JWS signed with Consola's own pass key, which the session's host checks.",
     }),
     hostUrl: z.string().openapi({ description: "The origin the session's host listens on." }),
     expiresAt: z
@@ -1275,6 +1275,6 @@ export const postCloudSessionPass = createRoute({
       ),
       headers: noStore,
     },
-    503: noRunner('The cell has no pass key, and so no runner (`no_runner`).'),
+    503: noRunner('Consola has no pass key here, and so no runner (`no_runner`).'),
   },
 });

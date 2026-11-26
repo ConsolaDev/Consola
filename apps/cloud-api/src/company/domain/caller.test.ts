@@ -73,7 +73,7 @@ describe('admitCaller', () => {
   });
 
   it('checks in order: signed out, no header, no active workspace, switched, not a member', () => {
-    const cases: [Parameters<typeof admitCaller>[0], string][] = [
+    const cases: Array<[Parameters<typeof admitCaller>[0], string]> = [
       [asking({ signedIn: null, shownWorkspaceId: null }), 'signed_out'],
       [asking({ signedIn: null, role: null }), 'signed_out'],
       [asking({ shownWorkspaceId: null, signedIn: signedIn(null) }), 'invalid_request'],

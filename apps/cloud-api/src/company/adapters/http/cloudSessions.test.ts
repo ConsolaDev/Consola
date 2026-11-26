@@ -117,8 +117,9 @@ function build(connected: Offer | null = offer, passSigner: PassSigner | null = 
   const app: App = {
     async request(path, init = {}) {
       const headers = new Headers(init.headers);
-      if (!headers.has(WORKSPACE_HEADER))
+      if (!headers.has(WORKSPACE_HEADER)) {
         headers.set(WORKSPACE_HEADER, who?.activeWorkspaceId ?? '');
+      }
       return router.request(path, { ...init, headers });
     },
   };

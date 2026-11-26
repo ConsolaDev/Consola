@@ -11,10 +11,10 @@ import { createTeamStore, openWorkspace } from './teams.js';
  * The statements that make company's tables from nothing, as drizzle-kit writes a migration:
  * its diff from an empty schema to `tables.ts`. Worked out once, for every database a test opens.
  */
-const statements: Promise<string[]> = (() => {
-  const empty = generateDrizzleJson({});
-  return generateMigration(empty, generateDrizzleJson({ ...schema }, empty.id));
-})();
+const statements: Promise<string[]> = generateMigration(
+  generateDrizzleJson({}),
+  generateDrizzleJson({ ...schema }),
+);
 
 /**
  * A fresh in-memory database holding company's tables and no other, for the tests of its stores

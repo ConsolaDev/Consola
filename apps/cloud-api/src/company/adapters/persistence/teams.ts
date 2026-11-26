@@ -82,10 +82,11 @@ export async function openWorkspace(
     .select({ id: teams.teamId })
     .from(teams)
     .where(and(eq(teams.workspaceId, workspaceId), eq(teams.isFirst, true)));
-  if (!first)
+  if (!first) {
     throw new Error(
       `Workspace ${workspaceId} has a team named ${FIRST_TEAM_NAME} but no first team.`,
     );
+  }
 }
 
 /** The workspace's teams on company's database. */
