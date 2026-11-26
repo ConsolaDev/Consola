@@ -522,8 +522,8 @@ export function stepToolSpecs(io: StepIO, sessionId: string): StepToolSpec[] {
           .object(shape)
           .strict()
           .catch(
-            (ctx?: { input: unknown }) =>
-              (ctx ? { [SENT]: ctx.input } : undefined) as unknown as Record<string, unknown>,
+            (error?: { input: unknown }) =>
+              (error ? { [SENT]: error.input } : undefined) as unknown as Record<string, unknown>,
           )
           .optional(),
       },

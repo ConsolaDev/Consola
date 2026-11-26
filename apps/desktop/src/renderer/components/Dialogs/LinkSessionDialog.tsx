@@ -73,10 +73,10 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
     try {
       await updateSession(mode.workspaceId, row.sessionId, { workItem: row.workItem });
       onClose();
-    } catch (err) {
+    } catch (failure) {
       // Main refused (conductor, or already linked to a different item):
       // say so in place and leave the picker where it was.
-      setError(ipcErrorMessage(err));
+      setError(ipcErrorMessage(failure));
     } finally {
       setSubmitting(false);
     }

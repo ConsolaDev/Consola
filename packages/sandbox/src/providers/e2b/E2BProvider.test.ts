@@ -177,7 +177,7 @@ describe('E2BProvider', () => {
     );
 
     api.create.mockRejectedValueOnce(answered(401, `the key ${KEY} is not valid`));
-    const error = await provider.create({ template: 'base' }).catch((e: unknown) => e);
+    const error = await provider.create({ template: 'base' }).catch((caught: unknown) => caught);
     expect(error).toEqual(coded('provider', /the key \[the E2B API key\] is not valid/));
     expect(JSON.stringify(error)).not.toContain(KEY);
     expect((error as Error).message).not.toContain(KEY);

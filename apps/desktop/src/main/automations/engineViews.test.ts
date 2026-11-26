@@ -246,13 +246,13 @@ describe('parity: the engine copies equal their desktop originals', () => {
     let copy: unknown;
     try {
       agentContext('missing', all);
-    } catch (e) {
-      original = e;
+    } catch (error) {
+      original = error;
     }
     try {
       agentToolContext('missing', views);
-    } catch (e) {
-      copy = e;
+    } catch (error) {
+      copy = error;
     }
     expect(copy).toBeInstanceOf(Error);
     expect((copy as Error).message).toBe((original as Error).message);

@@ -56,8 +56,8 @@ export function ConfirmDialog({
     try {
       await onConfirm();
       handleOpenChange(false);
-    } catch (err) {
-      setError(ipcErrorMessage(err));
+    } catch (failure) {
+      setError(ipcErrorMessage(failure));
     } finally {
       setIsConfirming(false);
     }

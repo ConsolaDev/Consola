@@ -25,8 +25,8 @@ export function ScopeEditor({
     try {
       const folder = await dialogBridge.selectFolder();
       if (folder) setLocation(folder.path);
-    } catch (err) {
-      setError(ipcErrorMessage(err));
+    } catch (failure) {
+      setError(ipcErrorMessage(failure));
     } finally {
       setBusy(false);
     }
@@ -45,8 +45,8 @@ export function ScopeEditor({
         await useWorkspaceStore.getState().updateScope(workspaceId, scope.id, updates);
       }
       onClose();
-    } catch (err) {
-      setError(ipcErrorMessage(err));
+    } catch (failure) {
+      setError(ipcErrorMessage(failure));
     } finally {
       setBusy(false);
     }

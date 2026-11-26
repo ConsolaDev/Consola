@@ -54,11 +54,11 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
       });
       revealCreatedScope(workspaceId, hostScope.id);
       onClose();
-    } catch (raised) {
+    } catch (failure) {
       // Nothing was created — main refuses an existing conductor directory
       // rather than overwriting it. Keep the dialog open so the kickoff is not
       // lost, and say exactly which path collided.
-      setError(raised instanceof Error ? raised.message : String(raised));
+      setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setSubmitting(false);
     }

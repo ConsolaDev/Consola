@@ -28,8 +28,8 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
       try {
         const fileContent = await fileBridge.readFile(filePath);
         setContent(fileContent);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : `Failed to load file: ${err}`);
+      } catch (failure) {
+        setError(failure instanceof Error ? failure.message : `Failed to load file: ${failure}`);
       } finally {
         setLoading(false);
       }

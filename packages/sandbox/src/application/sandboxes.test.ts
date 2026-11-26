@@ -136,7 +136,9 @@ describe('sandboxesFrom turns every failure into a SandboxError', () => {
         },
       },
     );
-    const error = await sandboxes.create({ template: 'consola-session' }).catch((e: unknown) => e);
+    const error = await sandboxes
+      .create({ template: 'consola-session' })
+      .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(SandboxError);
     expect(error).toMatchObject({ code: 'provider', message: original.message, cause: original });
   });
@@ -396,7 +398,7 @@ describe('withSandbox', () => {
       .withSandbox({ template: 'base' }, async () => {
         throw thrown;
       })
-      .catch((e: unknown) => e);
+      .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors).toEqual([thrown, coded('provider', /network down/)]);
   });

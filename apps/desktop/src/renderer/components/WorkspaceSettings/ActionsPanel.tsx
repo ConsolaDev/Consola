@@ -140,8 +140,8 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
     try {
       await setActions(workspace.id, nextActions, nextDefaults);
       return null;
-    } catch (err) {
-      return ipcErrorMessage(err);
+    } catch (failure) {
+      return ipcErrorMessage(failure);
     }
   };
 

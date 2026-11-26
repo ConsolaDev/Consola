@@ -19,6 +19,6 @@ try {
   });
 
   ptyProcess.write('ls\r');
-} catch (e) {
-  console.error('Spawn failed:', e);
+} catch (error) {
+  console.error('Spawn failed:', error);
 }
