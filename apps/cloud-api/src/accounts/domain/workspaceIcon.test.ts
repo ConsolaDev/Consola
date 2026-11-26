@@ -7,7 +7,7 @@ describe('the workspace icons', () => {
     // Read as text, never imported: no app imports another. A workspace known to both shows the
     // same icon in each only while the two lists agree.
     const desktop = readFileSync(
-      new URL('../../../desktop/src/shared/workspaceIcons.ts', import.meta.url),
+      new URL('../../../../desktop/src/shared/workspaceIcons.ts', import.meta.url),
       'utf8',
     );
     const ids = [...desktop.matchAll(/^\s*\['([a-z-]+)', '/gm)].map((match) => match[1]);
