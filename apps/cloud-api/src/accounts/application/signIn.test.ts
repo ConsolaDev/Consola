@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
@@ -18,8 +18,7 @@ describe('mayStartSession', () => {
   let stores: ReturnType<typeof createDrizzleStores>;
 
   beforeEach(async () => {
-    ({ db, close } = openDatabase('pglite:memory'));
-    await migrateDatabase(db);
+    ({ db, close } = await openTestDatabase());
     await db.insert(schema.user).values([
       { id: 'dana', name: 'Dana', email: 'dana@sprocket.test', emailVerified: true },
       { id: 'sam', name: 'Sam', email: 'sam@sprocket.test', emailVerified: false },

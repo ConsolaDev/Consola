@@ -7,17 +7,21 @@ import {
   WORKSPACE_SLUG_MAX,
 } from './workspace.js';
 
-const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
+const acme = { name: 'Acme', slug: 'acme' };
 
 describe('checkNewWorkspace', () => {
-  it('takes a name, a slug and a listed region', () => {
+  it('takes a name and a slug', () => {
     expect(checkNewWorkspace(acme)).toEqual({
       ok: true,
-      workspace: { name: 'Acme', slug: 'acme', region: 'eu' },
+      workspace: { name: 'Acme', slug: 'acme' },
     });
-    expect(checkNewWorkspace({ ...acme, region: 'us' })).toMatchObject({
+  });
+
+  it('never names a region: the deployment gives one, whatever is sent', () => {
+    const sent = { ...acme, region: 'us' };
+    expect(checkNewWorkspace(sent)).toEqual({
       ok: true,
-      workspace: { region: 'us' },
+      workspace: { name: 'Acme', slug: 'acme' },
     });
   });
 
@@ -72,19 +76,10 @@ describe('checkNewWorkspace', () => {
     }
   });
 
-  it('refuses a region that is not listed', () => {
-    for (const region of ['ap', 'EU', '', undefined, null]) {
-      expect(checkNewWorkspace({ ...acme, region })).toEqual({
-        ok: false,
-        problems: ['region_unknown'],
-      });
-    }
-  });
-
   it('names every problem at once', () => {
     expect(checkNewWorkspace({})).toEqual({
       ok: false,
-      problems: ['name_missing', 'slug_invalid', 'region_unknown'],
+      problems: ['name_missing', 'slug_invalid'],
     });
   });
 });

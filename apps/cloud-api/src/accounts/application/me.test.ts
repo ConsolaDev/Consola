@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
@@ -16,8 +16,7 @@ let acme: MyWorkspace;
 const dana: Person = { id: 'dana', name: 'Dana', email: 'dana@acme.test', image: null };
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   await db
     .insert(schema.user)
     .values({ id: dana.id, name: dana.name, email: dana.email, emailVerified: true });
