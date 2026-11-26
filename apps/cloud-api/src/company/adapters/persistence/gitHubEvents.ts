@@ -1,37 +1,28 @@
-import { eq } from 'drizzle-orm';
 import type { GitHubEventStore } from '../../application/gitHubPorts.js';
-import type { Database } from './database.js';
-import { gitHubEvents, workspaces } from './tables.js';
+import type { GitHubDatabase } from './gitHubStores.js';
+import { gitHubEvents } from './gitHubTables.js';
 
 /**
- * GitHub's events in the `github_event` table, each for its workspace. `record` holds the
- * workspace's copy row while it writes (`for key share`), and inserts the event unless one with
- * its delivery id is there already, so the same delivery arriving twice at once is recorded once.
+ * GitHub's events in the `github_event` table, each for its workspace. `record` inserts the
+ * event unless one with its delivery id is there for the workspace already, in one statement
+ * keyed by both (on conflict do nothing), so the same delivery arriving twice, at once or later,
+ * is recorded once.
  */
-export function createGitHubEventStore(db: Database): GitHubEventStore {
+export function createGitHubEventStore(db: GitHubDatabase): GitHubEventStore {
   return {
-    record(event) {
-      return db.transaction(async (tx) => {
-        const [held] = await tx
-          .select({ workspaceId: workspaces.workspaceId })
-          .from(workspaces)
-          .where(eq(workspaces.workspaceId, event.workspaceId))
-          .for('key share');
-        if (!held) return 'workspace-pending';
-
-        const inserted = await tx
-          .insert(gitHubEvents)
-          .values({
-            workspaceId: event.workspaceId,
-            deliveryId: event.deliveryId,
-            event: event.event,
-            installationId: event.installationId,
-            payload: JSON.stringify(event.payload),
-          })
-          .onConflictDoNothing()
-          .returning({ deliveryId: gitHubEvents.deliveryId });
-        return inserted.length > 0 ? 'recorded' : 'recorded-before';
-      });
+    async record(event) {
+      const inserted = await db
+        .insert(gitHubEvents)
+        .values({
+          workspaceId: event.workspaceId,
+          deliveryId: event.deliveryId,
+          event: event.event,
+          installationId: event.installationId,
+          payload: JSON.stringify(event.payload),
+        })
+        .onConflictDoNothing({ target: [gitHubEvents.workspaceId, gitHubEvents.deliveryId] })
+        .returning({ deliveryId: gitHubEvents.deliveryId });
+      return inserted.length > 0 ? 'recorded' : 'recorded-before';
     },
   };
 }

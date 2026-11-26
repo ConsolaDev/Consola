@@ -1,14 +1,18 @@
-import { eq } from 'drizzle-orm';
+import { PGlite } from '@electric-sql/pglite';
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
+import { eq, sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/pglite';
+import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InstallationStore } from '../../application/gitHubPorts.js';
 import type { GitHubInstallation } from '../../domain/connections.js';
-import { migrateDatabase, openDatabase } from './database.js';
-import type { Database } from './database.js';
-import { createInstallationStore } from './installationStore.js';
-import { schema } from './schema.js';
+import { createGitHubStores } from './gitHubStores.js';
+import * as gitHubTables from './gitHubTables.js';
 
-let db: Database;
-let close: () => Promise<void>;
+const { githubInstallation } = gitHubTables;
+
+let client: PGlite;
+let db: PgliteDatabase;
 let installations: InstallationStore;
 
 const sprocketOrg: GitHubInstallation = {
@@ -24,22 +28,21 @@ const danaOwn: GitHubInstallation = {
 
 const at = (iso: string) => new Date(iso);
 
+// GitHub's three tables alone, made from their definitions: nothing else is in the database, so
+// no row here can lean on an account table.
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  await db.insert(schema.user).values([
-    { id: 'dana', name: 'Dana', email: 'dana@sprocket.test', emailVerified: true },
-    { id: 'lee', name: 'Lee', email: 'lee@sprocket.test', emailVerified: true },
-  ]);
-  await db.insert(schema.organization).values([
-    { id: 'sprocket', name: 'Sprocket', slug: 'sprocket', region: 'eu', createdAt: new Date() },
-    { id: 'catalog', name: 'Catalog', slug: 'catalog', region: 'us', createdAt: new Date() },
-  ]);
-  installations = createInstallationStore(db);
+  client = new PGlite();
+  const statements = await generateMigration(
+    generateDrizzleJson({}),
+    generateDrizzleJson(gitHubTables),
+  );
+  for (const statement of statements) await client.exec(statement);
+  db = drizzle(client);
+  ({ installations } = createGitHubStores(db));
 });
 
 afterEach(async () => {
-  await close();
+  await client.close();
 });
 
 describe('the installation store', () => {
@@ -65,7 +68,7 @@ describe('the installation store', () => {
       { id: sprocketOrg.id, account: sprocketOrg.account, connectedAt: at('2026-11-22T09:00:00Z') },
       { id: danaOwn.id, account: danaOwn.account, connectedAt: at('2026-11-22T10:00:00Z') },
     ]);
-    expect(await installations.ofWorkspace('catalog')).toEqual([]);
+    expect(await installations.ofWorkspace('acme')).toEqual([]);
   });
 
   it('refuses an installation another workspace holds, and writes nothing', async () => {
@@ -79,13 +82,13 @@ describe('the installation store', () => {
     expect(
       await installations.connect({
         installation: renamed,
-        workspaceId: 'catalog',
+        workspaceId: 'acme',
         connectedBy: 'lee',
         at: at('2026-11-22T11:00:00Z'),
       }),
     ).toBe('taken');
 
-    expect(await installations.ofWorkspace('catalog')).toEqual([]);
+    expect(await installations.ofWorkspace('acme')).toEqual([]);
     const [sprocket] = await installations.ofWorkspace('sprocket');
     expect(sprocket?.account.login).toBe('sprocket');
   });
@@ -118,7 +121,7 @@ describe('the installation store', () => {
 
   it('two workspaces claiming one installation at once get one owner', async () => {
     const claims = await Promise.all(
-      ['sprocket', 'catalog'].map((workspaceId) =>
+      ['sprocket', 'acme'].map((workspaceId) =>
         installations.connect({
           installation: sprocketOrg,
           workspaceId,
@@ -139,7 +142,7 @@ describe('the installation store', () => {
     });
 
     expect(
-      await installations.disconnect({ workspaceId: 'catalog', installationId: sprocketOrg.id }),
+      await installations.disconnect({ workspaceId: 'acme', installationId: sprocketOrg.id }),
     ).toBe(false);
     expect(await installations.ofWorkspace('sprocket')).toHaveLength(1);
 
@@ -163,43 +166,41 @@ describe('the installation store', () => {
     expect(
       await installations.connect({
         installation: sprocketOrg,
-        workspaceId: 'catalog',
+        workspaceId: 'acme',
         connectedBy: 'lee',
         at: at('2026-11-22T10:00:00Z'),
       }),
     ).toBe('connected');
   });
 
-  it('goes with its workspace, and outlives the account of whoever connected it', async () => {
-    await installations.connect({
-      installation: sprocketOrg,
-      workspaceId: 'sprocket',
-      connectedBy: 'dana',
-      at: at('2026-11-22T09:00:00Z'),
-    });
+  it('keeps who connected it as their id, whatever becomes of their account or workspace', async () => {
     await installations.connect({
       installation: danaOwn,
-      workspaceId: 'catalog',
+      workspaceId: 'acme',
       connectedBy: 'dana',
       at: at('2026-11-22T09:00:00Z'),
     });
-
-    await db.delete(schema.user).where(eq(schema.user.id, 'dana'));
     const [row] = await db
-      .select({ connectedBy: schema.githubInstallation.connectedBy })
-      .from(schema.githubInstallation)
-      .where(eq(schema.githubInstallation.installationId, danaOwn.id));
-    expect(row).toEqual({ connectedBy: null });
+      .select({
+        workspaceId: githubInstallation.workspaceId,
+        connectedBy: githubInstallation.connectedBy,
+      })
+      .from(githubInstallation)
+      .where(eq(githubInstallation.installationId, danaOwn.id));
+    expect(row).toEqual({ workspaceId: 'acme', connectedBy: 'dana' });
 
-    await db.delete(schema.organization).where(eq(schema.organization.id, 'sprocket'));
-    expect(await installations.ofWorkspace('sprocket')).toEqual([]);
-    expect(await installations.ofWorkspace('catalog')).toHaveLength(1);
+    // Ids only: no foreign key reaches out of GitHub's tables.
+    const keys = (await db.execute(
+      sql`select table_name from information_schema.table_constraints where constraint_type = 'FOREIGN KEY'`,
+    )) as { rows: unknown[] };
+    expect(keys.rows).toEqual([]);
   });
 
   it('refuses to read back an account type GitHub does not have', async () => {
-    await db.insert(schema.githubInstallation).values({
+    await db.insert(githubInstallation).values({
       installationId: 1,
-      organizationId: 'sprocket',
+      workspaceId: 'sprocket',
+      connectedBy: 'dana',
       accountId: 1,
       accountLogin: 'odd',
       accountType: 'Enterprise',
@@ -210,10 +211,10 @@ describe('the installation store', () => {
     );
   });
 
-  it('names the workspace that holds an installation, and its region, for its events', async () => {
+  it('names the workspace that holds an installation, for its events', async () => {
     await installations.connect({
       installation: sprocketOrg,
-      workspaceId: 'catalog',
+      workspaceId: 'acme',
       connectedBy: 'dana',
       at: at('2026-11-22T09:00:00Z'),
     });
@@ -224,18 +225,12 @@ describe('the installation store', () => {
       at: at('2026-11-22T09:00:00Z'),
     });
 
-    expect(await installations.holderOf(sprocketOrg.id)).toEqual({
-      workspaceId: 'catalog',
-      region: 'us',
-    });
-    expect(await installations.holderOf(danaOwn.id)).toEqual({
-      workspaceId: 'sprocket',
-      region: 'eu',
-    });
+    expect(await installations.holderOf(sprocketOrg.id)).toBe('acme');
+    expect(await installations.holderOf(danaOwn.id)).toBe('sprocket');
     expect(await installations.holderOf(4_100_003)).toBeNull();
 
     // Disconnected, it is held by no workspace, and its events go nowhere.
-    await installations.disconnect({ workspaceId: 'catalog', installationId: sprocketOrg.id });
+    await installations.disconnect({ workspaceId: 'acme', installationId: sprocketOrg.id });
     expect(await installations.holderOf(sprocketOrg.id)).toBeNull();
   });
 });
