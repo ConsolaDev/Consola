@@ -86,7 +86,11 @@ const SPEC_ENTRY = String.raw`- name: review-assigned-prs
         Then set verdict: approve if you would merge it as it is, request-changes if something must change
         first, comment otherwise.
       outputs:
-        verdict: { enum: [approve, comment, request-changes] }
+        verdict:
+          enum:
+            - approve
+            - comment
+            - request-changes
     - id: publish
       if: steps.fresh.needed
       run: |

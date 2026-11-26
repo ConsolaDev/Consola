@@ -796,7 +796,11 @@ export function installMock() {
         Then set verdict: approve if you would merge it as it is, request-changes if something must change
         first, comment otherwise.
       outputs:
-        verdict: { enum: [approve, comment, request-changes] }
+        verdict:
+          enum:
+            - approve
+            - comment
+            - request-changes
     - id: publish
       if: steps.fresh.needed
       run: |
@@ -881,7 +885,7 @@ export function installMock() {
             mode: 'auto',
             nextRunAt: null,
             entry:
-              '- name: morning-inbox-digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: Write a short digest of my Inbox. }\n  mode: auto',
+              '- name: morning-inbox-digest\n  on:\n    cron: "30 8 * * 1-5"\n  run: { prompt: Write a short digest of my Inbox. }\n  mode: auto',
           },
         },
       ],

@@ -56,7 +56,11 @@ steps:
       APPROVE if it can be merged as it is, REQUEST_CHANGES if something must change first,
       COMMENT otherwise.
     outputs:
-      verdict: { enum: [APPROVE, COMMENT, REQUEST_CHANGES] }
+      verdict:
+        enum:
+          - APPROVE
+          - COMMENT
+          - REQUEST_CHANGES
   - id: post
     run: |
       # Nothing approves unattended: APPROVE is posted as COMMENT.
@@ -105,7 +109,8 @@ export const DEMO_FACTORY_FILES: readonly FactoryFile[] = [
   { path: 'agents/reviewer.md', content: REVIEWER_MD },
   {
     path: 'automations/nightly-build.yaml',
-    content: `on: { cron: "0 3 * * *" }
+    content: `on:
+  cron: "0 3 * * *"
 scope: storefront
 mode: auto
 steps:
@@ -133,7 +138,11 @@ steps:
     prompt: |
       Triage issue {{item.number}}: label it, and say in your handover which team should own it.
     outputs:
-      label: { enum: [bug, feature, question] }
+      label:
+        enum:
+          - bug
+          - feature
+          - question
     max_turns: 6
 `,
   },

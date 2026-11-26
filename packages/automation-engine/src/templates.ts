@@ -192,8 +192,14 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
     entry: () =>
       [
         '- name: clean-up-stale-sessions',
-        '  on: { cron: "0 9 * * 1-5" }',
-        '  run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }',
+        '  on:',
+        '    cron: "0 9 * * 1-5"',
+        '  run:',
+        '    tool: consola#cleanup_stale_sessions',
+        '    with:',
+        '      pr_states:',
+        '        - merged',
+        '        - closed',
         '  mode: confirm',
       ].join('\n'),
     matches: ({ name, run }) =>
@@ -215,7 +221,8 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
       const scope = firstScope(workspace);
       return [
         '- name: morning-inbox-digest',
-        '  on: { cron: "30 8 * * 1-5" }',
+        '  on:',
+        '    cron: "30 8 * * 1-5"',
         ...promptBlock(DIGEST_PROMPT),
         // A schedule runs in a scope: the workspace's first.
         ...(scope ? [`  scope: ${yamlName(scope.name)}`] : []),

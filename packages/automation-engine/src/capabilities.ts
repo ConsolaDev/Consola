@@ -149,8 +149,14 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
   {
     title: 'A tool, on a schedule',
     entry: `- name: clean-up-stale-sessions
-  on: { cron: "0 9 * * 1-5" }
-  run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }
+  on:
+    cron: "0 9 * * 1-5"
+  run:
+    tool: consola#cleanup_stale_sessions
+    with:
+      pr_states:
+        - merged
+        - closed
   mode: confirm`,
   },
   {
@@ -169,7 +175,8 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
   {
     title: 'A prompt, on a schedule',
     entry: `- name: morning-inbox-digest
-  on: { cron: "30 8 * * 1-5" }
+  on:
+    cron: "30 8 * * 1-5"
   run:
     prompt: >-
       Use Consola’s list_inbox tool to read my Inbox, then write a short
@@ -182,7 +189,8 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
   {
     title: 'Steps with a turn cap, on a schedule',
     entry: `- name: overnight-api-notes
-  on: { cron: "0 7 * * 1-5" }
+  on:
+    cron: "0 7 * * 1-5"
   scope: api
   mode: auto
   steps:
@@ -191,7 +199,8 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
       max_turns: 20
     - id: tell
       prompt: Turn the overnight handover into a short note for the team.
-      reads: [look.handover]`,
+      reads:
+        - look.handover`,
   },
   {
     title: 'A review loop with a gate, on an event',
@@ -245,7 +254,11 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
     - id: triage
       agent: triager
       outputs:
-        kind: { enum: [bug, feature, unclear] }
+        kind:
+          enum:
+            - bug
+            - feature
+            - unclear
     - id: not-ours
       if: steps.triage.kind != 'bug'
       run: acli jira workitem comment create --key "$KEY" --body "$BODY"
@@ -254,23 +267,29 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
     - id: fix
       agent: ui-bugfixer
       prompt: Fix the bug described below. The triage handover is attached.
-      reads: [triage.handover]
+      reads:
+        - triage.handover
     - id: polish
       repeat: { max: 3, until: steps.review.findings == 0 }
       steps:
         - id: review
           agent: pre-pr-reviewer
-          reads: [checkout.changes, fix.handover]
+          reads:
+            - checkout.changes
+            - fix.handover
           outputs: { findings: { type: integer } }
         - id: address
           if: steps.review.findings > 0
           agent: ui-bugfixer
           prompt: Address the findings in the review handover.
-          reads: [review.handover]
+          reads:
+            - review.handover
       on_exhausted:
         gate:
           ask: The review still has findings after 3 rounds. Open the pull request anyway?
-          show: [review.handover, checkout.changes]
+          show:
+            - review.handover
+            - checkout.changes
     - id: pr
       run: |
         git push origin "HEAD:refs/heads/$CONSOLA_BRANCH"
@@ -314,8 +333,10 @@ files around them where it helps. Count the findings that must be fixed before a
 its file and line in your handover.
 `,
       'environments/sandboxed.yaml': `isolation: sandbox
-network: [registry.npmjs.org]
-env: [CI]
+network:
+  - registry.npmjs.org
+env:
+  - CI
 `,
     },
   },
@@ -341,7 +362,8 @@ max_turns: 10
 You write the overnight notes for the api team: what changed, what broke, and what needs a person.
 Keep them short and plain; name each pull request by its number.
 `,
-      'automations/overnight-notes.yaml': `on: { cron: "0 7 * * 1-5" }
+      'automations/overnight-notes.yaml': `on:
+  cron: "0 7 * * 1-5"
 scope: api
 mode: auto
 steps:
@@ -350,7 +372,8 @@ steps:
   - id: tell
     agent: notes-writer
     prompt: Turn the overnight handover into the note the team reads first.
-    reads: [look.handover]
+    reads:
+      - look.handover
 `,
     },
   },
@@ -364,8 +387,10 @@ model: haiku
 max_turns: 30
 mcpServers:
   - claude.ai Coralogix
-  - grafana: [query_logs]
-skills: [incident-triage]
+  - grafana:
+      - query_logs
+skills:
+  - incident-triage
 ---
 You look into alerts for the api team: what fired, what it shares with earlier alerts, and where to look first.
 Follow the incident-triage checklist, read logs with the tools you were given, and change nothing.
@@ -379,7 +404,10 @@ description: The api team's checklist for a new alert.
 3. Say what changed just before it fired.
 `,
       'automations/investigate-alerts.yaml': `on:
-  poll: { every: 30m, run: ./list-alerts, key: .id }
+  poll:
+    every: 30m
+    run: ./list-alerts
+    key: .id
 scope: api
 mode: confirm
 steps:
@@ -508,8 +536,17 @@ on: manual
 
 A connection (one of triggers.connections, by its id) takes events:, a list of its events, at least one and each once, a list even when it names one; and filter:, only when it needs one, a mapping of the filter fields triggers.connections lists for it, which says which items fire. Nothing else goes under it, nothing goes beside it in on:, and an entry has no filter: of its own: it goes under its connection. A schedule, a poll and a run on demand take no filter.
 
-Poll. on: { poll: { every: 30m, run: |
-<command>, item: { github: .url }, changed: .head } } runs a command on a timer, as the person, and fires for each item it prints. It is how to trigger on anything a CLI can answer, including what Consola's own events do not cover. Keys:
+Poll. A poll runs a command on a timer, as the person, and fires for each item it prints. It is how to trigger on anything a CLI can answer, including what Consola's own events do not cover:
+
+on:
+  poll:
+    every: 30m
+    run: |
+      <command>
+    item: { github: .url }
+    changed: .head
+
+Keys:
 - every: <n>m or <n>h, from 1m to 24h.
 - run: the check command. Its stdout must be a JSON array of objects, one per item, for example [{"url":"https://github.com/sprocket/catalog-portal/pull/51","title":"Fix the cart total","head":"a1b2c3"}]. Anything else fails the check. No {{ }}: values reach commands only as environment variables.
 - item: { <connection>: <field path> }, the field that holds the URL of a work item of that connection, such as { github: .url }; the run is on that pull request or issue, in a checkout of its own, so it takes no scope. Or key: <field path>, an identity with no work item: such an entry runs a prompt or steps in a scope (scope:), and cannot use an action. Exactly one of item: and key:.
@@ -548,7 +585,8 @@ ${EXAMPLES}`;
 
 /** A command that names the secret it needs. Not one of `GRAMMAR_EXAMPLES`: it runs only where its name is bound. */
 export const SECRETS_EXAMPLE = `- name: page-on-call
-  on: { cron: "0 9 * * 1-5" }
+  on:
+    cron: "0 9 * * 1-5"
   scope: api
   mode: auto
   steps:
@@ -556,7 +594,8 @@ export const SECRETS_EXAMPLE = `- name: page-on-call
       run: |
         curl -fsS -X POST "$PAGER_URL" -H "Authorization: Token token=$PAGERDUTY_TOKEN" -d @page.json
       env: { PAGER_URL: "https://events.pagerduty.com/v2/enqueue" }
-      secrets: [PAGERDUTY_TOKEN]`;
+      secrets:
+        - PAGERDUTY_TOKEN`;
 
 /** What an agent is told of `secrets:`: where it goes, how a value arrives, who binds it. */
 export const SECRETS_GRAMMAR = `Secrets. secrets: [NAME, …] goes on a run: step, or in a poll: beside its run:, and names the secrets that command needs. Each value reaches that command only as its own environment variable, $NAME, never through {{ }}. A name follows env:'s rules (capital letters, digits and _), at most 64 characters and 20 per place; never CONSOLA_*, CLAUDE_CONFIG_DIR, GH_TOKEN, GH_HOST, GITHUB_TOKEN, GITHUB_ENTERPRISE_TOKEN or a name env: refuses, and never also in the step's env:. An agent step, an agent file and an entry take none: Consola gives no secret's value to an agent. The file names a secret; the person binds each name to where its value lives in Settings › Secrets, never an agent. An entry whose names are not all bound does not run, and its problem says which. secrets in this answer lists the workspace's names and whether each is bound.
@@ -569,13 +608,17 @@ mcpServers:
   slack:
     description: Posts to the team's Slack as its bot.
     command: npx
-    args: [-y, "@sprocket/slack-mcp@1.4.2"]
+    args:
+      - -y
+      - "@sprocket/slack-mcp@1.4.2"
     env: { SLACK_TEAM_ID: T0SPROCKET }
-    secrets: [SLACK_BOT_TOKEN]
+    secrets:
+      - SLACK_BOT_TOKEN
   tracker:
     url: https://mcp.tracker.sprocket.example/mcp
     headers: { Authorization: "Bearer \${TRACKER_TOKEN}" }
-    secrets: [TRACKER_TOKEN]
+    secrets:
+      - TRACKER_TOKEN
 automations: []`;
 
 /** What an agent is told of `mcpServers:` in factory.yml: the servers the engine itself calls. */
@@ -589,7 +632,8 @@ ${SERVERS_EXAMPLE}`;
 
 /** A steps entry calling a factory server's tool after a command: what `USES_GRAMMAR` teaches. Not one of `GRAMMAR_EXAMPLES`: it needs `SERVERS_EXAMPLE`'s factory.yml. */
 export const USES_EXAMPLE = `- name: post-shipped
-  on: { cron: "0 8 * * 1" }
+  on:
+    cron: "0 8 * * 1"
   scope: api
   mode: confirm
   steps:
@@ -639,12 +683,12 @@ const MODES: AutomationCapabilities['modes'] = [
 
 const CRON =
   'Five fields — minute hour day-of-month month day-of-week — in local time, quoted: ' +
-  '{ cron: "0 9 * * 1-5" } is weekdays at 9:00. No seconds field and no nicknames. ' +
+  'cron: "0 9 * * 1-5" under on: is weekdays at 9:00. No seconds field and no nicknames. ' +
   'Runs only while Consola is open; occurrences missed while it was closed run once when it next opens.';
 
 const POLL =
-  'on: { poll: { every: 30m, run: <command>, item: { github: .url }, changed: .head } } runs a command on a timer, ' +
-  'as the person, and fires for each item it prints: a JSON array of objects. The command does the filtering. ' +
+  'on:\n  poll:\n    every: 30m\n    run: <command>\n    item: { github: .url }\n    changed: .head\n' +
+  'runs a command on a timer, as the person, and fires for each item it prints: a JSON array of objects. The command does the filtering. ' +
   'It does not check until the person allows it, and a new one records what is there and fires nothing. ' +
   'Runs only while Consola is open.';
 

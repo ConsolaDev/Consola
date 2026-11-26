@@ -18,7 +18,11 @@ steps:
       APPROVE if it can be merged as it is, REQUEST_CHANGES if something must change first,
       COMMENT otherwise.
     outputs:
-      verdict: { enum: [APPROVE, COMMENT, REQUEST_CHANGES] }
+      verdict:
+        enum:
+          - APPROVE
+          - COMMENT
+          - REQUEST_CHANGES
   - id: post
     run: |
       # Nothing approves unattended: APPROVE is posted as COMMENT.

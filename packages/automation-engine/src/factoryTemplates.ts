@@ -26,7 +26,8 @@ export function yamlName(name: string): string {
  * run as the bound account, posting through the reviews API with `commit_id`
  * pinned to that checkout. It maps `request-changes` to REQUEST_CHANGES and
  * everything else, `approve` included, to COMMENT: a shipped review never
- * approves (decision 7). The spec's entry, verbatim.
+ * approves (decision 7). The spec's entry, its trigger in the one form a
+ * connection's trigger has, laid out in block style.
  */
 export function assignedReviewsEntry(): string {
   return ASSIGNED_REVIEWS_ENTRY;
@@ -63,7 +64,11 @@ const ASSIGNED_REVIEWS_ENTRY = String.raw`- name: review-assigned-prs
         Then set verdict: approve if you would merge it as it is, request-changes if something must change
         first, comment otherwise.
       outputs:
-        verdict: { enum: [approve, comment, request-changes] }
+        verdict:
+          enum:
+            - approve
+            - comment
+            - request-changes
     - id: publish
       if: steps.fresh.needed
       run: |
@@ -122,13 +127,20 @@ const ASSIGNED_REVIEWS_GATED_ENTRY = String.raw`- name: review-assigned-prs-gate
         Then set verdict: approve if you would merge it as it is, request-changes if something must change
         first, comment otherwise.
       outputs:
-        verdict: { enum: [approve, comment, request-changes] }
+        verdict:
+          enum:
+            - approve
+            - comment
+            - request-changes
     - id: decide
       if: steps.review.verdict == 'approve'
       gate:
         ask: The reviewer would approve this pull request. Post the review as an approval?
-        show: [review.handover]
-        choices: [approve, comment]
+        show:
+          - review.handover
+        choices:
+          - approve
+          - comment
     - id: publish
       if: steps.fresh.needed && steps.review.verdict != 'approve'
       run: |
@@ -162,7 +174,7 @@ export const RE_REVIEW_NAME = 're-review-on-new-commits';
  * does not cover, then three steps as `review-assigned-prs` has them. The
  * review reads the last one through `previous` and is posted pinned to the
  * commit the run checked out, a comment or a request for changes, never an
- * approval (decision 7). The spec's entry, verbatim.
+ * approval (decision 7). The spec's entry, laid out in block style.
  */
 export function reReviewEntry(): string {
   return RE_REVIEW_ENTRY;
@@ -203,9 +215,14 @@ const RE_REVIEW_ENTRY = String.raw`- name: re-review-on-new-commits
         60,000 characters: what was addressed, what was not, and anything new, each with its file and line.
         Then set verdict: approve if you would merge it as it is, request-changes if something must change
         first, comment otherwise.
-      reads: [previous.review.handover]
+      reads:
+        - previous.review.handover
       outputs:
-        verdict: { enum: [approve, comment, request-changes] }
+        verdict:
+          enum:
+            - approve
+            - comment
+            - request-changes
     - id: publish
       if: steps.fresh.needed
       run: |
@@ -261,8 +278,14 @@ const CLEANUP_EXAMPLE = `  # - name: clean-up-stale-sessions
   #   # Every morning, remove sessions whose pull request was merged or closed,
   #   # with their Consola worktrees and branches. Anything with unsaved or
   #   # unpushed work is kept. Starts as "confirm": you approve each run.
-  #   on: { cron: "0 9 * * *" }
-  #   run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }
+  #   on:
+  #     cron: "0 9 * * *"
+  #   run:
+  #     tool: consola#cleanup_stale_sessions
+  #     with:
+  #       pr_states:
+  #         - merged
+  #         - closed
   #   mode: confirm
 `;
 
