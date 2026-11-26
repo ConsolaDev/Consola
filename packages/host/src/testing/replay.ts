@@ -2,14 +2,12 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import {
-  CommandId,
-  MessageId,
-  type ModelSelection,
-  type OrchestrationV2Command,
-  type OrchestrationV2ThreadProjection,
-  type ServerProvider,
-  ThreadId,
+import { CommandId, MessageId, ThreadId } from '@t3tools/contracts';
+import type {
+  ModelSelection,
+  OrchestrationV2Command,
+  OrchestrationV2ThreadProjection,
+  ServerProvider,
 } from '@t3tools/contracts';
 import { ClaudeOrchestratorReplayHarness } from '@t3tools/provider-claude/testing';
 import type { AnyProviderDriver, ProviderInstance } from '@t3tools/provider-core/server/driver';
@@ -27,7 +25,8 @@ import * as Stream from 'effect/Stream';
 import * as ProviderAdapterRegistry from 't3/orchestration-v2/ProviderAdapterRegistry.ts';
 import { materializeReplayTranscriptRuntimeInstructions } from 't3/orchestration-v2/testkit/ReplayRuntimeInstructions.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import { type HostDriversEnv, hostDriverFor } from '../runtime/drivers.ts';
+import { hostDriverFor } from '../runtime/drivers.ts';
+import type { HostDriversEnv } from '../runtime/drivers.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 
 /** A replay runs a whole recorded turn through t3's orchestrator; under load that takes a while. */

@@ -38,7 +38,9 @@ describe('PathLock', () => {
   it('is not poisoned by a failure', async () => {
     const lock = new PathLock();
     await expect(
-      lock.run('/wt/a', async () => Promise.reject(new Error('git said no'))),
+      lock.run('/wt/a', async () => {
+        throw new Error('git said no');
+      }),
     ).rejects.toThrow('git said no');
     await expect(lock.run('/wt/a', async () => 'next')).resolves.toBe('next');
   });

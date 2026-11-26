@@ -20,7 +20,7 @@ export default function EmojiGrid({ onSelect }: { onSelect: (emoji: string) => v
       maxFrequentRows: 2,
       onEmojiSelect: (emoji: { native: string }) => onSelect(emoji.native),
     });
-    container.appendChild(picker as unknown as HTMLElement);
+    container.append(picker as unknown as HTMLElement);
     return () => {
       container.replaceChildren();
     };

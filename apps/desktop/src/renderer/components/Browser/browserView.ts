@@ -1,10 +1,9 @@
-import {
-  isBlankPageUrl,
-  isLoopbackHost,
-  type BrowserHistoryEntry,
-  type BrowserSessionSnapshot,
-  type BrowserTabError,
-  type BrowserTabSnapshot,
+import { isBlankPageUrl, isLoopbackHost } from '../../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserSessionSnapshot,
+  BrowserTabError,
+  BrowserTabSnapshot,
 } from '../../../shared/browser';
 
 /**
@@ -126,7 +125,7 @@ export function nextShownError(
 }
 
 /** Retries of a page on this machine wait this long first, doubling up to `RETRY_MAX_MS`. */
-export const RETRY_FIRST_MS = 1_000;
+export const RETRY_FIRST_MS = 1000;
 export const RETRY_MAX_MS = 10_000;
 
 /** How long to wait before retry number `attempt` (from 0). */

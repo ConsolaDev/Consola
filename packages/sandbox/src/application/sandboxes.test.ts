@@ -4,7 +4,8 @@ import type { Command } from '../domain/sandbox';
 import { FakeProvider } from '../providers/fake/FakeProvider';
 import { POSIX_PROGRAMS } from '../providers/fake/posixPrograms';
 import type { ProviderCommand, ProviderSandbox, SandboxProvider } from './ports';
-import { requireCapability, type Sandbox, sandboxesFrom } from './sandboxes';
+import { requireCapability, sandboxesFrom } from './sandboxes';
+import type { Sandbox } from './sandboxes';
 
 /** A provider that records every call it gets, and answers as `overrides` say. */
 function spy(
@@ -87,7 +88,7 @@ describe('sandboxesFrom refuses a malformed request before the provider sees it'
     ['writing a relative path', (sandbox) => sandbox.writeFile('notes.txt', 'x')],
     ['writing a number', (sandbox) => sandbox.writeFile('/tmp/n', 7 as never)],
     ['exposing port 0', (sandbox) => sandbox.exposePort(0)],
-    ['exposing port 65536', (sandbox) => sandbox.exposePort(65536)],
+    ['exposing port 65536', (sandbox) => sandbox.exposePort(65_536)],
     ['exposing port 80.5', (sandbox) => sandbox.exposePort(80.5)],
   ])('%s', async (_name, attempt) => {
     const { calls, sandboxes } = spy();
@@ -135,7 +136,9 @@ describe('sandboxesFrom turns every failure into a SandboxError', () => {
         },
       },
     );
-    const error = await sandboxes.create({ template: 'consola-session' }).catch((e: unknown) => e);
+    const error = await sandboxes
+      .create({ template: 'consola-session' })
+      .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(SandboxError);
     expect(error).toMatchObject({ code: 'provider', message: original.message, cause: original });
   });
@@ -395,7 +398,7 @@ describe('withSandbox', () => {
       .withSandbox({ template: 'base' }, async () => {
         throw thrown;
       })
-      .catch((e: unknown) => e);
+      .catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AggregateError);
     expect((error as AggregateError).errors).toEqual([thrown, coded('provider', /network down/)]);
   });

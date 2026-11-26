@@ -16,7 +16,7 @@ export function makeSession(overrides: Partial<Session> = {}): Session {
     createdAt: 0,
     lastActiveAt: 0,
     ...overrides,
-  } as Session;
+  };
 }
 
 export function makeWorkspace(overrides: Record<string, unknown> = {}): Workspace {

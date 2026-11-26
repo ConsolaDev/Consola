@@ -5,16 +5,16 @@ import {
   CLOCK_SKEW_SECONDS,
   cellTokenClaims,
   GITHUB_EVENT_TYPE,
-  type GitHubEventMessage,
   OUTBOX_MESSAGE_TYPE,
-  type OutboxMessage,
   readCellTokenClaims,
   readGitHubEventMessage,
   readOutboxMessage,
 } from '@consola/cloud-contract';
+import type { GitHubEventMessage, OutboxMessage } from '@consola/cloud-contract';
 import { compactVerify, createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, type Ed25519PrivateJwk } from '../../config.js';
+import { ConfigError } from '../../config.js';
+import type { Ed25519PrivateJwk } from '../../config.js';
 import { createCellTokenSigner } from './cellTokenSigner.js';
 
 /** A key made for this run only, never one written down. */
@@ -90,7 +90,7 @@ describe('createCellTokenSigner', () => {
     const signer = await createCellTokenSigner(newKey());
     const before = signer.publicKeys();
     const changed = signer.publicKeys();
-    changed.keys.push({ ...before.keys[0], kid: 'sprocket' } as (typeof before.keys)[number]);
+    changed.keys.push({ ...before.keys[0], kid: 'sprocket' });
     if (changed.keys[0]) changed.keys[0].x = 'sprocket';
 
     expect(signer.publicKeys()).toEqual(before);

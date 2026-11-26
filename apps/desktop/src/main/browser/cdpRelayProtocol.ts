@@ -54,7 +54,7 @@ const BROWSER_CONTEXT_ID = 'consola-browser-context';
  */
 export const MAX_COMMANDS_IN_FLIGHT = 10_000;
 /** JSON-RPC's "server error", the code Chromium itself uses for a refused command. */
-const CDP_ERROR = -32000;
+const CDP_ERROR = -32_000;
 
 /** The page as the debugger describes it. */
 export interface PageTarget {
@@ -418,9 +418,9 @@ export function createRelayConnection(
             jsVersion: '',
           },
         };
+      // Both are acknowledged and ignored. Playwright asks to save downloads
+      // into its own folder, and downloads are main's to allow or cancel.
       case 'Target.setDiscoverTargets':
-      // Playwright asks to save downloads into its own folder. Downloads are
-      // main's to allow or cancel, so the request is acknowledged and ignored.
       case 'Browser.setDownloadBehavior':
         return { result: {} };
       case 'Target.getTargetInfo': {
@@ -507,7 +507,8 @@ export function createRelayConnection(
     }
     // An entry is only an id, so look up where it leads.
     const history = await page.send('Page.getNavigationHistory', {}, child);
-    const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : [];
+    const entries: unknown[] =
+      isRecord(history) && Array.isArray(history.entries) ? history.entries : [];
     const entry = entries.find((item) => isRecord(item) && item.id === params.entryId);
     return isRecord(entry) && typeof entry.url === 'string' && isAllowedPageUrl(entry.url)
       ? undefined

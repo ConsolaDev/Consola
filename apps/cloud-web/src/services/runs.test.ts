@@ -312,7 +312,7 @@ describe('approveRun', () => {
   });
 
   it('says every refusal the cell gives', async () => {
-    const cases: [number, string, string][] = [
+    const cases: Array<[number, string, string]> = [
       [400, 'invalid_request', 'invalid'],
       [403, 'not_allowed', 'not-allowed'],
       [404, 'run_not_found', 'not-found'],

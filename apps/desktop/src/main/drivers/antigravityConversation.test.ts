@@ -63,7 +63,7 @@ describe('antigravityConversationFromLines', () => {
         tool_calls: [
           {
             name: 'run_command',
-            args: { CommandLine: '"git status\\ngit diff"', toolSummary: '"Git check"' },
+            args: { CommandLine: String.raw`"git status\ngit diff"`, toolSummary: '"Git check"' },
           },
           {
             name: 'read_file',

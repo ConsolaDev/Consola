@@ -2,13 +2,15 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   automationVersion,
   factoryFilesOf,
-  type AgentDefinition,
   parseFactory,
   stepsResolvedBody,
-  type Automation,
-  type FactoryFiles,
-  type FactoryParseResult,
-  type FactorySpecIssue,
+} from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  Automation,
+  FactoryFiles,
+  FactoryParseResult,
+  FactorySpecIssue,
 } from '@consola/factory-spec';
 import type { AgentHarnessAnswer, CheckoutKind } from '../ports';
 import {
@@ -562,8 +564,9 @@ describe('decideApply', () => {
     /** The decision for `texts` (with the broken agent beside it) against the clean BASE. */
     const removedBy = (texts: Record<string, string | null>, extra: Partial<FactoryFiles> = {}) => {
       const next: Record<string, string> = { ...BROKEN };
-      for (const [path, text] of Object.entries({ ...BASE, ...texts }))
+      for (const [path, text] of Object.entries({ ...BASE, ...texts })) {
         if (text !== null) next[path] = text;
+      }
       const decision = decideApply({
         read: parseFactory(files(next, extra)),
         applied: clean(),

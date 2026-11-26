@@ -15,8 +15,9 @@ vi.mock('@consola/factory-spec', async (original) => {
   return {
     ...actual,
     parseFactory: (files: Parameters<typeof actual.parseFactory>[0]) => {
-      if (parseThrows.on || files.factoryYml?.includes('# parse-throws'))
+      if (parseThrows.on || files.factoryYml?.includes('# parse-throws')) {
         throw new Error('the parser fell over\nat line 7');
+      }
       return actual.parseFactory(files);
     },
   };

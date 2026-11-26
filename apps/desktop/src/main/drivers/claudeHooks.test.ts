@@ -174,10 +174,11 @@ describe('a turn that ends on an error', () => {
   });
 
   it('hears that a limit’s wait is over, by notification type', () => {
-    for (const type of ['quota_auto_resume_fired', 'quota_auto_resume_stale'])
+    for (const type of ['quota_auto_resume_fired', 'quota_auto_resume_stale']) {
       expect(
         parseClaudeHookEvent({ hook_event_name: 'Notification', notification_type: type }),
       ).toEqual({ kind: 'limit-over' });
+    }
   });
 });
 

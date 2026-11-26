@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from '../../../shared/snooze';
+import { DEFAULT_SNOOZE_PRESETS } from '../../../shared/snooze';
+import type { SnoozePresetSetting } from '../../../shared/snooze';
 import {
   durationParts,
   isDefault,

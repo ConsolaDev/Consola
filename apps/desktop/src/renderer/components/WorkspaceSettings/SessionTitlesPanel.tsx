@@ -13,7 +13,8 @@ import {
 import type { SessionTitleSettings } from '../../../shared/workspace';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { useHarnessStore } from '../../stores/harnessStore';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { TitleModelMenu } from './TitleModelMenu';
 
 interface SessionTitlesPanelProps {

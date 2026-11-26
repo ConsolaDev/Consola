@@ -146,7 +146,7 @@ describe('readBranchFacts', { timeout: HEAVY_GIT_MS }, () => {
     // Paths of about 700 bytes, so 2,000 files' numstat lines pass 1 MiB.
     const deep = path.join('generated', ...[1, 2, 3].map((n) => `${'d'.repeat(200)}${n}`));
     fs.mkdirSync(path.join(clone, deep), { recursive: true });
-    for (let i = 0; i < 2_000; i++) {
+    for (let i = 0; i < 2000; i++) {
       fs.writeFileSync(path.join(clone, deep, `${'f'.repeat(80)}${i}.txt`), 'x\n');
     }
     git(clone, 'add', 'generated');
@@ -157,8 +157,8 @@ describe('readBranchFacts', { timeout: HEAVY_GIT_MS }, () => {
 
     expect((await readBranchFacts(clone)).base).toEqual({
       ref: 'origin/main',
-      files: 2_003,
-      additions: 2_009,
+      files: 2003,
+      additions: 2009,
       deletions: 0,
     });
   });

@@ -6,8 +6,8 @@ import {
   BearerConnectionRegistration,
   BearerConnectionTarget,
   EnvironmentRegistry,
-  type SupervisorConnectionState,
 } from '@t3tools/client-runtime/connection';
+import type { SupervisorConnectionState } from '@t3tools/client-runtime/connection';
 import { EnvironmentId, ThreadId } from '@t3tools/contracts';
 import {
   createMemoryHistory,
@@ -20,7 +20,8 @@ import * as Effect from 'effect/Effect';
 import * as Duration from 'effect/Duration';
 import * as Fiber from 'effect/Fiber';
 import * as Stream from 'effect/Stream';
-import { type JSX, type RefObject, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { JSX, RefObject } from 'react';
 import ChatView from '~/components/ChatView';
 import { getThemeSnapshot, setAppearanceMode } from '~/hooks/useTheme';
 import { connectionAtomRuntime } from '~/connection/runtime';
@@ -123,9 +124,10 @@ const removeRegistration = (sessionId: string, owner: object) => {
 
 /** Hands t3 the registrations of every mounted chat. Fails with t3's cause, as text. */
 const reconcileHosts = async (): Promise<void> => {
-  const registrations = [...registered.values()].map(
-    (entries) => entries[entries.length - 1]!.registration,
-  );
+  const registrations = [...registered.values()].flatMap((entries) => {
+    const latest = entries.at(-1);
+    return latest ? [latest.registration] : [];
+  });
   const exit = await runInConnection(
     Effect.gen(function* () {
       const registry = yield* EnvironmentRegistry.EnvironmentRegistry;
@@ -175,7 +177,8 @@ const forgetUnheldSessionsOnce = () => {
         );
       }
     },
-    (error) => logFailure('could not look for passes no page shows.', error, registeredPasses()),
+    (error: unknown) =>
+      logFailure('could not look for passes no page shows.', error, registeredPasses()),
   );
 };
 
@@ -238,7 +241,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
     }
     addRegistration(sessionId, owner, registration);
     forgetUnheldSessionsOnce();
-    reconcileHosts().catch((error) => {
+    reconcileHosts().catch((error: unknown) => {
       logFailure("could not register the host with t3's connection.", error, registeredPasses());
       setProblem({ kind: 'connection-failed' });
     });
@@ -258,7 +261,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
           setHeld(true);
         }
       },
-      (error) => {
+      (error: unknown) => {
         logFailure(`could not hold session ${sessionId} for this page.`, error, []);
         if (!unmounted) setProblem({ kind: 'connection-failed' });
       },
@@ -281,7 +284,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
           const exit = await runInConnection(restoreStoredPass(sessionId, token));
           if (exit._tag === 'Failure') throw new Error(Cause.pretty(exit.cause));
         })
-        .catch((error) =>
+        .catch((error: unknown) =>
           logFailure("could not remove the host from t3's connection.", error, passes),
         )
         .finally(() => {
@@ -322,7 +325,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
           answeredPass.current = next;
           setPass(next);
         },
-        (error) => {
+        (error: unknown) => {
           logFailure('onPassExpired failed, so the refused pass was not replaced.', error, [pass]);
           if (!stopped) setProblem({ kind: 'new-pass-failed' });
         },
@@ -372,7 +375,7 @@ function useHostConnection(props: AgentChatProps): ChatProblem | null {
         );
         fiber = Effect.runFork(Effect.provideContext(watch, services));
       },
-      (error) => {
+      (error: unknown) => {
         if (stopped) return;
         logFailure("t3's connection runtime did not start.", error, [pass]);
         setProblem({ kind: 'connection-failed' });

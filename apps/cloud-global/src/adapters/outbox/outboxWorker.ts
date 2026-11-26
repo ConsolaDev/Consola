@@ -1,5 +1,6 @@
 import type { Region } from '@consola/cloud-contract';
-import { deliverOutbox, type OutboxPass } from '../../application/outbox.js';
+import { deliverOutbox } from '../../application/outbox.js';
+import type { OutboxPass } from '../../application/outbox.js';
 import type { CellDelivery, OutboxSigner, OutboxStore } from '../../application/ports.js';
 import { cellUrlVariable } from '../../config.js';
 

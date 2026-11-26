@@ -10,7 +10,9 @@ import { AppUpdateService } from './AppUpdateService';
 export function setupAppUpdates() {
   let enabled = false;
   if (app.isPackaged && process.platform === 'darwin') {
-    const metadata = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8'));
+    const metadata = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8')) as {
+      consolaAutoUpdates?: unknown;
+    };
     enabled = metadata.consolaAutoUpdates === true;
   }
   const service = new AppUpdateService(autoUpdater, app.getVersion(), enabled, (state) => {

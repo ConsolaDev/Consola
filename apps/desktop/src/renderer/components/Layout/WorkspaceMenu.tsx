@@ -55,6 +55,7 @@ export function WorkspaceMenu() {
       >
         <DropdownMenu.Trigger asChild>
           <button
+            type="button"
             className="workspace-menu-trigger"
             aria-label={`${workspace.name} workspace menu`}
           >

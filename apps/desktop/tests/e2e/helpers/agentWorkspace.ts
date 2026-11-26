@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { createProfileDir, launchElectron, removeProfile } from './electron';
-import { keepOffScreen, type ScreenGuard } from './screenGuard';
+import { keepOffScreen } from './screenGuard';
+import type { ScreenGuard } from './screenGuard';
 import { sessionEndpoint } from './sessionMcp';
 
 /**

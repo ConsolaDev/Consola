@@ -1,5 +1,6 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
-import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
+import { UPDATE_CHANNELS } from '../shared/appUpdates';
+import type { AppUpdateAPI } from '../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../shared/attention';
 import type {
   BatchResult,

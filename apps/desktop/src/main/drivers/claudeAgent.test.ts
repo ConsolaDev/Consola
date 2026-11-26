@@ -50,8 +50,9 @@ function filesOf(dir: string, relative = ''): Array<{ path: string; bytes: Uint8
   for (const entry of fs.readdirSync(path.join(dir, relative)).sort()) {
     const inside = relative === '' ? entry : `${relative}/${entry}`;
     if (fs.lstatSync(path.join(dir, inside)).isDirectory()) files.push(...filesOf(dir, inside));
-    else
+    else {
       files.push({ path: inside, bytes: new Uint8Array(fs.readFileSync(path.join(dir, inside))) });
+    }
   }
   return files;
 }
@@ -141,8 +142,9 @@ describe('mapMcpStatus', () => {
       { name: 'odd', source: 'other', transport: 'other', status: 'failed', signInHint },
     ]);
     const kept = JSON.stringify(report);
-    for (const dropped of ['npx', 'headers', 'X-Team', 'c1', 'serverInfo', 'grafana-mcp'])
+    for (const dropped of ['npx', 'headers', 'X-Team', 'c1', 'serverInfo', 'grafana-mcp']) {
       expect(kept).not.toContain(dropped);
+    }
   });
 
   it('reads tools given as plain strings the same way', () => {
@@ -914,10 +916,11 @@ describe('buildStepPlugin', () => {
       description: 'The skills of one automation step, built by Consola.',
       version: '1.0.0',
     });
-    for (const file of ['SKILL.md', 'queries.md', path.join('refs', 'a.md')])
+    for (const file of ['SKILL.md', 'queries.md', path.join('refs', 'a.md')]) {
       expect(read(path.join(pluginDir, 'skills', 'incident-triage', file))).toEqual(
         read(path.join(skillsDir, 'incident-triage', file)),
       );
+    }
     expect(fs.existsSync(path.join(pluginDir, 'skills', 'release-notes'))).toBe(false);
     expect(fs.readdirSync(pluginDir).sort()).toEqual(['.claude-plugin', 'skills']);
   });

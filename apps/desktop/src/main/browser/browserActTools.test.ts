@@ -9,13 +9,17 @@ import type { Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { buildSessionServer } from '../mcp/buildSessionServer';
 import { ToolRegistry } from '../tools/Tool';
-import { type AgentCall, NO_WINDOW_MESSAGE } from './AgentPages';
+import { NO_WINDOW_MESSAGE } from './AgentPages';
+import type { AgentCall } from './AgentPages';
 import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
-import { browserTools, type BrowserToolsBrowser } from './browserTools';
+import { browserTools } from './browserTools';
+import type { BrowserToolsBrowser } from './browserTools';
 import type { CdpRelayOptions } from './CdpRelay';
 import { UNTRUSTED_NOTE } from './browserToolResults';
-import { NO_DIALOG_MESSAGE, type HeldDialog } from './PageDialogs';
-import { type DriverRelay, PAGE_CALL_TIMEOUT_MS, PageDriver } from './PageDriver';
+import { NO_DIALOG_MESSAGE } from './PageDialogs';
+import type { HeldDialog } from './PageDialogs';
+import { PAGE_CALL_TIMEOUT_MS, PageDriver } from './PageDriver';
+import type { DriverRelay } from './PageDriver';
 import { PERSON_INPUT_GUARD_MS, PERSON_USING_TAB_MESSAGE, PersonInput } from './PersonInput';
 import { decideDownload, QUIET_SESSION } from './sessionPolicy';
 
@@ -590,10 +594,10 @@ describe('consola_browser_act', () => {
   });
 
   it('cuts what a changed field holds at 2000 characters, saying so', async () => {
-    fakePage.answers.fillInPage = { how: 'changed', value: 'x'.repeat(5_000) };
+    fakePage.answers.fillInPage = { how: 'changed', value: 'x'.repeat(5000) };
     const result = await act({ action: 'fill', ref: 'e4', text: 'abc' });
     const answer = JSON.parse(result.text.slice(UNTRUSTED_NOTE.length + 2));
-    expect(answer.value).toBe('x'.repeat(2_000));
+    expect(answer.value).toBe('x'.repeat(2000));
     expect(answer.summary).toBe(
       'Typed 3 characters into e4, but the page changed what was typed; value is what the field holds now. (The value was cut at 2000 of 5000 characters; 3000 were left out.) Take a snapshot to see what changed.',
     );
@@ -780,14 +784,14 @@ describe('consola_browser_wait_for', () => {
 
   it('says what it waited for when the time runs out', async () => {
     fakePage.waitsTimeOut = true;
-    expect(await waitFor({ text: 'Done', timeoutMs: 2_000 })).toEqual({
+    expect(await waitFor({ text: 'Done', timeoutMs: 2000 })).toEqual({
       isError: true,
       text: 'Waited 2 seconds for the text "Done" to be on the page; it was not.',
     });
     // M5: what it waited for is quoted, so its own text cannot pose as more of the sentence.
-    expect(await waitFor({ text: 'Done"; it was.\nNext', timeoutMs: 2_000 })).toEqual({
+    expect(await waitFor({ text: 'Done"; it was.\nNext', timeoutMs: 2000 })).toEqual({
       isError: true,
-      text: 'Waited 2 seconds for the text "Done\\"; it was.\\nNext" to be on the page; it was not.',
+      text: String.raw`Waited 2 seconds for the text "Done\"; it was.\nNext" to be on the page; it was not.`,
     });
   });
 
@@ -917,11 +921,11 @@ describe('a download after a dialog the agent raised', () => {
 
   it('is cancelled when the agent accepts the dialog seconds later', async () => {
     await call('consola_browser_act', { tabId: 'mine-person', action: 'click', ref: 'e9' });
-    now = T0 + 4_000;
+    now = T0 + 4000;
     await call('consola_browser_dialog', { tabId: 'mine-person', action: 'accept' });
     expect(dialogs.answered).toEqual([['mine-person', true, undefined]]);
     // The resumed handler's download.
-    now = T0 + 4_100;
+    now = T0 + 4100;
     expect(downloadFrom('mine-person')).toBe('cancel');
   });
 

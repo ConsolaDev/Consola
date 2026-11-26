@@ -8,7 +8,8 @@ import type {
 import { SandboxError } from '../../domain/errors';
 import type { Command, CreateSandboxOptions } from '../../domain/sandbox';
 import { commandLineOf } from './commandLine';
-import { type E2BApi, type E2BCommandHandle, type E2BSandbox, e2bApi } from './e2bApi';
+import { e2bApi } from './e2bApi';
+import type { E2BApi, E2BCommandHandle, E2BSandbox } from './e2bApi';
 import { exitCodeOf, hasStatus, translate } from './errors';
 
 export interface E2BProviderOptions {
@@ -24,7 +25,7 @@ export interface E2BProviderOptions {
  * without one it applies E2B's default of five minutes. One second never lengthens a sandbox's
  * life, so attaching leaves its lifetime as it was: a lifetime is a hard maximum.
  */
-const ATTACH_TIMEOUT_MS = 1_000;
+const ATTACH_TIMEOUT_MS = 1000;
 
 /**
  * Sandboxes on E2B, on Consola's own account. It translates and decides nothing:
@@ -49,7 +50,7 @@ export class E2BProvider implements SandboxProvider {
     this.keepAlive = {
       renew: async (sandboxId, lifetimeSeconds) => {
         try {
-          await this.api.setTimeout(sandboxId, lifetimeSeconds * 1_000);
+          await this.api.setTimeout(sandboxId, lifetimeSeconds * 1000);
         } catch (error) {
           throw this.fail(error);
         }
@@ -63,7 +64,7 @@ export class E2BProvider implements SandboxProvider {
     try {
       inner = await this.api.create(template, {
         ...(env !== undefined && { envs: { ...env } }),
-        ...(lifetimeSeconds !== undefined && { timeoutMs: lifetimeSeconds * 1_000 }),
+        ...(lifetimeSeconds !== undefined && { timeoutMs: lifetimeSeconds * 1000 }),
         // E2B kills on timeout today; saying so keeps it that way if its default changes.
         lifecycle: { onTimeout: 'kill' },
         // Locked unless asked: E2B then asks every request to a port for its traffic token in a

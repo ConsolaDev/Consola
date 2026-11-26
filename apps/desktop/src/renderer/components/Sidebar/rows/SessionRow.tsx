@@ -9,7 +9,8 @@ import { useSettingsStore } from '../../../stores/settingsStore';
 import { useSessionModel } from '../../../hooks/useSessionModel';
 import { SessionHarnessIcon } from '../SessionHarnessIcon';
 import { RowStatus, isLive } from './RowStatus';
-import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../../stores/workspaceStore';
+import type { Session } from '../../../stores/workspaceStore';
 import { SessionActionsMenu } from '../SessionActionsMenu';
 import { BatchActionsMenu } from '../BatchActionsMenu';
 import { useSelectionFrame } from '../../../sidebar/selectionContext';
@@ -466,8 +467,9 @@ function SessionRowBody({
       // row: whatever the person was in (usually the terminal) keeps it, so
       // the menu can hand it back. Ctrl-click is the same request on macOS.
       onMouseDown={(event) => {
-        if (!isRenaming && (event.button === 2 || (event.button === 0 && event.ctrlKey)))
+        if (!isRenaming && (event.button === 2 || (event.button === 0 && event.ctrlKey))) {
           event.preventDefault();
+        }
       }}
       onContextMenu={(event) => {
         if (isRenaming) return;

@@ -1,4 +1,5 @@
-import { type FactoryDraft, pathsOf, removedPaths } from './factoryDraft';
+import { pathsOf, removedPaths } from './factoryDraft';
+import type { FactoryDraft } from './factoryDraft';
 
 /**
  * The kinds of file a stored factory holds, as the Definition page makes them: `factory.yml`, an

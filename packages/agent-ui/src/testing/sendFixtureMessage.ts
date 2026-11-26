@@ -21,10 +21,10 @@ const send = Effect.gen(function* () {
   );
 }).pipe(Effect.scoped);
 
-Effect.runPromise(send).then(
-  () => process.exit(0),
-  (error: unknown) => {
-    process.stderr.write(`${String(error)}\n`);
-    process.exit(1);
-  },
-);
+try {
+  await Effect.runPromise(send);
+} catch (error: unknown) {
+  process.stderr.write(`${String(error)}\n`);
+  process.exit(1);
+}
+process.exit(0);

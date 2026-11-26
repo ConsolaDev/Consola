@@ -1,8 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - The checker reads the source tree from disk.
 import { readdirSync, readFileSync } from 'node:fs';
 import { isBuiltin } from 'node:module';
-import { dirname, join, posix } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, posix } from 'node:path';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vite-plus/test';
 
@@ -17,7 +16,7 @@ import { describe, expect, it } from 'vite-plus/test';
  * To add a ring, add a row to `LAYERS` and a case to the table of allowed imports below.
  */
 
-const SRC = dirname(fileURLToPath(import.meta.url));
+const SRC = import.meta.dirname;
 
 /** Every package and every `node:` builtin. */
 const ANY_PACKAGE = '*';

@@ -1,5 +1,6 @@
 import { dialogBridge } from '../services/dialogBridge';
-import { useWorkspaceStore, type Workspace } from '../stores/workspaceStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
+import type { Workspace } from '../stores/workspaceStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import type { FolderInfo } from '../types/electron';
 
@@ -27,8 +28,9 @@ export async function createWorkspaceFromFolders(
     });
   }
   const trimmed = name?.trim();
-  if (trimmed && trimmed !== workspace.name)
+  if (trimmed && trimmed !== workspace.name) {
     await store.updateWorkspace(workspace.id, { name: trimmed });
+  }
   await useNavigationStore.getState().setActiveWorkspace(workspace.id);
   return workspace;
 }

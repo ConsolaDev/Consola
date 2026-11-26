@@ -9,7 +9,7 @@ import type { InboxItem } from '../../../shared/workItems';
 export type InboxUpdatedFilter = 'week' | 'month' | 'quarter' | 'any';
 
 /** Menu order. */
-export const INBOX_UPDATED_FILTERS: ReadonlyArray<InboxUpdatedFilter> = [
+export const INBOX_UPDATED_FILTERS: readonly InboxUpdatedFilter[] = [
   'week',
   'month',
   'quarter',

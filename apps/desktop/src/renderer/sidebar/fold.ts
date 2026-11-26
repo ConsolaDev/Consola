@@ -1,5 +1,6 @@
 import type { EntryKey } from './entry';
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf } from './forest';
+import type { TreeNode } from './forest';
 
 /**
  * What a shelf shows. Expanded shows everything; collapsed keeps only what must

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { HOST_LINE_TYPES, type HostLine, readHostLine } from './hostLine.ts';
+import { HOST_LINE_TYPES, readHostLine } from './hostLine.ts';
+import type { HostLine } from './hostLine.ts';
 
 const roundTrip = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
 

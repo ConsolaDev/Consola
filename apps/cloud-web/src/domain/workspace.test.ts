@@ -5,19 +5,17 @@ import {
   isRegion,
   isWorkspaceProblem,
   NEW_DRAFT,
-  type NewWorkspace,
   REGIONS,
-  type Region,
   regionName,
   regionPlace,
   roleName,
   suggestSlug,
   WORKSPACE_NAME_MAX,
   WORKSPACE_SLUG_MAX,
-  type WorkspaceProblem,
   withName,
   withSlug,
 } from './workspace';
+import type { NewWorkspace, Region, WorkspaceProblem } from './workspace';
 
 const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
 

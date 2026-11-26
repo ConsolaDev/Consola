@@ -5,11 +5,11 @@ import {
   GITHUB_TOKEN_REQUEST_AUDIENCE,
   GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
   GITHUB_TOKEN_REQUEST_TYPE,
-  type GitHubTokenAsk,
   gitHubTokenRequest,
   isGitHubTokenPurpose,
   readGitHubTokenRequest,
 } from './gitHubTokenRequest.js';
+import type { GitHubTokenAsk } from './gitHubTokenRequest.js';
 import { OUTBOX_MESSAGE_TYPE } from './outboxDelivery.js';
 
 const SIGNED = 1_800_000_000;

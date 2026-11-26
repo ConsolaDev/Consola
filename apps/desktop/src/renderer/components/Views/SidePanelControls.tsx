@@ -1,4 +1,5 @@
-import { TAB_KIND_IDS, type TabFacts } from '../../sidePanel/tabKinds';
+import { TAB_KIND_IDS } from '../../sidePanel/tabKinds';
+import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { InfoPanelToggle } from './InfoPanelToggle';
 import { ShortcutButton } from './ShortcutButton';

@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
 import { MAX_IF_LENGTH } from './expression';
 import { isStepsEntry } from './schema';
-import { callArguments, interpretedNotice, usesNotices, type CallArgument } from './callArguments';
+import { callArguments, interpretedNotice, usesNotices } from './callArguments';
+import type { CallArgument } from './callArguments';
 import { secretTemplateReason } from './secrets';
-import { MAX_RETRIES, type StepEntry } from './steps';
+import { MAX_RETRIES } from './steps';
+import type { StepEntry } from './steps';
 import { ON_EXHAUSTED_OUTSIDE } from './flow';
 import {
   DEFAULT_CALL_TIMEOUT_MS,
@@ -13,9 +15,8 @@ import {
   parseUsesStep,
   USES_REF_PATTERN,
   usesTexts,
-  type StepReaders,
-  type UsesStep,
 } from './uses';
+import type { StepReaders, UsesStep } from './uses';
 
 const HEAD = 'name: a\non: { github: pull_request.review_requested }\nsteps:\n';
 /** An entry whose steps are the given YAML items, each written at column 0 (`- id: …`). */

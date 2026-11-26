@@ -19,7 +19,7 @@ function gitAddedLines(paths: string[]): number {
     return git('diff', '--numstat')
       .split('\n')
       .filter(Boolean)
-      .reduce((sum, line) => sum + (parseInt(line.split('\t')[0], 10) || 0), 0);
+      .reduce((sum, line) => sum + (Number.parseInt(line.split('\t')[0], 10) || 0), 0);
   } finally {
     git('reset', '--quiet', '--', ...paths);
   }

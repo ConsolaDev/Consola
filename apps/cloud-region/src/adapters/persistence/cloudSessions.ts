@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { CloudSessionStore, Ids } from '../../application/ports.js';
-import { type CloudSession, LIVE_STATUSES } from '../../domain/cloudSession.js';
+import { LIVE_STATUSES } from '../../domain/cloudSession.js';
+import type { CloudSession } from '../../domain/cloudSession.js';
 import type { Database } from './database.js';
 import { cloudSessions } from './tables.js';
 

@@ -170,11 +170,7 @@ describe('the Open in favourite', () => {
       openInFavourite: 'intellij',
     });
     const read = (saved: unknown) =>
-      (
-        merge!(saved, useSettingsStore.getInitialState()) as ReturnType<
-          typeof useSettingsStore.getState
-        >
-      ).openInFavourite;
+      merge!(saved, useSettingsStore.getInitialState()).openInFavourite;
     expect(read({ openInFavourite: 'vscode' })).toBe('vscode');
     // Anything but an id reads as no pick.
     expect(read({ openInFavourite: 7 })).toBeNull();
@@ -208,11 +204,9 @@ describe('info panel sections', () => {
     const merged = merge!(
       { infoSectionOpen: { environment: false, branch: 'no', 'pull-request': 1 } },
       useSettingsStore.getInitialState(),
-    ) as ReturnType<typeof useSettingsStore.getState>;
+    );
     expect(merged.infoSectionOpen).toEqual({ environment: false });
-    const fresh = merge!(undefined, useSettingsStore.getInitialState()) as ReturnType<
-      typeof useSettingsStore.getState
-    >;
+    const fresh = merge!(undefined, useSettingsStore.getInitialState());
     expect(fresh.infoSectionOpen).toEqual({});
   });
 });

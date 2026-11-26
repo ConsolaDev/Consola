@@ -7,9 +7,8 @@ import {
   matchScopeShortcut as matchScope,
   matchWorkspaceShortcut as matchWorkspace,
   scopeShortcutLabels,
-  type KeyChord,
-  type ShortcutPlatform,
 } from '../../shared/shortcuts';
+import type { KeyChord, ShortcutPlatform } from '../../shared/shortcuts';
 
 /**
  * Which platform the renderer is running on.

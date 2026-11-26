@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
-import { type FactoryDraft, isChanged } from '../domain/factoryDraft';
+import { isChanged } from '../domain/factoryDraft';
+import type { FactoryDraft } from '../domain/factoryDraft';
 import type { FactoryVersion } from '../domain/factories';
 import type { FactoryTabs } from '../domain/factoryTabs';
 

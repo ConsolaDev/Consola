@@ -1,4 +1,5 @@
-import { useId, type MouseEvent } from 'react';
+import { useId } from 'react';
+import type { MouseEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
@@ -61,8 +62,8 @@ import {
   tableShowsUnseenFailures,
   triggerInWords,
   triggerLabel,
-  type LatestRun,
 } from './presentation';
+import type { LatestRun } from './presentation';
 import { GetStarted } from './TemplatesTab';
 
 /**

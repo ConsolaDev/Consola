@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  exhaustedWindows,
-  harnessLimitedUntil,
-  type HarnessLimits,
-  limitResetAt,
-  type UsageWindow,
-} from './usageLimits';
+import { exhaustedWindows, harnessLimitedUntil, limitResetAt } from './usageLimits';
+import type { HarnessLimits, UsageWindow } from './usageLimits';
 
 const NOW = Date.parse('2026-11-19T12:00:00Z');
 const HOUR = 60 * 60 * 1000;

@@ -1,5 +1,6 @@
 import { WorkItemDetailPanel } from './WorkItemDetailPanel';
-import { useRef, useState, type KeyboardEvent } from 'react';
+import { useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import {
   ArrowRight,
   ArrowUpRight,
@@ -11,8 +12,8 @@ import {
   Play,
   TriangleAlert,
   X,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { activityOf } from '../../../shared/attention';
 import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
@@ -277,7 +278,12 @@ export function InboxItemPane({
     <Root className="inbox-pane" data-testid="inbox-pane" aria-label="Work item details">
       <div className="inbox-pane-header">
         <h2 className="inbox-pane-title">{title}</h2>
-        <button className="inbox-pane-close" onClick={onClose} aria-label="Close details">
+        <button
+          type="button"
+          className="inbox-pane-close"
+          onClick={onClose}
+          aria-label="Close details"
+        >
           <X size={14} />
         </button>
       </div>
@@ -300,6 +306,7 @@ export function InboxItemPane({
             {siblings.length > 0 && <span className="inbox-pane-count">{siblings.length}</span>}
           </h3>
           <button
+            type="button"
             className="inbox-pane-link-session"
             onClick={() =>
               useLinkSessionDialogStore.getState().open({
@@ -362,6 +369,7 @@ export function InboxItemPane({
                     <span className="inbox-pane-current">This session</span>
                   ) : (
                     <button
+                      type="button"
                       className="inbox-pane-open"
                       onClick={() => activateSession(workspace.id, session.id)}
                       aria-label={`Open ${sessionLabel(session)}`}
@@ -387,6 +395,7 @@ export function InboxItemPane({
               </p>
               <div className="inbox-pane-actions">
                 <button
+                  type="button"
                   className="inbox-pane-action inbox-pane-action--default inbox-pane-clone"
                   disabled={launching[repoKey]}
                   data-launching={launching[repoKey] || undefined}
@@ -431,6 +440,7 @@ export function InboxItemPane({
                           : null;
                   return (
                     <button
+                      type="button"
                       key={action.id}
                       className={[
                         'inbox-pane-action',
@@ -460,6 +470,7 @@ export function InboxItemPane({
                 })}
                 {!customOpen && (
                   <button
+                    type="button"
                     ref={customToggleRef}
                     className="inbox-pane-action inbox-pane-action--compose"
                     onClick={() => setCustomOpen(true)}
@@ -528,12 +539,14 @@ export function InboxItemPane({
                       <kbd>↵</kbd> start · <kbd>Esc</kbd> cancel
                     </span>
                     <button
+                      type="button"
                       className="inbox-pane-action inbox-pane-action--quiet"
                       onClick={closeCustom}
                     >
                       Cancel
                     </button>
                     <button
+                      type="button"
                       className={`inbox-pane-action ${
                         confirmingKey === customKey
                           ? 'inbox-pane-action--confirm'

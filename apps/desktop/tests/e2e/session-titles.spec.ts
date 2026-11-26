@@ -32,7 +32,7 @@ function writeFixture(settings: FixtureSettings): void {
 }
 
 /** Every title call the fixture answered, oldest first. */
-function readTitleCalls(): { argv: string[]; stdin: string; cwd: string }[] {
+function readTitleCalls(): Array<{ argv: string[]; stdin: string; cwd: string }> {
   const file = path.join(claudeProfile, 'title-calls.jsonl');
   if (!fs.existsSync(file)) return [];
   return fs
@@ -260,7 +260,7 @@ test('a new session is named from its first message, then titled, with its pane 
 test('double-clicking a row renames it, and survives its terminal taking focus', async () => {
   // Bump deps has run before, and its CLI starts working as soon as it is
   // launched: the first click of the double-click does that.
-  writeFixture({ title: 'Unused', resumeWorkMs: 8_000 });
+  writeFixture({ title: 'Unused', resumeWorkMs: 8000 });
   await countFocusThefts(page);
   await rowFor(page, 'Bump deps').dblclick();
   const input = page.locator('.session-nav-item .session-rename-input');

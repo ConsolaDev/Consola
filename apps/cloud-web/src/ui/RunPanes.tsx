@@ -1,12 +1,15 @@
 import { MessageCircleQuestion, MessagesSquare, Workflow } from 'lucide-react';
-import { type KeyboardEvent, type ReactNode, useId } from 'react';
+import { useId } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import {
   CONVERSATION_LATER_TITLE,
   CONVERSATION_LATER_WORDS,
   questionOpenWords,
 } from '../domain/runMessages';
-import { type RunDetail, type RunSummary, starterOf } from '../domain/runs';
-import { placeOfTrace, type RunPlace, traceOfPlace } from '../domain/runsRoute';
+import { starterOf } from '../domain/runs';
+import type { RunDetail, RunSummary } from '../domain/runs';
+import { placeOfTrace, traceOfPlace } from '../domain/runsRoute';
+import type { RunPlace } from '../domain/runsRoute';
 import { agoInWords, fullTime } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
@@ -46,7 +49,7 @@ export function RequestPane({
   const ids = useId();
   const view: RequestView = place.view === 'automations' ? 'automations' : 'conversation';
   const count = detail.children.length;
-  const tabs: { view: RequestView; label: string; icon: ReactNode }[] = [
+  const tabs: Array<{ view: RequestView; label: string; icon: ReactNode }> = [
     {
       view: 'conversation',
       label: 'Conversation',

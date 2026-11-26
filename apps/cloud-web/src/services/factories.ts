@@ -1,24 +1,15 @@
-import {
-  type FactoriesState,
-  type Factory,
-  type FactoryChange,
-  type FactoryRead,
-  type FactorySave,
-  type FactoryVersion,
-  isFactoryNameProblem,
+import { isFactoryNameProblem } from '../domain/factories';
+import type {
+  FactoriesState,
+  Factory,
+  FactoryChange,
+  FactoryRead,
+  FactorySave,
+  FactoryVersion,
 } from '../domain/factories';
 import type { FactoryIssue } from '../domain/factoryProblems';
-import {
-  type CellApi,
-  type CellDeps,
-  type CellRefusal,
-  type CellSession,
-  codeOf,
-  createCellSession,
-  PENDING,
-  pageCellSession,
-  UNAVAILABLE,
-} from './cell';
+import { codeOf, createCellSession, PENDING, pageCellSession, UNAVAILABLE } from './cell';
+import type { CellApi, CellDeps, CellRefusal, CellSession } from './cell';
 
 /*
  * A workspace's factories, from its regional cell (`cell.ts`: the token, the address, the states
@@ -97,6 +88,30 @@ export type FactoriesService = {
   ): Promise<FactorySave>;
 };
 
+/** What a change's answer comes to, for the statuses every change shares. */
+function changeOf(
+  answer: { data?: unknown; error?: unknown; response: Response } | CellRefusal,
+): FactoryChange {
+  if ('kind' in answer) return answer;
+  const { status } = answer.response;
+  const code = codeOf(answer.error);
+  if ((status === 200 || status === 201) && isFactory(answer.data)) {
+    return { kind: 'changed', factory: answer.data };
+  }
+  if (status === 400 && code === 'invalid_factory') {
+    const problems = (answer.error as { problems?: unknown }).problems;
+    return {
+      kind: 'invalid',
+      problems: Array.isArray(problems) ? problems.filter(isFactoryNameProblem) : [],
+    };
+  }
+  if (status === 404 && code === 'team_not_found') return { kind: 'team-not-found' };
+  if (status === 404 && code === 'factory_not_found') return { kind: 'factory-not-found' };
+  if (status === 409 && code === 'name_taken') return { kind: 'name-taken' };
+  if (status === 409 && code === 'workspace_pending') return PENDING;
+  return UNAVAILABLE;
+}
+
 /**
  * The factories service. The page uses `factoriesService`, on the page's way to its cell; a test
  * builds its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin
@@ -106,30 +121,6 @@ export function createFactoriesService(
   deps: CellDeps & { session?: CellSession } = {},
 ): FactoriesService {
   const { onCell } = deps.session ?? createCellSession(deps);
-
-  /** What a change's answer comes to, for the statuses every change shares. */
-  function changeOf(
-    answer: { data?: unknown; error?: unknown; response: Response } | CellRefusal,
-  ): FactoryChange {
-    if ('kind' in answer) return answer;
-    const { status } = answer.response;
-    const code = codeOf(answer.error);
-    if ((status === 200 || status === 201) && isFactory(answer.data)) {
-      return { kind: 'changed', factory: answer.data };
-    }
-    if (status === 400 && code === 'invalid_factory') {
-      const problems = (answer.error as { problems?: unknown }).problems;
-      return {
-        kind: 'invalid',
-        problems: Array.isArray(problems) ? problems.filter(isFactoryNameProblem) : [],
-      };
-    }
-    if (status === 404 && code === 'team_not_found') return { kind: 'team-not-found' };
-    if (status === 404 && code === 'factory_not_found') return { kind: 'factory-not-found' };
-    if (status === 409 && code === 'name_taken') return { kind: 'name-taken' };
-    if (status === 409 && code === 'workspace_pending') return PENDING;
-    return UNAVAILABLE;
-  }
 
   /** Runs a change on the cell, answering how it went, and never throwing. */
   async function change(
@@ -227,8 +218,9 @@ export function createFactoriesService(
         const { data, error, response } = answer;
         const { status } = response;
         const code = codeOf(error);
-        if (status === 201 && isVersion(data?.version))
+        if (status === 201 && isVersion(data?.version)) {
           return { kind: 'saved', version: data.version };
+        }
         if (status === 400 && code === 'invalid_files') {
           const issues = (error as { issues?: unknown }).issues;
           if (Array.isArray(issues) && issues.every(isIssue)) return { kind: 'invalid', issues };

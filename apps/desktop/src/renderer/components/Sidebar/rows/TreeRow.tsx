@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight } from 'lucide-react';
-import { worstStatus, type Attention } from '../../../../shared/attention';
+import { worstStatus } from '../../../../shared/attention';
+import type { Attention } from '../../../../shared/attention';
 import type { Bucket } from '../../../sidebar/bucketize';
 import type { EntryKey } from '../../../sidebar/entry';
 import type { TreeNode } from '../../../sidebar/forest';

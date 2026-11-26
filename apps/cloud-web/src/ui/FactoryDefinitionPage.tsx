@@ -1,12 +1,8 @@
 import { Check, FileCode2, FolderOpen, X } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  type Factory,
-  type FactoryRead,
-  type FactoryVersion,
-  fileGroups,
-  firstFile,
-} from '../domain/factories';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { fileGroups, firstFile } from '../domain/factories';
+import type { Factory, FactoryRead, FactoryVersion } from '../domain/factories';
 import type { factoryCheckOf } from '../domain/factoryCheck';
 import {
   afterSave,
@@ -15,7 +11,6 @@ import {
   contentOf,
   discarded,
   draftOf,
-  type FactoryDraft,
   fileMarks,
   filesOf,
   hasWork,
@@ -32,15 +27,16 @@ import {
   withSkillRemoved,
   withSkillRenamed,
 } from '../domain/factoryDraft';
+import type { FactoryDraft } from '../domain/factoryDraft';
 import {
   bodyLine,
   checkNaming,
   FACTORY_YML_SKELETON,
-  type NamingTarget,
   nameFactsOf,
   namingStart,
   skeletonFor,
 } from '../domain/factoryKinds';
+import type { NamingTarget } from '../domain/factoryKinds';
 import {
   bringInLabel,
   broughtInLine,
@@ -63,21 +59,15 @@ import {
   versionMovedLine,
 } from '../domain/factoryMessages';
 import {
-  type FactoryProblem,
   ownProblems,
   problemCounts,
   problemOf,
   problemPath,
   sortedProblems,
 } from '../domain/factoryProblems';
-import {
-  closeTab,
-  type FactoryTabs,
-  keptTabs,
-  NO_TABS,
-  openTab,
-  renamedTabs,
-} from '../domain/factoryTabs';
+import type { FactoryProblem } from '../domain/factoryProblems';
+import { closeTab, keptTabs, NO_TABS, openTab, renamedTabs } from '../domain/factoryTabs';
+import type { FactoryTabs } from '../domain/factoryTabs';
 import type { MyWorkspace } from '../domain/workspace';
 import { hideDefinitionBanner, isDefinitionBannerHidden } from '../services/definitionBanner';
 import { factoriesService } from '../services/factories';
@@ -179,7 +169,7 @@ type Checker = { check: typeof factoryCheckOf } | 'loading' | 'failed';
 type Naming = { target: NamingTarget; text: string };
 
 /** Paths renamed in the draft, for the editor to move their kept states: old to new. */
-type EditorMoves = { seq: number; moves: [string, string][] };
+type EditorMoves = { seq: number; moves: Array<[string, string]> };
 
 /** How long the page waits after a keystroke before it checks the files again. */
 const CHECK_DELAY_MS = 220;

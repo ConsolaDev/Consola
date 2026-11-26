@@ -1,5 +1,5 @@
 /** How long the outbox waits after a message's first failed delivery before it tries again. */
-export const FIRST_RETRY_MS = 1_000;
+export const FIRST_RETRY_MS = 1000;
 
 /** The longest the outbox ever waits between two deliveries of one message. */
 export const LONGEST_RETRY_MS = 5 * 60_000;

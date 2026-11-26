@@ -1,4 +1,5 @@
-import { useId, type ReactNode } from 'react';
+import { useId } from 'react';
+import type { ReactNode } from 'react';
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import { INFO_PANEL_SHORTCUT_LABEL } from '../../utils/infoPanelShortcut';
@@ -26,14 +27,14 @@ import {
   Tag,
   Trash2,
   MessagesSquare,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
   TERMINAL_FONT_SIZE_MAX,
-  type ThemeMode,
 } from '../../stores/settingsStore';
+import type { ThemeMode } from '../../stores/settingsStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useTheme } from '../../hooks/useTheme';
 import {
@@ -58,13 +59,8 @@ import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
 import { SecretsPanel } from '../WorkspaceSettings/SecretsPanel';
 import { ActionsPanel } from '../WorkspaceSettings/ActionsPanel';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
-import {
-  APP_GROUP,
-  WORKSPACE_GROUP,
-  isWorkspaceSection,
-  type SettingsSection,
-  type WorkspaceSectionId,
-} from './settingsSections';
+import { APP_GROUP, WORKSPACE_GROUP, isWorkspaceSection } from './settingsSections';
+import type { SettingsSection, WorkspaceSectionId } from './settingsSections';
 import { SnoozeOptions } from '../Settings/SnoozeOptions';
 import { SessionRowsOption } from '../Settings/SessionRowsOption';
 import { RememberLayoutOption } from '../Settings/RememberLayoutOption';
@@ -100,7 +96,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   danger: { label: 'Danger zone', icon: Trash2, danger: true },
 };
 
-const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
+const themeOptions: Array<{ value: ThemeMode; label: string; icon: typeof Sun }> = [
   { value: 'light', label: 'Light', icon: Sun },
   { value: 'dark', label: 'Dark', icon: Moon },
   { value: 'system', label: 'System', icon: Monitor },
@@ -208,7 +204,7 @@ export function SettingsModal({
           </div>
 
           <Dialog.Close asChild>
-            <button className="dialog-close" aria-label="Close">
+            <button type="button" className="dialog-close" aria-label="Close">
               <X size={16} />
             </button>
           </Dialog.Close>
@@ -300,6 +296,7 @@ function AppearanceSection({
         <div className="settings-modal-theme-selector">
           {themeOptions.map(({ value, label, icon: Icon }) => (
             <button
+              type="button"
               key={value}
               className={`settings-modal-theme-button ${theme === value ? 'active' : ''}`}
               onClick={() => setTheme(value)}
@@ -320,6 +317,7 @@ function AppearanceSection({
         </div>
         <div className="settings-modal-stepper">
           <button
+            type="button"
             className="settings-modal-stepper-button"
             onClick={() => setTerminalFontSize(terminalFontSize - 1)}
             disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
@@ -329,6 +327,7 @@ function AppearanceSection({
           </button>
           <span className="settings-modal-stepper-value">{terminalFontSize}px</span>
           <button
+            type="button"
             className="settings-modal-stepper-button"
             onClick={() => setTerminalFontSize(terminalFontSize + 1)}
             disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}

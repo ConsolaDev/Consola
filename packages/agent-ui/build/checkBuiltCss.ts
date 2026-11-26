@@ -12,7 +12,8 @@
  */
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import postcss, { type AtRule, type Node, type Rule } from 'postcss';
+import postcss from 'postcss';
+import type { AtRule, Node, Rule } from 'postcss';
 import {
   AS_DOCUMENT,
   ATTRIBUTE_STYLED,
@@ -90,7 +91,7 @@ const FLOOR_LAYER = `${CHAT_LAYER}.${RESET_LAYER}`;
  * writes `::before` as `:before`).
  */
 const guardKey = (selector: string) =>
-  compact(selector).replace(/(?<!:):(before|after|first-line|first-letter)\b/g, '::$1');
+  compact(selector).replaceAll(/(?<!:):(before|after|first-line|first-letter)\b/g, '::$1');
 
 /** The selectors of the rule for `pseudo` (`GUARDED_PSEUDO_ELEMENTS`) that scopeCss adds after `prefix`'s. */
 const pseudoSelectors = (prefix: string, pseudo: string) =>
@@ -188,14 +189,14 @@ const isScoped = (selector: string): boolean => {
 
 export interface BuiltCssReport {
   /** What is wrong; empty when the stylesheet passes. */
-  readonly problems: ReadonlyArray<string>;
+  readonly problems: readonly string[];
   /** What the stylesheet declares for the whole page (AGENTS.md lists these kinds). */
   readonly pageGlobal: {
-    readonly keyframes: ReadonlyArray<string>;
-    readonly properties: ReadonlyArray<string>;
-    readonly fontFamilies: ReadonlyArray<string>;
+    readonly keyframes: readonly string[];
+    readonly properties: readonly string[];
+    readonly fontFamilies: readonly string[];
     /** The layer names a page shares the cascade with: the chat's own, its sublayers inside it. */
-    readonly layers: ReadonlyArray<string>;
+    readonly layers: readonly string[];
   };
 }
 
@@ -313,22 +314,22 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
       }
     }
     rule.walkDecls((decl) => {
-      const selectors = rule.selectors.map(compact);
-      if (decl.prop === '--background' && selectors.includes(compact(AS_DOCUMENT))) theme = true;
+      const selectors = new Set(rule.selectors.map(compact));
+      if (decl.prop === '--background' && selectors.has(compact(AS_DOCUMENT))) theme = true;
       if (decl.prop === '--background' && decl.value === 'var(--consola-agent-ui-bg)') {
         mapping = true;
       }
       if (
         decl.prop === 'display' &&
         decl.value === 'flex' &&
-        selectors.includes(compact(`${INSIDE} .flex`))
+        selectors.has(compact(`${INSIDE} .flex`))
       ) {
         utility = true;
       }
     });
   });
 
-  const rollsBack = (rules: ReadonlyArray<Rule> | undefined, prop: string) =>
+  const rollsBack = (rules: readonly Rule[] | undefined, prop: string) =>
     (rules ?? []).some((rule) => rule.some((node) => node.type === 'decl' && node.prop === prop));
   /** What is missing from the guard or the floor, which roll back from `prefix` with `value`. */
   const incomplete = (rules: Map<string, Rule[]>, prefix: string, value: string, what: string) => {
@@ -383,7 +384,7 @@ export const checkBuiltCss = (css: string): BuiltCssReport => {
   };
 };
 
-const isMain = process.argv[1] === fileURLToPath(import.meta.url);
+const isMain = process.argv[1] === import.meta.filename;
 if (isMain) {
   const path = fileURLToPath(new URL('../dist/agent-ui.css', import.meta.url));
   let css: string;

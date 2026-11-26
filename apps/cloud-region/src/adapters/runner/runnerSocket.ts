@@ -1,14 +1,16 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import {
-  type CellMessage,
-  type ReadResult,
-  type RunnerHello,
-  type RunnerMessage,
-  readRunnerMessage,
-  type SessionUpdate,
+import { readRunnerMessage } from '@consola/runner-protocol';
+import type {
+  CellMessage,
+  ReadResult,
+  RunnerHello,
+  RunnerMessage,
+  SessionUpdate,
 } from '@consola/runner-protocol';
-import { createNodeWebSocket, type NodeWebSocket } from '@hono/node-ws';
-import { type Context, Hono } from 'hono';
+import { createNodeWebSocket } from '@hono/node-ws';
+import type { NodeWebSocket } from '@hono/node-ws';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import { belongsToRunner, isEnded } from '../../domain/cloudSession.js';
 import { applyRunnerUpdate } from '../../application/cloudSessions.js';
@@ -285,7 +287,7 @@ export function createRunnerSocket(deps: {
               ? hello(connection, message, settings)
               : update(connection, message, settings),
           )
-          .catch((error) => {
+          .catch((error: unknown) => {
             try {
               report(`The cell could not handle a runner's message: ${describe(error)}`);
             } catch {

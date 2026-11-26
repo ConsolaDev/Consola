@@ -1,12 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { SecretBindingView } from '../../../shared/automations';
-import {
-  SECRETS_TRUST_LINE,
-  needsBinding,
-  secretCardLines,
-  secretPlacesOf,
-  type SecretPlace,
-} from './secretWords';
+import { SECRETS_TRUST_LINE, needsBinding, secretCardLines, secretPlacesOf } from './secretWords';
+import type { SecretPlace } from './secretWords';
 
 const UTC = { timeZone: 'UTC' };
 const AT = '2026-11-20T12:00:00.000Z';

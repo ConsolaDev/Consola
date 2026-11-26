@@ -703,8 +703,9 @@ test.describe('Home scopes and groups', () => {
     // Settle everything, then make the window short enough that the dock's
     // cap is smaller than the shelf.
     await page.evaluate(async () => {
-      for (const id of ['s1', 's2', 's3', 's4'])
+      for (const id of ['s1', 's2', 's3', 's4']) {
         await window.attentionAPI.settle('ws-folding-e2e', id);
+      }
     });
     const header = page.getByRole('button', { name: /^Settled/ });
     await expect(header.locator('.shelf-header-count')).toHaveText('4');
@@ -928,7 +929,7 @@ test.describe('Home scopes and groups', () => {
     await expect(settledHeader).toHaveText(/1/);
     await expect(topList(page)).not.toContainText('Fix flaky test');
     await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(1500);
     await expect(settledHeader).toHaveText(/1/);
     await settledHeader.click();
     await expect(shelved).toHaveCount(1);
@@ -1036,7 +1037,10 @@ test.describe('the Working section', () => {
    * A workspace whose sessions run `script`, made in the order given, so the
    * last is the newest. Returns once the workspace is on screen.
    */
-  async function sessionsRunning(script: string, sessions: [name: string, instanceId: string][]) {
+  async function sessionsRunning(
+    script: string,
+    sessions: Array<[name: string, instanceId: string]>,
+  ) {
     const stub = path.join(root, 'agent.sh');
     fs.writeFileSync(stub, script, { mode: 0o755 });
     await page.evaluate(
@@ -1135,7 +1139,7 @@ test.describe('the Working section', () => {
     await expect
       .poll(topOfList, { timeout: 10_000, intervals: [50] })
       .toEqual(['Session A', 'Session C', 'Session B']);
-    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1_000);
+    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1000);
     await expect(working).toHaveCount(0);
   });
 
@@ -1162,7 +1166,7 @@ test.describe('the Working section', () => {
     expect(await topOfList()).toEqual(order);
 
     await expect.poll(() => statusOf('still-b'), { timeout: 15_000 }).toBe('ready');
-    await page.waitForTimeout(2_500);
+    await page.waitForTimeout(2500);
     expect(await topOfList()).toEqual(order);
   });
 

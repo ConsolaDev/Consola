@@ -148,7 +148,7 @@ export class CodexDriver implements HarnessDriver {
   public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
     try {
       const thread = await this.locateThread(config, sessionId, { followPending: false });
-      return thread?.rollout ? readSessionModel(thread.rollout, 'codex') : null;
+      return thread?.rollout ? await readSessionModel(thread.rollout, 'codex') : null;
     } catch {
       return null;
     }
@@ -190,7 +190,7 @@ export class CodexDriver implements HarnessDriver {
           path.join(home, 'consola', 'sessions', `${sessionId}.json`),
           'utf8',
         ),
-      );
+      ) as CodexMapping;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
       throw error;
@@ -346,10 +346,11 @@ export class CodexDriver implements HarnessDriver {
         const id = /^[0-9a-f-]{29}$/i.test(stored.pendingThreadPrefix)
           ? threadForPrefix(home, stored.pendingThreadPrefix)
           : undefined;
-        if (!id)
+        if (!id) {
           throw new Error(
             'Could not uniquely locate the active Codex conversation. Resume it in Codex before reopening this tab.',
           );
+        }
         file.write({ threadId: id });
         return id;
       }
@@ -406,7 +407,7 @@ export class CodexDriver implements HarnessDriver {
           {
             cwd: os.homedir(),
             env: this.composeEnv(config, getLoginEnv()),
-            timeout: 10000,
+            timeout: 10_000,
             maxBuffer: 1024 * 1024,
           },
           (error, stdout, stderr) =>
@@ -418,7 +419,7 @@ export class CodexDriver implements HarnessDriver {
         );
       });
     const version = await run(['--version']);
-    if (!version.ok)
+    if (!version.ok) {
       return {
         available: false,
         resolvedBinary,
@@ -427,6 +428,7 @@ export class CodexDriver implements HarnessDriver {
             ? 'Not found — `codex` is not installed or not on PATH.'
             : 'Could not run Codex. Check the binary path and profile configuration.',
       };
+    }
     const login = await run(['login', 'status']);
     // Do not return raw login output: API-key login can include a key fragment.
     const displayName = /ChatGPT/i.test(login.output)

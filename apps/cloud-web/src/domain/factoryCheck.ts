@@ -1,5 +1,6 @@
 import { parseFactory, storedFactoryFiles } from '@consola/factory-spec';
-import { type FactoryProblem, problemOf } from './factoryProblems';
+import { problemOf } from './factoryProblems';
+import type { FactoryProblem } from './factoryProblems';
 
 /**
  * A factory's files checked as the person edits them, with the rules the cell checks a save

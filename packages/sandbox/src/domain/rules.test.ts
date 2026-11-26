@@ -89,9 +89,9 @@ describe('the request rules', () => {
   it.each([
     [1, true],
     [7420, true],
-    [65535, true],
+    [65_535, true],
     [0, false],
-    [65536, false],
+    [65_536, false],
     [-1, false],
     [80.5, false],
     ['80', false],

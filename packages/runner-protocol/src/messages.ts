@@ -1,4 +1,5 @@
-import { fieldProblem, isId, isRecord, type ReadResult, read, refused } from './read.js';
+import { fieldProblem, isId, isRecord, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
 
 /** The agent CLIs a runner can start a session with. */
 export const HARNESSES = ['claude', 'codex'] as const;
@@ -22,7 +23,7 @@ export function isRepository(value: unknown): value is Repository {
   return !(value.split('/')[1] ?? '.').startsWith('.');
 }
 
-const LOCAL_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
  * The origin a session's host listens on, as `exposePort` gives it: an `https:` origin, or an
@@ -41,7 +42,7 @@ export function isHostUrl(value: unknown): value is string {
   // `origin` leaves out user info, path, query and fragment, so only the bare origin equals it.
   if (url.origin !== value) return false;
   if (url.protocol === 'https:') return true;
-  return url.protocol === 'http:' && LOCAL_HOSTS.includes(url.hostname);
+  return url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname);
 }
 
 /** How a session's sandbox ended, as far as the runner reports it. */

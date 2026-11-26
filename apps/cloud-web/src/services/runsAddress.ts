@@ -1,5 +1,6 @@
 import type { RunFilters } from '../domain/runFilters';
-import { hashOfRun, hashOfRunsList, type RunPlace } from '../domain/runsRoute';
+import { hashOfRun, hashOfRunsList } from '../domain/runsRoute';
+import type { RunPlace } from '../domain/runsRoute';
 
 /*
  * The Runs section's place, as the address bar holds it: only the hash, like the section itself

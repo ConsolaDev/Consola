@@ -6,11 +6,10 @@
 // argument, and is never printed. The package's `template:build` script compiles it first.
 
 import { existsSync, readdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { buildE2BTemplate } from '../dist/e2b.js';
 
-const root = join(dirname(fileURLToPath(import.meta.url)), '..');
+const root = join(import.meta.dirname, '..');
 const envFile = join(root, '.env');
 if (existsSync(envFile)) process.loadEnvFile(envFile);
 

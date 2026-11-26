@@ -24,7 +24,7 @@ export function cutCopy(text: string, max: number): string {
   let end = Math.min(text.length, Math.max(0, max));
   if (end < text.length && end > 0) {
     const last = text.charCodeAt(end - 1);
-    if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+    if (last >= 0xd8_00 && last <= 0xdb_ff) end -= 1;
   }
   return ownCopy(text.slice(0, end));
 }

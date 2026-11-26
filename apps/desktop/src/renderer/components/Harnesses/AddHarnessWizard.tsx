@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Check, X } from 'lucide-react';
-import type { HarnessDriverId } from '../../../shared/types';
 import { HARNESS_DRIVERS } from '../../../shared/constants';
 import {
   DEFAULT_ACCENT_COLOR,
@@ -9,7 +8,8 @@ import {
   parseLaunchArgs,
   useHarnessStore,
 } from '../../stores/harnessStore';
-import { ConfigFields, IdentityFields, type HarnessDraft } from './harnessFields';
+import { ConfigFields, IdentityFields } from './harnessFields';
+import type { HarnessDraft } from './harnessFields';
 import { HarnessIcon } from '../HarnessIcon';
 import './styles.css';
 
@@ -75,8 +75,9 @@ export function AddHarnessWizard({
   const idError = (() => {
     if (!draft.id) return 'An instance ID is required.';
     if (!HARNESS_ID_PATTERN.test(draft.id)) return "Use only letters, digits, '-', or '_'.";
-    if (harnesses.some((harness) => harness.id === draft.id))
+    if (harnesses.some((harness) => harness.id === draft.id)) {
       return 'That instance ID is already in use.';
+    }
     return undefined;
   })();
 
@@ -135,7 +136,7 @@ export function AddHarnessWizard({
                       draft.driverId === driver.id ? 'selected' : ''
                     }`}
                     disabled={!driver.available}
-                    onClick={() => change({ driverId: driver.id as HarnessDriverId })}
+                    onClick={() => change({ driverId: driver.id })}
                   >
                     <span className="harness-driver-option-label">
                       <HarnessIcon driverId={driver.id} decorative />
@@ -180,14 +181,14 @@ export function AddHarnessWizard({
                 Next
               </button>
             ) : (
-              <button type="button" className="dialog-button-primary" onClick={submit}>
+              <button type="button" className="dialog-button-primary" onClick={() => void submit()}>
                 Add harness
               </button>
             )}
           </div>
 
           <Dialog.Close asChild>
-            <button className="dialog-close" aria-label="Close">
+            <button type="button" className="dialog-close" aria-label="Close">
               <X size={16} />
             </button>
           </Dialog.Close>

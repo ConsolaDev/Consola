@@ -1,7 +1,8 @@
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import { isParked, worstStatus, type Attention } from '../../../shared/attention';
+import { isParked, worstStatus } from '../../../shared/attention';
+import type { Attention } from '../../../shared/attention';
 import type { AttentionMap } from '../../utils/sessionStatus';
 import { relativeSince } from '../../utils/relativeSince';
 

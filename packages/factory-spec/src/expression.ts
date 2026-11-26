@@ -99,8 +99,9 @@ function tokenize(source: string): Token[] {
         value += c;
         i++;
       }
-      if (!closed)
+      if (!closed) {
         throw new ParseError(`unterminated string starting at \`${source.slice(start)}\``);
+      }
       tokens.push({ type: 'string', value, start, end: i });
       continue;
     }
@@ -260,18 +261,21 @@ class Parser {
           `\`${step}\` is not a step id (lowercase letters, digits and hyphens): steps.<step>.<output>`,
         );
       }
-      if (!NAME.test(output))
+      if (!NAME.test(output)) {
         throw new ParseError(`\`${output}\` is not an output name: steps.<step>.<output>`);
-      if (this.isPunct('.'))
+      }
+      if (this.isPunct('.')) {
         throw new ParseError('a path is steps.<step>.<output>, with nothing after the output');
+      }
       return { kind: 'output', step, output, text: this.slice(start, this.lastEnd()) };
     }
     if (value === 'item') {
       this.expectDot('item.<field>');
       const field = this.segment('item.<field>');
       if (!NAME.test(field)) throw new ParseError(`\`${field}\` is not a field name: item.<field>`);
-      if (this.isPunct('.'))
+      if (this.isPunct('.')) {
         throw new ParseError('a path is item.<field>, with nothing after the field');
+      }
       return { kind: 'item', field, text: this.slice(start, this.lastEnd()) };
     }
     if (value === 'previous') throw new ParseError(PREVIOUS_IN_IF);

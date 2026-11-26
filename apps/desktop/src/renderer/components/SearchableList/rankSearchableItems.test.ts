@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { rankSearchableItems, type SearchableListItem } from './rankSearchableItems';
+import { rankSearchableItems } from './rankSearchableItems';
+import type { SearchableListItem } from './rankSearchableItems';
 
 const memory: SearchableListItem = {
   id: 's1',

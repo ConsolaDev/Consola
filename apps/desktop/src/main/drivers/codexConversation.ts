@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as readline from 'readline';
+import * as fs from 'node:fs';
+import * as readline from 'node:readline';
 import type {
   ConversationEntry,
   ConversationRecord,
@@ -61,11 +61,11 @@ function oneLine(text: string): string | undefined {
 
 function textParts(content: unknown, partType: string): string {
   if (!Array.isArray(content)) return '';
-  return content
-    .filter(
-      (part): part is { type: string; text: string } =>
-        !!part && part.type === partType && typeof part.text === 'string',
-    )
+  return (content as unknown[])
+    .filter((part): part is { type: string; text: string } => {
+      const fields = part as { type?: unknown; text?: unknown } | null;
+      return !!fields && fields.type === partType && typeof fields.text === 'string';
+    })
     .map((part) => part.text)
     .join('\n\n');
 }
@@ -83,8 +83,9 @@ function argumentDetail(raw: unknown): string | undefined {
   for (const key of DETAIL_KEYS) {
     const value = (parsed as Record<string, unknown>)[key];
     if (typeof value === 'string' && value.trim() !== '') return oneLine(value);
-    if (Array.isArray(value) && value.every((part) => typeof part === 'string'))
+    if (Array.isArray(value) && value.every((part) => typeof part === 'string')) {
       return oneLine(value.join(' '));
+    }
   }
   return undefined;
 }
@@ -118,8 +119,8 @@ export async function codexConversationFromLines(
   lines: Iterable<string> | AsyncIterable<string>,
   window: ConversationWindow = {},
 ): Promise<ConversationRecord> {
-  const since = window.since ? Date.parse(window.since) : NaN;
-  const until = window.until ? Date.parse(window.until) : NaN;
+  const since = window.since ? Date.parse(window.since) : Number.NaN;
+  const until = window.until ? Date.parse(window.until) : Number.NaN;
   const conversation = new ConversationBuilder();
   const awaitingResult = new Map<string, Step>();
   let parsedLines = 0;
@@ -139,13 +140,14 @@ export async function codexConversationFromLines(
       typeof record.type !== 'string' ||
       !record.payload ||
       typeof record.payload !== 'object'
-    )
+    ) {
       continue;
+    }
     envelopes++;
     if (record.type !== 'response_item') continue;
 
     const at = typeof record.timestamp === 'string' ? record.timestamp : undefined;
-    const time = at ? Date.parse(at) : NaN;
+    const time = at ? Date.parse(at) : Number.NaN;
     if (!Number.isNaN(time)) {
       if (!Number.isNaN(since) && time < since) continue;
       if (!Number.isNaN(until) && time > until) continue;

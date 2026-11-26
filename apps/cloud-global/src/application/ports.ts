@@ -263,7 +263,7 @@ export type MintAnswer =
       kind: 'minted';
       token: string;
       expiresAt: Date;
-      repositories: { id: number; fullName: string }[];
+      repositories: Array<{ id: number; fullName: string }>;
       permissions: Record<string, string>;
     }
   /** GitHub no longer has the installation: uninstalled, or suspended. */

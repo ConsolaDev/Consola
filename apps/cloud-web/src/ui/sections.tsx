@@ -1,4 +1,5 @@
-import { LayoutGrid, type LucideIcon, MessagesSquare, Zap } from 'lucide-react';
+import { LayoutGrid, MessagesSquare, Zap } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { Me } from '../domain/me';
 import { SESSIONS_SECTION_ID } from '../domain/sessionsRoute';

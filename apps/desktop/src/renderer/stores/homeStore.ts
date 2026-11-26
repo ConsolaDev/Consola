@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { primaryScope, type Scope, type Workspace } from '../../shared/workspace';
+import { primaryScope } from '../../shared/workspace';
+import type { Scope, Workspace } from '../../shared/workspace';
 
 interface HomeState {
   /** Workspace id → the one scope its session list is narrowed to. No key is "All scopes". */

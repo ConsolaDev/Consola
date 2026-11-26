@@ -98,12 +98,14 @@ export function writeAgentFlags({
   pluginDir,
   skills = [],
 } = {}) {
-  if (!(tools in WRITE_TOOLS))
+  if (!(tools in WRITE_TOOLS)) {
     throw new Error(`writeAgentFlags: tools is 'edit' or 'write', not ${String(tools)}`);
+  }
   const ordered = {};
   for (const key of SETTINGS_ORDER) if (settings?.[key] !== undefined) ordered[key] = settings[key];
-  for (const [key, value] of Object.entries(settings ?? {}))
+  for (const [key, value] of Object.entries(settings ?? {})) {
     if (!(key in ordered)) ordered[key] = value;
+  }
   return [
     ...(Object.keys(ordered).length > 0 ? ['--settings', JSON.stringify(ordered)] : []),
     ...(pluginDir ? ['--plugin-dir', pluginDir] : []),

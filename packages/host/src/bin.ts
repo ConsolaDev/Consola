@@ -37,11 +37,14 @@ import * as Fiber from 'effect/Fiber';
 import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
-import { type SandboxProvider, sandboxesFrom } from '@consola/sandbox';
+import { sandboxesFrom } from '@consola/sandbox';
+import type { SandboxProvider } from '@consola/sandbox';
 import { makeCellSocket } from './adapters/cellSocket.ts';
-import { type DevAccess, makeDevAccess } from './adapters/devPass.ts';
+import { makeDevAccess } from './adapters/devPass.ts';
+import type { DevAccess } from './adapters/devPass.ts';
 import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
-import { type HostListening, listenHost } from './adapters/rpcServer.ts';
+import { listenHost } from './adapters/rpcServer.ts';
+import type { HostListening } from './adapters/rpcServer.ts';
 import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
 import { isLoopback } from './core/bind.ts';
@@ -50,12 +53,11 @@ import {
   cellUrlProblem,
   HARNESS_API_KEYS,
   harnessesFromEnv,
-  type RunnerOffer,
   readRepositories,
-  type SandboxSecrets,
   scrubSecrets,
   secretValuesOf,
 } from './core/runnerDecisions.ts';
+import type { RunnerOffer, SandboxSecrets } from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
 import * as ThreadRuntime from './runtime/threadRuntime.ts';
 
@@ -129,12 +131,10 @@ export type SessionArgs = {
 };
 
 const isHarness = (value: string): value is SessionSpec['harness'] =>
-  (HARNESSES as ReadonlyArray<string>).includes(value);
+  (HARNESSES as readonly string[]).includes(value);
 
 /** Reads `session` and its flags (`argv` without node and the script). */
-export const parseSessionArgs = (
-  argv: ReadonlyArray<string>,
-): Effect.Effect<SessionArgs, UsageError> =>
+export const parseSessionArgs = (argv: readonly string[]): Effect.Effect<SessionArgs, UsageError> =>
   Effect.gen(function* () {
     const refuse = (problem: string) => Effect.fail(new UsageError({ problem }));
     const parsed = yield* Effect.try({
@@ -388,7 +388,7 @@ export const runSession = (
 
 /** `consola-host session …`: `argv` parsed, then the session run over `runtimeFor`. */
 export const sessionCommand = (
-  argv: ReadonlyArray<string>,
+  argv: readonly string[],
   runtimeFor: RuntimeFor,
 ): Effect.Effect<
   void,
@@ -411,7 +411,7 @@ export type RunnerArgs = {
   /** What a sandbox is given: the git token and its harness's key. */
   readonly secrets: SandboxSecrets;
   /** The values of `RUNNER_SECRET_VARIABLES`, taken out of whatever it reports or logs. */
-  readonly secretValues: ReadonlyArray<string>;
+  readonly secretValues: readonly string[];
   /** A session host's idle minutes. */
   readonly idleMinutes: number;
   /** The lifetime cap of a session's sandbox, in minutes. */
@@ -435,7 +435,7 @@ const positiveMinutes = (value: string | undefined, fallback: number): number | 
  * quotes a secret.
  */
 export const parseRunnerArgs = (
-  argv: ReadonlyArray<string>,
+  argv: readonly string[],
   env: RunnerEnv,
 ): Effect.Effect<RunnerArgs, UsageError | StartFailed> =>
   Effect.gen(function* () {
@@ -612,7 +612,7 @@ export const runRunner = (
  * run on it. No provider is a start failure.
  */
 export const runnerCommand = (
-  argv: ReadonlyArray<string>,
+  argv: readonly string[],
   env: RunnerEnv,
   providerFor: ProviderFor,
 ): Effect.Effect<void, UsageError | StartFailed | RunnerReplaced> =>
@@ -629,7 +629,7 @@ export const runnerCommand = (
   });
 
 /** Whether `argv` asks for the runner rather than a session: its command comes first. */
-export const isRunnerCommand = (argv: ReadonlyArray<string>): boolean => argv[0] === 'runner';
+export const isRunnerCommand = (argv: readonly string[]): boolean => argv[0] === 'runner';
 
 /** How long the session (or the runner) may take to stop after a signal before the host gives up. */
 const SHUTDOWN_GRACE = Duration.seconds(15);
@@ -704,7 +704,7 @@ export const runHostProcess = <E>(
  * the bin, calls it once it has loaded this module, its early signal handlers swapped for
  * `runHostProcess`'s.
  */
-export const main = (argv: ReadonlyArray<string>): void => {
+export const main = (argv: readonly string[]): void => {
   if (isRunnerCommand(argv)) {
     runHostProcess(runnerCommand(argv, process.env, productionProvider), 'runner');
   } else {

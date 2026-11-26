@@ -1,4 +1,5 @@
-import { type Phase, type RunStatus, type StepSummary, stepHasEnded } from './runs';
+import { stepHasEnded } from './runs';
+import type { Phase, RunStatus, StepSummary } from './runs';
 import { costInWords, durationInWords, workedFor } from './runWords';
 
 /**
@@ -124,7 +125,7 @@ export function rowFacts(step: StepSummary, now: number): string | null {
 
 /** An earlier attempt's status in the words a person uses: one that did not run did not fail. */
 function earlierWords(status: StepSummary['status']): string {
-  return status === 'not-run' ? 'did not run' : status.replace(/-/g, ' ');
+  return status === 'not-run' ? 'did not run' : status.replaceAll('-', ' ');
 }
 
 /**
@@ -234,7 +235,7 @@ export function skippedCondition(reason: string | null): string | null {
 /** Why a step the run never reached did not run, from how the run ended. */
 export function notRunReason(
   status: RunStatus,
-  steps: readonly Pick<StepSummary, 'id' | 'status'>[],
+  steps: ReadonlyArray<Pick<StepSummary, 'id' | 'status'>>,
 ): string {
   if (status === 'rejected') return 'The run was turned down before it started.';
   const failed = steps.find((candidate) => candidate.status === 'failed');
@@ -246,7 +247,7 @@ export function notRunReason(
 
 /** A value as a row shows it: on one line, cut short past `max` characters. */
 function shortValue(value: string | number | boolean, max = 40): string {
-  const text = String(value).replace(/\s+/g, ' ');
+  const text = String(value).replaceAll(/\s+/g, ' ');
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 
@@ -278,7 +279,11 @@ export function lastLine(text: string, max = 160): string | null {
  */
 export function stepSummary(
   step: StepSummary,
-  run: { status: RunStatus; phase: Phase; steps: readonly Pick<StepSummary, 'id' | 'status'>[] },
+  run: {
+    status: RunStatus;
+    phase: Phase;
+    steps: ReadonlyArray<Pick<StepSummary, 'id' | 'status'>>;
+  },
 ): string | null {
   const tone = stepTone(step.status, runIsOver(run.phase));
   switch (tone) {
@@ -366,7 +371,7 @@ export function failureIsExit(error: string | null): boolean {
 
 /** How the run's steps went, counted for the trace's heading: `6 steps · 5 completed · 1 skipped`. */
 export function stepCounts(
-  steps: readonly Pick<StepSummary, 'status'>[],
+  steps: ReadonlyArray<Pick<StepSummary, 'status'>>,
   runOver: boolean,
 ): string {
   const counts = new Map<StepTone, number>();
@@ -374,7 +379,7 @@ export function stepCounts(
     const tone = stepTone(step.status, runOver);
     counts.set(tone, (counts.get(tone) ?? 0) + 1);
   }
-  const words: [StepTone, string][] = [
+  const words: Array<[StepTone, string]> = [
     ['passed', 'completed'],
     ['failed', 'failed'],
     ['running', 'running'],
@@ -455,10 +460,10 @@ const BIDI = /[؜‎‏‪-‮⁦-⁩]/g;
 
 export function cleanOutput(text: string): string {
   const unescaped = text
-    .replace(ESC_STRING, '')
-    .replace(ESC_CSI, '')
-    .replace(ESC_OTHER, '')
-    .replace(BIDI, '');
+    .replaceAll(ESC_STRING, '')
+    .replaceAll(ESC_CSI, '')
+    .replaceAll(ESC_OTHER, '')
+    .replaceAll(BIDI, '');
   const lines: string[] = [];
   let line: string[] = [];
   for (let at = 0; at < unescaped.length; at++) {

@@ -4,12 +4,8 @@ import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
-import {
-  checkoutPathForSession,
-  scopeForSession,
-  type Session,
-  type WorkspaceUpdates,
-} from '../shared/workspace';
+import { checkoutPathForSession, scopeForSession } from '../shared/workspace';
+import type { Session, WorkspaceUpdates } from '../shared/workspace';
 import { describeError } from './describeError';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
@@ -40,12 +36,8 @@ import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest, isTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
-import {
-  clearBrowsingData,
-  type DownloadPlaces,
-  gateDownloads,
-  partitionFor,
-} from './browser/sessionPolicy';
+import { clearBrowsingData, gateDownloads, partitionFor } from './browser/sessionPolicy';
+import type { DownloadPlaces } from './browser/sessionPolicy';
 import { createDownloadGate, SessionDownloads } from './browser/downloadGate';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
@@ -72,7 +64,8 @@ import { SessionNamer } from './sessionTitles/SessionNamer';
 import { borrowProviderEnv, composeProviderEnv, getProviderDriver } from './providers';
 import { getLoginEnv, loginEnvRetry } from './LoginEnvironment';
 import { InboxService } from './providers/InboxService';
-import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
+import { createLaunchCoalescer } from './providers/launchWorkItem';
+import type { WorkItemLaunchDeps } from './providers/launchWorkItem';
 import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
@@ -105,13 +98,12 @@ import {
   WorktreeCleanupSweeper,
 } from './worktreeCleanup/WorktreeCleanupSweeper';
 import {
-  type CleanupPreviewRequest,
   describeTrigger,
   effectiveWorktreeCleanup,
   normalizeRules,
   normalizeWorkspaceOverride,
-  type WorktreeCleanupRules,
 } from '../shared/worktreeCleanup';
+import type { CleanupPreviewRequest, WorktreeCleanupRules } from '../shared/worktreeCleanup';
 import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
 import { lockKey, worktreePathLock } from './worktreeCleanup/PathLock';
 import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
@@ -133,8 +125,8 @@ import {
   withKnownTools,
   writeAgentHost,
   writeAgentHostNow,
-  type WriteAgentHostDeps,
 } from './automations/agentHarness';
+import type { WriteAgentHostDeps } from './automations/agentHarness';
 import { HarnessVersions, UNKNOWN_CLI_VERSION } from './drivers/harnessVersions';
 import {
   FILE_TOOLS_DENY_CHECKED,
@@ -145,12 +137,8 @@ import { SANDBOX_CHECKED_ON_CLAUDE } from '../shared/sandboxCheck';
 import { runCheckoutSpawnRefusal, runOwnedCheckoutPort } from './automations/runOwnedCheckout';
 import { scopeIdForPath } from './providers/launchWorkItem';
 import { McpServersCache } from './automations/mcpServersCache';
-import {
-  launchAgentRun,
-  runningIn,
-  worktreeHeld,
-  type ItemWorktreeDeps,
-} from './automations/launchAgentRun';
+import { launchAgentRun, runningIn, worktreeHeld } from './automations/launchAgentRun';
+import type { ItemWorktreeDeps } from './automations/launchAgentRun';
 import { entryArgs, openFileArgs, workspaceArg } from './automations/factoryFileArgs';
 import { gateAnswerArgs, gateArgs } from './automations/gateArgs';
 import { openFactoryFile } from './automations/openFactoryFile';
@@ -177,37 +165,42 @@ import {
   stepToolSpecs,
   workspaceDataDir,
   workspaceFactoryPath,
-  type AgentRequirements,
-  type AutomationStateFile,
-  type ListRunsQuery,
-  type RunDefinitionView,
+} from '@consola/automation-engine';
+import type {
+  AgentRequirements,
+  AutomationStateFile,
+  ListRunsQuery,
+  RunDefinitionView,
 } from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
 import { commit, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
 import type { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
-import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
+import { deriveTerminalStatus } from '../shared/terminalStatus';
+import type { TerminalStatus } from '../shared/terminalStatus';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { InboxSection } from '../shared/inboxSections';
-import { isGitProviderId, type GitProviderId } from '../shared/providers';
+import { isGitProviderId } from '../shared/providers';
+import type { GitProviderId } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
 import {
   isValidWorkItemLaunchAction,
   isValidWorkItemRef,
   toWorkItemRef,
-  type InboxSnapshot,
-  type WorkItemLaunchAction,
-  type WorkItemRef,
 } from '../shared/workItems';
+import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
-import { BindingsStore, type SecretBindingsFile } from './secrets/BindingsStore';
+import { BindingsStore } from './secrets/BindingsStore';
+import type { SecretBindingsFile } from './secrets/BindingsStore';
 import { desktopSecretsPort } from './secrets/desktopSecrets';
 import { secretPrograms } from './secrets/programs';
 import { registerSecretsIpc, removeSecretsIpc } from './secrets/secretsIpc';
 import { automationMcpDeps } from './engineServers/mcpWiring';
-import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
-import { HarnessService, type HarnessStateFile } from './state/HarnessService';
+import { WorkspaceService } from './state/WorkspaceService';
+import type { WorkspaceStateFile } from './state/WorkspaceService';
+import { HarnessService } from './state/HarnessService';
+import type { HarnessStateFile } from './state/HarnessService';
 import {
   allowedGroupUpdates,
   allowedHarnessUpdates,
@@ -216,8 +209,8 @@ import {
   allowedScopeUpdates,
   allowedSessionUpdates,
   allowedWorkspaceUpdates,
-  type SessionUpdates,
 } from './state/updateFilters';
+import type { SessionUpdates } from './state/updateFilters';
 import type {
   DeletedLabel,
   Group,
@@ -242,22 +235,20 @@ import {
   shareQuitGuard,
   showAutomations,
   viewsFromStoredLayout,
-  type ViewMemoryAccess,
 } from './window-manager';
+import type { ViewMemoryAccess } from './window-manager';
 import { onConsolaWindowClosed } from './windowRegistry';
-import {
-  EMPTY_VIEW,
-  ViewMemoryService,
-  resolveRememberedView,
-  type ViewMemoryStateFile,
-} from './state/ViewMemoryService';
-import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/AttentionLedger';
+import { EMPTY_VIEW, ViewMemoryService, resolveRememberedView } from './state/ViewMemoryService';
+import type { ViewMemoryStateFile } from './state/ViewMemoryService';
+import { JsonAttentionLedger } from './attention/AttentionLedger';
+import type { AttentionLedgerStateFile } from './attention/AttentionLedger';
 import { TurnActivity } from './attention/TurnActivity';
 import { AttentionService } from './attention/AttentionService';
 import { SessionSource } from './attention/SessionSource';
 import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
-import { HookSignals, type AttentionSignal } from './attention/hookSignals';
+import { HookSignals } from './attention/hookSignals';
+import type { AttentionSignal } from './attention/hookSignals';
 import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
@@ -265,11 +256,8 @@ import { EmptySessionReaper } from './attention/EmptySessionReaper';
 import { settleAndVerify, settleMany, unsettleMany, unsettleSession } from './attention/settling';
 import { Snoozer } from './attention/Snoozer';
 import { HarnessLimitsCache } from './usageLimits/HarnessLimitsCache';
-import {
-  type HarnessTarget,
-  UsageLimitService,
-  type UsageLimitsStateFile,
-} from './usageLimits/UsageLimitService';
+import { UsageLimitService } from './usageLimits/UsageLimitService';
+import type { HarnessTarget, UsageLimitsStateFile } from './usageLimits/UsageLimitService';
 import type { UsageLimitsState } from '../shared/usageLimits';
 import { launchFieldsFor as harnessLaunchFields } from '../shared/harness';
 import { PreferencesService } from './state/PreferencesService';
@@ -281,7 +269,8 @@ import type {
   SnoozeBatchResult,
 } from '../shared/preferences';
 import type { SnoozeWhen } from '../shared/snooze';
-import { activityOf, type AttentionState } from '../shared/attention';
+import { activityOf } from '../shared/attention';
+import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 import { automationsRetryMs, automationsTickMs } from './test-mode';
 import { noticeTarget } from './automations/noticeTarget';
@@ -543,8 +532,7 @@ export function setupIpcHandlers(): boolean {
       popups: browser.popups,
       certificates: browser.certificates,
       // `webContents` is accepted by the constructor though not typed.
-      createWindow: (options) =>
-        new BrowserWindow(options as Electron.BrowserWindowConstructorOptions),
+      createWindow: (options) => new BrowserWindow(options),
       maxSize: () => {
         const { width, height } = electronScreen.getDisplayNearestPoint(
           electronScreen.getCursorScreenPoint(),
@@ -738,7 +726,6 @@ export function setupIpcHandlers(): boolean {
       // Where a session came from, what its agent may do, how many turns
       // a step's may take and what its agent was granted are main's to set,
       // when an automation launches one; a window never does.
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { toolPolicy, automation, maxTurns, grants, ...fields } =
         payload ?? ({} as NewSessionFields);
       if (!checkout) return workspaces.createSession(workspaceId, fields);
@@ -1465,7 +1452,9 @@ export function setupIpcHandlers(): boolean {
     swept: () =>
       void emptySessions
         .sweep()
-        .catch((error) => console.error('Could not remove empty settled sessions:', error)),
+        .catch((error: unknown) =>
+          console.error('Could not remove empty settled sessions:', error),
+        ),
   });
   autoSettler = settler;
 
@@ -1609,14 +1598,16 @@ export function setupIpcHandlers(): boolean {
       if (typeof workspaceId !== 'string' || !ids) return { ...emptyBatch, until: null };
       const snoozeWhen = when as SnoozeWhen | null;
       // A reset time is main's to know: the renderer only says "until it resets".
-      if (snoozeWhen && 'untilLimitResets' in snoozeWhen && snoozeWhen.untilLimitResets === true)
+      if (snoozeWhen && 'untilLimitResets' in snoozeWhen && snoozeWhen.untilLimitResets === true) {
         return sessionSnoozer.snooze(workspaceId, ids, (rootId) => limitResetFor(rootId), {
           by: 'person',
           reason: 'usage-limit',
         });
+      }
       const until = snoozeWhen && 'until' in snoozeWhen ? snoozeWhen.until : undefined;
-      if (typeof until !== 'number' || !Number.isFinite(until))
+      if (typeof until !== 'number' || !Number.isFinite(until)) {
         return { ...emptyBatch, until: null };
+      }
       return sessionSnoozer.snooze(workspaceId, ids, until, { by: 'person' });
     },
   );
@@ -2110,16 +2101,18 @@ export function setupIpcHandlers(): boolean {
         .find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
       const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
       const workItem = session?.workItem;
-      if (!workspace || !workItem)
+      if (!workspace || !workItem) {
         throw new Error('This session is not about a pull request or an issue.');
+      }
       if (workspace.provider?.id !== workItem.provider) {
         throw new Error(
           `This workspace has no ${workItem.provider} account bound to fetch it with.`,
         );
       }
       const driver = getProviderDriver(workspace.provider.id);
-      if (!driver.describeWorkItem)
+      if (!driver.describeWorkItem) {
         throw new Error(`Consola cannot describe ${workItem.provider} items yet.`);
+      }
       return driver.describeWorkItem(
         workItem,
         await composeProviderEnv(driver, workspace.provider.accountLogin),
@@ -2294,7 +2287,7 @@ export function setupIpcHandlers(): boolean {
       try {
         const said = execFileSync('ps', ['-o', 'pgid=,lstart=', '-p', String(pid)], {
           encoding: 'utf8',
-          timeout: 5_000,
+          timeout: 5000,
         });
         const match = /^\s*(\d+)\s+(.+?)\s*$/.exec(said);
         return match ? { pgid: Number(match[1]), started: match[2] } : null;
@@ -2353,9 +2346,9 @@ export function setupIpcHandlers(): boolean {
       // with the run open, in the window holding it.
       notification.on('click', () => {
         const target = noticeTarget(notice);
-        if (target.kind === 'session')
+        if (target.kind === 'session') {
           focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
-        else
+        } else {
           showAutomations(
             notice.workspaceId,
             target.kind === 'automation'
@@ -2365,6 +2358,7 @@ export function setupIpcHandlers(): boolean {
                 : {},
             viewMemoryPort(),
           );
+        }
       });
       notification.show();
     },
@@ -2372,8 +2366,9 @@ export function setupIpcHandlers(): boolean {
       attentionRuns.refresh();
       const change: AutomationsChange = { workspaceId, snapshot };
       for (const window of consolaWindows()) {
-        if (!window.isDestroyed())
+        if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, change);
+        }
       }
     },
     every: (ms, run) => {
@@ -2504,7 +2499,9 @@ export function setupIpcHandlers(): boolean {
     },
   });
   automationService = automations;
-  void automations.start().catch((error) => console.error('Automations failed to start.', error));
+  void automations
+    .start()
+    .catch((error: unknown) => console.error('Automations failed to start.', error));
   // A workspace's file is read from when it appears, and let go when it is deleted.
   workspaces.onChange(() => void automations.syncWorkspaces());
   // An edited harness re-resolves the entries that run on it.
@@ -2556,8 +2553,9 @@ export function setupIpcHandlers(): boolean {
       ) {
         throw new Error('Workspace, automation, server and version required.');
       }
-      if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId))
+      if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId)) {
         throw new Error(`Unknown workspace: ${workspaceId}`);
+      }
       return automations.checkServer(workspaceId, name, server, version);
     },
   );
@@ -2575,8 +2573,9 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS,
     (_event, workspaceId: unknown, name: unknown) => {
-      if (typeof workspaceId !== 'string' || typeof name !== 'string')
+      if (typeof workspaceId !== 'string' || typeof name !== 'string') {
         throw new Error('Workspace and automation required.');
+      }
       return automations.listRunTargets(workspaceId, name);
     },
   );
@@ -3129,7 +3128,7 @@ export function setupIpcHandlers(): boolean {
   // Handle file read
   ipcMain.handle(IPC_CHANNELS.FILE_READ, async (_event, filePath: string) => {
     try {
-      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const content = await fs.promises.readFile(filePath, 'utf8');
       return content;
     } catch (error) {
       throw new Error(

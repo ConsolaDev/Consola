@@ -7,18 +7,13 @@ import {
   parseFactorySpec,
   stableStringify,
   TERMINAL_RUN_STATUSES,
-  type RunRecord,
-  type StepRun,
 } from '@consola/factory-spec';
+import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { OPEN_STATUSES, runAttention } from './AutomationService';
 import { ASSIGNED_REVIEWS_GATED_NAME, assignedReviewsGatedEntry } from './factoryTemplates';
 import { inboxItem } from './inboxItems.test-helpers';
-import {
-  checkoutPathFor,
-  stepsHarness,
-  WORKSPACE_ID,
-  type StepsHarness,
-} from './steps/steps.test-helpers';
+import { checkoutPathFor, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness } from './steps/steps.test-helpers';
 import { MAX_ARTIFACT_BYTES } from './steps/definition';
 
 /** One `- name:` entry: its head lines as given, then `steps:` with each item's lines. */
@@ -46,10 +41,11 @@ function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
     const bodies: Record<string, string> = {};
     for (const step of leafSteps(automation.steps ?? [])) {
-      if (step.kind === 'agent' && step.action)
+      if (step.kind === 'agent' && step.action) {
         bodies[step.id] = h.world.workspace.actions.find(
           (action) => action.name === step.action,
         )!.prompt;
+      }
     }
     const body = Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined;
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation, body));

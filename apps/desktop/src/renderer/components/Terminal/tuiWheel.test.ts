@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createWheelState, wheelReportCount, type WheelInput } from './tuiWheel';
+import { createWheelState, wheelReportCount } from './tuiWheel';
+import type { WheelInput } from './tuiWheel';
 
 const CELL = 18;
 

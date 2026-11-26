@@ -214,8 +214,9 @@ export function sandboxSettingsProblem(
   files: ReadonlyArray<{ path: string; text: string | null; unreadable?: string }>,
 ): string | null {
   for (const file of files) {
-    if (file.unreadable !== undefined)
+    if (file.unreadable !== undefined) {
       return `${file.path} could not be read (${file.unreadable}), so Consola can't check whether it sets \`sandbox\`. Fix it, or give write agents a harness of their own.`;
+    }
     if (file.text === null) continue;
     let parsed: unknown;
     try {
@@ -228,8 +229,9 @@ export function sandboxSettingsProblem(
       parsed !== null &&
       !Array.isArray(parsed) &&
       Object.prototype.hasOwnProperty.call(parsed, 'sandbox')
-    )
+    ) {
       return `${file.path} sets \`sandbox\`, which Claude may add to this agent's sandbox, and Consola can't check what it changes. Remove it there, or give write agents a harness of their own.`;
+    }
   }
   return null;
 }

@@ -4,21 +4,16 @@ import * as fs from 'node:fs';
 import type { TerminalDimensions, HarnessLaunchFields, ScreenReplay } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv, loginEnvProblem, loginEnvRetry } from './LoginEnvironment';
-import {
-  getDriver,
-  toHarnessConfig,
-  type HarnessConfig,
-  type HarnessDriver,
-  type TurnEvent,
-  type TurnReader,
-  type TurnReport,
-} from './drivers';
+import { getDriver, toHarnessConfig } from './drivers';
+import type { HarnessConfig, HarnessDriver, TurnEvent, TurnReader, TurnReport } from './drivers';
 import type { SessionLaunch } from './drivers/HarnessDriver';
 import type { AgentGrants } from '../shared/agentGrants';
 import { ScreenModel } from './ScreenModel';
-import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
+import { PROVIDER_META, isGitProviderId } from '../shared/providers';
+import type { GitProviderId } from '../shared/providers';
 import { getProviderDriver, layerProviderToken } from './providers';
-import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
+import { deriveTerminalStatus } from '../shared/terminalStatus';
+import type { TerminalStatus } from '../shared/terminalStatus';
 import type { SessionToolPolicy } from '../shared/workspace';
 import { oneLine, withoutControls } from '../shared/oneLine';
 import { formatCostUsd } from '../shared/cost';
@@ -48,7 +43,7 @@ const IDLE_DEBOUNCE_MS = 500;
  * follows the view's own input. A turn is the CLI painting its spinner, on
  * its own, for as long as the turn runs.
  */
-const TURN_MIN_MS = 1_000;
+const TURN_MIN_MS = 1000;
 
 /**
  * How long after the person types into a menu the screen is read again.
@@ -62,7 +57,7 @@ const TURN_MIN_MS = 1_000;
 const ANSWER_RECHECK_MS = 300;
 
 /** How often a working CLI is asked where it works. Never while it is idle. */
-const WORKING_DIRECTORY_POLL_MS = 2_000;
+const WORKING_DIRECTORY_POLL_MS = 2000;
 
 /**
  * How long an unattended turn may run before Consola stops it. A print-mode
@@ -113,7 +108,7 @@ export function listProcessesByPs(): Promise<string> {
     execFile(
       'ps',
       ['-A', '-o', 'pid=,ppid=,pgid=,lstart='],
-      { maxBuffer: 16 * 1024 * 1024, timeout: 5_000 },
+      { maxBuffer: 16 * 1024 * 1024, timeout: 5000 },
       (error, stdout) => (error ? reject(error) : resolve(stdout)),
     );
   });
@@ -124,13 +119,14 @@ export function descendantsOf(output: string, root: number): StepProcessRecord['
   const rows: Array<{ pid: number; ppid: number; pgid: number; started: string }> = [];
   for (const line of output.split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
-    if (match)
+    if (match) {
       rows.push({
         pid: Number(match[1]),
         ppid: Number(match[2]),
         pgid: Number(match[3]),
         started: match[4],
       });
+    }
   }
   const children = new Map<number, typeof rows>();
   for (const row of rows) children.set(row.ppid, [...(children.get(row.ppid) ?? []), row]);
@@ -226,8 +222,9 @@ export function turnSummary(report: TurnReport, exitCode: number): string {
   const result = report.result;
   if (!result) return `Ended without a result line (exit ${exitCode}).`;
   const figures: string[] = [];
-  if (result.turns !== undefined)
+  if (result.turns !== undefined) {
     figures.push(`${result.turns} ${result.turns === 1 ? 'turn' : 'turns'}`);
+  }
   if (result.costUsd !== undefined) figures.push(formatCostUsd(result.costUsd));
   const counted = figures.join(', ');
 
@@ -543,8 +540,9 @@ export class TerminalService extends EventEmitter {
 
   public write(data: string): void {
     // Print mode exits 0 on Ctrl+C: remember that the person stopped it.
-    if (this.unattendedTurn && data.includes('\x03'))
+    if (this.unattendedTurn && data.includes('\x03')) {
       this.unattendedStopReason ??= 'you pressed Ctrl+C';
+    }
     this.lastInputAt = Date.now();
     if (this.turnReader) {
       // Print mode reads no keys, and the PTY would echo any other key into
@@ -649,8 +647,9 @@ export class TerminalService extends EventEmitter {
   public switchRefusal(): string | null {
     const refusal = this.moveRefusal();
     if (refusal) return refusal;
-    if (this.isBusy)
+    if (this.isBusy) {
       return 'This session is in the middle of a turn. Let it finish, or stop it, before switching.';
+    }
     return null;
   }
 
@@ -696,8 +695,9 @@ export class TerminalService extends EventEmitter {
    * would spawn under whichever id it read first.
    */
   private moveRefusal(): string | null {
-    if (this.runningUnattended())
+    if (this.runningUnattended()) {
       return 'An automation is still running its turn in this session. Wait for it to finish.';
+    }
     if (this.isLaunching) return 'This session is still starting. Try again in a moment.';
     return null;
   }
@@ -829,7 +829,7 @@ export class TerminalService extends EventEmitter {
       this.emit('exit', {
         exitCode: 1,
         ...this.unattendedNeverStarted(cwdProblem),
-      } as TerminalExitInfo);
+      });
       return;
     }
 
@@ -898,16 +898,17 @@ export class TerminalService extends EventEmitter {
         this.emit('exit', {
           exitCode: 1,
           ...this.unattendedNeverStarted(stopBeforeSpawn),
-        } as TerminalExitInfo);
+        });
         return;
       }
 
       // Written before the spawn so it sits above whatever the turn prints.
-      if (unattended)
+      if (unattended) {
         this.writeNotice(
           unattendedNotice(reporting, this.options.toolPolicy, this.options.grants),
           formatInfo,
         );
+      }
       this.claudeProducedOutput = false;
       this.streamLimitNotice = false;
       const reader = reporting ? (this.driver.createTurnReader?.() ?? null) : null;
@@ -916,7 +917,7 @@ export class TerminalService extends EventEmitter {
         cols: this.dimensions.cols,
         rows: this.dimensions.rows,
         cwd: this.options.cwd,
-        env: this.spawnEnv(borrowed) as { [key: string]: string },
+        env: this.spawnEnv(borrowed),
       });
       // A prompt on the command line is delivered by the spawn itself,
       // and the turn, cap and fork it asked for are done with once spawned.
@@ -1018,7 +1019,7 @@ export class TerminalService extends EventEmitter {
 
         this.emitStatus();
         if (!turn) {
-          this.emit('exit', { exitCode } as TerminalExitInfo);
+          this.emit('exit', { exitCode });
           return;
         }
         if (reader) {
@@ -1036,7 +1037,7 @@ export class TerminalService extends EventEmitter {
             unattended: true,
             ...(lastLine ? { lastLine } : {}),
             ...(stopped ? { stopped } : {}),
-          } as TerminalExitInfo);
+          });
         });
       });
     } catch (error) {
@@ -1049,7 +1050,7 @@ export class TerminalService extends EventEmitter {
       this.emit('exit', {
         exitCode: 1,
         ...this.unattendedNeverStarted(message),
-      } as TerminalExitInfo);
+      });
     } finally {
       this.isLaunching = false;
     }
@@ -1103,13 +1104,14 @@ export class TerminalService extends EventEmitter {
   private spawnEnv(borrowed: { envVar: string; token: string } | null): NodeJS.ProcessEnv {
     const composed = this.driver.composeEnv(this.harness, getLoginEnv());
     const environment = this.options.grants?.environment;
-    if (this.writes() && environment?.isolation === 'sandbox')
+    if (this.writes() && environment?.isolation === 'sandbox') {
       return sandboxSessionEnv(
         composed,
         { envVar: this.driver.configDirEnvVar },
         environment.envNames,
         this.options.cwd,
       ).env;
+    }
     const env = layerProviderToken(composed, borrowed?.envVar ?? null, borrowed?.token ?? null);
     if (this.writes()) for (const name of GIT_FOLDER_VARIABLES) delete env[name];
     return env;
@@ -1144,8 +1146,9 @@ export class TerminalService extends EventEmitter {
     }
     if (this.stepRecord !== record) return;
     const known = new Set(record.descendants.map((entry) => `${entry.pid} ${entry.started}`));
-    for (const entry of descendantsOf(output, record.pgid))
+    for (const entry of descendantsOf(output, record.pgid)) {
       if (!known.has(`${entry.pid} ${entry.started}`)) record.descendants.push(entry);
+    }
   }
 
   /**
@@ -1260,7 +1263,7 @@ export class TerminalService extends EventEmitter {
         unattended: true,
         report: { ...report, ...(maxTurns !== undefined ? { maxTurns } : {}) },
         ...(stopped ? { stopped } : {}),
-      } as TerminalExitInfo);
+      });
     });
   }
 
@@ -1507,8 +1510,9 @@ export class TerminalService extends EventEmitter {
   /** Ask the live process where it works, and emit it when that changed. */
   private readWorkingDirectory(): void {
     const pid = this.claudePty?.pid;
-    if (pid === undefined || !this.driver.readWorkingDirectory || this.workingDirectoryUnreadable)
+    if (pid === undefined || !this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) {
       return;
+    }
     let cwd: string | null;
     try {
       cwd = this.driver.readWorkingDirectory(this.harness, pid);

@@ -1,10 +1,7 @@
 import { useEffect, useReducer } from 'react';
 import type { TreeNode } from '../../sidebar/forest';
-import {
-  createWorkingExits,
-  type WorkingExits,
-  type WorkingObservation,
-} from '../../sidebar/workingExits';
+import { createWorkingExits } from '../../sidebar/workingExits';
+import type { WorkingExits, WorkingObservation } from '../../sidebar/workingExits';
 
 /**
  * One per workspace, at module scope: what the list saw survives the sidebar

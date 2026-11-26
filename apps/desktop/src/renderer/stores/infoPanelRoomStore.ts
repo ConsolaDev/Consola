@@ -1,12 +1,13 @@
-import { type RefObject, useLayoutEffect } from 'react';
+import { useLayoutEffect } from 'react';
+import type { RefObject } from 'react';
 import { create } from 'zustand';
 import {
   conversationKeepsRoom,
   infoPanelShown,
   keepAfter,
   toggledInfoPanel,
-  type InfoPanelRoom,
 } from '../infoPanel/stepAside';
+import type { InfoPanelRoom } from '../infoPanel/stepAside';
 import { useSidePanelStore } from './sidePanelStore';
 
 /**

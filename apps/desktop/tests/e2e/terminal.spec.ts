@@ -7,11 +7,11 @@ test.describe('Terminal Rendering', () => {
 
     // Wait for terminal container to exist
     const terminalContainer = page.locator('[data-testid="terminal-container"]');
-    await expect(terminalContainer).toBeVisible({ timeout: 10000 });
+    await expect(terminalContainer).toBeVisible({ timeout: 10_000 });
 
     // Wait for xterm canvas to render
     const xtermCanvas = page.locator('.xterm-screen canvas');
-    await expect(xtermCanvas).toBeVisible({ timeout: 10000 });
+    await expect(xtermCanvas).toBeVisible({ timeout: 10_000 });
 
     // Take screenshot for visual verification
     await page.screenshot({ path: 'tests/e2e/screenshots/terminal-rendered.png' });
@@ -24,7 +24,7 @@ test.describe('Terminal Rendering', () => {
 
     // Wait for terminal
     const terminalContainer = page.locator('[data-testid="terminal-container"]');
-    await expect(terminalContainer).toBeVisible({ timeout: 10000 });
+    await expect(terminalContainer).toBeVisible({ timeout: 10_000 });
 
     // Wait a bit for PTY to initialize and send prompt
     await page.waitForTimeout(2000);
@@ -43,7 +43,7 @@ test.describe('Terminal Rendering', () => {
     const { app, page } = await launchElectron();
 
     // Wait for app to load
-    await page.waitForSelector('[data-testid="terminal-container"]', { timeout: 10000 });
+    await page.waitForSelector('[data-testid="terminal-container"]', { timeout: 10_000 });
 
     // Click Claude tab
     const claudeTab = page.locator('button:has-text("Claude")');
@@ -68,7 +68,7 @@ test.describe('Terminal Rendering', () => {
     const { app, page } = await launchElectron();
 
     // Wait for terminal
-    await page.waitForSelector('.xterm-screen canvas', { timeout: 10000 });
+    await page.waitForSelector('.xterm-screen canvas', { timeout: 10_000 });
     await page.waitForTimeout(1000); // Wait for PTY
 
     // Type a simple command

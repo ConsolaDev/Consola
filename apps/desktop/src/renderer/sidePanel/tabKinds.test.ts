@@ -2,12 +2,8 @@ import { Diff, FolderTree, GitPullRequest, Globe, TerminalSquare } from 'lucide-
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { WorkItemRef } from '../../shared/workItems';
-import {
-  createSessionRecord,
-  createWorkspaceRecord,
-  type Session,
-  type Workspace,
-} from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import {
   bodyFor,
@@ -16,11 +12,10 @@ import {
   shortcutActs,
   TAB_KIND_IDS,
   TAB_KINDS,
-  type TabKind,
-  type TabKindId,
   tabFactsFor,
   tabKind,
 } from './tabKinds';
+import type { TabKind, TabKindId } from './tabKinds';
 import { BROWSER_SHORTCUT_LABEL, isMac } from '../utils/platform';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true, 'default');

@@ -3,16 +3,17 @@ import {
   CELL_TOKEN_ALGORITHM,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_MESSAGE_TYPE,
-  type OutboxMessage,
-  type Region,
   readOutboxMessage,
 } from '@consola/cloud-contract';
+import type { OutboxMessage, Region } from '@consola/cloud-contract';
 import { and, eq, sql } from 'drizzle-orm';
-import { compactVerify, createLocalJWKSet, type JSONWebKeySet } from 'jose';
+import { compactVerify, createLocalJWKSet } from 'jose';
+import type { JSONWebKeySet } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createCellTokenSigner } from '../adapters/cellToken/cellTokenSigner.js';
 import { createCellDelivery } from '../adapters/outbox/cellDelivery.js';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import type { Ed25519PrivateJwk } from '../config.js';
@@ -246,14 +247,14 @@ describe('delivering the outbox', () => {
           key: { workspaceId: acme, sequence: 1 },
           attempts: 1,
           error,
-          nextAttemptAt: new Date(start + 1_000),
+          nextAttemptAt: new Date(start + 1000),
         },
       ]);
       expect(await rowOf(acme, 1)).toMatchObject({
         attempts: 1,
         lastError: error,
         lastAttemptAt: new Date(start),
-        nextAttemptAt: new Date(start + 1_000),
+        nextAttemptAt: new Date(start + 1000),
         deliveredAt: null,
       });
 
@@ -261,7 +262,7 @@ describe('delivering the outbox', () => {
       later(999);
       const early = await pass();
       expect(early.outcomes).toEqual([]);
-      expect(early.nextDueAt).toEqual(new Date(start + 1_000));
+      expect(early.nextDueAt).toEqual(new Date(start + 1000));
 
       // Then two seconds, then four: the wait grows.
       later(1);
@@ -269,20 +270,20 @@ describe('delivering the outbox', () => {
         expect.objectContaining({
           kind: 'failed',
           attempts: 2,
-          nextAttemptAt: new Date(start + 3_000),
+          nextAttemptAt: new Date(start + 3000),
         }),
       ]);
-      later(2_000);
+      later(2000);
       expect((await pass()).outcomes).toEqual([
         expect.objectContaining({
           kind: 'failed',
           attempts: 3,
-          nextAttemptAt: new Date(start + 7_000),
+          nextAttemptAt: new Date(start + 7000),
         }),
       ]);
 
       // The cell answers at last: the message is delivered, and the next one at once after it.
-      later(4_000);
+      later(4000);
       expect((await pass()).outcomes).toEqual([
         { kind: 'delivered', key: { workspaceId: acme, sequence: 1 }, attempts: 4, status: 200 },
         { kind: 'delivered', key: { workspaceId: acme, sequence: 2 }, attempts: 1, status: 200 },
@@ -318,7 +319,7 @@ describe('delivering the outbox', () => {
     // cell has applied already and confirms, and only then 2.
     acmeCell.script = ['hang'];
     await pass();
-    later(1_000);
+    later(1000);
     await pass();
     expect(sequencesOf(acmeCell, acme)).toEqual([1, 1, 2]);
     expect(await outbox.firstUndelivered()).toEqual([]);
@@ -338,7 +339,7 @@ describe('delivering the outbox', () => {
     expect(sequencesOf(acmeCell, acme)).toEqual([1]);
     expect(sequencesOf(acmeCell, acmeEu2)).toEqual([1]);
     expect(done.outcomes.filter((o) => o.kind === 'delivered')).toHaveLength(2);
-    expect(done.nextDueAt).toEqual(new Date(clock.getTime() + 1_000));
+    expect(done.nextDueAt).toEqual(new Date(clock.getTime() + 1000));
   });
 
   it('a cell slow to answer holds up its own workspace alone', async () => {
@@ -400,7 +401,7 @@ describe('delivering the outbox', () => {
       expect.objectContaining({ kind: 'delivered', key: { workspaceId: acme, sequence: 2 } }),
       unreadable,
     ]);
-    later(1_000);
+    later(1000);
     expect((await pass()).outcomes).toEqual([unreadable]);
     // It is not sent, and never skipped: the workspace waits on it, where it can be seen.
     expect(sequencesOf(acmeCell, acme)).toEqual([1, 2]);

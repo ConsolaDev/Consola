@@ -146,7 +146,7 @@ test('closing a window leaves its session running', async () => {
         );
         return snapshot.replay.length;
       },
-      { timeout: 15000 },
+      { timeout: 15_000 },
     )
     .toBeGreaterThan(0);
 
@@ -203,7 +203,7 @@ async function seedSession(target: Page, workspaceId: string, name: string): Pro
         workspaceId: id,
         instanceId: `workspace-${id}-session-${sessionName.replace(/\s/g, '-')}`,
         harnessId: workspace.defaultHarnessId,
-        scopeId: workspace.scopes[0]!.id,
+        scopeId: workspace.scopes[0].id,
       });
       return session!.id;
     },

@@ -6,8 +6,8 @@ import {
   readCapabilities,
   readUnavailableReason,
   useHarnessCapabilitiesStore,
-  type CapabilitiesEntry,
 } from '../stores/harnessCapabilitiesStore';
+import type { CapabilitiesEntry } from '../stores/harnessCapabilitiesStore';
 import { toLaunchFields } from '../stores/harnessStore';
 import type { HarnessCapabilities } from '../../shared/types';
 

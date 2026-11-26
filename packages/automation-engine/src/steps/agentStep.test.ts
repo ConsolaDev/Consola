@@ -7,18 +7,21 @@ import {
   parseAgentFile,
   parseFactory,
   parseFactorySpec,
-  type AgentStep,
-  type RunItem,
-  type RunRecord,
-  type RunTrigger,
-  type Step,
-  type StepRun,
-  type StepsAutomation,
+} from '@consola/factory-spec';
+import type {
+  AgentStep,
+  RunItem,
+  RunRecord,
+  RunTrigger,
+  Step,
+  StepRun,
+  StepsAutomation,
 } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import { POLL_FENCE_HEADING, runItemSource } from '../sources/itemSource';
 import { agentStepLaunch, budgetLeft, endedWithout, stepCap } from './agentStep';
-import { agentRequirements, type AgentRequirements, type RunDefinition } from './definition';
+import { agentRequirements } from './definition';
+import type { AgentRequirements, RunDefinition } from './definition';
 
 const automation = parseFactorySpec(`version: 1
 automations:
@@ -118,8 +121,9 @@ function itemRun(
 
 function stepsDefinition(entry: string, actions: RunDefinition['actions'] = {}): RunDefinition {
   const parsed = parseFactorySpec(`version: 1\nautomations:\n${entry}`);
-  if (parsed.issues.length > 0)
+  if (parsed.issues.length > 0) {
     throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+  }
   return { automation: parsed.automations[0] as StepsAutomation, version: 'v', actions };
 }
 
@@ -486,8 +490,9 @@ describe('agentStepLaunch with an agent', () => {
         'agents/investigator.md': 'You investigate.\n',
       }),
     );
-    if (parsed.issues.length > 0)
+    if (parsed.issues.length > 0) {
       throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+    }
     return {
       automation: parsed.automations[0] as StepsAutomation,
       version: 'v',
@@ -704,7 +709,7 @@ automations:
             timeoutMs: 1000,
             dryRun: 'report',
           }
-        : { ...(base as AgentStep), ...(step as Partial<AgentStep>) };
+        : { ...(base as AgentStep), ...step };
     return {
       automation: { ...automation, steps: [own] },
       version: 'v',
@@ -764,8 +769,9 @@ describe('agentRequirements', () => {
     const parsed = parseAgentFile('summariser', 'You summarise.\n');
     if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
     const requirements = agentRequirements({ ...parsed.agent, hash: 'd'.repeat(64) });
-    for (const key of ['description', 'harnessId', 'model', 'maxTurns', 'tools', 'environment'])
+    for (const key of ['description', 'harnessId', 'model', 'maxTurns', 'tools', 'environment']) {
       expect(Object.prototype.hasOwnProperty.call(requirements, key)).toBe(false);
+    }
   });
 
   it('a read-only agent gains nothing from the environments it is given (slice 3-B)', () => {

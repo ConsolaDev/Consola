@@ -207,7 +207,7 @@ export type FileGroup = {
  * when they hold nothing, so the tree shows where each kind of file goes.
  */
 export function fileGroups(
-  files: readonly { path: string }[],
+  files: ReadonlyArray<{ path: string }>,
   { formatFolders = false }: { formatFolders?: boolean } = {},
 ): FileGroup[] {
   const byFolder = new Map<string | null, FileGroup>();

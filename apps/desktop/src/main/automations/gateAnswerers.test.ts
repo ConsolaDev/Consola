@@ -177,8 +177,9 @@ describe('who can answer a gate', () => {
       'src/main/tools/consolaTools.ts',
       'src/main/conductor/ConductorTools.ts',
       `${ENGINE}/steps/stepTools.ts`,
-    ])
+    ]) {
       expect(read(file)).not.toMatch(/answerGate|AUTOMATIONS_ANSWER_GATE/);
+    }
   });
 
   it('the conductor offers spawn, prompt and status, and nothing else', () => {

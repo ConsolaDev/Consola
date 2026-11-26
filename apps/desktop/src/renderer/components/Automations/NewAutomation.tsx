@@ -119,8 +119,9 @@ function basisInWords(
   basis: AuthoringBasis,
   templates: Array<{ id: string; title: string }> = [],
 ): string {
-  if ('automation' in basis)
+  if ('automation' in basis) {
     return `Changes ${basis.automation}, starting from its entry in factory.yml.`;
+  }
   const title =
     templates.find((template) => template.id === basis.template)?.title ?? basis.template;
   return `Starts from the template “${title}”.`;

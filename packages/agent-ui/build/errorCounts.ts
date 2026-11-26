@@ -3,8 +3,8 @@
  * twice has one occurrence unexpected, and one listed twice that appears once has one gone.
  */
 export const compareErrors = (
-  found: ReadonlyArray<string>,
-  known: ReadonlyArray<string>,
+  found: readonly string[],
+  known: readonly string[],
 ): { unexpected: string[]; gone: string[] } => {
   const remaining = new Map<string, number>();
   for (const error of known) remaining.set(error, (remaining.get(error) ?? 0) + 1);

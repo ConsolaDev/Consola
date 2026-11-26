@@ -5,9 +5,11 @@
  * its own with no change but removing `name:`.
  */
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, linesAt, toIssue, type FactorySpecIssue, type LineRange } from './issues';
+import { closestNode, linesAt, toIssue } from './issues';
+import type { FactorySpecIssue, LineRange } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
-import { automationSchema, type Automation } from './schema';
+import { automationSchema } from './schema';
+import type { Automation } from './schema';
 import { documentValue } from './yamlValue';
 
 export interface AutomationFileResult {
@@ -99,10 +101,12 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
 
   const issues: FactorySpecIssue[] = [];
   const { name: _name, version: _version, ...entry } = root;
-  if (Object.prototype.hasOwnProperty.call(root, 'name'))
+  if (Object.prototype.hasOwnProperty.call(root, 'name')) {
     issues.push({ message: NAMED, path: 'name', line: lineAt(['name']) });
-  if (Object.prototype.hasOwnProperty.call(root, 'version'))
+  }
+  if (Object.prototype.hasOwnProperty.call(root, 'version')) {
     issues.push({ message: VERSIONED, path: 'version', line: lineAt(['version']) });
+  }
   const parsed = automationSchema().safeParse({ name: fileName, ...entry });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) issues.push(toIssue(issue, [], doc, lineOf));

@@ -1,6 +1,8 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { reReviewEntry } from '@consola/automation-engine';
-import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
+import { parseAutomationEntry } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -72,8 +74,9 @@ const WATCHING_ONE = 'Watching 1 item. It runs for new ones, and when `.head` ch
 /** The template's check command, exactly as its entry has it. */
 function templateCommand(): string {
   const parsed = parseAutomationEntry(reReviewEntry());
-  if (!parsed.ok)
+  if (!parsed.ok) {
     throw new Error(`The shipped template does not parse: ${JSON.stringify(parsed.issues)}`);
+  }
   const { trigger } = parsed.automation;
   if (trigger.kind !== 'poll') throw new Error('The shipped template is not a poll.');
   return trigger.run;

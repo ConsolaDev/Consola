@@ -83,7 +83,7 @@ test('session shells retain state across hiding and switching, and restart indep
     await shell.locator('textarea').fill('');
     await shell
       .locator('textarea')
-      .pressSequentially('export CONSOLA_SHELL_TEST=retained; printf "<%s>\\n" "$PWD"');
+      .pressSequentially(String.raw`export CONSOLA_SHELL_TEST=retained; printf "<%s>\n" "$PWD"`);
     await page.keyboard.press('Enter');
     const snapshot = (id: string) =>
       page.evaluate((instanceId) => window.shellAPI.attach({ instanceId, cols: 80, rows: 24 }), id);

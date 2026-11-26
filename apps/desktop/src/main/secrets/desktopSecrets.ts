@@ -2,23 +2,20 @@ import { createHash } from 'node:crypto';
 import {
   describeError,
   PERSONAL_FACTORY,
-  type SecretBinding,
   SecretReadError,
   SecretReaderFailure,
-  type SecretsPort,
-  type readKeychainItem,
-  type readOnePasswordField,
+} from '@consola/automation-engine';
+import type {
+  SecretBinding,
+  SecretsPort,
+  readKeychainItem,
+  readOnePasswordField,
 } from '@consola/automation-engine';
 import type { SecretReferenceInput } from '../../shared/secrets';
 import type { BindingsStore } from './BindingsStore';
 import type { SecretPrograms } from './programs';
-import {
-  type BindingRef,
-  formatReference,
-  REFERENCE_WORDS,
-  referenceFromInput,
-  referenceLabel,
-} from './references';
+import { formatReference, REFERENCE_WORDS, referenceFromInput, referenceLabel } from './references';
+import type { BindingRef } from './references';
 
 /**
  * The desktop's secrets: the engine's `SecretsPort` over `secret-bindings.json`
@@ -72,11 +69,12 @@ export function desktopSecretsPort(deps: DesktopSecretsDeps): SecretsPort {
         }
         case '1password': {
           const program = programs.onePassword(binding.op);
-          if (!program)
+          if (!program) {
             throw new SecretReadError(
               name,
               binding.op === undefined ? NO_OP_KEPT : 'a test run reads no 1Password',
             );
+          }
           return await deps.readOnePassword({
             program,
             env: await deps.loginEnv(),
@@ -89,8 +87,9 @@ export function desktopSecretsPort(deps: DesktopSecretsDeps): SecretsPort {
           const value = Object.prototype.hasOwnProperty.call(env, ref.name)
             ? env[ref.name]
             : undefined;
-          if (value === undefined)
+          if (value === undefined) {
             throw new SecretReadError(name, `your login environment has no \`${ref.name}\``);
+          }
           return value;
         }
       }

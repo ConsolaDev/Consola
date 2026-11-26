@@ -1,5 +1,5 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 const SAFE_ID = /^[A-Za-z0-9_-]+$/;
 
@@ -23,8 +23,9 @@ export class HandoffStore {
     markdown: string,
     at = new Date(),
   ): Promise<string> {
-    if (!SAFE_ID.test(sessionId) || !SAFE_ID.test(fromHarnessId))
+    if (!SAFE_ID.test(sessionId) || !SAFE_ID.test(fromHarnessId)) {
       throw new Error('Invalid handoff name.');
+    }
     const directory = path.join(this.root, sessionId);
     await fs.mkdir(directory, { recursive: true, mode: 0o700 });
     const file = path.join(

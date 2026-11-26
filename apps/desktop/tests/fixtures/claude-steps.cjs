@@ -426,9 +426,9 @@ function connect(server) {
     if (!waiting || message.method !== undefined) return;
     pending.delete(message.id);
     clearTimeout(waiting.timer);
-    if (message.error)
+    if (message.error) {
       waiting.reject(new Error(message.error.message ?? JSON.stringify(message.error)));
-    else waiting.resolve(message.result);
+    } else waiting.resolve(message.result);
   });
   const send = (message) =>
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
@@ -463,8 +463,9 @@ function connect(server) {
 function plannedCalls() {
   const calls = [];
   const handover = readKnob('STUB_CLAUDE_HANDOVER');
-  if (handover !== null)
+  if (handover !== null) {
     calls.push(['consola_write_artifact', { name: 'handover', content: handover }]);
+  }
   const sequence = readKnob('STUB_CLAUDE_OUTPUTS_SEQ');
   const outputs = sequence !== null ? nextInSequence(sequence) : readKnob('STUB_CLAUDE_OUTPUTS');
   if (outputs !== null) {
@@ -801,8 +802,9 @@ async function printTurn() {
       is_api_error_message: true,
     });
   }
-  if (process.env.STUB_CLAUDE_STDERR)
+  if (process.env.STUB_CLAUDE_STDERR) {
     await writeOut(process.stderr, `${process.env.STUB_CLAUDE_STDERR}\n`);
+  }
   for (const hook of hooks) if (hook[0] === 'StopFailure') await postHook(hook);
   const text =
     subtype === 'error_max_turns'
@@ -937,6 +939,6 @@ function control() {
       writes = writes.then(() => writeOut(process.stdout, text));
     })
     .on('close', () => {
-      writes.then(() => process.exit(0));
+      void writes.then(() => process.exit(0));
     });
 }

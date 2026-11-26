@@ -1,10 +1,5 @@
-import {
-  flatSteps,
-  type Step,
-  type StepEntry,
-  type StepRun,
-  type StepRunStatus,
-} from '@consola/factory-spec';
+import { flatSteps } from '@consola/factory-spec';
+import type { Step, StepEntry, StepRun, StepRunStatus } from '@consola/factory-spec';
 import { CALL_SETTLE_INTERRUPTED, INTERRUPTED_CALL } from './recover';
 
 /*
@@ -65,7 +60,12 @@ export function stepMayRetry(input: {
 }
 
 /** An earlier attempt's line that never ran anything: it did not start, or only a dry run reported it. */
-const NEVER_STARTED: readonly StepRunStatus[] = ['not-run', 'skipped', 'pending', 'reported'];
+const NEVER_STARTED: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>([
+  'not-run',
+  'skipped',
+  'pending',
+  'reported',
+]);
 
 /**
  * Whether a row's step may have acted in any attempt: its own (a command's
@@ -83,7 +83,7 @@ function started(record: StepRun): boolean {
         : record.kind === 'gate'
           ? record.gate?.decision !== undefined
           : record.startedAt !== undefined;
-  return own || (record.previous ?? []).some((line) => !NEVER_STARTED.includes(line.status));
+  return own || (record.previous ?? []).some((line) => !NEVER_STARTED.has(line.status));
 }
 
 /**
@@ -110,8 +110,9 @@ export function entryMayRetry(input: {
     if (record.kind === 'repeat' || !started(record)) return true;
     const step = steps.get(record.id);
     if (!step || step.kind === 'repeat' || step.kind === 'gate') return false;
-    if (step.kind === 'agent')
+    if (step.kind === 'agent') {
       return record.tools === undefined && !input.agentNamesServer(step.id);
+    }
     return step.dryRun === 'run';
   });
 }

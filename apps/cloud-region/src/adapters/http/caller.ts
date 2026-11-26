@@ -1,6 +1,7 @@
 import type { Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
-import { type Authentication, authenticate } from '../../application/authenticate.js';
+import { authenticate } from '../../application/authenticate.js';
+import type { Authentication } from '../../application/authenticate.js';
 import type { Clock, TokenVerifier } from '../../application/ports.js';
 import type { Caller } from '../../domain/caller.js';
 import type { Region } from '../../domain/region.js';

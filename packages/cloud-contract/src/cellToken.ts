@@ -1,14 +1,9 @@
-import {
-  fieldProblem,
-  isId,
-  isRecord,
-  isWholeNumber,
-  type ReadResult,
-  read,
-  refused,
-} from './read.js';
-import { isRegion, type Region } from './region.js';
-import { isWorkspaceRole, type WorkspaceRole } from './workspaceRole.js';
+import { fieldProblem, isId, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
+import { isRegion } from './region.js';
+import type { Region } from './region.js';
+import { isWorkspaceRole } from './workspaceRole.js';
+import type { WorkspaceRole } from './workspaceRole.js';
 
 /**
  * The token `cloud-global` mints for a cell, once it has checked the browser's sign-in and the
@@ -107,8 +102,9 @@ export function readCellTokenClaims(
   nowSeconds: number,
 ): ReadResult<CellTokenClaims> {
   // NaN would compare false with every time, so a token would never expire.
-  if (!Number.isFinite(nowSeconds))
+  if (!Number.isFinite(nowSeconds)) {
     throw new TypeError('The time to read a token at is not a number.');
+  }
   if (!isRecord(payload)) return refused("the token's claims are not an object");
   const fields = fieldProblem(payload, CLAIMS, 'the token');
   if (fields !== null) return refused(fields);

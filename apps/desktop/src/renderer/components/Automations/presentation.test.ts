@@ -67,13 +67,12 @@ import {
   issuesByFile,
   issuesTitle,
   noticesLine,
-  type RunListFilter,
-  type YamlToken,
 } from './presentation';
+import type { RunListFilter, YamlToken } from './presentation';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
 const ago = (ms: number) => new Date(NOW.getTime() - ms).toISOString();
-const HOUR = 3600_000;
+const HOUR = 3_600_000;
 const DAY = 24 * HOUR;
 const by = (filter: Partial<RunListFilter> = {}): RunListFilter => ({
   ...NO_RUN_FILTER,
@@ -990,16 +989,16 @@ describe('runInsights', () => {
   it('rates success over the runs that worked to an end, leaving out dismissed and live ones', () => {
     const runs = [
       run({ id: 'w', status: 'needs-approval' }),
-      ended('a', 'completed', HOUR, 2_000),
+      ended('a', 'completed', HOUR, 2000),
       run({ id: 'd', status: 'rejected' }),
-      ended('b', 'failed', 2 * HOUR, 4_000),
-      ended('c', 'completed', 3 * HOUR, 6_000),
+      ended('b', 'failed', 2 * HOUR, 4000),
+      ended('c', 'completed', 3 * HOUR, 6000),
       ended('e', 'completed', 4 * HOUR, 60_000),
     ];
     const insights = runInsights(runs);
     expect(insights.total).toBe(6);
     expect(insights.successRate).toBe(0.75);
-    expect(insights.medianMs).toBe(5_000);
+    expect(insights.medianMs).toBe(5000);
     expect(insights.lastFailureAt).toBe(ago(2 * HOUR));
     expect(insights.streak).toEqual({ status: 'completed', count: 1 });
   });
@@ -1723,10 +1722,12 @@ describe('a run rejected at a gate', () => {
       ),
     ).toBe(true);
     expect(runWorked(turnedDownRun)).toBe(false);
-    for (const status of ['completed', 'failed', 'running'] as const)
+    for (const status of ['completed', 'failed', 'running'] as const) {
       expect(runWorked(run({ status }))).toBe(true);
-    for (const status of ['queued', 'needs-approval', 'waiting'] as const)
+    }
+    for (const status of ['queued', 'needs-approval', 'waiting'] as const) {
       expect(runWorked(run({ status }))).toBe(false);
+    }
   });
 
   it("calls a run turned away after it started 'rejected', never 'dismissed' (3-A code review M6)", () => {

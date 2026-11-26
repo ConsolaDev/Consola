@@ -1,12 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import {
-  type AgentWorkspace,
-  closeAgentWorkspace,
-  launchAgentWorkspace,
-  showBrowser,
-} from './helpers/agentWorkspace';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { closeAgentWorkspace, launchAgentWorkspace, showBrowser } from './helpers/agentWorkspace';
+import type { AgentWorkspace } from './helpers/agentWorkspace';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * A page that asks to stay (`beforeunload`) after the person pressed in it
@@ -118,8 +115,9 @@ function onPage<T>(
           contents.removeAllListeners('will-prevent-unload');
           return true;
         case 'restore-answer':
-          for (const answer of main.__unloadAnswers ?? [])
+          for (const answer of main.__unloadAnswers ?? []) {
             contents.on('will-prevent-unload', answer);
+          }
           return true;
         case 'close-window':
           // As its close button does.
@@ -187,7 +185,7 @@ test.describe('a page that asks to stay', () => {
     // Electron's own default: the page stays where it is, and says nothing.
     await onPage(app, 'guest', a, { kind: 'take-answer' });
     await typeAddress(page, `${fixtures.host}/b.html`);
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(1500);
     expect(await guestUrls(app)).toEqual([a]);
     await onPage(app, 'guest', a, { kind: 'restore-answer' });
 
@@ -226,7 +224,7 @@ test.describe('a page that asks to stay', () => {
     // Electron's own default: the close button closes nothing.
     await onPage(app, 'popup', popup, { kind: 'take-answer' });
     await onPage(app, 'popup', popup, { kind: 'close-window' });
-    await page.waitForTimeout(1_500);
+    await page.waitForTimeout(1500);
     expect(await windowCount(app)).toBe(2);
     await onPage(app, 'popup', popup, { kind: 'restore-answer' });
     // The app's answer: it closes.

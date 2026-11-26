@@ -1,4 +1,5 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -119,7 +120,7 @@ steps:
 `;
 
 /** The banner's time: `HH:MM` today. */
-const AT = '\\d\\d:\\d\\d';
+const AT = String.raw`\d\d:\d\d`;
 
 /** A broken agent file is one problem, counted in its own file, not in the entry that names it (review M1). */
 const BROKEN_REVIEWER_BANNER = new RegExp(
@@ -713,8 +714,9 @@ test('an agent file applies: its step runs on its harness and model, with its bo
       ' --max-turns 4 ',
       'Your standing instructions (agents/reviewer.md):',
       'REVIEWER-BODY-1',
-    ])
+    ]) {
       expect(lookLaunch).toContain(part);
+    }
     expect(lookLaunch).not.toContain('This step:');
     for (const part of [
       ' --max-turns 2 ',
@@ -722,8 +724,9 @@ test('an agent file applies: its step runs on its harness and model, with its bo
       'NOTER-BODY-1',
       'This step:',
       'Turn the handover into a note.',
-    ])
+    ]) {
       expect(tellLaunch).toContain(part);
+    }
     expect(tellLaunch).not.toContain('--model');
 
     const record = await theRun(steps);
@@ -905,7 +908,7 @@ test('while the folder does not apply, the Allow card shows the agent as the ver
     writeFactoryFile(steps, REVIEWER_FILE, reviewer('REVIEWER-BODY-2'));
     await expect
       .poll(() => fs.readFileSync(path.join(folderOf(steps), REVIEWER_FILE), 'utf8'), {
-        timeout: 5_000,
+        timeout: 5000,
       })
       .toContain('REVIEWER-BODY-2');
     await steps.page.waitForTimeout(5000);

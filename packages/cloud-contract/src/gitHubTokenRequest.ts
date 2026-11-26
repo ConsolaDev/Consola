@@ -1,13 +1,6 @@
 import { CLOCK_SKEW_SECONDS } from './cellToken.js';
-import {
-  fieldProblem,
-  isId,
-  isRecord,
-  isWholeNumber,
-  type ReadResult,
-  read,
-  refused,
-} from './read.js';
+import { fieldProblem, isId, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
 
 /**
  * A cell's request for a GitHub token: the cell asks `cloud-global` for an installation token of

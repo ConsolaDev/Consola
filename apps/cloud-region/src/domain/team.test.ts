@@ -1,13 +1,7 @@
 import { WORKSPACE_ROLES } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import {
-  actingRole,
-  checkTeamName,
-  mayManageTeams,
-  type Team,
-  TEAM_NAME_MAX,
-  teamsSeenBy,
-} from './team.js';
+import { actingRole, checkTeamName, mayManageTeams, TEAM_NAME_MAX, teamsSeenBy } from './team.js';
+import type { Team } from './team.js';
 
 describe('checkTeamName', () => {
   it('takes a name, trimmed', () => {

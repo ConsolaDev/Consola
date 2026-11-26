@@ -54,12 +54,14 @@ export function checkoutLines(
   const checkout = run.checkout;
   if (checkout?.kind !== 'run-owned') return null;
   const lines = [`${checkout.repo ?? 'its repository'} · ${checkout.branch ?? 'its branch'}`];
-  if (checkout.base !== undefined && checkout.head !== undefined)
+  if (checkout.base !== undefined && checkout.head !== undefined) {
     lines.push(`from ${short(checkout.base)} · now ${short(checkout.head)}`);
-  if (checkout.removed)
+  }
+  if (checkout.removed) {
     lines.push(
       `removed by cleanup; its commit ${short(checkout.removed.commit)} is kept in your clone`,
     );
+  }
   return {
     heading: 'Checkout',
     lines,

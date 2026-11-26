@@ -5,12 +5,9 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { McpServerLaunch, McpSession, ServerGroup } from '../ports';
 import { maskFormsOf } from '../secrets/values';
-import { type NodeMcpClientOptions, SERVER_LOG_CAP_BYTES, nodeMcpClient } from './mcpClient';
+import { SERVER_LOG_CAP_BYTES, nodeMcpClient } from './mcpClient';
+import type { NodeMcpClientOptions } from './mcpClient';
 import {
-  type HttpRequestEvent,
-  type HttpServerOptions,
-  type ScratchBehaviour,
-  type StartedHttpServer,
   alive,
   eventsIn,
   lstartOf,
@@ -21,6 +18,12 @@ import {
   writeScratchServer,
   writeSdkServer,
 } from './mcpClient.test-helpers';
+import type {
+  HttpRequestEvent,
+  HttpServerOptions,
+  ScratchBehaviour,
+  StartedHttpServer,
+} from './mcpClient.test-helpers';
 
 /*
  * The stdio adapter against scratch servers (rule 5a-servers): every server
@@ -28,7 +31,7 @@ import {
  * `process.execPath`; nothing here starts anything else or reaches a network.
  */
 
-const SECRET = 'stub-slack-secret-9c1e"\\back%slash';
+const SECRET = String.raw`stub-slack-secret-9c1e"\back%slash`;
 const SLOW = 20_000;
 // Every row starts processes: on a loaded machine the default 5 s is too short a budget for any of them.
 vi.setConfig({ testTimeout: SLOW });
@@ -198,7 +201,12 @@ describe('the group is recorded as soon as it is spawned (m8)', () => {
   });
 
   it.each([
-    ['rejects', async () => Promise.reject(new Error('disk full'))],
+    [
+      'rejects',
+      async () => {
+        throw new Error('disk full');
+      },
+    ],
     [
       'throws',
       () => {
@@ -480,9 +488,9 @@ describe('calls', () => {
         .filter((event) => event.event === 'asked')
         .map((event) => [event.method, event.code]),
     ).toEqual([
-      ['sampling/createMessage', -32601],
-      ['elicitation/create', -32601],
-      ['roots/list', -32601],
+      ['sampling/createMessage', -32_601],
+      ['elicitation/create', -32_601],
+      ['roots/list', -32_601],
     ]);
   });
 });
@@ -900,10 +908,12 @@ describe('Streamable HTTP', () => {
     );
     for (const request of seen) {
       expect(request.values.authorization).toBe('present');
-      for (const name of request.headers)
+      for (const name of request.headers) {
         expect([...PROTOCOL_OWN, ...Object.keys(FETCH_OWN), 'authorization']).toContain(name);
-      for (const [name, value] of Object.entries(FETCH_OWN))
+      }
+      for (const [name, value] of Object.entries(FETCH_OWN)) {
         if (request.headers.includes(name)) expect(request.values[name]).toBe(value);
+      }
     }
   });
 
@@ -926,7 +936,7 @@ describe('Streamable HTTP', () => {
           { timeoutMs: 10_000, signal: new AbortController().signal },
         ),
       ).toMatchObject({ kind: 'unanswered', why: 'closed' });
-      expect(Date.now() - asked).toBeLessThan(9_000);
+      expect(Date.now() - asked).toBeLessThan(9000);
       expect(rpcs(server, 'tools/call')).toBe(1);
       expect(worked(server)).toBe(1);
     },
@@ -995,7 +1005,7 @@ describe('Streamable HTTP', () => {
         await session.call('huge', {}, { timeoutMs: 10_000, signal: new AbortController().signal }),
       ).toMatchObject({ kind: 'unanswered', why: 'too-large' });
       // At once, not at the call's timeout: the connection closes once the count passes the cap.
-      expect(Date.now() - asked).toBeLessThan(9_000);
+      expect(Date.now() - asked).toBeLessThan(9000);
     },
     SLOW,
   );

@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { showToast } from '../../stores/toastStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { renameOutcome } from '../../utils/sessionActions';

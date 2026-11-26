@@ -15,10 +15,10 @@ import {
   resolveCustomSnooze,
   resolveSnoozePresets,
   SNOOZE_PRESET_MAX_MS,
-  type SnoozePresetSetting,
   snoozePresetsEqual,
   snoozeWakeLabel,
 } from './snooze';
+import type { SnoozePresetSetting } from './snooze';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -31,11 +31,11 @@ function at(year: number, month: number, day: number, hours = 0, minutes = 0, se
 // November 2026: Mon 16, Tue 17, Wed 18, Thu 19, Fri 20, Sat 21, Sun 22, Mon 23.
 const THURSDAY_10AM = at(2026, 11, 19, 10);
 
-function menu(presets: ReadonlyArray<SnoozePresetSetting>, now: number) {
+function menu(presets: readonly SnoozePresetSetting[], now: number) {
   return resolveSnoozePresets(presets, now, 'en-US');
 }
 
-function rows(presets: ReadonlyArray<SnoozePresetSetting>, now: number) {
+function rows(presets: readonly SnoozePresetSetting[], now: number) {
   return menu(presets, now).map(({ label, timeLabel }) => `${label} · ${timeLabel}`);
 }
 

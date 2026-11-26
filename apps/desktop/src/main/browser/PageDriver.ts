@@ -1,8 +1,10 @@
 import type { Debugger, WebContents } from 'electron';
 import type { Browser, ConnectOverCDPTransport, Page } from 'playwright-core';
 import type { AgentCall } from './AgentPages';
-import { CdpRelay, type CdpRelayOptions, type RelayGuest } from './CdpRelay';
-import { type ConsoleError, type FailedRequest, readPageEvent } from './pageEvents';
+import { CdpRelay } from './CdpRelay';
+import type { CdpRelayOptions, RelayGuest } from './CdpRelay';
+import { readPageEvent } from './pageEvents';
+import type { ConsoleError, FailedRequest } from './pageEvents';
 import { RingBuffer } from './RingBuffer';
 
 /** The newest console errors a tab keeps between snapshots. */

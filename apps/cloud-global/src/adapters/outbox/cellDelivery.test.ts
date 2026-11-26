@@ -162,7 +162,7 @@ describe('delivering to a cell over a socket', () => {
   });
 
   it('reaches a real server with the global fetch', async () => {
-    const received: { type: string | null; body: string }[] = [];
+    const received: Array<{ type: string | null; body: string }> = [];
     const cell = new Hono().post(OUTBOX_DELIVERY_PATH, async (c) => {
       received.push({ type: c.req.header('content-type') ?? null, body: await c.req.text() });
       return c.json({ applied: 1 });

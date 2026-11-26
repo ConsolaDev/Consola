@@ -1,13 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
-import {
-  automationVersion,
-  parseFactorySpec,
-  stableStringify,
-  type RunRecord,
-  type StepRunStatus,
-} from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import type { RunRecord, StepRunStatus } from '@consola/factory-spec';
 import { INTERRUPTED_PROMPT } from './AutomationService';
 import { inboxItem } from './inboxItems.test-helpers';
 import { INTERRUPTED_COMMAND, recoverAfterRestart } from './steps/recover';
@@ -18,10 +13,8 @@ import {
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
-  type FakeCommand,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { FakeCommand, StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 import { SessionOpenedError, StartedByHandError } from './support';
 import type { InboxItemView, SessionView } from './views';
 
@@ -488,10 +481,11 @@ function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
     const bodies: Record<string, string> = {};
     for (const step of automation.steps ?? []) {
-      if (step.kind === 'agent' && step.action)
+      if (step.kind === 'agent' && step.action) {
         bodies[step.id] = h.world.workspace.actions.find(
           (action) => action.name === step.action,
         )!.prompt;
+      }
     }
     const body = Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined;
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation, body));
@@ -2490,7 +2484,7 @@ describe('the snapshot and history by page', () => {
     const h = await stepsHarness({ yaml: DAILY });
     const template = (await h.service.trigger(WORKSPACE_ID, NAME))!;
     h.service.dismiss(template.id);
-    const base = h.now().getTime() - 3600_000;
+    const base = h.now().getTime() - 3_600_000;
     const oldest = new Date(base - (count + 1) * 60_000).toISOString();
     h.store.update(template.id, { createdAt: oldest, updatedAt: oldest, finishedAt: oldest });
     for (let index = 1; index < count; index++) {
@@ -4354,8 +4348,9 @@ describe('picking runs up after a restart', () => {
         sessionId: 'session-2',
         previous: [{ attempt: 1, status: 'failed', error: why, finishedAt: h.now().toISOString() }],
       });
-      for (const key of ['reminded', 'artifacts', 'outputs', 'command'])
+      for (const key of ['reminded', 'artifacts', 'outputs', 'command']) {
         expect(step).not.toHaveProperty(key);
+      }
 
       // Attempt 2 gets a reminder of its own.
       await h.world.endTurn('session-2');

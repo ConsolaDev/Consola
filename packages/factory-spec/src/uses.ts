@@ -10,7 +10,8 @@
  */
 import type { OutputType } from './outputs';
 import { MCP_SERVER_NAME_PATTERN } from './servers';
-import { parseTemplate, templatePaths, type TemplatePath } from './template';
+import { parseTemplate, templatePaths } from './template';
+import type { TemplatePath } from './template';
 
 export const USES_REF_PATTERN = /^([a-z][a-z0-9-]{0,63})#([A-Za-z0-9._-]{1,128})$/;
 export const DEFAULT_CALL_TIMEOUT_MS = 60_000;
@@ -62,7 +63,17 @@ export interface StepReaders {
   refusedKey(key: string): string | undefined;
 }
 
-const KEYS = ['id', 'if', 'uses', 'with', 'outputs', 'timeout', 'dry_run', 'then', 'on_failure'];
+const KEYS = new Set([
+  'id',
+  'if',
+  'uses',
+  'with',
+  'outputs',
+  'timeout',
+  'dry_run',
+  'then',
+  'on_failure',
+]);
 const NO_AGENT = 'A tool call runs no agent and no shell.';
 const READS_NOTHING = 'A tool reads nothing from the run: pass what it needs in `with:`.';
 const REFERENCE =
@@ -74,12 +85,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Why a step key may not sit beside `uses:`, or undefined. `server`: the step's own, when it names one. */
 function companionProblem(key: string, server: string | undefined): string | undefined {
-  if (key === 'prompt' || key === 'action' || key === 'run' || key === 'gate')
+  if (key === 'prompt' || key === 'action' || key === 'run' || key === 'gate') {
     return `A step names one thing to do; got uses and ${key}.`;
+  }
   if (key === 'agent' || key === 'max_turns' || key === 'environment') return NO_AGENT;
   if (key === 'env') return 'A tool takes its values in `with:`.';
-  if (key === 'secrets')
+  if (key === 'secrets') {
     return `A tool's credentials belong to its server: name them under \`mcpServers.${server ?? '<server>'}.secrets\`.`;
+  }
   if (key === 'artifacts' || key === 'reads') return READS_NOTHING;
   return undefined;
 }
@@ -93,10 +106,11 @@ function readReference(value: unknown): { server: string; tool: string } | { pro
   const server = value.slice(0, at);
   const tool = value.slice(at + 1);
   if (USES_REF_PATTERN.test(value)) return { server, tool };
-  if (MCP_SERVER_NAME_PATTERN.test(server) && tool.length > 0)
+  if (MCP_SERVER_NAME_PATTERN.test(server) && tool.length > 0) {
     return {
       problem: `\`${tool}\` is not a tool's name: MCP names are letters, digits, \`.\`, \`_\` and \`-\`, at most 128.`,
     };
+  }
   return { problem: REFERENCE };
 }
 
@@ -110,9 +124,9 @@ function walk(
   },
 ): void {
   if (typeof value === 'string') visit.text(value, path);
-  else if (Array.isArray(value))
+  else if (Array.isArray(value)) {
     value.forEach((item, index) => walk(item, [...path, index], visit));
-  else if (isRecord(value)) {
+  } else if (isRecord(value)) {
     visit.mapping?.(Object.keys(value), path);
     for (const [key, item] of Object.entries(value)) walk(item, [...path, key], visit);
   }
@@ -169,7 +183,7 @@ export function parseUsesStep(
 
   // Keys: what may not sit beside `uses:`, later slices', then strangers.
   for (const key of Object.keys(raw)) {
-    if (KEYS.includes(key)) continue;
+    if (KEYS.has(key)) continue;
     bad(
       companionProblem(key, named) ??
         readers.refusedKey(key) ??
@@ -184,12 +198,12 @@ export function parseUsesStep(
   let outputs: Record<string, OutputType> = {};
   if ('outputs' in raw) {
     const given = raw.outputs;
-    if (isRecord(given) && given.from === 'stdout')
+    if (isRecord(given) && given.from === 'stdout') {
       bad(
         "A tool's outputs are its result's fields: declare them by name, e.g. `outputs: { ts: string }`.",
         ['outputs'],
       );
-    else {
+    } else {
       const declared = readers.outputs(given, bad);
       if (declared) outputs = declared;
     }

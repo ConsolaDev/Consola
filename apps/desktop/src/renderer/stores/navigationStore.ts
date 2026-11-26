@@ -156,7 +156,7 @@ export const useNavigationStore = create<NavigationState>()(
       // written before this task would still overwrite the window-context-seeded
       // identity with whatever workspace that blob last held. mergeNavigationState
       // takes only the preference keys, and only when they're the right type.
-      merge: (persisted, current) => mergeNavigationState(persisted, current as NavigationState),
+      merge: (persisted, current) => mergeNavigationState(persisted, current),
     },
   ),
 );
@@ -210,7 +210,8 @@ export function subscribeToShowAutomations(): () => void {
   return windowBridge.onShowAutomations(({ runId, automation }) => {
     useNavigationStore.setState({ overlay: 'automations' });
     if (runId) useAutomationsStore.getState().openPanel({ kind: 'run', runId });
-    else if (automation)
+    else if (automation) {
       useAutomationsStore.getState().openPanel({ kind: 'automation', name: automation });
+    }
   });
 }

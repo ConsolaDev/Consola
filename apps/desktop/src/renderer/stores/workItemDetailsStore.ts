@@ -1,14 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { create } from 'zustand';
 import type { WorkItemDetails } from '../../shared/workItemDetails';
-import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef, workItemKey } from '../../shared/workItems';
+import { INBOX_REFRESH_INTERVAL_MS, workItemKey } from '../../shared/workItems';
+import type { WorkItemRef } from '../../shared/workItems';
 import { inboxBridge } from '../services/inboxBridge';
 import { ipcErrorMessage } from '../utils/ipcErrorMessage';
 
 /** How long a read stays fresh: the Inbox's own interval, so the two agree on what is current. */
 export const DETAILS_REFRESH_MS = INBOX_REFRESH_INTERVAL_MS;
 /** GitHub works mergeability out lazily; UNKNOWN means "ask again shortly". */
-export const MERGE_STATE_POLL_MS = 3_000;
+export const MERGE_STATE_POLL_MS = 3000;
 export const MERGE_STATE_POLLS = 5;
 /**
  * How many items no viewer watches keep their details. Details carry every

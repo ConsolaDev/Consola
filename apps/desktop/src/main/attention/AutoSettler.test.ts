@@ -2,20 +2,18 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { activityOf, type Attention } from '../../shared/attention';
+import { activityOf } from '../../shared/attention';
+import type { Attention } from '../../shared/attention';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { NEW_SESSION_NAME } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { PreferencesService } from '../state/PreferencesService';
-import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
-import {
-  AutoSettler,
-  FIRST_SWEEP_GRACE_MS,
-  SWEEP_INTERVAL_MS,
-  type AutoSettlerDeps,
-} from './AutoSettler';
+import { JsonAttentionLedger } from './AttentionLedger';
+import type { AttentionLedgerStateFile } from './AttentionLedger';
+import { AutoSettler, FIRST_SWEEP_GRACE_MS, SWEEP_INTERVAL_MS } from './AutoSettler';
+import type { AutoSettlerDeps } from './AutoSettler';
 import { SessionSource } from './SessionSource';
 import { settleSession, unsettleSession } from './settling';
 
@@ -30,7 +28,7 @@ let held: Set<string>;
 let shown: Set<string>;
 let changed: number;
 /** Windows that have said what they are showing; the sweeper waits for the first. */
-let reporters: (() => void)[];
+let reporters: Array<() => void>;
 const reportFromAWindow = () => {
   for (const listener of [...reporters]) listener();
 };
@@ -46,7 +44,7 @@ const old = (id: string, extra = {}) =>
     ...extra,
   });
 
-function settler(sessions: ReturnType<typeof old>[], extra: Partial<AutoSettlerDeps> = {}) {
+function settler(sessions: Array<ReturnType<typeof old>>, extra: Partial<AutoSettlerDeps> = {}) {
   const workspace = makeWorkspace({ id: 'w1', sessions });
   return new AutoSettler({
     getWorkspaces: () => [workspace],
@@ -175,7 +173,7 @@ describe('AutoSettler eligibility', () => {
 
   it('says it swept after every sweep, moved or not, once the settle is written', () => {
     attention.set('a', 'ready');
-    const settledWhenTold: (number | undefined)[] = [];
+    const settledWhenTold: Array<number | undefined> = [];
     const sweeper = settler([old('a')], {
       swept: () => settledWhenTold.push(ledger.get('a')?.settledAt),
     });

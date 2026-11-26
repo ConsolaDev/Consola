@@ -3,10 +3,9 @@ import {
   isSnoozePresetSetting,
   MAX_SNOOZE_MINUTES,
   resolveSnoozePresets,
-  type SnoozePresetDay,
-  type SnoozePresetSetting,
   snoozePresetsEqual,
 } from '../../../shared/snooze';
+import type { SnoozePresetDay, SnoozePresetSetting } from '../../../shared/snooze';
 
 /** One row of the editor: a choice, and a key that stays with it while it is edited and moved. */
 export interface DraftRow {
@@ -47,10 +46,12 @@ export function isDefault(presets: readonly SnoozePresetSetting[]): boolean {
 
 /** A duration in the largest unit that holds it whole: 180 minutes is 3 hours, 2880 is 2 days. */
 export function durationParts(minutes: number): { amount: number; unit: DurationUnit } {
-  if (minutes >= MINUTES.days && minutes % MINUTES.days === 0)
+  if (minutes >= MINUTES.days && minutes % MINUTES.days === 0) {
     return { amount: minutes / MINUTES.days, unit: 'days' };
-  if (minutes >= MINUTES.hours && minutes % MINUTES.hours === 0)
+  }
+  if (minutes >= MINUTES.hours && minutes % MINUTES.hours === 0) {
     return { amount: minutes / MINUTES.hours, unit: 'hours' };
+  }
   return { amount: minutes, unit: 'minutes' };
 }
 
@@ -62,8 +63,9 @@ export function toMinutes(amount: number, unit: DurationUnit): number {
 /** Why a row cannot be stored, in words, or null when it can. */
 export function optionProblem(setting: SnoozePresetSetting): string | null {
   if (setting.kind === 'after') {
-    if (!Number.isInteger(setting.minutes) || setting.minutes < 1)
+    if (!Number.isInteger(setting.minutes) || setting.minutes < 1) {
       return 'Enter a whole number above zero.';
+    }
     if (setting.minutes > MAX_SNOOZE_MINUTES) return 'A choice can be at most 30 days away.';
     return null;
   }
@@ -125,7 +127,7 @@ export function nextCandidate(presets: readonly SnoozePresetSetting[]): SnoozePr
 }
 
 /** The days an `at` choice can name, in the order a person reads a week. */
-export const PRESET_DAYS: { value: SnoozePresetDay; label: string }[] = [
+export const PRESET_DAYS: Array<{ value: SnoozePresetDay; label: string }> = [
   { value: 'today', label: 'Today' },
   { value: 'tomorrow', label: 'Tomorrow' },
   { value: 'monday', label: 'Monday' },

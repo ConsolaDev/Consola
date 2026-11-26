@@ -1,4 +1,5 @@
-import { memo, useMemo, useState, type ReactNode, type Ref } from 'react';
+import { memo, useMemo, useState } from 'react';
+import type { ReactNode, Ref } from 'react';
 import {
   CircleCheck,
   CircleDot,
@@ -17,8 +18,8 @@ import {
   Upload,
   UserRound,
   Wrench,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type {
   WorkItemCommitItem,
   WorkItemPost,
@@ -32,11 +33,8 @@ import {
   checkLabel,
   commitRunSentence,
   reviewVerb,
-  type EventIcon,
-  type Segment,
-  type StreamEntry,
-  type StreamEvent,
 } from './workItemDetailPresentation';
+import type { EventIcon, Segment, StreamEntry, StreamEvent } from './workItemDetailPresentation';
 import {
   Avatar,
   CheckIcon,
@@ -48,7 +46,8 @@ import {
   TONE_ICONS,
   useWorkItemDetail,
 } from './WorkItemDetailParts';
-import { MarkdownEditor, type MarkdownEditorHandle } from './WorkItemMarkdownEditor';
+import { MarkdownEditor } from './WorkItemMarkdownEditor';
+import type { MarkdownEditorHandle } from './WorkItemMarkdownEditor';
 import { BodyEditor, PostBody, PostMenu, ReviewThread } from './WorkItemThread';
 import { MergeCard } from './WorkItemMergeCard';
 import { CommentBox } from './WorkItemCommentBox';
@@ -236,8 +235,9 @@ function DescriptionEditor({ onClose }: { onClose: () => void }) {
       !busy &&
       title.trim() &&
       (await perform({ kind: 'edit', title, body }, 'Changes saved.', 'description'))
-    )
+    ) {
       onClose();
+    }
   };
   return (
     <form
@@ -293,6 +293,7 @@ function DescriptionEditor({ onClose }: { onClose: () => void }) {
           Cancel edit
         </button>
         <button
+          type="submit"
           className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
           disabled={busy || !title.trim()}
         >
@@ -321,8 +322,9 @@ function ReferenceLink({ source }: { source: WorkItemReference }) {
             type: source.type,
             number: source.number,
           })
-        )
+        ) {
           event.preventDefault();
+        }
       }}
     >
       <strong>{source.title}</strong>{' '}
@@ -338,41 +340,46 @@ function Sentence({ segments }: { segments: Segment[] }) {
     <>
       {segments.map((segment, index) => {
         const space = index > 0 ? ' ' : '';
-        if ('text' in segment)
+        if ('text' in segment) {
           return (
             <span key={index}>
               {space}
               {segment.text}
             </span>
           );
-        if ('strong' in segment)
+        }
+        if ('strong' in segment) {
           return (
             <span key={index}>
               {space}
               <strong>{segment.strong}</strong>
             </span>
           );
-        if ('code' in segment)
+        }
+        if ('code' in segment) {
           return (
             <span key={index}>
               {space}
               <code className="inbox-detail-code">{segment.code}</code>
             </span>
           );
-        if ('del' in segment)
+        }
+        if ('del' in segment) {
           return (
             <span key={index}>
               {space}
               <del>{segment.del}</del>
             </span>
           );
-        if ('label' in segment)
+        }
+        if ('label' in segment) {
           return (
             <span key={index}>
               {space}
               <ItemLabel label={segment.label} />
             </span>
           );
+        }
         return (
           <span key={index}>
             {space}

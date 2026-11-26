@@ -172,8 +172,9 @@ describe('parseEnvironmentFile', () => {
       { isolation: 'host' as const, network: [], env: [] },
       { isolation: 'sandbox' as const, network: ['a.com'], env: ['CI'] },
       { isolation: 'sandbox' as const, network: [], env: ['CI'], description: 'x' },
-    ])
+    ]) {
       expect(environmentHash(other)).not.toBe(a.hash);
+    }
   });
 });
 

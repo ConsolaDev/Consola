@@ -408,8 +408,9 @@ export function stepsResolvedBody(
       ? environmentHashes
       : undefined;
   const servers = options && Object.keys(options.servers).length > 0 ? options.servers : undefined;
-  if (agents === undefined && environments === undefined && servers === undefined)
+  if (agents === undefined && environments === undefined && servers === undefined) {
     return actions === undefined ? undefined : stableStringify(actions);
+  }
   return stableStringify({ actions, agents, environments, servers });
 }
 

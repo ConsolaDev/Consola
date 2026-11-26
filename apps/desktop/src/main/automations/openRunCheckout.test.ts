@@ -77,8 +77,9 @@ describe('openRunCheckout', () => {
       runAt(file),
       runAt(link),
       runAt(path.join(root, 'catalog-portal-run-gone0000')),
-    ])
+    ]) {
       await expect(openRunCheckout(run, all)).rejects.toThrow(NO_CHECKOUT_TO_OPEN);
+    }
     expect(openPath).not.toHaveBeenCalled();
     expect(NO_CHECKOUT_TO_OPEN).toBe('This run has no checkout of its own to open.');
   });

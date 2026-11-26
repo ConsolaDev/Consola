@@ -1,5 +1,7 @@
-import { type FormEvent, useEffect, useId, useState } from 'react';
-import { type CellRefusal, messageForCellRefusal } from '../domain/cell';
+import { useEffect, useId, useState } from 'react';
+import type { FormEvent } from 'react';
+import { messageForCellRefusal } from '../domain/cell';
+import type { CellRefusal } from '../domain/cell';
 import type { CloudSessionOptions, Harness } from '../domain/cloudSession';
 import {
   HARNESS_NAMES,

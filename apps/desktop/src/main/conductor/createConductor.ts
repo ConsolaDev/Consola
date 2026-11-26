@@ -84,7 +84,7 @@ export async function createConductor(
       groupId: group.id,
       labelIds: [group.id],
       initialPrompt: request.kickoff,
-    } as NewSessionFields & { initialPrompt?: string });
+    });
   } catch (error) {
     deps.updateGroup(request.workspaceId, group.id, { archivedAt: Date.now() });
     deps.deleteLabel(request.workspaceId, group.id);

@@ -13,7 +13,9 @@ type Updater = Pick<
   | 'allowPrerelease'
   | 'allowDowngrade'
 > & {
+  // oxlint-disable-next-line typescript/no-explicit-any -- electron-updater's listeners take each event's own arguments
   on(event: UpdateEvent, listener: (...args: any[]) => void): void;
+  // oxlint-disable-next-line typescript/no-explicit-any -- electron-updater's listeners take each event's own arguments
   removeListener(event: UpdateEvent, listener: (...args: any[]) => void): void;
 };
 
@@ -23,6 +25,7 @@ export class AppUpdateService {
   private busy = false;
   private installing = false;
   private disposed = false;
+  // oxlint-disable-next-line typescript/no-explicit-any -- electron-updater's listeners take each event's own arguments
   private readonly listeners: Array<[UpdateEvent, (...args: any[]) => void]> = [];
 
   constructor(
@@ -64,8 +67,9 @@ export class AppUpdateService {
   }
 
   async check(): Promise<AppUpdateState> {
-    if (this.disposed || this.busy || ['disabled', 'ready'].includes(this.state.status))
+    if (this.disposed || this.busy || ['disabled', 'ready'].includes(this.state.status)) {
       return this.getState();
+    }
     this.busy = true;
     this.set({ status: 'checking', message: undefined, progress: undefined, version: undefined });
     try {
@@ -105,6 +109,7 @@ export class AppUpdateService {
     for (const [event, listener] of this.listeners) this.updater.removeListener(event, listener);
   }
 
+  // oxlint-disable-next-line typescript/no-explicit-any -- electron-updater's listeners take each event's own arguments
   private listen(event: UpdateEvent, listener: (...args: any[]) => void): void {
     this.listeners.push([event, listener]);
     this.updater.on(event, listener);

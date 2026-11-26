@@ -43,7 +43,7 @@ describe('currentSettingsPageId', () => {
 describe('onSettingsPageChange', () => {
   it('hears each change of the address with the page it names, until stopped', () => {
     const { listeners, moveTo } = pageAt('#/settings');
-    const heard: (string | null)[] = [];
+    const heard: Array<string | null> = [];
     const stop = onSettingsPageChange((id) => heard.push(id));
 
     moveTo('#/settings/connections');

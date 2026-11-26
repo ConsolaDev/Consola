@@ -105,7 +105,7 @@ describe('Claude launches of a step that writes (slice 3-B Tasks 16 and 17, Call
   it.each([['edit'], ['write']] as const)(
     'refuses a %s launch, attended or not, without the grants its agent compiled',
     (policy) => {
-      for (const unattended of [false, true])
+      for (const unattended of [false, true]) {
         expect(() =>
           claude.buildSessionArgs(
             { extraArgs: [] },
@@ -118,6 +118,7 @@ describe('Claude launches of a step that writes (slice 3-B Tasks 16 and 17, Call
             },
           ),
         ).toThrow('A step that writes launches only with the grants its agent compiled.');
+      }
     },
   );
 });

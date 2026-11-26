@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AgentHarnessQuery, EntryAgentsView } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { HarnessCapabilitiesResult } from '../../shared/types';
-import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
+import { getDriver, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
 import {
@@ -16,10 +17,10 @@ import {
   noAgentGrants,
   settledServerTools,
   withKnownTools,
-  type WriteAgentHostDeps,
   writeAgentHost,
   writeAgentHostNow,
 } from './agentHarness';
+import type { WriteAgentHostDeps } from './agentHarness';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
 /** A harness record named Stub, on the claude driver unless `fields` say otherwise. */

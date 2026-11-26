@@ -7,7 +7,8 @@ import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
 import type { RemovedWorktree } from '../shared/worktreeCleanup';
-import { getProviderDriver, type GitProviderDriver } from './providers';
+import { getProviderDriver } from './providers';
+import type { GitProviderDriver } from './providers';
 import {
   deleteRunClone,
   fetchKeepRef,
@@ -19,13 +20,10 @@ import {
 } from '@consola/automation-engine';
 import { withoutGitHooks } from './gitHooks';
 import { resolveSshRemote } from './sshRemote';
-import {
-  type AtRiskFiles,
-  ignoredAtRisk,
-  type NestedRepos,
-  nestedRepos,
-} from './worktreeCleanup/localFiles';
-import { type PathLock, worktreePathLock } from './worktreeCleanup/PathLock';
+import { ignoredAtRisk, nestedRepos } from './worktreeCleanup/localFiles';
+import type { AtRiskFiles, NestedRepos } from './worktreeCleanup/localFiles';
+import { worktreePathLock } from './worktreeCleanup/PathLock';
+import type { PathLock } from './worktreeCleanup/PathLock';
 
 const execFileAsync = promisify(execFile);
 
@@ -213,7 +211,7 @@ export class WorktreeService {
   private originOf(dir: string): string | null {
     const cached = this.remoteCache.get(dir);
     if (cached !== undefined) return cached;
-    let origin: string | null = null;
+    let origin: string | null;
     try {
       origin =
         execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
@@ -530,8 +528,9 @@ export class WorktreeService {
     if (dotGit?.isSymbolicLink()) throw refuse('its .git is a symbolic link');
     if (!dotGit?.isFile()) throw refuse('its .git is not the file a linked worktree has');
     const real = canonicalPathOrNull(dir);
-    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull))
+    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull)) {
       throw refuse('it is not in Consola’s worktree folder');
+    }
     await this.assertBelongsToClone(dir, clonePath, workItem, env);
     const [toplevel, gitDir, commonDir] = (
       await this.run(
@@ -551,7 +550,7 @@ export class WorktreeService {
       throw refuse('it is not a linked worktree of the clone');
     }
     // Git writes it absolute, or relative to the git dir (`worktree.useRelativePaths`).
-    let pointsAt: string | null = null;
+    let pointsAt: string | null;
     try {
       const written = path.resolve(
         gitDir,
@@ -563,12 +562,14 @@ export class WorktreeService {
       pointsAt = null;
     }
     // This folder's own `.git`, never wherever a link there leads.
-    if (pointsAt !== path.join(real, '.git'))
+    if (pointsAt !== path.join(real, '.git')) {
       throw refuse('its git dir belongs to another worktree');
+    }
     if (canonicalPathOrNull(toplevel) !== real) throw refuse(`it is inside ${toplevel}`);
     if (real === canonicalPathOrNull(clonePath)) throw refuse('it is the clone itself');
-    if (real === canonicalPathOrNull(this.worktreePathFor(workItem)))
+    if (real === canonicalPathOrNull(this.worktreePathFor(workItem))) {
       throw refuse('it is the Inbox’s worktree for this item');
+    }
   }
 
   /**
@@ -1224,7 +1225,7 @@ export class WorktreeService {
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     try {
       const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
-        env: env as { [key: string]: string },
+        env,
         maxBuffer: 10 * 1024 * 1024,
         timeout: GIT_TIMEOUT_MS,
       });
@@ -1249,7 +1250,7 @@ export class WorktreeService {
     try {
       const { stdout } = await execFileAsync(binary, args, {
         cwd,
-        env: env as { [key: string]: string },
+        env,
         maxBuffer: 10 * 1024 * 1024,
       });
       return stdout;

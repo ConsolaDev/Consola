@@ -75,5 +75,5 @@ export function EditorTabs({
 function tabName(path: string): string {
   const parts = path.split('/');
   if (parts[0] === 'skills' && parts.length > 2) return parts.slice(1).join('/');
-  return parts[parts.length - 1] ?? path;
+  return parts.at(-1) ?? path;
 }

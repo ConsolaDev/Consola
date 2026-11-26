@@ -2,8 +2,10 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FactoryStore, RunFilter, RunStore, TeamStore } from '../../application/ports.js';
 import type { Factory } from '../../domain/factory.js';
-import { checkRun, NO_STEP_DETAIL, type RunWrite, type StepRecord } from '../../domain/run.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { checkRun, NO_STEP_DETAIL } from '../../domain/run.js';
+import type { RunWrite, StepRecord } from '../../domain/run.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { createFactoryStore } from './factories.js';
 import { createRunStore } from './runs.js';
 import { runs as runTable } from './tables.js';
@@ -381,7 +383,7 @@ describe('the run store', () => {
         exitCode: 1,
         signal: null,
         stdoutBytes: 17_002,
-        stderrBytes: 1_032,
+        stderrBytes: 1032,
         truncated: false,
       },
       previous: [

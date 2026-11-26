@@ -110,27 +110,19 @@ describe('decideAttach', () => {
   it("refuses preferences that name another workspace's partition", () => {
     const decision = decideAttach(
       { partition, src: 'https://a.test' },
-      { partition: browserPartitionFor('ws-2') } as WebPreferences,
+      { partition: browserPartitionFor('ws-2') },
       context,
     );
     expect(decision.allow).toBe(false);
   });
 
   it('refuses preferences that name the default session', () => {
-    const decision = decideAttach(
-      { partition, src: 'https://a.test' },
-      { partition: '' } as WebPreferences,
-      context,
-    );
+    const decision = decideAttach({ partition, src: 'https://a.test' }, { partition: '' }, context);
     expect(decision.allow).toBe(false);
   });
 
   it('accepts preferences that repeat the same partition', () => {
-    const decision = decideAttach(
-      { partition, src: 'https://a.test' },
-      { partition } as WebPreferences,
-      context,
-    );
+    const decision = decideAttach({ partition, src: 'https://a.test' }, { partition }, context);
     expect(decision.allow).toBe(true);
   });
 

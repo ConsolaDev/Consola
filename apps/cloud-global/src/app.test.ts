@@ -1,4 +1,5 @@
-import { createHmac, generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { createHmac, generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -16,8 +17,6 @@ import {
   GITHUB_PAYLOAD_MAX_BYTES,
   GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS,
   GITHUB_TOKEN_REQUEST_TYPE,
-  type GitHubEventMessage,
-  type GitHubTokenAsk,
   gitHubTokenRequest,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
@@ -26,30 +25,30 @@ import {
   readGitHubEventMessage,
   readOutboxMessage,
 } from '@consola/cloud-contract';
-import { organization, type TestHelpers, testUtils } from 'better-auth/plugins';
+import type { GitHubEventMessage, GitHubTokenAsk } from '@consola/cloud-contract';
+import { organization, testUtils } from 'better-auth/plugins';
+import type { TestHelpers } from 'better-auth/plugins';
 import { eq } from 'drizzle-orm';
 import {
   CompactSign,
   calculateJwkThumbprint,
   compactVerify,
   createLocalJWKSet,
-  type JSONWebKeySet,
   jwtVerify,
 } from 'jose';
+import type { JSONWebKeySet } from 'jose';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type CloudAuth, closedPaths } from './adapters/auth/betterAuth.js';
+import { closedPaths } from './adapters/auth/betterAuth.js';
+import type { CloudAuth } from './adapters/auth/betterAuth.js';
 import { ROUTES } from './adapters/http/contract.js';
 import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
-import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import type { Database } from './adapters/persistence/database.js';
 import { schema } from './adapters/persistence/schema.js';
 import { composeApi } from './compose.js';
-import {
-  type CloudConfig,
-  ConfigError,
-  type Ed25519PrivateJwk,
-  type Ed25519PublicJwk,
-} from './config.js';
+import { ConfigError } from './config.js';
+import type { CloudConfig, Ed25519PrivateJwk, Ed25519PublicJwk } from './config.js';
 
 const WEB_ORIGIN = 'http://localhost:5175';
 const ACME_CELL = 'http://127.0.0.1:3101';
@@ -218,7 +217,7 @@ async function answerOf(method: string, path: string, response: Response) {
     parsed?.error,
     `${method} ${path} ${response.status} matches the contract`,
   ).toBeUndefined();
-  // biome-ignore lint/suspicious/noExplicitAny: the tests read bodies by their fields.
+  // `any`: the tests read bodies by their fields.
   return { status: response.status, body: body as any };
 }
 
@@ -840,13 +839,13 @@ describe('the outbox', () => {
       slug: 'sprocket',
       region: 'us',
     });
-    await vi.waitFor(() => expect(deliveries).toHaveLength(2), { timeout: 5_000 });
+    await vi.waitFor(() => expect(deliveries).toHaveLength(2), { timeout: 5000 });
 
     expect(deliveries.map((delivery) => delivery.url)).toEqual([
       `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,
       `${SPROCKET_CELL}${OUTBOX_DELIVERY_PATH}`,
     ]);
-    expect(await asACell(deliveries[0] as Delivery)).toBe(
+    expect(await asACell(deliveries[0])).toBe(
       `{"workspaceId":"${workspace.id}","region":"us","sequence":1,"change":{"type":"workspace.created"}}`,
     );
   });
@@ -905,10 +904,10 @@ describe('GitHub as a connection', () => {
   let withGitHub: CloudConfig;
 
   /** Who GitHub says can reach which installations, by the code their redirect carries. */
-  let reachable: Record<string, { id: number; login: string; type: string }[]>;
+  let reachable: Record<string, Array<{ id: number; login: string; type: string }>>;
   /** The codes of people who are only members of the organisations they reach; others own them. */
   let membersOnly: Set<string>;
-  let seen: { method: string; url: string; body: string }[];
+  let seen: Array<{ method: string; url: string; body: string }>;
 
   beforeAll(async () => {
     keyFolder = await mkdtemp(join(tmpdir(), 'consola-github-app-'));
@@ -1463,7 +1462,7 @@ describe('GitHub tokens for a cell', () => {
   });
 
   /** What each installation covers on GitHub: Acme's 41, Bolt's 42 and Sprocket's 52. */
-  const COVERED: Record<number, { id: number; full_name: string }[]> = {
+  const COVERED: Record<number, Array<{ id: number; full_name: string }>> = {
     41: [
       { id: 410, full_name: 'acme/catalog-portal' },
       { id: 411, full_name: 'acme/api' },
@@ -1634,9 +1633,12 @@ describe('GitHub tokens for a cell', () => {
 
   /** The cell's call: no session, no origin, the signed request in the body. */
   async function askForToken(signed: string, headers: HeadersInit = {}) {
+    // A Headers object spread into a plain one copies nothing, so it is built.
+    const sent = new Headers(headers);
+    sent.set('content-type', 'application/json');
     const response = await app.request('/api/github/tokens', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...headers },
+      headers: sent,
       body: JSON.stringify({ request: signed }),
     });
     const answer = await answerOf('POST', '/api/github/tokens', response);

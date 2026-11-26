@@ -1,17 +1,10 @@
 // src/renderer/components/Inbox/index.tsx
 import { useEffect, useId, useMemo, useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
-import {
-  DEFAULT_COLLAPSED_SECTIONS,
-  INBOX_SECTIONS,
-  type InboxSection,
-} from '../../../shared/inboxSections';
-import {
-  INBOX_VIEWS,
-  groupBySection,
-  itemsForView,
-  type InboxViewId,
-} from '../../../shared/inboxViews';
+import { DEFAULT_COLLAPSED_SECTIONS, INBOX_SECTIONS } from '../../../shared/inboxSections';
+import type { InboxSection } from '../../../shared/inboxSections';
+import { INBOX_VIEWS, groupBySection, itemsForView } from '../../../shared/inboxViews';
+import type { InboxViewId } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
@@ -219,6 +212,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
       {snapshot?.error && (
         <div className="inbox-setup-recovery">
           <button
+            type="button"
             className="inbox-pane-secondary"
             aria-expanded={showSetup}
             onClick={() => setShowSetup(!showSetup)}
@@ -231,7 +225,11 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                 workspace={workspace}
                 onConnected={() => void refresh(workspace.id)}
               />
-              <button className="inbox-pane-secondary" onClick={() => void refresh(workspace.id)}>
+              <button
+                type="button"
+                className="inbox-pane-secondary"
+                onClick={() => void refresh(workspace.id)}
+              >
                 Retry Inbox
               </button>
             </section>

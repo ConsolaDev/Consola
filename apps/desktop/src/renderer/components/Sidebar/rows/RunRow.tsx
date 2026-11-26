@@ -1,5 +1,6 @@
 import { Hand } from 'lucide-react';
-import { isAgentRunPreview, runTitle, type RunListEntry } from '../../../../shared/automations';
+import { isAgentRunPreview, runTitle } from '../../../../shared/automations';
+import type { RunListEntry } from '../../../../shared/automations';
 import { automationsBridge } from '../../../services/automationsBridge';
 import { useAutomationsStore } from '../../../stores/automationsStore';
 import { useNavigationStore } from '../../../stores/navigationStore';

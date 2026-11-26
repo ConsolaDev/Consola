@@ -3,10 +3,9 @@ import {
   CREATOR_ROLE,
   checkNewWorkspace,
   defaultActiveWorkspace,
-  type MyWorkspace,
   mayManageWorkspace,
-  type WorkspaceProblem,
 } from '../domain/workspace.js';
+import type { MyWorkspace, WorkspaceProblem } from '../domain/workspace.js';
 import { checkWorkspaceIcon } from '../domain/workspaceIcon.js';
 import type { MembershipStore, SessionStore, WorkspaceStore } from './ports.js';
 

@@ -110,8 +110,9 @@ describe('flaggedPaths', () => {
   });
 
   it('keeps its names in one list each, case-folded', () => {
-    for (const name of [...FLAGGED_FILE_NAMES, ...FLAGGED_FOLDER_NAMES])
+    for (const name of [...FLAGGED_FILE_NAMES, ...FLAGGED_FOLDER_NAMES]) {
       expect(name).toBe(name.toLowerCase());
+    }
     expect(FLAGGED_FOLDER_NAMES).toEqual(
       expect.arrayContaining(['.claude', '.codex', '.gemini', '.agents']),
     );

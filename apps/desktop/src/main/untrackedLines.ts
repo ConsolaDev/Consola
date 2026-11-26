@@ -52,13 +52,15 @@ export async function readUntrackedFile(
   const file = path.join(root, relativePath);
   try {
     const stat = await fs.promises.lstat(file);
-    if (stat.isSymbolicLink())
+    if (stat.isSymbolicLink()) {
       return { content: await fs.promises.readlink(file), isBinary: false };
+    }
     const binary = { content: '', isBinary: true };
-    if (stat.size > BIG_FILE_BYTES || (await markedBinary(root, [relativePath])).size > 0)
+    if (stat.size > BIG_FILE_BYTES || (await markedBinary(root, [relativePath])).size > 0) {
       return binary;
+    }
     const bytes = await fs.promises.readFile(file);
-    return sniffsBinary(bytes) ? binary : { content: bytes.toString('utf-8'), isBinary: false };
+    return sniffsBinary(bytes) ? binary : { content: bytes.toString('utf8'), isBinary: false };
   } catch {
     return null;
   }
@@ -83,8 +85,9 @@ async function linesInNewFile(file: string): Promise<number> {
       if (
         sniffed < BINARY_SNIFF_BYTES &&
         sniffsBinary(bytes.subarray(0, BINARY_SNIFF_BYTES - sniffed))
-      )
+      ) {
         return 0;
+      }
       sniffed += bytes.length;
       for (let i = bytes.indexOf(0x0a); i !== -1; i = bytes.indexOf(0x0a, i + 1)) newlines++;
       lastByte = bytes[bytes.length - 1];

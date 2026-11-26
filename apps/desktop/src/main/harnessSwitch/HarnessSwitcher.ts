@@ -5,26 +5,22 @@ import type {
   HarnessSwitchResult,
 } from '../../shared/harnessSwitch';
 import type { HarnessDriverId } from '../../shared/types';
-import {
-  checkoutPathForSession,
-  generateUuid,
-  switchedSession,
-  type ConversationLink,
-  type HarnessSwitchChange,
-  type Session,
-  type Workspace,
+import { checkoutPathForSession, generateUuid, switchedSession } from '../../shared/workspace';
+import type {
+  ConversationLink,
+  HarnessSwitchChange,
+  Session,
+  Workspace,
 } from '../../shared/workspace';
-import { getDriver, toHarnessConfig, toolPolicyProblem, type HarnessDriver } from '../drivers';
-import { launchFieldsFor, type SessionLauncher } from '../SessionLauncher';
+import { getDriver, toHarnessConfig, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
+import { launchFieldsFor } from '../SessionLauncher';
+import type { SessionLauncher } from '../SessionLauncher';
 import type { ConversationOpening, TerminalHarnessSwitch } from '../TerminalService';
 import { handoffPrompt, renderHandoff } from './handoff';
 import type { HandoffStore } from './HandoffStore';
-import {
-  conversationSupport,
-  describeSwitch,
-  planHarnessSwitch,
-  type HarnessSwitchPlan,
-} from './plan';
+import { conversationSupport, describeSwitch, planHarnessSwitch } from './plan';
+import type { HarnessSwitchPlan } from './plan';
 
 export interface HarnessSwitcherDeps {
   workspaces: {
@@ -122,8 +118,9 @@ export class HarnessSwitcher {
     sessionId: string,
     targetHarnessId: string,
   ): Promise<HarnessSwitchResult> {
-    if (this.switching.has(sessionId))
+    if (this.switching.has(sessionId)) {
       throw new Error('This session is already switching harness.');
+    }
     this.switching.add(sessionId);
     try {
       const sides = this.sides(workspaceId, sessionId);
@@ -149,10 +146,12 @@ export class HarnessSwitcher {
     const target = this.deps.harnesses
       .getAll()
       .find((candidate) => candidate.id === targetHarnessId);
-    if (target?.id === session.harnessId)
+    if (target?.id === session.harnessId) {
       throw new Error(`This session already runs on ${target.name}.`);
-    if (!target || !isSwitchTarget(target, session))
+    }
+    if (!target || !isSwitchTarget(target, session)) {
       throw new Error('That harness is not available to switch to.');
+    }
     return target;
   }
 
@@ -350,14 +349,16 @@ export class HarnessSwitcher {
   private sessionRefusal(session: Session): string | null {
     if (session.kind !== 'interactive') return 'Conductor sessions stay on their harness.';
     // A switch drops grants, and a write session cannot launch without them (Call 16).
-    if (session.toolPolicy === 'edit' || session.toolPolicy === 'write')
+    if (session.toolPolicy === 'edit' || session.toolPolicy === 'write') {
       return 'A step that writes stays on its harness: its sandbox and environment were compiled for it.';
+    }
     // Its run's next turn (a reminder, a retry) must run on the harness the
     // accepted version names, grants or not; the session's own record says
     // which run, the engine's whether it is still open (review N1).
     const automation = session.automation;
-    if (automation?.step && this.deps.runIsOpen?.(automation.runId))
+    if (automation?.step && this.deps.runIsOpen?.(automation.runId)) {
       return "This step's session stays on its agent's harness while its run is open. Switch it once the run has ended.";
+    }
     return this.deps.terminals.get(session.instanceId)?.switchRefusal() ?? null;
   }
 

@@ -5,11 +5,8 @@
 // pure module these menus read their vocabulary from.
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown } from 'lucide-react';
-import {
-  INBOX_UPDATED_FILTERS,
-  UPDATED_FILTER_LABELS,
-  type InboxUpdatedFilter,
-} from './inboxFilters';
+import { INBOX_UPDATED_FILTERS, UPDATED_FILTER_LABELS } from './inboxFilters';
+import type { InboxUpdatedFilter } from './inboxFilters';
 
 interface RepoFilterMenuProps {
   /** Every repo in the snapshot, sorted -- the only things worth offering. */
@@ -40,6 +37,7 @@ export function RepoFilterMenu({ repos, selected, onChange }: RepoFilterMenuProp
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
+          type="button"
           className={`inbox-filter-trigger inbox-repo-filter-trigger ${
             selected.length > 0 ? 'active' : ''
           }`}
@@ -99,7 +97,7 @@ export function UpdatedFilterMenu({ value, onChange }: UpdatedFilterMenuProps) {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="inbox-filter-trigger inbox-updated-filter-trigger">
+        <button type="button" className="inbox-filter-trigger inbox-updated-filter-trigger">
           <span className="inbox-filter-trigger-label">
             Updated: {UPDATED_FILTER_LABELS[value]}
           </span>

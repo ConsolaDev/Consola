@@ -1,20 +1,15 @@
-import {
-  FACTORY_NAME_MAX,
-  type FactoriesState,
-  type FactoryChange,
-  type FactorySave,
-  type FactorySourceKind,
-  type NewFactoryProblem,
-  type SourceOption,
+import { FACTORY_NAME_MAX } from './factories';
+import type {
+  FactoriesState,
+  FactoryChange,
+  FactorySave,
+  FactorySourceKind,
+  NewFactoryProblem,
+  SourceOption,
 } from './factories';
 import type { BroughtIn, ChangeSummary } from './factoryDraft';
-import {
-  kindOfPath,
-  type NameCheck,
-  type NamingTarget,
-  type NewKind,
-  PATH_MAX,
-} from './factoryKinds';
+import { kindOfPath, PATH_MAX } from './factoryKinds';
+import type { NameCheck, NamingTarget, NewKind } from './factoryKinds';
 import type { FactoryPageId } from './factoryNav';
 import { messageForTeamsState } from './teamMessages';
 import { regionName } from './workspace';
@@ -258,7 +253,9 @@ export function nameSentence(
         'Use only lowercase letters, numbers and dashes, starting with a letter or number, up to 64 characters.',
       );
     case 'path':
-      return refused('Use a path inside the skill, with no empty, “.” or “..” part and no “\\”.');
+      return refused(
+        String.raw`Use a path inside the skill, with no empty, “.” or “..” part and no “\”.`,
+      );
     case 'long':
       return refused(`Keep the whole path to ${PATH_MAX} characters.`);
     case 'taken':

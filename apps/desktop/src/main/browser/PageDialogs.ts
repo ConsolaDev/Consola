@@ -8,7 +8,7 @@ import { cutCopy } from './ownCopy';
 export const DIALOG_HOLD_MS = 60_000;
 
 /** How much of what a page writes in a dialog is kept; the rest is counted. */
-export const MAX_DIALOG_MESSAGE_CHARS = 2_000;
+export const MAX_DIALOG_MESSAGE_CHARS = 2000;
 
 /** What `consola_browser_dialog` answers when nothing is held on the tab. */
 export const NO_DIALOG_MESSAGE = 'There is no dialog open on this tab.';

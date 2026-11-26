@@ -1,7 +1,8 @@
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type AgentMoveBrowser, moveAsAgent } from './agentMove';
+import { moveAsAgent } from './agentMove';
+import type { AgentMoveBrowser } from './agentMove';
 import { CALL_DEADLINE_MS } from './PageDriver';
 
 class FakeGuest extends EventEmitter {

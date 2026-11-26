@@ -7,9 +7,9 @@ import {
   USAGE_HALF_LIFE_MS,
   USAGE_MAX_PER_KIND,
   USAGE_WINDOW_MS,
-  type UsageLog,
   usageScore,
 } from './usage';
+import type { UsageLog } from './usage';
 
 const order = ['changes', 'files', 'terminal', 'pull-request'];
 const now = Date.UTC(2026, 10, 20);

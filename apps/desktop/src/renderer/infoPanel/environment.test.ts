@@ -1,17 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 import type { HarnessAccount, HarnessModel } from '../../shared/types';
-import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import { tabFactsFor } from '../sidePanel/tabKinds';
 import {
-  type CapabilitiesAnswer,
   folderLine,
   harnessLine,
   offersFixInSession,
   policyLine,
   splitForMiddle,
 } from './environment';
+import type { CapabilitiesAnswer } from './environment';
 
 const workspace = createWorkspaceRecord('catalog-portal', '/repos/catalog-portal', true);
 const session = createSessionRecord({
@@ -244,8 +245,9 @@ describe('policyLine', () => {
 describe('offersFixInSession', () => {
   it('the work item pane pastes a fix only into a session with full tools (slice 3-B)', () => {
     expect(offersFixInSession({})).toBe(true);
-    for (const toolPolicy of ['read-only', 'edit', 'write'] as const)
+    for (const toolPolicy of ['read-only', 'edit', 'write'] as const) {
       expect(offersFixInSession({ toolPolicy })).toBe(false);
+    }
   });
 });
 

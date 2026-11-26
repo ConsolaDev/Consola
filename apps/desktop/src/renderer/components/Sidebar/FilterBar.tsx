@@ -1,4 +1,5 @@
-import { useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useState } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Check,
@@ -15,13 +16,8 @@ import { EditLabelDialog } from '../Dialogs/EditLabelDialog';
 import type { Label } from '../../../shared/workspace';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
-import {
-  deriveFacets,
-  effectiveFilters,
-  hasActiveFilters,
-  type FacetKey,
-  type FacetValue,
-} from '../../utils/sessionFilters';
+import { deriveFacets, effectiveFilters, hasActiveFilters } from '../../utils/sessionFilters';
+import type { FacetKey, FacetValue } from '../../utils/sessionFilters';
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
 import { useSettings } from '../../contexts/SettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
@@ -87,16 +83,18 @@ export function FilterBar({
   // promises a row that isn't there.
   const counts = new Map<string, number>();
   for (const session of workspace.sessions) {
-    if (session.name.length > 0)
+    if (session.name.length > 0) {
       counts.set(session.scopeId, (counts.get(session.scopeId) ?? 0) + 1);
+    }
   }
   const listed = workspace.sessions.filter((session) => session.name.length > 0);
   const facets = deriveFacets(listed);
   const active = effectiveFilters(workspace, listed, chosen);
   const isActive = (key: FacetKey, value: string) => active[key]?.includes(value) ?? false;
   const labelCounts = new Map<string, number>();
-  for (const session of listed)
+  for (const session of listed) {
     for (const id of session.labelIds ?? []) labelCounts.set(id, (labelCounts.get(id) ?? 0) + 1);
+  }
   const narrowed = !!scope || hasActiveFilters(active);
   const chips = Object.entries(active).flatMap(([key, values]) =>
     (values ?? []).map((value) => ({
@@ -200,6 +198,7 @@ export function FilterBar({
           >
             <DropdownMenu.Trigger asChild>
               <button
+                type="button"
                 className="sidebar-scope-filter-trigger"
                 aria-label="Filter sessions"
                 title={scope ? tildePath(scope.path) : undefined}
@@ -289,7 +288,7 @@ export function FilterBar({
                 {needle && !shown.length && (
                   <p className="sidebar-scope-menu-empty">No scope matches “{query.trim()}”.</p>
                 )}
-                {(Object.keys(FACET_TITLES) as (keyof typeof FACET_TITLES)[]).map(
+                {(Object.keys(FACET_TITLES) as Array<keyof typeof FACET_TITLES>).map(
                   (key) =>
                     facets[key].length > 0 && (
                       <div key={key}>
@@ -389,6 +388,7 @@ export function FilterBar({
           </DropdownMenu.Root>
           {narrowed && (
             <button
+              type="button"
               className="sidebar-scope-filter-clear"
               aria-label="Clear filters"
               title="Clear filters"

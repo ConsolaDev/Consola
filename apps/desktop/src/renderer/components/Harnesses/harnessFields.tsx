@@ -146,7 +146,7 @@ export function ConfigFields({ draft, onChange }: { draft: HarnessDraft; onChang
             <button
               type="button"
               className="dialog-button-secondary harness-browse-button"
-              onClick={browseForConfigDir}
+              onClick={() => void browseForConfigDir()}
             >
               <FolderOpen size={14} />
               Browse

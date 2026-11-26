@@ -12,8 +12,9 @@ export function revealWorking(): void {
   const navigation = useNavigationStore.getState();
   if (navigation.isSidebarHidden) navigation.setSidebarHidden(false);
   const settings = useSettingsStore.getState();
-  if (!isShelfOpen(settings.sidebarShelfOpen, 'working'))
+  if (!isShelfOpen(settings.sidebarShelfOpen, 'working')) {
     settings.toggleSidebarShelf('working', true);
+  }
 }
 
 /**

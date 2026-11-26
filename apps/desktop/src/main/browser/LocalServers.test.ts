@@ -149,7 +149,7 @@ describe('LocalServers.listFor', () => {
     try {
       const hung = new LocalServers(() => new Promise(() => {}), 'linux');
       const answer = hung.scanFor(inside);
-      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2000);
       expect(await answer).toBeNull();
     } finally {
       vi.useRealTimers();

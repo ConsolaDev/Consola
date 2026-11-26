@@ -335,7 +335,7 @@ async function openPaneFor51(page: Page): Promise<Locator> {
 async function startAction(pane: Locator, actionId: string): Promise<void> {
   await pane.locator(`[data-action-id="${actionId}"]`).click();
   const confirm = pane.getByRole('button', { name: /Start anyway/ });
-  const asked = await confirm.waitFor({ state: 'visible', timeout: 1_500 }).then(
+  const asked = await confirm.waitFor({ state: 'visible', timeout: 1500 }).then(
     () => true,
     () => false,
   );
@@ -530,7 +530,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     expect(b.cwd).toBe(worktree);
     expect(
       sessionsIn(stateFile)
-        .map((session) => session.workItemAction)
+        .map((session) => String(session.workItemAction))
         .sort(),
     ).toEqual(['Fix CI', 'Review']);
 
@@ -628,7 +628,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     // sessions still carry a workItem on #51.
     expect(
       sessionsOn51(stateFile)
-        .map((session) => session.workItemAction)
+        .map((session) => String(session.workItemAction))
         .sort(),
     ).toEqual(['Fix CI', 'Review']);
 
@@ -952,7 +952,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     [
       '#!/bin/sh',
       'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
-      'printf "Agent ready\\n"',
+      String.raw`printf "Agent ready\n"`,
       'stty raw -echo 2>/dev/null',
       `exec cat >> "${pastedPath}"`,
     ].join('\n'),
@@ -1229,7 +1229,7 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
       '#!/bin/sh',
       'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
       `printf '%s\\n' "$*" >> "${argsPath}"`,
-      'printf "Agent ready\\r\\n❯ "',
+      String.raw`printf "Agent ready\r\n❯ "`,
       'stty raw -echo 2>/dev/null',
       `exec cat >> "${inputPath}"`,
     ].join('\n'),

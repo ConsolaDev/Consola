@@ -1,4 +1,5 @@
-import { createServer, type ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
+import type { ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import {
   CELL_TOKEN_ALGORITHM,
@@ -14,13 +15,12 @@ import {
   createLocalJWKSet,
   exportJWK,
   generateKeyPair,
-  type JSONWebKeySet,
-  type JWK,
-  type JWTHeaderParameters,
   SignJWT,
 } from 'jose';
+import type { JSONWebKeySet, JWK, JWTHeaderParameters } from 'jose';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { type CellTokenKeys, cloudGlobalKeys, createJoseTokenVerifier } from './cellTokens.js';
+import { cloudGlobalKeys, createJoseTokenVerifier } from './cellTokens.js';
+import type { CellTokenKeys } from './cellTokens.js';
 
 const NOW = 1_800_000_000;
 

@@ -1,4 +1,5 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -38,7 +39,7 @@ const GIT_ENV = {
 const TICK_MS = 2000;
 
 /** A fake token full of characters that change when printed (Review Focus 1). Never a real token's shape. */
-const VALUE = 'stub-slack-secret-9c1e"\\back%slash';
+const VALUE = String.raw`stub-slack-secret-9c1e"\back%slash`;
 /** The test's own hash of the value: what the stub must report, so no variable carries the expectation. */
 const VALUE_SHA256 = createHash('sha256').update(VALUE, 'utf8').digest('hex');
 
@@ -690,10 +691,10 @@ test('A call that may have landed: a timed-out call is never repeated by itself,
       .toEqual(['list', 'call', 'start', 'work-done']);
     const [, call, start, done] = calls.events();
     expect(call.tool).toBe('slow_post');
-    expect(done.at - start.at).toBeGreaterThanOrEqual(3_500);
-    expect(done.at).toBeGreaterThan(Date.parse(post?.call?.intentAt ?? '') + 2_000);
+    expect(done.at - start.at).toBeGreaterThanOrEqual(3500);
+    expect(done.at).toBeGreaterThan(Date.parse(post?.call?.intentAt ?? '') + 2000);
     // Nothing calls it again by itself.
-    await calls.page.waitForTimeout(2 * TICK_MS + 1_000);
+    await calls.page.waitForTimeout(2 * TICK_MS + 1000);
     expect(calls.calls()).toHaveLength(1);
 
     // The run page: no line saying something it started was still running; Retry warns first.
@@ -717,7 +718,7 @@ test('A call that may have landed: a timed-out call is never repeated by itself,
       )
       .toBe(2);
     await runsAre(calls, ['failed']);
-    await calls.page.waitForTimeout(2 * TICK_MS + 1_000);
+    await calls.page.waitForTimeout(2 * TICK_MS + 1000);
     expect(calls.calls()).toHaveLength(2);
   } finally {
     await calls.close();

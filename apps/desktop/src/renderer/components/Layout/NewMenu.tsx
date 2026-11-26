@@ -44,6 +44,7 @@ export function NewMenu() {
     <>
       <div className="new-menu-buttons">
         <button
+          type="button"
           className="new-menu-trigger"
           aria-label="New session"
           title={plusTitle}
@@ -53,7 +54,7 @@ export function NewMenu() {
         </button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <button className="new-menu-trigger new-menu-more" aria-label="New">
+            <button type="button" className="new-menu-trigger new-menu-more" aria-label="New">
               <ChevronDown size={12} />
             </button>
           </DropdownMenu.Trigger>

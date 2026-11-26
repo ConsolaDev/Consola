@@ -2,11 +2,13 @@ import { createHmac } from 'node:crypto';
 import type { GitHubEventMessage, Region } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWebhookSignatures } from '../adapters/github/webhookSignatures.js';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import type { CellEventAnswer, CellEvents, GitHubEventSigner, InstallationStore } from './ports.js';
-import { receiveGitHubWebhook, type WebhookDelivery } from './webhooks.js';
+import { receiveGitHubWebhook } from './webhooks.js';
+import type { WebhookDelivery } from './webhooks.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -52,7 +54,7 @@ const signer: GitHubEventSigner = {
 
 /** Cells in each region named, each answering `answer`, keeping what they were passed. */
 function cells(answer: CellEventAnswer = { kind: 'recorded' }, regions: Region[] = ['eu', 'us']) {
-  const passed: { region: Region; event: GitHubEventMessage }[] = [];
+  const passed: Array<{ region: Region; event: GitHubEventMessage }> = [];
   const events: CellEvents = {
     reaches: (region) => regions.includes(region),
     pass: async (region, signed) => {

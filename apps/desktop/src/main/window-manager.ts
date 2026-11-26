@@ -1,4 +1,5 @@
-import { BrowserWindow, app, screen, session, shell, type WebContents } from 'electron';
+import { BrowserWindow, app, screen, session, shell } from 'electron';
+import type { WebContents } from 'electron';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
@@ -128,8 +129,9 @@ export function createWindow(
   if (process.platform === 'darwin') {
     const quitShortcut = createQuitShortcut({
       notify: (state) => {
-        if (!window.isDestroyed())
+        if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, state);
+        }
       },
       conceal: () => {
         if (window.isDestroyed()) return;
@@ -161,10 +163,10 @@ export function createWindow(
   });
 
   if (isDev) {
-    window.loadURL(DEV_SERVER_ORIGIN);
+    void window.loadURL(DEV_SERVER_ORIGIN);
     window.webContents.openDevTools();
   } else {
-    window.loadFile(path.join(__dirname, '../../../dist/renderer/index.html'));
+    void window.loadFile(path.join(__dirname, '../../../dist/renderer/index.html'));
   }
 
   window.on('closed', () => {
@@ -405,9 +407,9 @@ function layoutFile(): JsonStateFile<WindowLayoutFile> {
  */
 export function viewsFromStoredLayout(): Record<string, WorkspaceView> {
   const views: Record<string, WorkspaceView> = {};
-  let stored: { windows?: unknown } | null = null;
+  let stored: { windows?: unknown } | null;
   try {
-    stored = layoutFile().read() as { windows?: unknown } | null;
+    stored = layoutFile().read();
   } catch {
     // No layout to carry over is the same as nothing to remember.
     return views;

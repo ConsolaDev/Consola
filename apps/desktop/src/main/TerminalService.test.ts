@@ -19,7 +19,7 @@ const {
   turnReaders: { create: undefined as (() => import('./drivers').TurnReader) | undefined },
   /** What the mocked LoginEnvironment answers; reset before each test. */
   loginEnv: {
-    current: {} as Record<string, string>,
+    current: {},
     problem: null as string | null,
     retry: null as Promise<void> | null,
   },
@@ -57,8 +57,8 @@ import {
   bracketedPaste,
   turnSummary,
   unattendedNotice,
-  type TerminalExitInfo,
 } from './TerminalService';
+import type { TerminalExitInfo } from './TerminalService';
 import { ScreenModel } from './ScreenModel';
 import { createClaudeTurnReader } from './drivers/claudeTurnReader';
 import type { TurnInit, TurnReport } from './drivers';
@@ -70,6 +70,12 @@ import {
   jsonLine,
   resultLine,
 } from './drivers/streamJson.test-helpers';
+
+/** start() launches the CLI in the background; a microtask lets it begin. */
+async function started(service: TerminalService): Promise<void> {
+  service.start();
+  await Promise.resolve();
+}
 
 /** What deliverPendingPrompt writes: a bracketed paste, then Enter. */
 function pasted(prompt: string): string[] {
@@ -126,7 +132,7 @@ async function buildService(initialPrompt?: string): Promise<TerminalService> {
     resume: false,
     initialPrompt,
   });
-  await service.start();
+  await started(service);
   return service;
 }
 
@@ -798,7 +804,7 @@ describe('TerminalService harness switch', () => {
     const pty = installFakePty();
     const service = await buildService();
     await vi.advanceTimersByTimeAsync(0);
-    await animate(pty, 1_500);
+    await animate(pty, 1500);
     expect(service.busy()).toBe(true);
     expect(service.switchRefusal()).toMatch(/middle of a turn/);
     expect(() =>
@@ -839,7 +845,7 @@ describe('TerminalService status event', () => {
     const statuses: string[] = [];
     service.on('status', (status: string) => statuses.push(status));
 
-    await animate(pty, 1_500); // a turn: output keeps coming
+    await animate(pty, 1500); // a turn: output keeps coming
     await vi.advanceTimersByTimeAsync(SETTLE_MS); // settles, no menu
     pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
     await vi.advanceTimersByTimeAsync(SETTLE_MS); // settles on a menu
@@ -870,7 +876,7 @@ describe('TerminalService status event', () => {
 
     service.write('\r');
     pty.feed('\x1b[2J\x1b[3J\x1b[H✻ Working…');
-    await animate(pty, 3_000);
+    await animate(pty, 3000);
 
     expect(statuses).toEqual(['needs-attention', 'ready', 'working']);
     service.destroy();
@@ -1012,11 +1018,11 @@ describe('TerminalService turn detection', () => {
     await showComposer(pty);
 
     service.write('\r');
-    await animate(pty, 1_200);
+    await animate(pty, 1200);
     expect(statuses).toEqual(['working']);
     expect(service.busy()).toBe(true);
 
-    await animate(pty, 3_000);
+    await animate(pty, 3000);
     await vi.advanceTimersByTimeAsync(SETTLE_MS);
     expect(statuses).toEqual(['working', 'ready']);
     service.destroy();
@@ -1027,7 +1033,7 @@ describe('TerminalService turn detection', () => {
     await showComposer(pty);
 
     // A background task finishing wakes the agent on its own.
-    await animate(pty, 1_200);
+    await animate(pty, 1200);
 
     expect(statuses).toEqual(['working']);
     service.destroy();
@@ -1764,7 +1770,7 @@ describe('TerminalService a reporting turn', () => {
     await vi.advanceTimersByTimeAsync(0);
     for (let second = 0; second < 60; second++) {
       fake.feed('{"type":"stream_event"}\r\n');
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(1000);
       expect(service.busy()).toBe(true);
     }
     expect(statuses.at(-1)).toBe('working');
@@ -2246,7 +2252,7 @@ describe('TerminalService relaunch', () => {
 
 describe('TerminalService working directory', () => {
   /** How often a working CLI is asked; one poll is unambiguous past it. */
-  const POLL_MS = 2_000;
+  const POLL_MS = 2000;
 
   it('reports where the CLI says it works, once per change, as soon as it moves mid-turn', async () => {
     const pty = installFakePty();
@@ -2373,7 +2379,7 @@ describe('TerminalService login environment', () => {
     });
     const output: string[] = [];
     service.on('data', (data) => output.push(data));
-    await service.start();
+    await started(service);
     await vi.advanceTimersByTimeAsync(1);
     service.destroy();
     return output.join('');
@@ -2391,7 +2397,7 @@ describe('TerminalService login environment', () => {
       providerAccountLogin: 'JaviDev',
       ...fields,
     });
-    await service.start();
+    await started(service);
     await vi.advanceTimersByTimeAsync(1);
     service.destroy();
     return { token, env: spawnMock.mock.calls.at(-1)?.[2]?.env as NodeJS.ProcessEnv | undefined };
@@ -2459,7 +2465,7 @@ describe('a write step’s session (slice 3-B Task 18)', () => {
       ...fields,
     });
     service.on('data', (data) => output.push(data));
-    await service.start();
+    await started(service);
     await vi.advanceTimersByTimeAsync(1);
     return {
       service,
@@ -2515,8 +2521,9 @@ describe('a write step’s session (slice 3-B Task 18)', () => {
       AWS_SECRET_ACCESS_KEY: 'aws-dummy',
     });
     expect(env.GH_TOKEN).toBe('gh-dummy'); // the person's own, as their shell has it; Consola borrows none
-    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) {
       expect(env).not.toHaveProperty(name);
+    }
     service.destroy();
   });
 

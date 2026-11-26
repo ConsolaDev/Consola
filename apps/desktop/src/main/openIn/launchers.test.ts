@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createRecordingLauncher, createSystemLauncher } from './launchers';
-import { FINDER_PATH, type DetectedTarget } from './targets';
+import { FINDER_PATH } from './targets';
+import type { DetectedTarget } from './targets';
 
 const VS_CODE: DetectedTarget = {
   id: 'vscode',
@@ -52,12 +53,18 @@ describe('createSystemLauncher', () => {
     const failure = Object.assign(new Error('Command failed: /usr/bin/open'), {
       stderr: "Unable to find application named 'Visual Studio Code'\n",
     });
-    const { launch } = launcher({ run: async () => Promise.reject(failure) });
+    const { launch } = launcher({
+      run: async () => {
+        throw failure;
+      },
+    });
     expect(await launch(VS_CODE, FOLDER)).toBe(
       "Unable to find application named 'Visual Studio Code'",
     );
     const { launch: quiet } = launcher({
-      run: async () => Promise.reject(new Error('spawn /usr/bin/open ENOENT')),
+      run: async () => {
+        throw new Error('spawn /usr/bin/open ENOENT');
+      },
     });
     expect(await quiet(VS_CODE, FOLDER)).toBe('spawn /usr/bin/open ENOENT');
   });

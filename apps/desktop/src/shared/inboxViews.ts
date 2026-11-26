@@ -1,4 +1,5 @@
-import { INBOX_SECTIONS, sectionFor, type InboxSection } from './inboxSections';
+import { INBOX_SECTIONS, sectionFor } from './inboxSections';
+import type { InboxSection } from './inboxSections';
 import type { InboxItem } from './workItems';
 
 /**

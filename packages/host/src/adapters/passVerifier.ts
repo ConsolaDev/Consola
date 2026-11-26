@@ -1,13 +1,8 @@
 import * as Effect from 'effect/Effect';
 import * as Schema from 'effect/Schema';
 import { compactVerify, importSPKI } from 'jose';
-import {
-  checkPassClaims,
-  type PassClaims,
-  type PassLifetime,
-  type PassRefusal,
-  readPass,
-} from '../core/pass.ts';
+import { checkPassClaims, readPass } from '../core/pass.ts';
+import type { PassClaims, PassLifetime, PassRefusal } from '../core/pass.ts';
 
 /** The one signature a pass may carry: EdDSA over Ed25519. jose refuses every other, `none` too. */
 const PASS_ALGORITHM = 'EdDSA';

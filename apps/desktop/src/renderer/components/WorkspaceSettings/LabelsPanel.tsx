@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Pencil, Plus, Tag, Trash2 } from 'lucide-react';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import type { Label } from '../../../shared/workspace';
 import { EditLabelDialog } from '../Dialogs/EditLabelDialog';
 import { NewLabelDialog } from '../Dialogs/NewLabelDialog';

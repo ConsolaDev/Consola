@@ -2,7 +2,6 @@ import { Bot, CircleSlash, ShieldCheck, SquareTerminal } from 'lucide-react';
 import { useState } from 'react';
 import {
   APPROVAL_TITLE,
-  type ApprovalDecision,
   approverWords,
   DISMISS_QUESTION,
   messageForApproveAnswer,
@@ -10,6 +9,7 @@ import {
   receiptWords,
   willRunAnything,
 } from '../domain/runApproval';
+import type { ApprovalDecision } from '../domain/runApproval';
 import type { RunApproval } from '../domain/runs';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';

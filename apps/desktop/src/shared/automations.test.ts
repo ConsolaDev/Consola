@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { isAgentRunPreview, isStepsRunPreview, runTitle, type RunRecord } from './automations';
+import { isAgentRunPreview, isStepsRunPreview, runTitle } from './automations';
+import type { RunRecord } from './automations';
 
 function run(id: string, fields: Partial<RunRecord> & { actorId?: string } = {}): RunRecord {
   const { actorId, ...rest } = fields;
@@ -26,7 +27,7 @@ function run(id: string, fields: Partial<RunRecord> & { actorId?: string } = {})
     createdAt: '2026-11-12T10:00:00Z',
     updatedAt: '2026-11-12T10:00:00Z',
     ...rest,
-  } as RunRecord;
+  };
 }
 
 describe('a run’s result, as the renderer tells them apart', () => {

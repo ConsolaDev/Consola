@@ -3,13 +3,15 @@ import {
   isStepsEntry,
   leafSteps,
   stepsResolvedBody,
-  type AgentDefinition,
-  type Automation,
-  type EnvironmentDefinition,
-  type FactoryFiles,
-  type FactoryNotice,
-  type FactoryParseResult,
-  type FactorySpecIssue,
+} from '@consola/factory-spec';
+import type {
+  AgentDefinition,
+  Automation,
+  EnvironmentDefinition,
+  FactoryFiles,
+  FactoryNotice,
+  FactoryParseResult,
+  FactorySpecIssue,
 } from '@consola/factory-spec';
 import type { AgentHarnessAnswer, AgentHarnessQuery, AppliedSkill, CheckoutKind } from '../ports';
 import { entryCheckoutKind } from '../steps/checkout';
@@ -27,8 +29,9 @@ function agentNamesOf(automation: Automation): string[] {
   if (!isStepsEntry(automation)) return [];
   const names: string[] = [];
   for (const step of leafSteps(automation.steps)) {
-    if (step.kind === 'agent' && step.agent !== undefined && !names.includes(step.agent))
+    if (step.kind === 'agent' && step.agent !== undefined && !names.includes(step.agent)) {
       names.push(step.agent);
+    }
   }
   return names;
 }
@@ -46,8 +49,9 @@ export function entryEnvironmentHashes(
   const hashes: Record<string, string> = {};
   for (const name of agentNamesOf(automation)) {
     const environment = own(agents, name) ? agents[name].environment : undefined;
-    if (environment !== undefined && own(environments, environment))
+    if (environment !== undefined && own(environments, environment)) {
       hashes[environment] = environments[environment].hash;
+    }
   }
   return hashes;
 }
@@ -66,8 +70,9 @@ export function fileVersion(
   environments?: Readonly<Record<string, EnvironmentDefinition>>,
 ): string {
   const hashes: Record<string, string> = {};
-  for (const name of agentNamesOf(automation))
+  for (const name of agentNamesOf(automation)) {
     if (own(agents, name)) hashes[name] = agents[name].hash;
+  }
   return automationVersion(
     automation,
     stepsResolvedBody({}, hashes, entryEnvironmentHashes(automation, agents, environments)),
@@ -165,10 +170,11 @@ export function agentIssues(
             ? at('harness', `${answer.name} can’t run automation steps: ${answer.stepProblem}`)
             : null;
     if (problem) problems.push(problem);
-    else if (answer.serversPending)
+    else if (answer.serversPending) {
       waits.push(at('mcpServers', `${file}: ${answer.serversPending}`));
-    else if (answer.serversUnknown)
+    } else if (answer.serversUnknown) {
       stops.push(at('mcpServers', `${file}: ${answer.serversUnknown}`));
+    }
     if (answer.warning) {
       warnings.push({
         message: answer.warning,
@@ -270,17 +276,19 @@ export function decideApply(input: {
       : { kind: 'first-start' };
   }
   const appliedVersions = new Map<string, string>();
-  for (const automation of applied.parse.automations)
+  for (const automation of applied.parse.automations) {
     appliedVersions.set(
       automation.name,
       fileVersion(automation, applied.parse.agents, applied.parse.environments),
     );
+  }
   for (const automation of read.automations) {
     if (
       appliedVersions.get(automation.name) ===
       fileVersion(automation, read.agents, read.environments)
-    )
+    ) {
       continue;
+    }
     ask(automation);
   }
   if (blocking.length === 0 && waiting.length === 0) return { kind: 'applies' };
@@ -307,12 +315,14 @@ export function appliedTexts(
   const texts: Record<string, string> = {};
   if (!only) {
     if (files.factoryYml !== null) texts['factory.yml'] = files.factoryYml;
-    for (const name of Object.keys(files.automations))
+    for (const name of Object.keys(files.automations)) {
       texts[`automations/${name}.yaml`] = files.automations[name];
+    }
     for (const name of Object.keys(files.agents)) texts[`agents/${name}.md`] = files.agents[name];
     const environments = files.environments ?? {};
-    for (const name of Object.keys(environments))
+    for (const name of Object.keys(environments)) {
       texts[`environments/${name}.yaml`] = environments[name];
+    }
     return texts;
   }
   for (const automation of only) {
@@ -324,11 +334,13 @@ export function appliedTexts(
       if (own(files.automations, name)) texts[home] = files.automations[name];
     }
     for (const agent of agentNamesOf(automation)) {
-      if (own(read.agents, agent) && own(files.agents, agent))
+      if (own(read.agents, agent) && own(files.agents, agent)) {
         texts[`agents/${agent}.md`] = files.agents[agent];
+      }
       const environment = own(read.agents, agent) ? read.agents[agent].environment : undefined;
-      if (environment !== undefined && own(files.environments ?? {}, environment))
+      if (environment !== undefined && own(files.environments ?? {}, environment)) {
         texts[`environments/${environment}.yaml`] = files.environments![environment];
+      }
     }
   }
   return texts;
@@ -345,11 +357,15 @@ export function appliedSkills(
 ): Record<string, AppliedSkill> {
   const names = new Set<string>();
   if (!only) for (const name of Object.keys(read.skills)) names.add(name);
-  else
-    for (const automation of only)
-      for (const agent of agentNamesOf(automation))
-        if (own(read.agents, agent))
+  else {
+    for (const automation of only) {
+      for (const agent of agentNamesOf(automation)) {
+        if (own(read.agents, agent)) {
           for (const skill of read.agents[agent].skills) names.add(skill);
+        }
+      }
+    }
+  }
   const skills: Record<string, AppliedSkill> = {};
   // Every skill a valid agent names is a valid skill of the read (`parseFactory` keeps no other agent).
   for (const name of [...names].sort()) {
@@ -389,8 +405,9 @@ function describeFiles(files: readonly string[]): string {
 /** The files issues are in, each once, in order. */
 function filesOf(issues: readonly FactorySpecIssue[]): string[] {
   const files: string[] = [];
-  for (const issue of issues)
+  for (const issue of issues) {
     if (issue.file !== undefined && !files.includes(issue.file)) files.push(issue.file);
+  }
   return files;
 }
 

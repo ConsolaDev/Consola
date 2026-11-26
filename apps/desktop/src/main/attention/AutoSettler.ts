@@ -1,4 +1,5 @@
-import { activityOf, type Attention } from '../../shared/attention';
+import { activityOf } from '../../shared/attention';
+import type { Attention } from '../../shared/attention';
 import type { Preferences } from '../../shared/preferences';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { AttentionLedger } from './AttentionLedger';
@@ -136,8 +137,9 @@ export class AutoSettler {
           !idle.every((session) =>
             this.eligible(session, attention.get(session.id), autoSettleDays * DAY_MS, now, held),
           )
-        )
+        ) {
           continue;
+        }
         targets.push(...settleTargets(workspace, tree, this.deps.ledger));
         moved.push(...tree.map((session) => session.id));
         explained.push(...tree.filter((session) => !mayBeEmpty(session)).map(({ id }) => id));

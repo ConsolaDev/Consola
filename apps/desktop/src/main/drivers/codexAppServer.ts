@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { type CodexUsageAnswer, codexPlanApplies } from './codexUsage';
+import { codexPlanApplies } from './codexUsage';
+import type { CodexUsageAnswer } from './codexUsage';
 
 /**
  * Reserve a resumable Codex conversation without running a model turn.
@@ -11,7 +12,7 @@ export function createCodexThread(
   cwd: string,
   env: NodeJS.ProcessEnv,
   name: string,
-  timeoutMs = 15000,
+  timeoutMs = 15_000,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['app-server'], { cwd, env, stdio: 'pipe' });
@@ -59,8 +60,12 @@ export function createCodexThread(
         pending = pending.slice(newline + 1);
         if (!line.trim()) continue;
         try {
-          const message = JSON.parse(line);
-          if (![1, 2, 3, 4].includes(message.id)) continue;
+          const message = JSON.parse(line) as {
+            id?: unknown;
+            error?: unknown;
+            result?: { thread?: { id?: unknown } };
+          };
+          if (typeof message.id !== 'number' || ![1, 2, 3, 4].includes(message.id)) continue;
           if (message.error) {
             finish(
               new Error(
@@ -111,7 +116,7 @@ export function readCodexRateLimits(
   cwd: string,
   env: NodeJS.ProcessEnv,
   configArgs: string[] = [],
-  timeoutMs = 10000,
+  timeoutMs = 10_000,
 ): Promise<CodexUsageAnswer> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['app-server', ...configArgs], { cwd, env, stdio: 'pipe' });
@@ -160,7 +165,7 @@ export function readCodexRateLimits(
         if (!line.trim()) continue;
         let message: { id?: unknown; result?: unknown; error?: unknown };
         try {
-          message = JSON.parse(line);
+          message = JSON.parse(line) as typeof message;
         } catch {
           finish(new Error('Invalid response from Codex app-server.'));
           return;

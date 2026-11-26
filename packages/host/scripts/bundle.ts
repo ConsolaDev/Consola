@@ -35,11 +35,10 @@
  * (`AGENTS.md`, "Licensing").
  */
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join, relative } from 'node:path';
 import * as esbuild from 'esbuild';
 
-const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), '..');
+const PACKAGE = join(import.meta.dirname, '..');
 const DIST = join(PACKAGE, 'dist');
 /** Each file written, by name, from its entry. */
 const ENTRIES: Readonly<Record<string, string>> = {

@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests/e2e',
-  timeout: 30000,
+  timeout: 30_000,
   retries: 1,
   // In CI a stray `test.only` would pass the run on one test.
   forbidOnly: !!process.env.CI,

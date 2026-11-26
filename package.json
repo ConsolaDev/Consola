@@ -18,7 +18,8 @@
     "test:vendor": "pnpm --filter './vendor/t3code/packages/*' --filter './vendor/t3code/apps/*' --filter '!...^t3' test",
     "typecheck": "turbo run typecheck --filter='!./vendor/**'",
     "typecheck:vendor": "pnpm --filter './vendor/t3code/packages/*' --filter './vendor/t3code/apps/*' typecheck",
-    "lint": "biome check .",
+    "lint": "biome check . && pnpm run lint:oxlint",
+    "lint:oxlint": "turbo run build --filter='./packages/*' --filter='!@consola/agent-ui' --output-logs=errors-only && oxlint",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "test:e2e": "turbo run test:e2e --filter=consola",
@@ -34,6 +35,9 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",
+    "@cloudflare/oxlint-config": "0.2.0",
+    "oxlint": "1.94.0",
+    "tsrs": "7.1.0-beta.tsrs4",
     "turbo": "2.11.3"
   }
 }

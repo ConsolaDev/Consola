@@ -1,16 +1,9 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
+import { answer, PageTextError, plain, refuseWhileDialog, tabIdInput } from './browserToolAccess';
+import type { CallerAccess } from './browserToolAccess';
 import {
-  answer,
-  type CallerAccess,
-  PageTextError,
-  plain,
-  refuseWhileDialog,
-  tabIdInput,
-} from './browserToolAccess';
-import {
-  type BrowserActToolsDeps,
   countOf,
   openedDialogContent,
   pageStepFailure,
@@ -18,7 +11,9 @@ import {
   staleRefMessage,
   unlessDialog,
 } from './browserPageSteps';
-import { type BrowserToolContent, quoted } from './browserToolResults';
+import type { BrowserActToolsDeps } from './browserPageSteps';
+import { quoted } from './browserToolResults';
+import type { BrowserToolContent } from './browserToolResults';
 import { PAGE_CALL_TIMEOUT_MS } from './PageDriver';
 
 /** How long `wait_for` waits unless told, and the longest it may. */
@@ -60,8 +55,9 @@ export function planWait(args: WaitArgs): WaitPlan {
   if (args.text !== undefined) return { kind: 'text', text: args.text, timeoutMs };
   if (args.ref !== undefined) return { kind: 'ref', ref: args.ref, timeoutMs };
   if (args.selector !== undefined) return { kind: 'selector', selector: args.selector, timeoutMs };
-  if (args.url !== undefined)
+  if (args.url !== undefined) {
     return { kind: 'url', url: args.url, glob: args.url.includes('*'), timeoutMs };
+  }
   return { kind: 'network-idle', timeoutMs };
 }
 

@@ -25,7 +25,9 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
     fileBridge
       .readFile(filePath)
       .then(setContent)
-      .catch((err) => setError(err.message))
+      .catch((failure: unknown) =>
+        setError(failure instanceof Error ? failure.message : String(failure)),
+      )
       .finally(() => setIsLoading(false));
   }, [filePath]);
 

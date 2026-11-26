@@ -1,4 +1,5 @@
-import { useRef, useEffect, useCallback, type RefObject } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
+import type { RefObject } from 'react';
 import { hasPlatformModifier } from '../utils/platform';
 
 /**
@@ -25,7 +26,7 @@ export function useSelectAll<T extends HTMLElement>(): RefObject<T | null> {
     const handleKeyDown = (e: KeyboardEvent) => {
       const isSelectAll = hasPlatformModifier(e) && e.key === 'a';
 
-      if (isSelectAll && contentRef.current?.contains(document.activeElement as Node)) {
+      if (isSelectAll && contentRef.current?.contains(document.activeElement)) {
         e.preventDefault();
         selectAllContent();
       }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PROVIDER_META, isGitProviderId, type GitProviderId } from './providers';
+import { PROVIDER_META, isGitProviderId } from './providers';
+import type { GitProviderId } from './providers';
 
 describe('isGitProviderId', () => {
   it('accepts every registered provider id', () => {

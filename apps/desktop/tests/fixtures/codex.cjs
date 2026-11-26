@@ -24,13 +24,14 @@ if (args.includes('--version')) {
   // Codex buffers rollout writes. Only a graceful shutdown guarantees the
   // next process can resume it; SIGTERM immediately after a reply is too early.
   input.on('close', () => {
-    if (savedThread && flushed)
+    if (savedThread && flushed) {
       setTimeout(() => {
         fs.writeFileSync(
           path.join(home, savedThread.threadId + '.json'),
           JSON.stringify(savedThread),
         );
       }, 50);
+    }
   });
   input.on('line', (line) => {
     const { id, method, params } = JSON.parse(line);
@@ -60,7 +61,7 @@ if (args.includes('--version')) {
       if (fixtureMode === 'malformed') result = { data: [{ id: 'missing-model-value' }] };
       else if (fixtureMode === 'cycle') result = { data: [], nextCursor: 'same-cursor' };
       else if (params.cursor) result = { data: [model('fixture-model-b')], nextCursor: null };
-      else
+      else {
         result = {
           data: [
             model('fixture-model-a', { supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }),
@@ -68,6 +69,7 @@ if (args.includes('--version')) {
           ],
           nextCursor: 'page-two',
         };
+      }
     } else if (method === 'thread/start') {
       result = { thread: { id: crypto.randomUUID() } };
     } else if (method === 'thread/name/set') {

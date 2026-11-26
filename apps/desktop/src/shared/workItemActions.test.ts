@@ -5,8 +5,8 @@ import {
   defaultActionFor,
   defaultActionNameForType,
   validateActionsWrite,
-  type WorkItemAction,
 } from './workItemActions';
+import type { WorkItemAction } from './workItemActions';
 
 function idOf(actions: WorkItemAction[], name: string): string {
   const action = actions.find((candidate) => candidate.name === name);

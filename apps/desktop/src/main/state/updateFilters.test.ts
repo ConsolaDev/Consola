@@ -9,8 +9,8 @@ import {
   allowedScopeUpdates,
   allowedSessionUpdates,
   allowedWorkspaceUpdates,
-  type SessionUpdates,
 } from './updateFilters';
+import type { SessionUpdates } from './updateFilters';
 
 describe('allowedHarnessUpdates', () => {
   it('passes through a normal update', () => {

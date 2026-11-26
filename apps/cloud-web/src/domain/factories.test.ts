@@ -4,9 +4,6 @@ import {
   checkFactoryName,
   checkNewFactory,
   FACTORY_NAME_MAX,
-  type Factory,
-  type FactoryNameProblem,
-  type FactorySourceKind,
   fileGroups,
   firstFile,
   isFactoryNameProblem,
@@ -15,6 +12,7 @@ import {
   owningTeam,
   SOURCE_OPTIONS,
 } from './factories';
+import type { Factory, FactoryNameProblem, FactorySourceKind } from './factories';
 import {
   messageForFactoryProblem,
   messagesForFactoryChange,

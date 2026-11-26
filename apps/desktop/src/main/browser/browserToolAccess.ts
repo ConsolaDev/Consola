@@ -124,11 +124,11 @@ export class CallerAccess {
   private checkAfterPage(): void {
     try {
       this.check();
-    } catch (refusal) {
-      const reason = refusal instanceof Error ? refusal.message : String(refusal);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
       const mine = new Set(this.deps.browser.snapshotFor(this.sessionId).tabs.map((tab) => tab.id));
       closeConnectionsWithoutAccess(this.deps.driver, (tabId) => (mine.has(tabId) ? reason : null));
-      throw refusal;
+      throw error;
     }
   }
 

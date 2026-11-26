@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Workspace } from '../../shared/workspace';
 import { ViewingReporter, isSessionViewed, viewedInstanceId, viewedSessionId } from './viewing';
 
 function workspace(): Workspace {

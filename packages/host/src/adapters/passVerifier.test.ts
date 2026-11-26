@@ -11,7 +11,8 @@ import {
 } from '@consola/runner-protocol';
 import { SignJWT } from 'jose';
 import { describe, expect, it } from 'vite-plus/test';
-import { DEV_PASS_SECONDS, type PassClaims } from '../core/pass.ts';
+import { DEV_PASS_SECONDS } from '../core/pass.ts';
+import type { PassClaims } from '../core/pass.ts';
 import { PassRejected, verifyPass } from './passVerifier.ts';
 
 /** An Ed25519 key pair made for the test; no key is ever committed. */

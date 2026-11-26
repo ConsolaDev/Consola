@@ -11,7 +11,7 @@ interface Shell {
   cwd: string;
   sequence: number;
   owner: WebContents;
-  subscriptions: { dispose(): void }[];
+  subscriptions: Array<{ dispose(): void }>;
 }
 
 /** Ordinary shells belong to sessions, independently of their agent PTYs. */

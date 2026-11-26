@@ -3,7 +3,7 @@ import { bucketize } from './bucketize';
 import { entry, forest, ids, keyOf } from './entryFixtures';
 import { holdFor, pinHold } from './openRowHold';
 
-const placedOf = (...entries: ReturnType<typeof entry>[]) => bucketize(forest(entries));
+const placedOf = (...entries: Array<ReturnType<typeof entry>>) => bucketize(forest(entries));
 
 describe('where the open row was opened from', () => {
   it('names the bucket and position of the tree holding the open entry', () => {

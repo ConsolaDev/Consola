@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { History, Search } from 'lucide-react';
 import type { AutomationsSnapshot, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
@@ -18,11 +19,9 @@ import {
   runAutomationOptions,
   runInsights,
   snapshotRunCounts,
-  type RunAutomationOption,
-  type RunFilter,
-  type RunListFilter,
   waitingForYouRuns,
 } from './presentation';
+import type { RunAutomationOption, RunFilter, RunListFilter } from './presentation';
 
 const FILTERS: ReadonlyArray<{ id: RunFilter; label: string }> = [
   { id: 'all', label: 'All' },
@@ -440,8 +439,9 @@ function useRunPages(
             }
           })
           .catch((reason: unknown) => {
-            if (id === request.current)
+            if (id === request.current) {
               setError(reason instanceof Error ? reason.message : String(reason));
+            }
           })
           .finally(() => {
             if (id === request.current) setLoading(false);
@@ -478,8 +478,9 @@ function useRunPages(
         else setOlder((prev) => mergeRunPages(prev, page.runs));
       })
       .catch((reason: unknown) => {
-        if (id === olderRequest.current)
+        if (id === olderRequest.current) {
           setError(reason instanceof Error ? reason.message : String(reason));
+        }
       })
       .finally(() => {
         if (id === olderRequest.current) setLoading(false);

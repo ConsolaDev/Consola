@@ -3,11 +3,8 @@ import { ExternalLink, Plus, Zap } from 'lucide-react';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { waitingRuns } from '../../sidebar/entries';
-import {
-  useAutomationsStore,
-  WINDOW_LOADED_AT,
-  type AutomationsTab,
-} from '../../stores/automationsStore';
+import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsStore';
+import type { AutomationsTab } from '../../stores/automationsStore';
 import type { AutomationsSnapshot } from '../../../shared/automations';
 import type { Workspace } from '../../stores/workspaceStore';
 import { ActivityTab } from './ActivityTab';

@@ -3,11 +3,11 @@ import type { WebContents } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DIALOG_HOLD_MS,
-  type DialogHoldFacts,
   MAX_DIALOG_MESSAGE_CHARS,
   PageDialogs,
   shouldHoldDialog,
 } from './PageDialogs';
+import type { DialogHoldFacts } from './PageDialogs';
 import { MB, retainedBy } from './retainedHeap.test-helpers';
 
 /** Electron's own `-run-dialog` listener, which would show a message box. */

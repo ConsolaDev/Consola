@@ -1,6 +1,7 @@
 import type { BrowserWindow } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { isTrustedSender, type IpcSenderEvent } from './ipcSenderGuard';
+import { isTrustedSender } from './ipcSenderGuard';
+import type { IpcSenderEvent } from './ipcSenderGuard';
 import {
   consolaWindowClosed,
   forgetConsolaContents,

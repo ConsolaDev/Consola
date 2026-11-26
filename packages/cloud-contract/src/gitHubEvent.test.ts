@@ -7,11 +7,11 @@ import {
   GITHUB_EVENT_DELIVERY_PATH,
   GITHUB_EVENT_TYPE,
   GITHUB_PAYLOAD_MAX_BYTES,
-  type GitHubEventMessage,
   isGitHubDeliveryId,
   isGitHubEventName,
   readGitHubEventMessage,
 } from './gitHubEvent.js';
+import type { GitHubEventMessage } from './gitHubEvent.js';
 import { OUTBOX_DELIVERY_PATH, OUTBOX_MESSAGE_TYPE } from './outboxDelivery.js';
 
 /** A pull request opened in the `sprocket` organisation's repository, as GitHub sends it. */
@@ -61,8 +61,8 @@ describe('the GitHub event delivery', () => {
     const statuses = Object.values(GITHUB_EVENT_ANSWER);
     expect(new Set(statuses).size).toBe(statuses.length);
     const confirming = statuses.filter((status) => status >= 200 && status < 300);
-    expect(confirming.sort()).toEqual(
-      [GITHUB_EVENT_ANSWER.recorded, GITHUB_EVENT_ANSWER.recordedBefore].sort(),
+    expect(confirming.sort((a, b) => a - b)).toEqual(
+      [GITHUB_EVENT_ANSWER.recorded, GITHUB_EVENT_ANSWER.recordedBefore].sort((a, b) => a - b),
     );
   });
 });

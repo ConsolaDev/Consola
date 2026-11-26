@@ -53,14 +53,57 @@
   "linter": {
     "rules": {
       "preset": "recommended",
+      // A rule that Oxlint (oxlint.config.mts) also runs, as the same rule
+      // (Biome's own rule sources call it so) and as an error everywhere this
+      // config lints, is off here, so each finding is reported once. Biome
+      // keeps every rule Oxlint has no same rule for, those Oxlint leaves to
+      // TypeScript in .ts files, and accessibility, which Oxlint leaves to it.
       "correctness": {
-        "noUnusedImports": "error",
-        "noUnusedVariables": "error",
+        "noConstantCondition": "off",
+        "noEmptyCharacterClassInRegex": "off",
+        "noEmptyPattern": "off",
+        "noNonoctalDecimalEscape": "off",
+        "noPrecisionLoss": "off",
+        "noSelfAssign": "off",
+        "noSwitchDeclarations": "off",
+        "noUnsafeFinally": "off",
+        "noUnsafeOptionalChaining": "off",
+        "noUnusedImports": "off",
+        "noUnusedLabels": "off",
+        "noUnusedPrivateClassMembers": "off",
+        "noUnusedVariables": "off",
+        "noVoidElementsWithChildren": "off",
+        "useIsNan": "off",
+        "useValidForDirection": "off",
+        "useValidTypeof": "off",
+        "useYield": "off",
         // Each existing case needs its own judgment (adding a dependency can
         // loop an effect). Warn so the editor flags them while fixing.
         "useExhaustiveDependencies": "warn"
       },
       "suspicious": {
+        "noAsyncPromiseExecutor": "off",
+        "noCatchAssign": "off",
+        "noCommentText": "off",
+        "noCompareNegZero": "off",
+        "noDebugger": "off",
+        "noDoubleEquals": "off",
+        "noDuplicateCase": "off",
+        "noDuplicateElseIf": "off",
+        "noDuplicateJsxProps": "off",
+        "noExplicitAny": "off",
+        "noExtraNonNullAssertion": "off",
+        "noFallthroughSwitchClause": "off",
+        "noGlobalAssign": "off",
+        "noIrregularWhitespace": "off",
+        "noMisleadingCharacterClass": "off",
+        "noMisleadingInstantiator": "off",
+        "noSelfCompare": "off",
+        "noShadowRestrictedNames": "off",
+        "noSparseArray": "off",
+        "noTsIgnore": "off",
+        "noUnsafeDeclarationMerging": "off",
+        "useNamespaceKeyword": "off",
         "noArrayIndexKey": "warn",
         // Terminal code matches escape and control characters on purpose.
         "noControlCharactersInRegex": "off",
@@ -79,20 +122,34 @@
         }
       },
       "style": {
+        "useArrayLiterals": "off",
+        "useConst": "off",
+        "useNodejsImportProtocol": "off",
         "noNonNullAssertion": "off",
         // Its fix turns `lines.join('\n') + '\n'` into a nested template.
         "useTemplate": "off"
       },
       "complexity": {
+        "noExtraBooleanCast": "off",
+        "noUselessCatch": "off",
+        "noUselessEscapeInRegex": "off",
+        "noUselessRename": "off",
+        "noUselessTypeConstraint": "off",
+        "useFlatMap": "off",
         // Used to override third-party styles (syntax highlighting, xterm)
         // and to stop motion under prefers-reduced-motion.
         "noImportantStyles": "off"
       },
+      "security": {
+        "noBlankTarget": "off",
+        "noGlobalEval": "off"
+      },
       "a11y": {
         // A desktop app focusing the field a dialog opened for.
         "noAutofocus": "off",
+        // Every button says its type: an error, as Oxlint no longer checks it.
+        "useButtonType": "error",
         // Existing cases need per-component review. Warn until cleared.
-        "useButtonType": "warn",
         "useSemanticElements": "warn",
         "noStaticElementInteractions": "warn",
         "useKeyWithClickEvents": "warn",
@@ -105,9 +162,11 @@
         "useValidAriaValues": "warn"
       },
       "nursery": {
-        "noFloatingPromises": "error"
-        // noMisusedPromises stays off: Biome reads a Map.get result as always
-        // present, so every `if (pending) return pending` was a false alarm.
+        // Oxlint's typescript/no-floating-promises and no-misused-promises
+        // read TypeScript's own types. Biome's guess them: its
+        // noMisusedPromises read a Map.get result as always present, so every
+        // `if (pending) return pending` was a false alarm.
+        "noFloatingPromises": "off"
       }
     }
   },
@@ -128,11 +187,6 @@
       // Component stylesheets are ordered by component, not by specificity.
       "includes": ["**/*.css"],
       "linter": { "rules": { "style": { "noDescendingSpecificity": "off" } } }
-    },
-    {
-      // Playwright requires the fixtures argument to be destructured.
-      "includes": ["**/tests/e2e/**"],
-      "linter": { "rules": { "correctness": { "noEmptyPattern": "off" } } }
     }
   ]
 }

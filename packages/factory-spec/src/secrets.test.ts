@@ -12,7 +12,8 @@ import {
 } from './secrets';
 import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
-import { isStepsEntry, type Automation } from './schema';
+import { isStepsEntry } from './schema';
+import type { Automation } from './schema';
 import type { McpServerDefinition } from './servers';
 import type { Step } from './steps';
 
@@ -264,7 +265,7 @@ describe('the names an entry uses', () => {
         steps: CALLS.steps.map((step) =>
           step.kind === 'uses' && step.id === 'post' ? { ...step, dryRun: 'run' } : step,
         ),
-      } as Automation;
+      };
     };
 
     it("lists a call's server's names after the step's place, naming the server", () => {

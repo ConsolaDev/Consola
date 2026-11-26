@@ -1,5 +1,6 @@
 import type { LineRange, RunSource } from './runs';
-import { type YamlToken, yamlTokens } from './yamlTokens';
+import { yamlTokens } from './yamlTokens';
+import type { YamlToken } from './yamlTokens';
 
 /**
  * The file behind an automation run, as its File view and its info panel's Definition say it:
@@ -26,7 +27,7 @@ export function inRange(line: number, range: LineRange): boolean {
 /** The file's lines, shaded, each with whose it is. A last newline makes no empty last line. */
 export function fileLines(
   source: Pick<RunSource, 'text' | 'range'>,
-  steps: readonly { id: string; range: LineRange | null }[],
+  steps: ReadonlyArray<{ id: string; range: LineRange | null }>,
 ): FileLine[] {
   return yamlTokens(source.text.replace(/\n+$/, '')).map((tokens, index) => {
     const number = index + 1;

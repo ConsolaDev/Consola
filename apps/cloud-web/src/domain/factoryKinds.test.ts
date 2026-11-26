@@ -7,7 +7,6 @@ import {
   FACTORY_YML_SKELETON,
   kindOfPath,
   NAME_RULE,
-  type NameFacts,
   NEW_KINDS,
   namingParts,
   namingStart,
@@ -16,6 +15,7 @@ import {
   skeletonFor,
   skillOf,
 } from './factoryKinds';
+import type { NameFacts } from './factoryKinds';
 
 const file = (path: string, content: string) => ({ path, content });
 
@@ -188,7 +188,7 @@ describe('naming a file', () => {
       'refs//a.md',
       './a.md',
       'refs/../a.md',
-      'a\\b.md',
+      String.raw`a\b.md`,
       '/a.md',
       'a.md/',
       'a\tb',

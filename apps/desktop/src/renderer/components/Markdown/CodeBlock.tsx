@@ -51,7 +51,7 @@ export function CodeBlock({
     if (lineEl) {
       const text = lineEl.textContent?.trim();
       if (text) {
-        const num = parseInt(text, 10);
+        const num = Number.parseInt(text, 10);
         if (!Number.isNaN(num)) return num;
       }
     }
@@ -110,7 +110,7 @@ export function CodeBlock({
         <Button
           size="1"
           variant="ghost"
-          onClick={handleCopy}
+          onClick={() => void handleCopy()}
           aria-label={copied ? 'Copied!' : 'Copy code'}
         >
           {copied ? <Check size={14} /> : <Copy size={14} />}

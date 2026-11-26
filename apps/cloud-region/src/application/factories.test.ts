@@ -1,8 +1,11 @@
-import { cellTokenClaims, type WorkspaceRole } from '@consola/cloud-contract';
+import { cellTokenClaims } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { admitClaims, type Caller } from '../domain/caller.js';
+import { admitClaims } from '../domain/caller.js';
+import type { Caller } from '../domain/caller.js';
 import type { Factory, FactoryFile } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
 import {

@@ -1,5 +1,7 @@
-import { type BrowserTab, isAllowedPageUrl } from '../../shared/browser';
-import { personIsUsing, type TabHands } from './PersonInput';
+import { isAllowedPageUrl } from '../../shared/browser';
+import type { BrowserTab } from '../../shared/browser';
+import { personIsUsing } from './PersonInput';
+import type { TabHands } from './PersonInput';
 
 /** What `setWindowOpenHandler` is told about a window a page wants to open. */
 export interface PopupRequest {
@@ -152,7 +154,7 @@ export function placePopupTab(facts: PopupTabFacts): PopupTabPlacement {
 }
 
 /** A click or key counts as "behind" a popup for this long. */
-export const PERSON_INPUT_MS = 1_500;
+export const PERSON_INPUT_MS = 1500;
 
 /**
  * Remembers when the person last pressed something in a page. Electron does

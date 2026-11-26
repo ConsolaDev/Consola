@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { JsonStateFile } from './JsonStateFile';
-import { WorkspaceService, type WorkspaceStateFile } from './WorkspaceService';
+import { WorkspaceService } from './WorkspaceService';
+import type { WorkspaceStateFile } from './WorkspaceService';
 import type { Workspace } from '../../shared/workspace';
 import type { WorkItemAction } from '../../shared/workItemActions';
 
@@ -309,7 +310,6 @@ describe('WorkspaceService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ] as any,
       4,
     );
@@ -918,7 +918,7 @@ describe('WorkspaceService', () => {
       harnessId: 'claude-personal',
       claudeSessionId: session.claudeSessionId,
       continuedAs: 'new-id',
-      endedAt: 1_000,
+      endedAt: 1000,
       carried: 'native' as const,
     };
     const switched = service.switchHarness(workspace.id, session.id, {

@@ -2,13 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
-import {
-  stepsHarness,
-  turnReport,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { stepsHarness, turnReport, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * The `init` check: a step's turn printed its `system/init`, and every server
@@ -47,10 +42,11 @@ function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
     const bodies: Record<string, string> = {};
     for (const step of automation.steps ?? []) {
-      if (step.kind === 'agent' && step.action)
+      if (step.kind === 'agent' && step.action) {
         bodies[step.id] = h.world.workspace.actions.find(
           (action) => action.name === step.action,
         )!.prompt;
+      }
     }
     const body = Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined;
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation, body));

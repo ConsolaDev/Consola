@@ -1,17 +1,18 @@
 import type { BrowserWindow, WebContents } from 'electron';
-import {
-  TerminalService,
-  type TerminalExitInfo,
-  type TerminalServiceOptions,
-  type RelaunchFields,
-  type TerminalHarnessSwitch,
+import { TerminalService } from './TerminalService';
+import type {
+  TerminalExitInfo,
+  TerminalServiceOptions,
+  RelaunchFields,
+  TerminalHarnessSwitch,
 } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { HarnessDriverId, TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
 import type { SessionToolPolicy } from '../shared/workspace';
 import type { AttentionEndpoint } from './attention/AttentionEndpoint';
-import { getDriver, type TurnInit } from './drivers';
+import { getDriver } from './drivers';
+import type { TurnInit } from './drivers';
 
 /**
  * How long a terminal's output gathers before it crosses to its window.
@@ -199,8 +200,9 @@ export class TerminalManager {
       // An unattended turn needs a process of its own: queued into the
       // terminal a person opened, it would be typed into their composer,
       // and its run would wait for an exit that is not its.
-      if (options.unattended)
+      if (options.unattended) {
         throw new Error('This session already has a terminal, so its turn cannot run unattended.');
+      }
       // Asked for a new conversation while a pane, mounted during the
       // caller's await, started the old one: the record names the new
       // one, so the terminal moves to it rather than taking a prompt

@@ -24,14 +24,10 @@ import {
   Leaf,
   Sun,
   Moon,
-  type LucideIcon,
 } from 'lucide-react';
-import {
-  WORKSPACE_EMOJIS,
-  isWorkspaceImageIcon,
-  type WorkspaceIconValue,
-  type WorkspaceSymbolId,
-} from '../../shared/workspaceIcons';
+import type { LucideIcon } from 'lucide-react';
+import { WORKSPACE_EMOJIS, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
+import type { WorkspaceIconValue, WorkspaceSymbolId } from '../../shared/workspaceIcons';
 
 const SYMBOLS: Record<WorkspaceSymbolId, LucideIcon> = {
   layout: PanelsTopLeft,

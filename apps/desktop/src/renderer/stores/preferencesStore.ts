@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
+import type { Preferences } from '../../shared/preferences';
 import { preferencesBridge } from '../services/preferencesBridge';
 
 /**

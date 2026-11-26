@@ -1,10 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { Bot, Plus, X } from 'lucide-react';
-import {
-  MAX_TABS_PER_SESSION,
-  type BrowserSessionSnapshot,
-  type BrowserTabSnapshot,
-} from '../../../shared/browser';
+import { MAX_TABS_PER_SESSION } from '../../../shared/browser';
+import type { BrowserSessionSnapshot, BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
 import { requestAddressFocus } from '../../stores/addressFocusStore';
 import { stripScrollToShow, stripWheelDelta, tabLabel } from './browserView';

@@ -145,7 +145,7 @@ test('a snooze that ran out while Consola was closed comes back at launch, marke
 });
 
 test('a snooze comes back by itself at its time', async () => {
-  const soon = Date.now() + 8_000;
+  const soon = Date.now() + 8000;
   await start({ ledger: { docs: { snoozedUntil: soon, snoozedAt: Date.now() } } });
   await expect(row(list(), 'Docs pass')).toHaveCount(0);
   await expect(shelfHeader()).toContainText('1');

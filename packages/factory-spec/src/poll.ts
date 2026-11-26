@@ -39,7 +39,7 @@ type Fail = (message: string, path?: Array<string | number>) => void;
 
 const POLL_KEYS = ['run', 'every', 'key', 'item', 'changed', 'timeout', 'secrets'] as const;
 /** A poll's keys that arrive with polls by MCP tool (5a-3), each refused with that reason. */
-const TOOL_POLL_KEYS = ['uses', 'with', 'items'];
+const TOOL_POLL_KEYS = new Set(['uses', 'with', 'items']);
 const TIMEOUT_FORMAT = 'Write the timeout as `<n>s`, `<n>m` or `<n>h`, e.g. `10m`.';
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -73,9 +73,10 @@ export function parsePollTrigger(
   const unlisted = Object.keys(value).filter(
     (key) => !(POLL_KEYS as readonly string[]).includes(key),
   );
-  for (const key of unlisted.filter((key) => TOOL_POLL_KEYS.includes(key)))
+  for (const key of unlisted.filter((key) => TOOL_POLL_KEYS.has(key))) {
     bad(`\`${key}\` in a poll arrives with polls by MCP tool; it is not supported yet.`, [key]);
-  const unknown = unlisted.filter((key) => !TOOL_POLL_KEYS.includes(key));
+  }
+  const unknown = unlisted.filter((key) => !TOOL_POLL_KEYS.has(key));
   if (unknown.length > 0) {
     bad(
       `Unrecognized key in \`poll\`: ${unknown.join(', ')}. Expected run, every, key, item, changed, timeout or secrets.`,

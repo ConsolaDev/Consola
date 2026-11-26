@@ -231,7 +231,7 @@ describe('readKeychainItem', () => {
       "/bin/cat > /dev/null\nprintf '%s' 'stub-no-stdin-secret-1'",
     );
     await expect(
-      readKeychainItem({ program, env: ENV, service: 's', account: 'a', timeoutMs: 3_000 }),
+      readKeychainItem({ program, env: ENV, service: 's', account: 'a', timeoutMs: 3000 }),
     ).resolves.toBe('stub-no-stdin-secret-1');
   });
 });

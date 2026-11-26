@@ -1,7 +1,8 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Mock } from 'vitest';
 import type { Snoozer } from '../attention/Snoozer';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { HarnessLimits } from '../../shared/usageLimits';
@@ -10,7 +11,8 @@ import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-hel
 import type { HarnessDriver } from '../drivers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { HarnessLimitsCache } from './HarnessLimitsCache';
-import { type UsageLimitsStateFile, UsageLimitService } from './UsageLimitService';
+import { UsageLimitService } from './UsageLimitService';
+import type { UsageLimitsStateFile } from './UsageLimitService';
 
 const HOUR = 60 * 60 * 1000;
 const T0 = 10_000_000;

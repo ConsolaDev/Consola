@@ -1,15 +1,12 @@
-import {
-  OUTBOX_ANSWER,
-  OUTBOX_DELIVERY_MEDIA_TYPE,
-  type OutboxMessage,
-  type OutOfOrderAnswer,
-} from '@consola/cloud-contract';
+import { OUTBOX_ANSWER, OUTBOX_DELIVERY_MEDIA_TYPE } from '@consola/cloud-contract';
+import type { OutboxMessage, OutOfOrderAnswer } from '@consola/cloud-contract';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import type { DeliveryVerifier, WorkspaceCopies } from '../../application/ports.js';
-import { type DeliveryAnswer, receiveDelivery } from '../../application/receiveDelivery.js';
+import { receiveDelivery } from '../../application/receiveDelivery.js';
+import type { DeliveryAnswer } from '../../application/receiveDelivery.js';
 import type { Region } from '../../domain/region.js';
 import { postOutboxDelivery } from './contract.js';
 

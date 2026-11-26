@@ -18,9 +18,8 @@ import {
   runCheckoutPathFor,
   stepsHarness,
   WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * Slice 3-B, writing: a run with `checkout: { repo, branch }` works in a
@@ -52,10 +51,12 @@ const EVENT_OWNED = file(
 
 /** Accept every entry in `yaml` at its version, as a person approving each once would, and allow its checks. */
 function acceptEvery(h: StepsHarness, yaml: string): void {
-  for (const automation of parseFactorySpec(yaml).automations)
+  for (const automation of parseFactorySpec(yaml).automations) {
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
-  for (const view of h.service.list(WORKSPACE_ID))
+  }
+  for (const view of h.service.list(WORKSPACE_ID)) {
     if (view.needsAllow && view.version) h.service.allow(WORKSPACE_ID, view.name, view.version);
+  }
 }
 
 async function harness(yaml: string, options: StepsHarnessOptions = {}): Promise<StepsHarness> {

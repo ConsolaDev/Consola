@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { activityOf, RANK, worstStatus, type Attention } from './attention';
+import { activityOf, RANK, worstStatus } from './attention';
+import type { Attention } from './attention';
 import type { Session } from './workspace';
 
 const session = { id: 's1', lastActiveAt: 100 } as Session;

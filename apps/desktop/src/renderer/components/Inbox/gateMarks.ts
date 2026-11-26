@@ -21,7 +21,8 @@ export function gateMarksByItem(runs: readonly RunListEntry[]): Map<string, Gate
     if (!held || Date.parse(run.createdAt) > Date.parse(held.createdAt)) newest.set(url, run);
   }
   const marks = new Map<string, GateMark>();
-  for (const [url, run] of newest)
+  for (const [url, run] of newest) {
     marks.set(url, { runId: run.id, automation: run.automationId, step: run.step!.id });
+  }
   return marks;
 }

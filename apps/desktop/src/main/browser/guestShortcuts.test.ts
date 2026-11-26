@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decideGuestShortcut, type GuestKeyInput } from './guestShortcuts';
+import { decideGuestShortcut } from './guestShortcuts';
+import type { GuestKeyInput } from './guestShortcuts';
 
 function input(key: string, mods: Partial<GuestKeyInput> = {}): GuestKeyInput {
   return {

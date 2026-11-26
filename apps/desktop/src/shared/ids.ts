@@ -7,5 +7,9 @@
  * files would import each other.
  */
 export function generateId(): string {
-  return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  // 13 random base-36 characters from crypto.getRandomValues, never
+  // Math.random, then the time, as before.
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  const random = Array.from(bytes, (byte) => byte.toString(36).padStart(2, '0')).join('');
+  return random.slice(0, 13) + Date.now().toString(36);
 }

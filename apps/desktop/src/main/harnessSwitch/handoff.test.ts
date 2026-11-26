@@ -1,13 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { ConversationEntry } from '../../shared/conversation';
 import type { ConversationLink, Session } from '../../shared/workspace';
-import {
-  handoffPrompt,
-  MAX_HANDOFF_CHARS,
-  openingFor,
-  renderHandoff,
-  type HandoffContext,
-} from './handoff';
+import { handoffPrompt, MAX_HANDOFF_CHARS, openingFor, renderHandoff } from './handoff';
+import type { HandoffContext } from './handoff';
 
 const context: HandoffContext = {
   sessionName: 'Fix the flaky test',
@@ -86,7 +81,7 @@ describe('renderHandoff', () => {
     ];
     const markdown = renderHandoff({ entries, truncated: false }, context);
 
-    expect(markdown.length).toBeLessThan(MAX_HANDOFF_CHARS + 2_000);
+    expect(markdown.length).toBeLessThan(MAX_HANDOFF_CHARS + 2000);
     expect(markdown).toContain('The goal');
     expect(markdown).toContain(`5${big}`);
     expect(markdown).not.toContain(`0${big}`);

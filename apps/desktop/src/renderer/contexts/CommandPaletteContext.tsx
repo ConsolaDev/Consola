@@ -1,4 +1,5 @@
-import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { CommandPalette } from '../components/CommandPalette';
 import type { PaletteScope } from '../components/CommandPalette/types';
 

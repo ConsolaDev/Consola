@@ -14,15 +14,15 @@ describe('buildInitialTitlePrompt', () => {
         'Generate a title that will help the user recognize this Consola session weeks later.',
       ),
     ).toBe(true);
-    expect(p).toContain('Never include the scope name ("web \\"app\\"")');
+    expect(p).toContain(String.raw`Never include the scope name ("web \"app\"")`);
     expect(p.endsWith('User message:\nFix "login"')).toBe(true);
     expect(p).toContain('- 3-8 words, fewer than 40 characters.');
   });
 
   it('cuts the message at 8,000 characters', () => {
-    const p = buildInitialTitlePrompt({ message: 'x'.repeat(9_000), scopeName: 's' });
-    expect(p.endsWith('x'.repeat(8_000))).toBe(true);
-    expect(p.endsWith('x'.repeat(8_001))).toBe(false);
+    const p = buildInitialTitlePrompt({ message: 'x'.repeat(9000), scopeName: 's' });
+    expect(p.endsWith('x'.repeat(8000))).toBe(true);
+    expect(p.endsWith('x'.repeat(8001))).toBe(false);
   });
 
   it('does not let the message change the template rules', () => {
@@ -42,7 +42,7 @@ describe('buildRegenerateTitlePrompt', () => {
       previousTitle: 'Old "one"',
       scopeName: 's',
     });
-    expect(p).toContain('The previous title was "Old \\"one\\"".');
+    expect(p).toContain(String.raw`The previous title was "Old \"one\"".`);
     expect(p.endsWith('Session contents:\nUSER: m')).toBe(true);
   });
 });
@@ -106,11 +106,11 @@ describe('formatConversationForTitle', () => {
   it('keeps the last 8,000 characters with a marker', () => {
     const long = formatConversationForTitle({
       truncated: false,
-      entries: [{ kind: 'prompt', text: 'y'.repeat(9_000) }],
+      entries: [{ kind: 'prompt', text: 'y'.repeat(9000) }],
     });
     expect(long.startsWith('[Earlier messages truncated]\n\n')).toBe(true);
     expect(long.endsWith('y'.repeat(100))).toBe(true);
-    expect(long.slice('[Earlier messages truncated]\n\n'.length)).toHaveLength(8_000);
+    expect(long.slice('[Earlier messages truncated]\n\n'.length)).toHaveLength(8000);
   });
 
   it('adds the marker when the record was truncated, even if it is short', () => {

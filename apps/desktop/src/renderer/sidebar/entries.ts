@@ -1,9 +1,12 @@
-import { activityOf, type AttentionState } from '../../shared/attention';
+import { activityOf } from '../../shared/attention';
+import type { AttentionState } from '../../shared/attention';
 import type { RunListEntry } from '../../shared/automations';
 import type { Label, Session } from '../../shared/workspace';
 import { attentionOf } from '../stores/attentionStore';
-import { FACET_KEYS, facetValuesOf, type SessionFilters } from '../utils/sessionFilters';
-import { RUN_FACET_DOMAIN, SESSION_FACET_DOMAIN, type Entry, type EntryKey } from './entry';
+import { FACET_KEYS, facetValuesOf } from '../utils/sessionFilters';
+import type { SessionFilters } from '../utils/sessionFilters';
+import { RUN_FACET_DOMAIN, SESSION_FACET_DOMAIN } from './entry';
+import type { Entry, EntryKey } from './entry';
 import type { FilterSelection } from './filter';
 
 /** The key a session's entry has, and the id inside it. */

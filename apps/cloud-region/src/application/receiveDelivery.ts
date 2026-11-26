@@ -1,4 +1,5 @@
-import { type OutboxMessage, type ReadResult, readOutboxMessage } from '@consola/cloud-contract';
+import { readOutboxMessage } from '@consola/cloud-contract';
+import type { OutboxMessage, ReadResult } from '@consola/cloud-contract';
 import type { Region } from '../domain/region.js';
 import { copyChangeOf, placeMessage } from '../domain/workspaceCopy.js';
 import type { DeliveryVerifier, WorkspaceCopies } from './ports.js';
@@ -56,8 +57,9 @@ async function applyInOrder(
       after: lastApplied,
       change: copyChangeOf(message.change),
     };
-    if ((await copies.applyAfter(step)) === 'applied')
+    if ((await copies.applyAfter(step)) === 'applied') {
       return { kind: 'applied', message, now: true };
+    }
     // Another delivery moved the copy's sequence first: place the message again.
   }
   throw new Error(`the sequence of workspace ${workspaceId} kept moving`);

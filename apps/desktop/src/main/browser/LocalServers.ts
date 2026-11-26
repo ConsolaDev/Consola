@@ -5,7 +5,7 @@ import { parseLsofFields } from '../lsofFields';
 import { isWithin } from '../pathWithin';
 
 /** How long the whole scan may take before it gives up and lists nothing. */
-const SCAN_TIMEOUT_MS = 2_000;
+const SCAN_TIMEOUT_MS = 2000;
 
 type Run = (binary: string, args: string[]) => Promise<{ code: number; stdout: string }>;
 

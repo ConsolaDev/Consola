@@ -1,5 +1,6 @@
 import { FIRST_SEQUENCE } from './outbox.js';
-import { fieldProblem, isRecord, isWholeNumber, type ReadResult, read, refused } from './read.js';
+import { fieldProblem, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
 
 /**
  * How `cloud-global` delivers an outbox message to a workspace's cell, and what the cell answers.

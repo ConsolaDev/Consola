@@ -23,6 +23,7 @@ import {
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
+  // oxlint-disable-next-line typescript/no-require-imports -- the module ships no types; Electron's documented check
   if (require('electron-squirrel-startup')) {
     app.quit();
   }
@@ -85,7 +86,7 @@ if (isTest) {
   exposeToTests('launches', testLaunches);
 }
 
-app.whenReady().then(() => {
+void app.whenReady().then(() => {
   // Handlers are registered once for the process, not once per window: they
   // are ipcMain-global, and a second registration throws.
   //
@@ -124,9 +125,9 @@ app.whenReady().then(() => {
           existing ?? createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
         const openSettings = () =>
           target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, section);
-        if (target.webContents.isLoadingMainFrame())
+        if (target.webContents.isLoadingMainFrame()) {
           target.webContents.once('did-finish-load', openSettings);
-        else openSettings();
+        } else openSettings();
         if (target.isMinimized()) target.restore();
         if (!isBackgroundTest) {
           target.show();

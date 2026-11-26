@@ -1,12 +1,5 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useRef,
-  useState,
-  type CSSProperties,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   ArrowLeft,
@@ -22,8 +15,8 @@ import {
   GitPullRequestDraft,
   TriangleAlert,
   X,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type {
   WorkItemDetails,
@@ -40,11 +33,8 @@ import {
   commentAge,
   initial,
   labelColors,
-  type CheckOutcome,
-  type CheckSummary,
-  type StatusKind,
-  type Tone,
 } from './workItemDetailPresentation';
+import type { CheckOutcome, CheckSummary, StatusKind, Tone } from './workItemDetailPresentation';
 
 /** Who a Fix button hands its prompt to, in the words the buttons use. */
 export type FixTarget = 'a session' | 'this session';

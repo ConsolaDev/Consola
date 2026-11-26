@@ -1,7 +1,8 @@
 import { useEffect, useId, useRef } from 'react';
 import { X } from 'lucide-react';
 import type { Workspace } from '../../../shared/workspace';
-import { useAutomationsStore, type AutomationsPanel } from '../../stores/automationsStore';
+import { useAutomationsStore } from '../../stores/automationsStore';
+import type { AutomationsPanel } from '../../stores/automationsStore';
 import { AutomationDetails } from './AutomationDetails';
 import { NewAutomation } from './NewAutomation';
 import { RunDetails } from './RunDetails';
@@ -57,16 +58,18 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
       inside = true;
     };
     const onFocusOut = (event: FocusEvent) => {
-      if (event.relatedTarget instanceof Node && !element.contains(event.relatedTarget))
+      if (event.relatedTarget instanceof Node && !element.contains(event.relatedTarget)) {
         inside = false;
+      }
     };
     const onPointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Node) || !element.contains(event.target)) inside = false;
     };
     const observer = new MutationObserver(() => {
       const active = document.activeElement;
-      if (inside && (active === null || active === document.body))
+      if (inside && (active === null || active === document.body)) {
         element.focus({ preventScroll: true });
+      }
     });
     element.addEventListener('focusin', onFocusIn);
     element.addEventListener('focusout', onFocusOut);

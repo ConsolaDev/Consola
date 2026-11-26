@@ -14,18 +14,18 @@
  * against the built cell. It need not pass the whole sandbox contract; `sandboxesFrom` takes its
  * answers.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  type Command,
-  type CreateSandboxOptions,
-  type ProviderCommand,
-  type ProviderSandbox,
-  SandboxError,
-  type SandboxProvider,
+import { SandboxError } from '@consola/sandbox';
+import type {
+  Command,
+  CreateSandboxOptions,
+  ProviderCommand,
+  ProviderSandbox,
+  SandboxProvider,
 } from '@consola/sandbox';
 import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts';
 
@@ -36,7 +36,7 @@ import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts
  */
 export { RUNNER_SECRET_VARIABLES } from '../core/runnerDecisions.ts';
 
-const REPLAY_SESSION = join(dirname(fileURLToPath(import.meta.url)), 'replaySession.ts');
+const REPLAY_SESSION = join(import.meta.dirname, 'replaySession.ts');
 
 /** The replay's own arguments: the fixture, and the mode it was recorded in. */
 const REPLAY_FIXTURE = ['simple', 'full-access'];
@@ -46,7 +46,7 @@ const REPLAY_FIXTURE = ['simple', 'full-access'];
  * its temporary files are, and nothing else. The runner's process holds its secret and every key;
  * a sandbox gets only what the runner gives it (`sandboxEnvFor`), over these.
  */
-export const MACHINE_VARIABLES: ReadonlyArray<string> = [
+export const MACHINE_VARIABLES: readonly string[] = [
   'PATH',
   'HOME',
   'USERPROFILE',

@@ -35,8 +35,8 @@ export function EditLabelDialog({
         .getState()
         .updateLabel(workspaceId, label.id, { name: trimmed, emoji });
       onClose();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setSubmitting(false);
     }
@@ -83,10 +83,11 @@ export function EditLabelDialog({
             </div>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>
+            <button type="button" className="dialog-button-secondary" onClick={onClose}>
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => void save()}
               disabled={!name.trim() || submitting}

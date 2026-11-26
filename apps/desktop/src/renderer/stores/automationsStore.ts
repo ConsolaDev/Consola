@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import type { AuthoringBasis, AutomationsSnapshot } from '../../shared/automations';
 import type { WindowContext } from '../../shared/types';
-import { NO_RUN_FILTER, type RunListFilter } from '../components/Automations/presentation';
+import { NO_RUN_FILTER } from '../components/Automations/presentation';
+import type { RunListFilter } from '../components/Automations/presentation';
 import { automationsBridge } from '../services/automationsBridge';
 import { windowBridge } from '../services/windowBridge';
 
@@ -84,8 +85,9 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   load: async (workspaceId) => {
     try {
       const snapshot = await automationsBridge.getSnapshot(workspaceId);
-      if (snapshot)
+      if (snapshot) {
         set((state) => ({ snapshots: { ...state.snapshots, [workspaceId]: snapshot } }));
+      }
     } catch (error) {
       // Called fire-and-forget; the next push repairs it.
       console.error('automationsStore.load failed:', error);

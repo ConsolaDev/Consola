@@ -1,19 +1,21 @@
 import { describe, expect, it } from 'vitest';
 import type { paths } from './cellApiContract';
 import {
-  type CellFailureCode,
-  type CloudSession,
-  type CloudSessionStatus,
   chatMounted,
   keepsShownOn,
-  type Harness,
   listPollIntervalMs,
   pollIntervalMs,
-  type StartRefusalCode,
   sessionLabel,
   sessionScreen,
   shouldRenewPass,
   startedAt,
+} from './cloudSession';
+import type {
+  CellFailureCode,
+  CloudSession,
+  CloudSessionStatus,
+  Harness,
+  StartRefusalCode,
 } from './cloudSession';
 import {
   HARNESS_NAMES,
@@ -80,7 +82,7 @@ describe('sessionLabel', () => {
 describe('pollIntervalMs', () => {
   it('reads a starting session every 2 s, a running one every 10 s, and an ended one never', () => {
     expect(pollIntervalMs('starting')).toBe(2000);
-    expect(pollIntervalMs('running')).toBe(10000);
+    expect(pollIntervalMs('running')).toBe(10_000);
     expect(pollIntervalMs('stopped')).toBeNull();
     expect(pollIntervalMs('failed')).toBeNull();
   });
@@ -91,12 +93,12 @@ describe('listPollIntervalMs', () => {
     expect(
       listPollIntervalMs([{ status: 'running' }, { status: 'starting' }, { status: 'stopped' }]),
     ).toBe(2000);
-    expect(listPollIntervalMs([{ status: 'running' }, { status: 'failed' }])).toBe(10000);
+    expect(listPollIntervalMs([{ status: 'running' }, { status: 'failed' }])).toBe(10_000);
   });
 
   it('reads it now and then once no session shown can change, for one started elsewhere', () => {
-    expect(listPollIntervalMs([{ status: 'stopped' }, { status: 'failed' }])).toBe(30000);
-    expect(listPollIntervalMs([])).toBe(30000);
+    expect(listPollIntervalMs([{ status: 'stopped' }, { status: 'failed' }])).toBe(30_000);
+    expect(listPollIntervalMs([])).toBe(30_000);
   });
 });
 
@@ -133,7 +135,7 @@ describe('the chat and its pass', () => {
       poll: pollIntervalMs(status),
     }));
     expect(seen).toEqual([
-      { mounted: true, renew: true, poll: 10000 },
+      { mounted: true, renew: true, poll: 10_000 },
       { mounted: false, renew: false, poll: null },
     ]);
   });
@@ -178,7 +180,7 @@ describe('sessionScreen', () => {
     ['runner_restarted', 'The runner restarted.'],
     ['runner_unreachable', 'The runner couldn’t be reached to start this session.'],
     ['runner_failed', 'The runner stopped this session without saying why.'],
-  ] satisfies [CellFailureCode, string][])(
+  ] satisfies Array<[CellFailureCode, string]>)(
     'words the cell’s code %s, never the code itself',
     (errorCode, words) => {
       expect(sessionScreen({ ...session, status: 'failed', errorCode })).toEqual({

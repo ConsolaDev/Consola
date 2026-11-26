@@ -10,11 +10,13 @@ import {
   MAX_TABS_PER_SESSION,
   isAllowedPageUrl,
   isBlankPageUrl,
-  type BrowserAPI,
-  type BrowserHistoryEntry,
-  type BrowserSessionSnapshot,
-  type BrowserSnapshotMessage,
-  type SessionBrowser,
+} from '../../desktop/src/shared/browser';
+import type {
+  BrowserAPI,
+  BrowserHistoryEntry,
+  BrowserSessionSnapshot,
+  BrowserSnapshotMessage,
+  SessionBrowser,
 } from '../../desktop/src/shared/browser';
 
 export interface BrowserMockDeps {

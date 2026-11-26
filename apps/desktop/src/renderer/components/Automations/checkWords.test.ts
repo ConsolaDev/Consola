@@ -96,10 +96,11 @@ describe('pollRunsEmptyWords', () => {
   });
 
   it('says the other modes run for it', () => {
-    for (const mode of ['auto', 'notify'] as const)
+    for (const mode of ['auto', 'notify'] as const) {
       expect(pollRunsEmptyWords({ mode, check: check() }), mode).toBe(
         'It checks every 30 minutes, and runs for what is new or changed. Check now looks right away.',
       );
+    }
   });
 
   it('says it is not checking yet while it waits for Allow', () => {

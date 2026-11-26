@@ -4,17 +4,18 @@
 // every property alike with them and without them, at rest, hovered and focused, and its root
 // keep its containment. And on a page with no CSS, the guard and the floor that keep the page's
 // CSS out change nothing of t3's own.
-import { beforeAll, expect, it, type TestContext } from 'vite-plus/test';
+import { beforeAll, expect, it } from 'vite-plus/test';
+import type { TestContext } from 'vite-plus/test';
 import { userEvent } from 'vite-plus/test/browser';
 import {
   barePage,
   cloudWebPage,
   desktopPage,
-  type EmbeddingPage,
   reachingPage,
   tailwind4Page,
   tailwindPage,
 } from './testing/embeddingPages.ts';
+import type { EmbeddingPage } from './testing/embeddingPages.ts';
 import { addToPage, answerOf, forgetStoredThreads, host, mountChat } from './testing/render.tsx';
 
 beforeAll(forgetStoredThreads);
@@ -156,7 +157,7 @@ const differences = (bare: Record<string, Styles>, embedded: Record<string, Styl
   return { count: found.length, first: found.slice(0, 40) };
 };
 
-const styleElements = (sheets: ReadonlyArray<string>) =>
+const styleElements = (sheets: readonly string[]) =>
   sheets.map((css) => {
     const style = document.createElement('style');
     style.textContent = css;
@@ -195,9 +196,9 @@ const readStates = async (popup: ReturnType<typeof addPopup>) => {
     '.consola-agent-ui-theme [contenteditable="true"]',
   );
   if (composer === null) throw new Error("no composer in t3's chat");
-  composer.focus({ focusVisible: true } as FocusOptions);
+  composer.focus({ focusVisible: true });
   const composerFocused = await settledChat();
-  popup.button.focus({ focusVisible: true } as FocusOptions);
+  popup.button.focus({ focusVisible: true });
   const buttonFocused = await settledChat();
   popup.button.blur();
   await settledChat();

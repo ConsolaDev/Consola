@@ -1,20 +1,17 @@
 import { X } from 'lucide-react';
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
-import {
-  checkNewFactory,
-  type Factory,
-  type FactoryDraft,
-  newFactoryDraft,
-} from '../domain/factories';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { checkNewFactory, newFactoryDraft } from '../domain/factories';
+import type { Factory, FactoryDraft } from '../domain/factories';
 import {
   FACTORIES_ACCESS_NOTE,
   FACTORIES_INTRO,
-  type FactoryFormMessages,
   messagesForFactoryChange,
   messagesForFactoryProblems,
   NO_TEAMS_TO_OWN,
   TEAM_HINT,
 } from '../domain/factoryMessages';
+import type { FactoryFormMessages } from '../domain/factoryMessages';
 import type { Team } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { factoriesService } from '../services/factories';
@@ -103,7 +100,7 @@ export function NewFactoryDialog({
 
   // A team the cell no longer lists for the person (the list was read again) is none chosen.
   const teamId = teams.some((team) => team.id === draft.teamId) ? draft.teamId : null;
-  const described = (...ids: (string | false)[]) => ids.filter(Boolean).join(' ') || undefined;
+  const described = (...ids: Array<string | false>) => ids.filter(Boolean).join(' ') || undefined;
 
   return (
     <dialog

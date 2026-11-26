@@ -1,4 +1,5 @@
-import { createPrivateKey, createPublicKey, type KeyObject } from 'node:crypto';
+import { createPrivateKey, createPublicKey } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import {
   CELL_TOKEN_ALGORITHM,
   GITHUB_EVENT_TYPE,
@@ -11,7 +12,8 @@ import type {
   GitHubEventSigner,
   OutboxSigner,
 } from '../../application/ports.js';
-import { ConfigError, type Ed25519PrivateJwk } from '../../config.js';
+import { ConfigError } from '../../config.js';
+import type { Ed25519PrivateJwk } from '../../config.js';
 
 /**
  * Node's key for the configured JWK. One whose `x` is not the public key of its `d` is refused

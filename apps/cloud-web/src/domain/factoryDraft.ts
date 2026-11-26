@@ -531,8 +531,9 @@ export function afterSave(current: FactoryDraft, sent: FactoryDraft, saved: Vers
   );
   const taken = new Set(files.map((file) => file.path));
   for (const [path, content] of base) {
-    if (!claimed.has(path) && !taken.has(path))
+    if (!claimed.has(path) && !taken.has(path)) {
       files.push({ id: nextId++, from: path, path, content });
+    }
   }
   return { baseVersion: saved.version, base, files, removed, nextId };
 }

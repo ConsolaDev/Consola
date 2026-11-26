@@ -4,9 +4,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 
 async function rowsOf<Row>(db: Database, query: ReturnType<typeof sql>): Promise<Row[]> {
+  // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- the Database type's raw results are `unknown`; a type argument cannot name the rows
   return ((await db.execute(query)) as unknown as { rows: Row[] }).rows;
 }
 
@@ -25,7 +27,7 @@ describe('the database', () => {
   it('applies every migration in the journal from empty, the latest included', async () => {
     const journal = JSON.parse(
       readFileSync(new URL('../../../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
-    ) as { entries: { tag: string }[] };
+    ) as { entries: Array<{ tag: string }> };
     const { db, close } = openDatabase('pglite:memory');
     await migrateDatabase(db);
     const [applied] = await rowsOf<{ count: number }>(

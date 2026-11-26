@@ -1,13 +1,8 @@
-import { type Automation, parseFactory } from '@consola/factory-spec';
+import { parseFactory } from '@consola/factory-spec';
+import type { Automation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
-import {
-  type ApprovalRun,
-  approvalOf,
-  approvalReason,
-  judgeAnswer,
-  type RunAnswer,
-  willRun,
-} from './runApproval.js';
+import { approvalOf, approvalReason, judgeAnswer, willRun } from './runApproval.js';
+import type { ApprovalRun, RunAnswer } from './runApproval.js';
 import type { Team } from './team.js';
 
 const DEPLOY = `on: { manual: {} }

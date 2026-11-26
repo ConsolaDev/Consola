@@ -3,7 +3,8 @@ import type { RunRecord } from '@consola/factory-spec';
 import type { StepToolSpec } from '@consola/automation-engine';
 import type { Workspace } from '../../shared/workspace';
 import { browserRefusal } from '../browser/browserToolAccess';
-import { agentContext, type ToolRegistry, type ToolResult } from '../tools/Tool';
+import { agentContext } from '../tools/Tool';
+import type { ToolRegistry, ToolResult } from '../tools/Tool';
 import { mcpToolName } from './names';
 import { asToolResult } from './toolResult';
 

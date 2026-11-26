@@ -3,7 +3,8 @@ import type { RunConversation } from '../../shared/conversation';
 import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
 import type { Session } from '../../shared/workspace';
-import { getDriver, toHarnessConfig, type HarnessDriver } from '../drivers';
+import { getDriver, toHarnessConfig } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import { launchFieldsFor } from '../SessionLauncher';
 
 export interface RunConversationDeps {

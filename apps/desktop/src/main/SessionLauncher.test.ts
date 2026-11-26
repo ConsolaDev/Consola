@@ -9,9 +9,8 @@ import {
   automationRecordLaunch,
   recordLaunchFields,
   reportTurnsFor,
-  type ExistingTerminal,
-  type StepContinuation,
 } from './SessionLauncher';
+import type { ExistingTerminal, StepContinuation } from './SessionLauncher';
 import { launchedWithFullTools } from './automations/launchAgentRun';
 import { WorktreeService } from './WorktreeService';
 import { worktreePathLock } from './worktreeCleanup/PathLock';
@@ -61,7 +60,7 @@ function sessionFixture(overrides: Partial<Session> = {}): Session {
     createdAt: 1,
     lastActiveAt: 1,
     ...overrides,
-  } as Session;
+  };
 }
 
 const harnessFixture = {
@@ -220,7 +219,11 @@ describe('SessionLauncher', () => {
   it('still launches an ordinary session when its MCP endpoint cannot be set up', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     const { launcher, terminals } = buildLauncher(sessionFixture());
-    launcher.mcpHost = { register: async () => Promise.reject(new Error('EACCES')) };
+    launcher.mcpHost = {
+      register: async () => {
+        throw new Error('EACCES');
+      },
+    };
     await launcher.launchSession('ws-1', launchFields);
     expect(terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
   });
@@ -710,8 +713,7 @@ describe('SessionLauncher', () => {
     it("a step session's grants reach its record and every launch of it, a reopen included", async () => {
       const { launcher, workspaces, terminals } = buildLauncher(sessionFixture());
       workspaces.createSession.mockImplementation(
-        (_workspaceId: string, fields: NewSessionFields) =>
-          ({ ...sessionFixture(), ...fields }) as Session,
+        (_workspaceId: string, fields: NewSessionFields) => ({ ...sessionFixture(), ...fields }),
       );
       const session = await launcher.launchSession('ws-1', {
         ...launchFields,
@@ -806,8 +808,11 @@ describe('SessionLauncher', () => {
       const { launcher, workspaces, terminals } = buildLauncher(source);
       workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
       workspaces.createSession.mockImplementation(
-        (_workspaceId: string, fields: NewSessionFields) =>
-          ({ ...sessionFixture(), ...fields, id: 'session-2' }) as Session,
+        (_workspaceId: string, fields: NewSessionFields) => ({
+          ...sessionFixture(),
+          ...fields,
+          id: 'session-2',
+        }),
       );
       await launcher.forkWithFullTools('ws-1', 'session-1');
       expect((workspaces.createSession.mock.calls[0] as unknown[])[1]).not.toHaveProperty('grants');
@@ -818,8 +823,7 @@ describe('SessionLauncher', () => {
       const { launcher, workspaces, terminals } = buildLauncher(sessionFixture());
       // The record is what the fields make it: the spawn reads it, not the fields.
       workspaces.createSession.mockImplementation(
-        (_workspaceId: string, fields: NewSessionFields) =>
-          ({ ...sessionFixture(), ...fields }) as Session,
+        (_workspaceId: string, fields: NewSessionFields) => ({ ...sessionFixture(), ...fields }),
       );
       await launcher.launchSession('ws-1', {
         ...launchFields,
@@ -948,8 +952,11 @@ describe('SessionLauncher', () => {
       const { launcher, workspaces, terminals } = buildLauncher(source);
       workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
       workspaces.createSession.mockImplementation(
-        (_workspaceId: string, fields: NewSessionFields) =>
-          ({ ...sessionFixture(), ...fields, id: 'session-2' }) as Session,
+        (_workspaceId: string, fields: NewSessionFields) => ({
+          ...sessionFixture(),
+          ...fields,
+          id: 'session-2',
+        }),
       );
       await launcher.forkWithFullTools('ws-1', 'session-1');
       const recorded = (workspaces.createSession.mock.calls[0] as unknown[])[1];
@@ -1173,8 +1180,12 @@ describe("a step's full-tools continuation (slice 3-B Task 20)", () => {
     const built = buildLauncher(sessionFixture());
     built.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
     built.workspaces.createSession.mockImplementation(
-      (_workspaceId: string, fields: NewSessionFields) =>
-        ({ ...sessionFixture(), ...fields, id: 'session-2', hasStarted: true }) as Session,
+      (_workspaceId: string, fields: NewSessionFields) => ({
+        ...sessionFixture(),
+        ...fields,
+        id: 'session-2',
+        hasStarted: true,
+      }),
     );
     const refusal = vi.fn((_runId: string, _stepId: string) =>
       open ? 'Continue with full tools after the run ends' : null,

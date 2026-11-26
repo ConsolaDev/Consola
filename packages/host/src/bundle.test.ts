@@ -1,5 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - It builds the host's bundle and runs it with node, and runs the sandbox's start script with sh.
-import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import {
   chmodSync,
@@ -16,7 +17,6 @@ import {
 import { createRequire, isBuiltin } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type * as Cause from 'effect/Cause';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
@@ -35,7 +35,7 @@ import { isolateMachine } from './testing/machine.ts';
  */
 const machine = isolateMachine();
 
-const PACKAGE = join(dirname(fileURLToPath(import.meta.url)), '..');
+const PACKAGE = join(import.meta.dirname, '..');
 const BUNDLE_SCRIPT = join(PACKAGE, 'scripts', 'bundle.ts');
 const DIST = join(PACKAGE, 'dist');
 /** The files `scripts/bundle.ts` writes, as the template holds them in `/opt/consola`. */
@@ -73,7 +73,7 @@ type Exited = { readonly code: number | null; readonly signal: NodeJS.Signals | 
 
 /** A bundle a test started: its stdout lines as they arrive, its stderr, and how it ended. */
 type Started = {
-  readonly printed: ReadonlyArray<string>;
+  readonly printed: readonly string[];
   readonly next: () => Promise<string>;
   readonly stderr: () => string;
   readonly exited: Promise<Exited>;
@@ -91,7 +91,7 @@ const sandboxedEnv = (): NodeJS.ProcessEnv => {
 };
 
 /** Starts `node <script> <args>` with the test machine's environment. */
-const startNode = (script: string, args: ReadonlyArray<string>): Started => {
+const startNode = (script: string, args: readonly string[]): Started => {
   // The machine's PATH holds only fake CLIs and /usr/bin:/bin, so node is named by its path.
   const child = spawn(process.execPath, [script, ...args], {
     env: sandboxedEnv(),
@@ -144,7 +144,7 @@ const startNode = (script: string, args: ReadonlyArray<string>): Started => {
 };
 
 /** Every line is one JSON object the runner reads as a `HostLine`. */
-const expectOnlyHostLines = (printed: ReadonlyArray<string>) => {
+const expectOnlyHostLines = (printed: readonly string[]) => {
   for (const each of printed) {
     const line = readHostLine(JSON.parse(each));
     expect(line, each).not.toBeNull();
@@ -190,7 +190,7 @@ const ABSENT_ON_PURPOSE = ['@napi-rs/keyring'];
  * string (ajv's generated code) is not one.
  */
 const runTimeRequiresOf = (text: string): string[] => {
-  const escaped = (name: string) => name.replaceAll('$', '\\$');
+  const escaped = (name: string) => name.replaceAll('$', String.raw`\$`);
   const makers = new Set(['createRequire']);
   for (const [, alias] of text.matchAll(/\bcreateRequire\s+as\s+([\w$]+)/g)) {
     if (alias !== undefined) makers.add(alias);
@@ -469,7 +469,7 @@ describe('the consola-session template', () => {
         readFileSync(join(installed[name] ?? '', 'package.json'), 'utf8'),
       ) as { readonly version: string };
       expect(dockerfile(), name).toMatch(
-        new RegExp(`\\s${name}@${version.replaceAll('.', '\\.')}\\s`),
+        new RegExp(`\\s${name}@${version.replaceAll('.', String.raw`\.`)}\\s`),
       );
     }
     // The patch pnpm applies to that version, which the Dockerfile applies too.
@@ -581,7 +581,7 @@ describe('consola-session-start', () => {
     return found.stdout.trim();
   };
 
-  const writeScript = (dir: string, name: string, lines: ReadonlyArray<string>) => {
+  const writeScript = (dir: string, name: string, lines: readonly string[]) => {
     const file = join(dir, name);
     writeFileSync(file, ['#!/bin/sh', ...lines, ''].join('\n'));
     chmodSync(file, 0o755);

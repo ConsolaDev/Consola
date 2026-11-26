@@ -7,7 +7,6 @@ import {
   contentOf,
   discarded,
   draftOf,
-  type FactoryDraft,
   fileMarks,
   filesOf,
   hasWork,
@@ -25,6 +24,7 @@ import {
   withSkillRemoved,
   withSkillRenamed,
 } from './factoryDraft';
+import type { FactoryDraft } from './factoryDraft';
 
 const V3 = {
   version: 3,
@@ -428,7 +428,7 @@ describe('afterSave', () => {
 describe('broughtIn, over adds, renames and removals', () => {
   /** Their version: `edits` set new text (or null removes the file); `added` adds files. */
   const theirs = (
-    from: { files: readonly { path: string; content: string }[] },
+    from: { files: ReadonlyArray<{ path: string; content: string }> },
     edits: Record<string, string | null> = {},
     added: Record<string, string> = {},
   ) => ({

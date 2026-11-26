@@ -1,5 +1,6 @@
 import type { ConversationEntry, ConversationRecord } from '../../shared/conversation';
-import { switchOpening, type Session } from '../../shared/workspace';
+import { switchOpening } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import type { ConversationOpening } from '../TerminalService';
 
 /**
@@ -45,15 +46,15 @@ function step(entry: Extract<ConversationEntry, { kind: 'step' }>): string {
  */
 function blocks(
   entries: ConversationEntry[],
-): { block: string; kind: ConversationEntry['kind'] }[] {
-  const out: { block: string; kind: ConversationEntry['kind'] }[] = [];
+): Array<{ block: string; kind: ConversationEntry['kind'] }> {
+  const out: Array<{ block: string; kind: ConversationEntry['kind'] }> = [];
   for (const entry of entries) {
     const last = out[out.length - 1];
     if (entry.kind === 'step' && last?.kind === 'step') last.block += `\n${step(entry)}`;
     else if (entry.kind === 'step') out.push({ block: step(entry), kind: 'step' });
-    else if (entry.kind === 'prompt')
+    else if (entry.kind === 'prompt') {
       out.push({ block: `## User${stamp(entry.at)}\n\n${entry.text.trim()}`, kind: 'prompt' });
-    else out.push({ block: `## Agent${stamp(entry.at)}\n\n${entry.text.trim()}`, kind: 'text' });
+    } else out.push({ block: `## Agent${stamp(entry.at)}\n\n${entry.text.trim()}`, kind: 'text' });
   }
   return out;
 }

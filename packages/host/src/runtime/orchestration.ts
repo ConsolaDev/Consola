@@ -147,11 +147,11 @@ const layerProviderInstances = <R>(drivers: ReadonlyArray<AnyProviderDriver<R>>)
       const serverSettings = yield* ServerSettings.ServerSettingsService;
       const settings = yield* serverSettings.getSettings;
       const kinds = new Set(drivers.map((driver) => driver.driverKind));
-      const configMap = Object.fromEntries(
+      const configMap: ProviderInstanceConfigMap = Object.fromEntries(
         Object.entries(
           ProviderInstanceRegistryHydration.deriveProviderInstanceConfigMap(settings),
         ).filter(([, entry]) => kinds.has(entry.driver) && !isManagedCodex(entry)),
-      ) as ProviderInstanceConfigMap;
+      );
       const hostEnvironment = ManagedProviders.providerHostEnvironment(
         serverSettings.managedPolicy,
         yield* HostProcess.Environment,

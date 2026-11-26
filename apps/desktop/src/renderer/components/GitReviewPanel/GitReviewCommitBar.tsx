@@ -73,6 +73,7 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({
 
       <div className="git-review-commit-actions">
         <button
+          type="button"
           className="git-review-commit-btn generate"
           onClick={handleGenerate}
           disabled={isGeneratingMessage || stagedCount === 0}
@@ -83,6 +84,7 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({
         </button>
 
         <button
+          type="button"
           className="git-review-commit-btn commit"
           onClick={handleCommit}
           disabled={isCommitting || !commitMessage.trim() || stagedCount === 0}

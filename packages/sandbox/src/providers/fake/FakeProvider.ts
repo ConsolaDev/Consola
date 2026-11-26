@@ -6,7 +6,8 @@ import type {
   ProviderSnapshots,
   SandboxProvider,
 } from '../../application/ports';
-import { SANDBOX_CAPABILITIES, type SandboxCapability } from '../../domain/capabilities';
+import { SANDBOX_CAPABILITIES } from '../../domain/capabilities';
+import type { SandboxCapability } from '../../domain/capabilities';
 import { asSandboxError, SandboxError } from '../../domain/errors';
 import type { Command, CreateSandboxOptions } from '../../domain/sandbox';
 import { resolvePath } from './paths';

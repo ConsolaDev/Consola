@@ -8,8 +8,8 @@ import {
   ViewMemoryService,
   normalizeView,
   resolveRememberedView,
-  type ViewMemoryStateFile,
 } from './ViewMemoryService';
+import type { ViewMemoryStateFile } from './ViewMemoryService';
 import type { WorkspaceView } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
 
@@ -108,7 +108,7 @@ describe('resolveRememberedView', () => {
     const workspace = makeWorkspace({
       sessions: [session('s1')],
       provider: { id: 'github', accountLogin: 'someone' },
-    } as Partial<Workspace>);
+    });
 
     expect(resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace)).toEqual({
       activeSessionId: 's1',

@@ -1,13 +1,13 @@
 import { DropdownMenu } from '@radix-ui/themes';
 import { ChevronDown, Factory, ListFilter, Search, X } from 'lucide-react';
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   automationsOffered,
   factoriesByTeam,
   hasFilters,
   isBackground,
   NO_FILTERS,
-  type RunFilters,
   SEARCH_MAX,
   toggleBackground,
   toggleMine,
@@ -18,7 +18,9 @@ import {
   withSearch,
   withTeam,
 } from '../domain/runFilters';
-import { PHASES, type PhaseCounts, RUN_TRIGGERS, type RunFacets } from '../domain/runs';
+import type { RunFilters } from '../domain/runFilters';
+import { PHASES, RUN_TRIGGERS } from '../domain/runs';
+import type { PhaseCounts, RunFacets } from '../domain/runs';
 import { PHASE_HINTS, PHASE_LABELS, triggerWords } from '../domain/runWords';
 
 /** How long the search waits after a key before the list follows it. */

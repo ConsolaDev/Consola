@@ -1,6 +1,7 @@
 // An embedding app's screen, as cloud-web's session screens and the desktop write one. It knows
 // `@consola/agent-ui` only by name: what `package.json`'s `exports` publish for it.
-import { AgentChat, type AgentChatProps } from '@consola/agent-ui';
+import { AgentChat } from '@consola/agent-ui';
+import type { AgentChatProps } from '@consola/agent-ui';
 import '@consola/agent-ui/styles.css';
 import type { JSX } from 'react';
 

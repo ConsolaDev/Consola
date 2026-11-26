@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
-import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import {
   baseLine,

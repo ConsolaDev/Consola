@@ -1,15 +1,10 @@
 import { LineCounter, parseDocument } from 'yaml';
-import {
-  closestNode,
-  formatPath,
-  linesAt,
-  nodeAt,
-  toIssue,
-  type FactorySpecIssue,
-  type LineRange,
-} from './issues';
-import { automationSchema, fileSchema, isStepsEntry, type Automation } from './schema';
-import { parseMcpServers, type McpServerDefinition } from './servers';
+import { closestNode, formatPath, linesAt, nodeAt, toIssue } from './issues';
+import type { FactorySpecIssue, LineRange } from './issues';
+import { automationSchema, fileSchema, isStepsEntry } from './schema';
+import type { Automation } from './schema';
+import { parseMcpServers } from './servers';
+import type { McpServerDefinition } from './servers';
 import { flatSteps } from './steps';
 import { documentValue } from './yamlValue';
 
@@ -214,7 +209,7 @@ function withoutFile<T extends { file?: string }>(value: T): T {
 
 function readableName(raw: unknown): string | undefined {
   if (raw && typeof raw === 'object' && 'name' in raw) {
-    const name = (raw as { name: unknown }).name;
+    const name = raw.name;
     if (typeof name === 'string' && name.trim()) return name.trim();
   }
   return undefined;

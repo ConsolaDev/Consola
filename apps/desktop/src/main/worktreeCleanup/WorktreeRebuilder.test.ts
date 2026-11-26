@@ -4,11 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
-import {
-  DEFAULT_WORKTREE_CLEANUP_RULES,
-  keepRefFor,
-  type RemovedWorktree,
-} from '../../shared/worktreeCleanup';
+import { DEFAULT_WORKTREE_CLEANUP_RULES, keepRefFor } from '../../shared/worktreeCleanup';
+import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { WorktreeService } from '../WorktreeService';
 import { PathLock } from './PathLock';
@@ -266,7 +263,10 @@ describe('WorktreeRebuilder', () => {
       rebuilder.ensureCheckout(rig.workspace, session),
       rebuilder.ensureCheckout(rig.workspace, copy),
     ]);
-    expect([first.rebuilt, second.rebuilt].sort()).toEqual([false, true]);
+    expect([first.rebuilt, second.rebuilt].sort((a, b) => Number(a) - Number(b))).toEqual([
+      false,
+      true,
+    ]);
     expect(git(record.path, 'rev-parse', 'HEAD')).toBe(record.commit);
   });
 });

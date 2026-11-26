@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  agentHash,
-  HARNESS_ID_PATTERN,
-  MAX_AGENT_BODY_BYTES,
-  parseAgentFile,
-  type ParsedAgent,
-} from './agents';
+import { agentHash, HARNESS_ID_PATTERN, MAX_AGENT_BODY_BYTES, parseAgentFile } from './agents';
+import type { ParsedAgent } from './agents';
 import { AGENT_SECRETS_REASON } from './secrets';
 
 const BODY = 'You investigate production alerts.\n';
@@ -84,8 +79,9 @@ describe('parseAgentFile', () => {
   it('defaults', () => {
     const defaults = parsed('');
     expect(defaults).toMatchObject({ tools: 'read-only', mcpServers: [], skills: [], body: BODY });
-    for (const key of ['harness', 'model', 'description', 'maxTurns'])
+    for (const key of ['harness', 'model', 'description', 'maxTurns']) {
       expect(own(defaults, key), key).toBe(false);
+    }
     expect(defaults.lines).toEqual({});
   });
 
@@ -227,19 +223,19 @@ describe('parseAgentFile', () => {
   describe("visible text only, on a card (the review's validator differential)", () => {
     // Each makes a description, a server name or a model read as other text on a card, or break a line.
     const INVISIBLE: Array<[string, string]> = [
-      ['a line separator', '\\u2028'],
-      ['a paragraph separator', '\\u2029'],
-      ['a variation selector', '\\uFE0F'],
-      ['an enclosing mark', '\\u20DD'],
-      ['a combining mark that composes with nothing', '\\u0336'],
-      ['the Hangul choseong filler', '\\u115F'],
-      ['the Hangul jungseong filler', '\\u1160'],
-      ['the Hangul filler', '\\u3164'],
-      ['the halfwidth Hangul filler', '\\uFFA0'],
-      ['the blank Braille pattern', '\\u2800'],
-      ['a no-break space', '\\u00A0'],
-      ['an ideographic space', '\\u3000'],
-      ['a zero-width space', '\\u200B'],
+      ['a line separator', String.raw`\u2028`],
+      ['a paragraph separator', String.raw`\u2029`],
+      ['a variation selector', String.raw`\uFE0F`],
+      ['an enclosing mark', String.raw`\u20DD`],
+      ['a combining mark that composes with nothing', String.raw`\u0336`],
+      ['the Hangul choseong filler', String.raw`\u115F`],
+      ['the Hangul jungseong filler', String.raw`\u1160`],
+      ['the Hangul filler', String.raw`\u3164`],
+      ['the halfwidth Hangul filler', String.raw`\uFFA0`],
+      ['the blank Braille pattern', String.raw`\u2800`],
+      ['a no-break space', String.raw`\u00A0`],
+      ['an ideographic space', String.raw`\u3000`],
+      ['a zero-width space', String.raw`\u200B`],
     ];
 
     it.each(INVISIBLE)('refuses %s in a description', (_, escaped) => {
@@ -260,7 +256,13 @@ describe('parseAgentFile', () => {
 
     it.each(
       INVISIBLE.filter(
-        ([, escaped]) => !['\\u00A0', '\\u3000', '\\u2028', '\\u2029'].includes(escaped),
+        ([, escaped]) =>
+          ![
+            String.raw`\u00A0`,
+            String.raw`\u3000`,
+            String.raw`\u2028`,
+            String.raw`\u2029`,
+          ].includes(escaped),
       ),
     )('refuses %s in a model', (_, escaped) => {
       expect(only(agent(`model: "opus${escaped}"\n`))).toMatchObject({

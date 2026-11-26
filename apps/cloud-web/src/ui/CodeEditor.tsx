@@ -12,20 +12,20 @@ import {
   Language,
   syntaxHighlighting,
 } from '@codemirror/language';
-import { type Diagnostic, setDiagnostics } from '@codemirror/lint';
+import { setDiagnostics } from '@codemirror/lint';
+import type { Diagnostic } from '@codemirror/lint';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
 import {
   Annotation,
   Compartment,
   EditorState,
-  type Extension,
   RangeSet,
   StateEffect,
   StateField,
 } from '@codemirror/state';
+import type { Extension } from '@codemirror/state';
 import {
   Decoration,
-  type DecorationSet,
   drawSelection,
   EditorView,
   GutterMarker,
@@ -36,6 +36,7 @@ import {
   keymap,
   lineNumbers,
 } from '@codemirror/view';
+import type { DecorationSet } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { GFM, parser as markdownParser } from '@lezer/markdown';
 import { useEffect, useRef } from 'react';
@@ -68,11 +69,11 @@ export function CodeEditor({
   path: string;
   text: string;
   /** This file's problems that have a line: drawn on it. */
-  problems: readonly { line: number; message: string }[];
+  problems: ReadonlyArray<{ line: number; message: string }>;
   /** A line to bring into view, lit once unless `flash` is false; a new `seq` asks again. */
   reveal: { path: string; line: number; seq: number; flash?: boolean } | null;
   /** Files renamed since the last `seq`: old path to new. */
-  moves: { seq: number; moves: readonly (readonly [string, string])[] } | null;
+  moves: { seq: number; moves: ReadonlyArray<readonly [string, string]> } | null;
   onChange: (path: string, text: string) => void;
   /** A reveal was acted on: the page lets it go, so an editor mounted later never acts on it. */
   onRevealed: (seq: number) => void;
@@ -381,7 +382,7 @@ const labelSlot = new Compartment();
 
 const labelFor = (path: string) => EditorView.contentAttributes.of({ 'aria-label': path });
 
-function retargetEffects(path: string): StateEffect<unknown>[] {
+function retargetEffects(path: string): Array<StateEffect<unknown>> {
   return [languageSlot.reconfigure(languageFor(path)), labelSlot.reconfigure(labelFor(path))];
 }
 

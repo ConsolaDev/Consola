@@ -2,10 +2,13 @@ import { useEffect } from 'react';
 import { create } from 'zustand';
 import type { BranchPullRequestAnswer } from '../../shared/branchPullRequest';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
-import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
-import { checkoutPathForSession, type Session, type Workspace } from '../../shared/workspace';
+import { INBOX_REFRESH_INTERVAL_MS } from '../../shared/workItems';
+import type { WorkItemRef } from '../../shared/workItems';
+import { checkoutPathForSession } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import { providerBridge } from '../services/providerBridge';
-import { isInFront, type SidePanelLayout } from '../sidePanel/layout';
+import { isInFront } from '../sidePanel/layout';
+import type { SidePanelLayout } from '../sidePanel/layout';
 import { ipcErrorMessage } from '../utils/ipcErrorMessage';
 import { useCheckoutStore } from './checkoutStore';
 

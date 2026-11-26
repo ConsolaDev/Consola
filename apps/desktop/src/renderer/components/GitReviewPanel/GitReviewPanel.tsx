@@ -1,4 +1,5 @@
-import { useEffect, useMemo, memo, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, memo } from 'react';
+import type { KeyboardEvent } from 'react';
 import { X, PanelLeftClose, PanelLeft, GitBranch } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
@@ -47,7 +48,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
   // Refresh git status when panel opens
   useEffect(() => {
     if (rootPath) {
-      refresh(rootPath);
+      void refresh(rootPath);
     }
   }, [rootPath, refresh]);
 
@@ -98,7 +99,12 @@ export const GitReviewPanel = memo(function GitReviewPanel({
             <div className="git-review-main-header-left">
               <span className="git-review-main-header-title">Git Changes</span>
             </div>
-            <button className="git-review-close-btn" onClick={onClose} title="Close (Esc)">
+            <button
+              type="button"
+              className="git-review-close-btn"
+              onClick={onClose}
+              title="Close (Esc)"
+            >
               <X size={16} />
             </button>
           </div>
@@ -122,6 +128,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
         <div className="git-review-sidebar-header">
           <span className="git-review-sidebar-title">Files</span>
           <button
+            type="button"
             className="git-review-sidebar-toggle"
             onClick={toggleSidebar}
             title={isSidebarCollapsed ? 'Show sidebar' : 'Hide sidebar'}
@@ -139,6 +146,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({
           <div className="git-review-main-header-left">
             {isSidebarCollapsed && (
               <button
+                type="button"
                 className="git-review-sidebar-toggle"
                 onClick={toggleSidebar}
                 title="Show sidebar"
@@ -153,7 +161,12 @@ export const GitReviewPanel = memo(function GitReviewPanel({
               {stagedCount > 0 && ` · ${stagedCount} approved`}
             </span>
           </div>
-          <button className="git-review-close-btn" onClick={onClose} title="Close (Esc)">
+          <button
+            type="button"
+            className="git-review-close-btn"
+            onClick={onClose}
+            title="Close (Esc)"
+          >
             <X size={16} />
           </button>
         </div>

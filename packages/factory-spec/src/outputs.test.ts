@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { checkOutputs, coerceOutput, describeOutputType, type OutputType } from './outputs';
+import { checkOutputs, coerceOutput, describeOutputType } from './outputs';
+import type { OutputType } from './outputs';
 
 const declared: Record<string, OutputType> = {
   verdict: { type: 'enum', values: ['approve', 'comment', 'request-changes'] },

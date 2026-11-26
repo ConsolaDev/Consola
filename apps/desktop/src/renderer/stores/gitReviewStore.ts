@@ -141,8 +141,8 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
       } else if (result?.error) {
         set({ error: result.error });
       }
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to generate message' });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to generate message' });
     } finally {
       set({ isGeneratingMessage: false });
     }
@@ -161,8 +161,8 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
       } else if (result?.error) {
         set({ error: result.error });
       }
-    } catch (err) {
-      set({ error: err instanceof Error ? err.message : 'Failed to commit' });
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : 'Failed to commit' });
     } finally {
       set({ isCommitting: false });
     }

@@ -2,7 +2,8 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InstallationStore } from '../../application/ports.js';
 import type { GitHubInstallation } from '../../domain/connections.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { createInstallationStore } from './installationStore.js';
 import { schema } from './schema.js';
 
@@ -12,12 +13,12 @@ let installations: InstallationStore;
 
 const sprocketOrg: GitHubInstallation = {
   id: 4_100_001,
-  account: { id: 9_001, login: 'sprocket', type: 'Organization' },
+  account: { id: 9001, login: 'sprocket', type: 'Organization' },
   repositorySelection: 'selected',
 };
 const danaOwn: GitHubInstallation = {
   id: 4_100_002,
-  account: { id: 9_002, login: 'dana-ortiz', type: 'User' },
+  account: { id: 9002, login: 'dana-ortiz', type: 'User' },
   repositorySelection: 'all',
 };
 

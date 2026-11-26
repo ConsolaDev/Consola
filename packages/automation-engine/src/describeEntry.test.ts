@@ -1,13 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import {
-  isStepsEntry,
-  parseFactory,
-  parseFactorySpec,
-  type AgentStep,
-  type Automation,
-  type GateStep,
-  type StepsAutomation,
-  type UsesStep,
+import { isStepsEntry, parseFactory, parseFactorySpec } from '@consola/factory-spec';
+import type {
+  AgentStep,
+  Automation,
+  GateStep,
+  StepsAutomation,
+  UsesStep,
 } from '@consola/factory-spec';
 import {
   describeEvery,
@@ -21,8 +19,8 @@ import {
   FILE_TOOL_LINKS_HEDGE,
   KEYCHAIN_SENTENCE,
   KEYCHAIN_SIGN_INS_SENTENCE,
-  type WriteVersions,
 } from './describeEntry';
+import type { WriteVersions } from './describeEntry';
 import { agentRequirements } from './steps/definition';
 
 describe('describeEvery', () => {
@@ -662,10 +660,11 @@ automations:
     expect(describeWrites(automation, agents, unchecked)!.agents[0].sentences[0]).toContain(
       `Consola's data; its file tools read only this run's checkout. ${HEDGE} Your keychain`,
     );
-    for (const isolation of ['host', 'sandbox'] as const)
+    for (const isolation of ['host', 'sandbox'] as const) {
       expect(
         blockFor('edit', isolation, { fileToolLinksChecked: false }).agents[0].sentences[0],
       ).toContain(`a later step pushes. ${HEDGE} Its connectors: none.`);
+    }
     // Once it passed, no hedge; and none where the file tools were not checked at all (that sentence says so).
     expect(JSON.stringify(describeWrites(automation, agents, V))).not.toContain(HEDGE);
     expect(

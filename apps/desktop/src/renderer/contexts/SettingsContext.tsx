@@ -1,20 +1,13 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
 import { windowBridge } from '../services/windowBridge';
 import { SettingsModal } from '../components/Dialogs/SettingsModal';
 import {
   DEFAULT_SECTION,
   isWorkspaceSection,
   resolveSection,
-  type SettingsSection,
 } from '../components/Dialogs/settingsSections';
+import type { SettingsSection } from '../components/Dialogs/settingsSections';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 

@@ -442,16 +442,15 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
         body = undefined;
       }
       const rpc =
-        body && typeof body === 'object' && 'method' in body
-          ? String((body as { method: unknown }).method)
-          : undefined;
+        body && typeof body === 'object' && 'method' in body ? String(body.method) : undefined;
       const values: Record<string, string> = {};
       for (const name of CHECKED_VALUES) {
         const value = req.headers[name];
         if (typeof value === 'string') values[name] = value;
       }
-      for (const name of ['authorization', 'x-api-key'])
+      for (const name of ['authorization', 'x-api-key']) {
         values[name] = name in req.headers ? 'present' : 'absent';
+      }
       events.push({
         event: 'request',
         method: req.method ?? '',
@@ -476,7 +475,7 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
         const id = (body as { id: unknown }).id;
         res.writeHead(200, { 'content-type': 'application/json' });
         res.end(
-          JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32001, message: 'warming up' } }),
+          JSON.stringify({ jsonrpc: '2.0', id, error: { code: -32_001, message: 'warming up' } }),
         );
         return;
       }

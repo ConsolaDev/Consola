@@ -1,6 +1,7 @@
 import type { Attention } from '../../shared/attention';
 import type { Entry } from './entry';
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf } from './forest';
+import type { TreeNode } from './forest';
 import type { WorkingObservation } from './workingExits';
 
 /**
@@ -39,7 +40,7 @@ const maxOf = (node: TreeNode, pick: (entry: Entry) => number): number =>
   Math.max(...membersOf(node).map(pick));
 
 /** Newest first by each pick in turn; ties break on key so the order never shuffles. */
-function newestFirst(nodes: TreeNode[], ...picks: ((node: TreeNode) => number)[]): TreeNode[] {
+function newestFirst(nodes: TreeNode[], ...picks: Array<(node: TreeNode) => number>): TreeNode[] {
   const byPicks = (a: TreeNode, b: TreeNode) => {
     for (const pick of picks) {
       const difference = pick(b) - pick(a);
@@ -111,8 +112,9 @@ export function bucketize(
     const attention = aggregateAttention(root);
     if (attention === 'settled') placed.settled.push(root);
     else if (attention === 'snoozed') placed.snoozed.push(root);
-    else if (workingSection && (attention === 'working' || lingers(root, attention)))
+    else if (workingSection && (attention === 'working' || lingers(root, attention))) {
       placed.working.push(root);
+    }
     // In play and not running: `needs-attention`, `done`, `ready`, `exited`.
     // Without a Working section, running trees stay here too.
     else placed.waiting.push(root);

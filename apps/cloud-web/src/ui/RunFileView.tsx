@@ -1,5 +1,6 @@
 import { Check, Copy, FileCode, ListTree } from 'lucide-react';
-import { type MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MouseEvent } from 'react';
 import { fileLines, fileVersionWords, holdsOthers, inRange, rangeWords } from '../domain/runFile';
 import type { LineRange, RunSource } from '../domain/runs';
 import { copyText } from '../services/clipboard';

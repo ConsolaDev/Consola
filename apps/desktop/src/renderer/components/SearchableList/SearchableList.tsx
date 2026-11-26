@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useRef } from 'react';
 import { HighlightMatch } from '../HighlightMatch';
-import { rankSearchableItems, type SearchableListItem } from './rankSearchableItems';
+import { rankSearchableItems } from './rankSearchableItems';
+import type { SearchableListItem } from './rankSearchableItems';
 import './styles.css';
 
 interface SearchableListProps<T extends SearchableListItem> {

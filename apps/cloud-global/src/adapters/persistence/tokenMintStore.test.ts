@@ -2,7 +2,8 @@ import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TokenMintStore } from '../../application/ports.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { schema } from './schema.js';
 import { createTokenMintStore } from './tokenMintStore.js';
 
@@ -33,7 +34,7 @@ beforeEach(async () => {
     {
       installationId: 41,
       organizationId: 'acme',
-      accountId: 9_001,
+      accountId: 9001,
       accountLogin: 'acme',
       accountType: 'Organization',
       connectedAt: at('2026-11-22T09:00:00Z'),
@@ -41,7 +42,7 @@ beforeEach(async () => {
     {
       installationId: 52,
       organizationId: 'sprocket',
-      accountId: 9_002,
+      accountId: 9002,
       accountLogin: 'sprocket',
       accountType: 'Organization',
       connectedAt: at('2026-11-22T09:00:00Z'),
@@ -99,7 +100,7 @@ describe('the token mint store', () => {
   it('keeps no token: no column could hold one', async () => {
     const columns = (await db.execute(
       sql`select column_name from information_schema.columns where table_name = 'github_token_mint'`,
-    )) as { rows: { column_name: string }[] };
+    )) as { rows: Array<{ column_name: string }> };
     expect(columns.rows.map((row) => row.column_name).sort()).toEqual([
       'expires_at',
       'id',

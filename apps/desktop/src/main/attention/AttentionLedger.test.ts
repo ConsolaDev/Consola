@@ -3,11 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { JsonStateFile } from '../state/JsonStateFile';
-import {
-  JsonAttentionLedger,
-  WRITE_INTERVAL_MS,
-  type AttentionLedgerStateFile,
-} from './AttentionLedger';
+import { JsonAttentionLedger, WRITE_INTERVAL_MS } from './AttentionLedger';
+import type { AttentionLedgerStateFile } from './AttentionLedger';
 
 let dir: string;
 

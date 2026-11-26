@@ -8,7 +8,8 @@ import type {
   RunnerChannel,
 } from '../../application/ports.js';
 import type { Caller } from '../../domain/caller.js';
-import { type Database, migrateDatabase, openDatabase } from '../persistence/database.js';
+import { migrateDatabase, openDatabase } from '../persistence/database.js';
+import type { Database } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
 import { createRouter } from './app.js';
 import { cloudSessionRoutes } from './cloudSessions.js';
@@ -19,8 +20,8 @@ import {
   postCloudSession,
   postCloudSessionPass,
   postCloudSessionStop,
-  type ROUTES,
 } from './contract.js';
+import type { ROUTES } from './contract.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -207,7 +208,7 @@ describe('listing and reading', () => {
     const listed = (await answerOf(
       listCloudSessions,
       await app.request('/api/cloud-sessions'),
-    )) as { id: string }[];
+    )) as Array<{ id: string }>;
     expect(listed.map((s) => s.id)).toEqual(['session-1']);
   });
 

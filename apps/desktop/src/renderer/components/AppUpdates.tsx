@@ -65,6 +65,7 @@ export function AppUpdateNotice() {
   return (
     <div className="app-update-notice" role="status">
       <button
+        type="button"
         className="app-update-action"
         disabled={downloading}
         title={error ?? statusText(state)}
@@ -103,6 +104,7 @@ export function AppUpdatesSection() {
         <>
           <p>New versions download automatically. You choose when to restart and install.</p>
           <button
+            type="button"
             disabled={state.status === 'checking' || state.status === 'downloading'}
             onClick={() => run(state.status === 'ready' ? 'install' : 'check')}
           >

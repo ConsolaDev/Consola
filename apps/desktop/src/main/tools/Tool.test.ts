@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { defineTool, ToolRegistry, type ToolContext } from './Tool';
-import { type ConsolaToolDeps, consolaTools } from './consolaTools';
+import { defineTool, ToolRegistry } from './Tool';
+import type { ToolContext } from './Tool';
+import { consolaTools } from './consolaTools';
+import type { ConsolaToolDeps } from './consolaTools';
 
 const context: ToolContext = {
   caller: { kind: 'automation', automation: 'test' },
@@ -165,10 +167,11 @@ describe('what each argument of an automatable tool does (Call 5)', () => {
     const automatable = tools.list().filter((tool) => tool.automatable);
     expect(automatable.map((tool) => tool.name)).toContain('cleanup_stale_sessions');
     for (const tool of automatable) {
-      for (const argument of Object.keys(tool.input))
+      for (const argument of Object.keys(tool.input)) {
         expect(tool.roles?.[argument], `${tool.name}: ${argument}`).toMatch(
           /^(prompt|selector|data)$/,
         );
+      }
     }
     expect(tools.get('cleanup_stale_sessions')?.roles).toEqual({
       pr_states: 'selector',

@@ -5,10 +5,10 @@ import { cellTokenKeys, mintCellToken } from '../../application/cellToken.js';
 import {
   disconnectGitHub,
   finishGitHubInstall,
-  type InstallOutcome,
   listConnections,
   startGitHubInstall,
 } from '../../application/connections.js';
+import type { InstallOutcome } from '../../application/connections.js';
 import { mintGitHubToken } from '../../application/gitHubTokens.js';
 import { checkHealth } from '../../application/health.js';
 import { describeMe } from '../../application/me.js';
@@ -37,10 +37,10 @@ import {
 } from '../../application/workspaces.js';
 import { installationSettingsUrl, readGitHubId } from '../../domain/connections.js';
 import type { SignedIn } from '../../domain/person.js';
-import { checkNewWorkspace, type MyWorkspace, mayManageWorkspace } from '../../domain/workspace.js';
+import { checkNewWorkspace, mayManageWorkspace } from '../../domain/workspace.js';
+import type { MyWorkspace } from '../../domain/workspace.js';
 import {
   deleteGitHubInstallation,
-  type GITHUB_CALLBACK_RESULTS,
   GitHubCallbackResult,
   getActiveWorkspaceMembers,
   getCellTokenKeys,
@@ -56,7 +56,9 @@ import {
   putActiveWorkspace,
   putActiveWorkspaceIcon,
 } from './contract.js';
-import { type WebhookLog, webhookRoutes } from './webhooks.js';
+import type { GITHUB_CALLBACK_RESULTS } from './contract.js';
+import { webhookRoutes } from './webhooks.js';
+import type { WebhookLog } from './webhooks.js';
 
 const CHANGES = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 

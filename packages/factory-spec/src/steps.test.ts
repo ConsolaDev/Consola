@@ -12,11 +12,8 @@ import {
   REFUSED_ENV_PREFIXES,
   stepItemFieldProblems,
   stepItemFields,
-  type AgentStep,
-  type CommandStep,
-  type ItemFieldTable,
-  type Step,
 } from './steps';
+import type { AgentStep, CommandStep, ItemFieldTable, Step } from './steps';
 
 /** One entry, its fields indented under `- name: a`. */
 const one = (fields: string) =>
@@ -251,10 +248,12 @@ describe('agent', () => {
   ])('takes an agent step %s', (_, item, expected) => {
     const step = firstStep<AgentStep>(inFolder(item));
     expect(step).toMatchObject({ kind: 'agent', ...expected });
-    if (!('prompt' in expected))
+    if (!('prompt' in expected)) {
       expect(Object.prototype.hasOwnProperty.call(step, 'prompt')).toBe(false);
-    if (!('action' in expected))
+    }
+    if (!('action' in expected)) {
       expect(Object.prototype.hasOwnProperty.call(step, 'action')).toBe(false);
+    }
   });
 
   it('keeps every other key of an agent step beside it', () => {
@@ -401,7 +400,7 @@ describe('a command', () => {
       run: 'echo hi',
       env: {},
       outputs: {},
-      timeoutMs: 600000,
+      timeoutMs: 600_000,
       dryRun: 'report',
     });
   });
@@ -525,8 +524,9 @@ describe('a command', () => {
 
     it('is the lists the validator, its message and the prose share', () => {
       for (const name of REFUSED_ENV_NAMES) expect(isRefusedEnvName(name), name).toBe(true);
-      for (const prefix of REFUSED_ENV_PREFIXES)
+      for (const prefix of REFUSED_ENV_PREFIXES) {
         expect(isRefusedEnvName(`${prefix}X`), prefix).toBe(true);
+      }
       for (const name of ENV_PREFIX_EXCEPTIONS) expect(isRefusedEnvName(name), name).toBe(false);
       const message = refusedFor('BASH_ENV');
       for (const name of REFUSED_ENV_NAMES) expect(message, name).toContain(name);
@@ -563,7 +563,7 @@ describe('a command', () => {
   });
 
   it('reads a timeout', () => {
-    expect(firstStep<CommandStep>(command('  timeout: 30s')).timeoutMs).toBe(30000);
+    expect(firstStep<CommandStep>(command('  timeout: 30s')).timeoutMs).toBe(30_000);
     expect(firstStep<CommandStep>(command('  timeout: 1h')).timeoutMs).toBe(3_600_000);
     expect(only(command('  timeout: 2h')).message).toMatch(/at most 1h/);
     expect(only(command('  timeout: 90')).message).toMatch(/`<n>s`, `<n>m` or `<n>h`/);
@@ -733,7 +733,7 @@ describe('outputs', () => {
       `v: { enum: [${twentyOne}] }`,
       'v: { enum: [a, a] }',
       `v: { enum: [${'x'.repeat(65)}] }`,
-      'v: { enum: ["a\\nb"] }',
+      String.raw`v: { enum: ["a\nb"] }`,
       'v: { enum: [""] }',
     ];
     for (const body of bad) expect(only(outputs(body)).path, body).toMatch(/outputs\.v\.enum$/);
@@ -1662,7 +1662,7 @@ describe('what a step may say about writing (slice 3-B)', () => {
     'docs/{{run.id}}.md',
     'docs/{{item.key}.md',
     'docs/}x.md',
-    'docs\\x.md',
+    String.raw`docs\x.md`,
     '',
     'docs/',
     'a//b',
@@ -1686,10 +1686,11 @@ describe('what a step may say about writing (slice 3-B)', () => {
       '.github/notes.md',
       'docs/{{item.key}}-{{item.number}}.md',
       'a/.claudex/b.md',
-    ])
+    ]) {
       expect(
         owned(`- prompt: x\n  artifacts: [{ name: spec, path: ${JSON.stringify(path)} }]`).issues,
       ).toEqual([]);
+    }
   });
 
   it.each([

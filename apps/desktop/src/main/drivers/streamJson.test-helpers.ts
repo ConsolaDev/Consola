@@ -92,7 +92,7 @@ export const RESULT_AUTH = jsonLine({
 });
 
 export const RESULT_MAX_TURNS = jsonLine({
-  duration_api_ms: 30211,
+  duration_api_ms: 30_211,
   stop_reason: 'tool_use',
   session_id: SESSION_ID,
   total_cost_usd: 0.0607,
@@ -103,7 +103,7 @@ export const RESULT_MAX_TURNS = jsonLine({
   subtype: 'error_max_turns',
   api_error_status: null,
   type: 'result',
-  duration_ms: 31877,
+  duration_ms: 31_877,
   uuid: '1a2b3c4d-0000-4000-8000-000000000003',
 });
 
@@ -126,7 +126,7 @@ export const ASSISTANT_RATE_LIMIT = jsonLine({
 /** The 2.1.330 binary's schema for a refused request; not yet seen in a live stream. */
 export const RATE_LIMIT_REJECTED = jsonLine({
   type: 'rate_limit_event',
-  rate_limit_info: { status: 'rejected', resetsAt: 1795000000 },
+  rate_limit_info: { status: 'rejected', resetsAt: 1_795_000_000 },
 });
 
 /** A `result` like `RESULT_OK`, with `fields` replaced (key order kept, new keys last). */

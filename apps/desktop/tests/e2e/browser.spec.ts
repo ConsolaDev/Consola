@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { commandPaletteChord, launchElectron, removeProfile } from './helpers/electron';
 import { browserChord, showBrowser, sidePanelChord } from './helpers/browserTab';
-import { type FixtureServer, PROBE_SCRIPT, startFixtureServer } from './helpers/fixtureServer';
+import { PROBE_SCRIPT, startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * The in-app browser. A page is a `<webview>` guest, so Playwright's `page`

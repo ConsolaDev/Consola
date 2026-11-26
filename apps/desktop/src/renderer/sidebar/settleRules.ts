@@ -1,4 +1,5 @@
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf } from './forest';
+import type { TreeNode } from './forest';
 
 /** What a row offers about the Settled shelf. */
 export type SettleOffer =

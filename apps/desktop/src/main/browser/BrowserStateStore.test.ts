@@ -2,11 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  MAX_HISTORY_PER_WORKSPACE,
-  MAX_TABS_PER_SESSION,
-  type BrowserStateFile,
-} from '../../shared/browser';
+import { MAX_HISTORY_PER_WORKSPACE, MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type { BrowserStateFile } from '../../shared/browser';
 import {
   BrowserStateStore,
   MAX_STORED_ADDRESS_CHARS,

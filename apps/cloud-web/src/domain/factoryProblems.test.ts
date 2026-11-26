@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  type FactoryProblem,
   messageParts,
   ownProblems,
   problemCounts,
@@ -8,6 +7,7 @@ import {
   problemPath,
   sortedProblems,
 } from './factoryProblems';
+import type { FactoryProblem } from './factoryProblems';
 
 const PATHS = [
   'factory.yml',

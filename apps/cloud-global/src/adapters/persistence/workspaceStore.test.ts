@@ -1,7 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceStore } from '../../application/ports.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { schema } from './schema.js';
 import { createWorkspaceStore } from './workspaceStore.js';
 

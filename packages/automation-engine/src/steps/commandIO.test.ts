@@ -2,12 +2,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  isStepsEntry,
-  parseFactorySpec,
-  type OutputType,
-  type RunRecord,
-} from '@consola/factory-spec';
+import { isStepsEntry, parseFactorySpec } from '@consola/factory-spec';
+import type { OutputType, RunRecord } from '@consola/factory-spec';
 import { RunFolder } from '../node/runFolder';
 import type { CommandResult } from '../ports';
 import {
@@ -222,8 +218,9 @@ describe('layerCommandEnv', () => {
       'GIT_COMMON_DIR',
       'GIT_OBJECT_DIRECTORY',
       'GIT_ALTERNATE_OBJECT_DIRECTORIES',
-    ])
+    ]) {
       expect(env, name).not.toHaveProperty(name);
+    }
     expect(env).toMatchObject({
       PATH: '/bin',
       GIT_AUTHOR_NAME: 'alice',
@@ -408,8 +405,9 @@ automations:
       YARN_CACHE_FOLDER: `${CHECKOUT}/.consola-cache/yarn`,
     });
     expect(variables.CONSOLA_CHANGES_FILE).toMatch(/checkout-changes\.patch$/);
-    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) {
       expect(variables).not.toHaveProperty(name);
+    }
   });
 
   it("any other run's command keeps what it had: its head only when it has one, and nothing of a run's own checkout", () => {
@@ -426,8 +424,9 @@ automations:
       'npm_config_cache',
       'npm_config_store_dir',
       'YARN_CACHE_FOLDER',
-    ])
+    ]) {
       expect(item).not.toHaveProperty(name);
+    }
     // The record's kind is the witness: a branch and a base on any other record make it no run's own checkout.
     const named = prepared(
       {

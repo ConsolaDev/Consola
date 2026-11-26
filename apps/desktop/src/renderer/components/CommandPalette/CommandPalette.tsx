@@ -22,10 +22,8 @@ import {
   SECTION_LABELS,
   scopeForSigil,
   sigilForScope,
-  type PaletteItem,
-  type PaletteMode,
-  type PaletteScope,
 } from './types';
+import type { PaletteItem, PaletteMode, PaletteScope } from './types';
 import '../Dialogs/styles.css';
 import './styles.css';
 

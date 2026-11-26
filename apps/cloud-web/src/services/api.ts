@@ -1,4 +1,5 @@
-import createClient, { type Client } from 'openapi-fetch';
+import createClient from 'openapi-fetch';
+import type { Client } from 'openapi-fetch';
 import type { paths } from '../domain/apiContract';
 import type {
   ConnectAnswer,
@@ -8,12 +9,12 @@ import type {
 } from '../domain/connections';
 import type { MeState } from '../domain/me';
 import type { SetIconAnswer, WorkspaceIcon } from '../domain/workspaceIcons';
-import {
-  type CreateWorkspaceAnswer,
-  isWorkspaceProblem,
-  type NewWorkspace,
-  type SwitchWorkspaceAnswer,
-  type WorkspacesState,
+import { isWorkspaceProblem } from '../domain/workspace';
+import type {
+  CreateWorkspaceAnswer,
+  NewWorkspace,
+  SwitchWorkspaceAnswer,
+  WorkspacesState,
 } from '../domain/workspace';
 
 /*

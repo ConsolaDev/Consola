@@ -2,13 +2,8 @@ import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
-import {
-  automationVersion,
-  parseFactorySpec,
-  stableStringify,
-  type RunRecord,
-  type RunStatus,
-} from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import type { RunRecord, RunStatus } from '@consola/factory-spec';
 import { listDefinition } from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import type { SeenRecord } from './seenRecord';
@@ -25,10 +20,10 @@ import {
   RE_REVIEW_NAME,
   sourcesHarness,
   WORKSPACE_ID,
-  type SourcesHarness,
-  type SourcesHarnessOptions,
 } from './sources/sources.test-helpers';
-import { REVIEW_BODY, type FakeCommand } from './steps/steps.test-helpers';
+import type { SourcesHarness, SourcesHarnessOptions } from './sources/sources.test-helpers';
+import { REVIEW_BODY } from './steps/steps.test-helpers';
+import type { FakeCommand } from './steps/steps.test-helpers';
 import type { AgentRunPreview, InboxItemView, ItemTarget } from './views';
 
 /** A poll on GitHub work items, with the job and any other keys as given (each line at the entry's indent). */
@@ -706,8 +701,9 @@ describe('checking', () => {
     const yaml = factoryWith(busy('busy-a'), busy('busy-b'), RE_REVIEW_ENTRY);
     const h = await sourcesHarness({ yaml, maxConcurrentAgents: 0, maxConcurrentCommands: 2 });
     for (const automation of parseFactorySpec(yaml).automations) {
-      if (automation.trigger.kind === 'cron')
+      if (automation.trigger.kind === 'cron') {
         h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
+      }
     }
     await h.service.trigger(WORKSPACE_ID, 'busy-a');
     await h.service.trigger(WORKSPACE_ID, 'busy-b');

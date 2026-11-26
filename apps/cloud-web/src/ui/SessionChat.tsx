@@ -1,4 +1,5 @@
-import { AgentChat, type AgentChatProps } from '@consola/agent-ui';
+import { AgentChat } from '@consola/agent-ui';
+import type { AgentChatProps } from '@consola/agent-ui';
 import '@consola/agent-ui/styles.css';
 
 /**

@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { SessionStore } from '../../application/ports.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { schema } from './schema.js';
 import { createSessionStore } from './sessionStore.js';
 

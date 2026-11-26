@@ -1,16 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { automationFileText } from './edit';
 import { parseAutomationEntry } from './entry';
-import { parseFactory, type FactoryFiles, type FactoryParseResult } from './factory';
+import { parseFactory } from './factory';
+import type { FactoryFiles, FactoryParseResult } from './factory';
 import { parseFactorySpec } from './parse';
 import {
   automationVersion,
-  type RunRecord,
   stableStringify,
   stepsResolvedBody,
   TERMINAL_RUN_STATUSES,
 } from './run';
-import { isStepsEntry, type Automation } from './schema';
+import type { RunRecord } from './run';
+import { isStepsEntry } from './schema';
+import type { Automation } from './schema';
 import type { SkillFileEntry } from './skills';
 
 const tool: Automation = {
@@ -710,8 +712,9 @@ describe('the version of what slice 3 adds (Task 5)', () => {
       { checkout: { pr: 'item' as const } },
       { budget: { usd: 5 } },
       { onFailure: { retry: 1 } },
-    ])
+    ]) {
       expect(automationVersion({ ...base, ...extra })).not.toBe('6dfd57fa0f97c2ff');
+    }
     expect(automationVersion({ ...base, budget: { usd: 5 } })).not.toBe(
       automationVersion({ ...base, budget: { usd: 6 } }),
     );

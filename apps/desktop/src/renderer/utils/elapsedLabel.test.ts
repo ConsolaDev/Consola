@@ -21,6 +21,6 @@ describe('elapsedLabel', () => {
   });
 
   it('never runs backwards when a clock or a late edge puts the start ahead', () => {
-    expect(elapsedLabel(NOW + 5_000, NOW)).toBe('0s');
+    expect(elapsedLabel(NOW + 5000, NOW)).toBe('0s');
   });
 });

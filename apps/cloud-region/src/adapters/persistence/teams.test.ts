@@ -1,8 +1,10 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TeamStore } from '../../application/ports.js';
-import { FIRST_TEAM_NAME, type Team } from '../../domain/team.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { FIRST_TEAM_NAME } from '../../domain/team.js';
+import type { Team } from '../../domain/team.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { createTeamStore } from './teams.js';
 import { createWorkspaceCopies } from './workspaceCopies.js';
 
@@ -11,7 +13,7 @@ let close: () => Promise<void>;
 let teams: TeamStore;
 
 /** Opens `workspaceId` in the copy, with `members`, the way the outbox does. */
-async function workspace(workspaceId: string, members: [string, WorkspaceRole][] = []) {
+async function workspace(workspaceId: string, members: Array<[string, WorkspaceRole]> = []) {
   const copies = createWorkspaceCopies(db);
   await copies.applyAfter({
     workspaceId,

@@ -2,8 +2,10 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ICON_READ_TIMEOUT_MS, OpenInService, type OpenInServiceDeps } from './OpenInService';
-import { FINDER_PATH, type DetectedTarget } from './targets';
+import { ICON_READ_TIMEOUT_MS, OpenInService } from './OpenInService';
+import type { OpenInServiceDeps } from './OpenInService';
+import { FINDER_PATH } from './targets';
+import type { DetectedTarget } from './targets';
 
 const VS_CODE: DetectedTarget = {
   id: 'vscode',
@@ -297,12 +299,20 @@ describe('OpenInService.open', () => {
 
   it('answers a sentence, never a throw, when looking for apps or launching throws', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const lost = service({ detect: async () => Promise.reject(new Error('disk gone')) });
+    const lost = service({
+      detect: async () => {
+        throw new Error('disk gone');
+      },
+    });
     expect(await lost.openIn.open({ targetId: 'vscode', path: folder })).toEqual({
       ok: false,
       error: 'Consola found no app “vscode” on this computer.',
     });
-    const thrown = service({ launch: async () => Promise.reject(new Error('spawn EAGAIN')) });
+    const thrown = service({
+      launch: async () => {
+        throw new Error('spawn EAGAIN');
+      },
+    });
     expect(await thrown.openIn.open({ targetId: 'vscode', path: folder })).toEqual({
       ok: false,
       error: "Couldn't open the folder in VS Code: spawn EAGAIN",

@@ -1,5 +1,6 @@
 import { generateId } from './ids';
-import { INBOX_SECTIONS, sectionItemType, type InboxSection } from './inboxSections';
+import { INBOX_SECTIONS, sectionItemType } from './inboxSections';
+import type { InboxSection } from './inboxSections';
 
 /**
  * Actions: the verbs a workspace offers on a work item.
@@ -220,8 +221,9 @@ export function validateActionsWrite(
 
   for (const [section, actionId] of Object.entries(write.sectionDefaults)) {
     if (actionId === undefined) continue;
-    if (!isKnownSection(section))
+    if (!isKnownSection(section)) {
       return { ok: false, message: `Unknown inbox section: ${section}` };
+    }
     const action = write.actions.find((candidate) => candidate.id === actionId);
     if (!action) {
       return {

@@ -1,4 +1,5 @@
-import { expect, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 
 /** ⌥⌘J: shows or hides the info panel. */
 export function infoPanelChord(): string {

@@ -11,7 +11,14 @@ import { schema } from './schema.js';
  */
 
 /** Better Auth's tables in `cloud-global`, which never have a copy in a cell. */
-const ACCOUNT_TABLES = ['user', 'session', 'account', 'verification', 'member', 'invitation'];
+const ACCOUNT_TABLES = new Set([
+  'user',
+  'session',
+  'account',
+  'verification',
+  'member',
+  'invitation',
+]);
 
 /** Every way the tables in `exports` break the rules, as `<table> …`. */
 function violationsOf(exports: Record<string, unknown>): string[] {
@@ -20,7 +27,7 @@ function violationsOf(exports: Record<string, unknown>): string[] {
     .flatMap((table) => {
       const { name, columns } = getTableConfig(table);
       const problems: string[] = [];
-      if (ACCOUNT_TABLES.includes(name)) problems.push(`${name} is an account table`);
+      if (ACCOUNT_TABLES.has(name)) problems.push(`${name} is an account table`);
       const workspace = columns.find((column) => column.name === 'workspace_id');
       if (!workspace) problems.push(`${name} has no workspace_id`);
       else if (!workspace.notNull) problems.push(`${name} has a nullable workspace_id`);

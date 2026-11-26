@@ -1,4 +1,5 @@
-import React, { Component, type ReactNode } from 'react';
+import React, { Component } from 'react';
+import type { ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Theme } from '@radix-ui/themes';
 import App from '../../desktop/src/renderer/App';
@@ -29,7 +30,9 @@ class DemoBoundary extends Component<{ children: ReactNode }, { failed: boolean 
       <div className="demo-error">
         <h1>Let’s start fresh.</h1>
         <p>The demo hit an unexpected state.</p>
-        <button onClick={() => location.reload()}>Reset demo</button>
+        <button type="button" onClick={() => location.reload()}>
+          Reset demo
+        </button>
       </div>
     ) : (
       this.props.children
@@ -60,7 +63,7 @@ function Root() {
       {notice && (
         <div className="demo-notice" role="status">
           {notice}
-          <button aria-label="Dismiss demo notice" onClick={() => setNotice('')}>
+          <button type="button" aria-label="Dismiss demo notice" onClick={() => setNotice('')}>
             ×
           </button>
         </div>
@@ -74,31 +77,36 @@ async function openChanges() {
   useSidePanelStore.getState().openKind('changes');
   await useGitStatusStore.getState().refresh('/demo/acme/platform');
 }
-document.addEventListener('demo:changes', async (event) => {
+async function showChanges(event: Event): Promise<void> {
   await useGitStatusStore.getState().refresh((event as CustomEvent<string>).detail);
   useSidePanelStore.getState().openKind('changes');
-});
-window.addEventListener('message', async (event) => {
+}
+document.addEventListener('demo:changes', (event) => void showChanges(event));
+async function runDemoCommand(event: MessageEvent): Promise<void> {
+  const data = event.data as { type?: unknown; command?: unknown } | null;
   if (
     event.origin !== location.origin ||
     event.source !== window.parent ||
-    event.data?.type !== 'consola:demo-command'
-  )
+    data?.type !== 'consola:demo-command'
+  ) {
     return;
-  if (event.data.command === 'home') {
+  }
+  if (data.command === 'home') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().setActiveSession('onboarding');
     useSidePanelStore.getState().setVisible(false);
   }
-  if (event.data.command === 'personal')
+  if (data.command === 'personal') {
     await useNavigationStore.getState().setActiveWorkspace('personal');
-  if (event.data.command === 'inbox') {
+  }
+  if (data.command === 'inbox') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().openInbox();
   }
-  if (event.data.command === 'changes') await openChanges();
-  if (event.data.command === 'reset') location.reload();
-});
+  if (data.command === 'changes') await openChanges();
+  if (data.command === 'reset') location.reload();
+}
+window.addEventListener('message', (event) => void runDemoCommand(event));
 // As the desktop's own bootstrap does: the browser panel shows only what is
 // pushed, so the subscription comes before anything can open a tab.
 subscribeToBrowser();

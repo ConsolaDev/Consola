@@ -152,8 +152,9 @@ function afterRound(k: number, entries: StepEntry[] = ENTRIES, block = POLISH): 
   let rows = withStep(stepRecordsOf(entries), 'fix', { status: 'completed' });
   for (let round = 1; round <= k; round++) {
     rows = withRound(rows, block, round, T0);
-    for (const inner of block.steps)
+    for (const inner of block.steps) {
       rows = withStep(rows, inner.id, { status: 'completed', finishedAt: T0 });
+    }
   }
   return rows;
 }
@@ -455,8 +456,9 @@ describe('retryTargetOf and retrySteps, with loops', () => {
       'review',
     );
     expect(retried).toMatchObject({ status: 'pending', attempt: 2 });
-    for (const key of ['retries', 'note', 'retryAt', 'gate', 'error'])
+    for (const key of ['retries', 'note', 'retryAt', 'gate', 'error']) {
       expect(retried).not.toHaveProperty(key);
+    }
   });
 
   it('retries a step with no loop exactly as before', () => {
@@ -524,8 +526,9 @@ describe('restartSteps', () => {
       previous: [{ attempt: 1, status: 'completed' }],
     });
     expect(byId(restarted, 'polish')).toMatchObject({ status: 'pending', attempt: 2 });
-    for (const key of ['round', 'max', 'note'])
+    for (const key of ['round', 'max', 'note']) {
       expect(byId(restarted, 'polish')).not.toHaveProperty(key);
+    }
     expect(byId(restarted, 'review')).toMatchObject({ status: 'pending', attempt: 3 });
     expect(byId(restarted, 'review')).not.toHaveProperty('round');
     expect(

@@ -1,31 +1,32 @@
 import { generateKeyPairSync } from 'node:crypto';
 import type { AddressInfo } from 'node:net';
-import { type ServerType, serve } from '@hono/node-server';
+import { serve } from '@hono/node-server';
+import type { ServerType } from '@hono/node-server';
 import {
-  type CellMessage,
   PASS_MAX_LIFETIME_SECONDS,
-  type PassClaims,
   passClaims,
   readCellMessage,
   readPassClaims,
-  type RunnerHello,
 } from '@consola/runner-protocol';
+import type { CellMessage, PassClaims, RunnerHello } from '@consola/runner-protocol';
 import { Hono } from 'hono';
 import { compactVerify, importSPKI } from 'jose';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { CloudSessionStore } from '../../application/ports.js';
 import type { CloudSession, CloudSessionStatus } from '../../domain/cloudSession.js';
-import { type Database, migrateDatabase, openDatabase } from '../persistence/database.js';
+import { migrateDatabase, openDatabase } from '../persistence/database.js';
+import type { Database } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
-import { createPassSigner, type PassKey } from '../token/passSigner.js';
+import { createPassSigner } from '../token/passSigner.js';
+import type { PassKey } from '../token/passSigner.js';
 import {
   createRunnerSocket,
   RUNNER_FRAME_LIMIT_BYTES,
   RUNNER_SOCKET_CLOSE,
   RUNNER_SOCKET_PATH,
-  type RunnerSocket,
 } from './runnerSocket.js';
+import type { RunnerSocket } from './runnerSocket.js';
 
 /** `vi.waitFor` with a timeout in line with the suite's own, so a loaded machine does not flake. */
 const waitFor = <T>(callback: () => T | Promise<T>) =>
@@ -88,7 +89,7 @@ beforeEach(async () => {
   sessions = createCloudSessionStore(db);
   const jwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
   privateD = String(jwk.d);
-  passKey = await createPassSigner(jwk as Record<string, unknown>);
+  passKey = await createPassSigner(jwk);
   lines = [];
   afterFind = null;
   reportHook = null;

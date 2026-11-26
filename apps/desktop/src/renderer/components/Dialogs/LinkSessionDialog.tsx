@@ -3,14 +3,13 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { useInboxStore } from '../../stores/inboxStore';
-import {
-  useLinkSessionDialogStore,
-  type LinkSessionDialogMode,
-} from '../../stores/linkSessionDialogStore';
+import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
+import type { LinkSessionDialogMode } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { SearchableList } from '../SearchableList';
-import { itemRowsFor, sessionRowsFor, type LinkRow } from './linkSessionRows';
+import { itemRowsFor, sessionRowsFor } from './linkSessionRows';
+import type { LinkRow } from './linkSessionRows';
 import './styles.css';
 
 /** A key that changes whenever the dialog is opened for a different target. */
@@ -74,10 +73,10 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
     try {
       await updateSession(mode.workspaceId, row.sessionId, { workItem: row.workItem });
       onClose();
-    } catch (err) {
+    } catch (failure) {
       // Main refused (conductor, or already linked to a different item):
       // say so in place and leave the picker where it was.
-      setError(ipcErrorMessage(err));
+      setError(ipcErrorMessage(failure));
     } finally {
       setSubmitting(false);
     }
@@ -124,10 +123,16 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
           />
           {error && <span className="dialog-error">{error}</span>}
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose} disabled={submitting}>
+            <button
+              type="button"
+              className="dialog-button-secondary"
+              onClick={onClose}
+              disabled={submitting}
+            >
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => active && void submit(active)}
               disabled={!active || submitting}

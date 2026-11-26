@@ -7,26 +7,23 @@ import {
   closeGroup,
   closeTab,
   defaultLayout,
-  type Edge,
   firstFreeId,
   groupOfTab,
   groupPosition,
   groupsOf,
   isInFront,
-  type LayoutNode,
   moveTab,
   NEW_TAB,
   openKind,
   otherGroup,
   pressShortcut,
-  type SidePanelLayout,
-  type SplitOrientation,
   setVisible,
   splitWithTab,
   tabMenuItems,
   toggleMaximize,
   visibleGroups,
 } from './layout';
+import type { Edge, LayoutNode, SidePanelLayout, SplitOrientation } from './layout';
 
 const group = (id: string, tabs: string[], active: string | null = tabs[0] ?? null) =>
   ({ type: 'group', id, tabs, active }) as const;

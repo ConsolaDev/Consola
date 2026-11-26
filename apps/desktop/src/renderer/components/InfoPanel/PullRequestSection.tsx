@@ -9,15 +9,16 @@ import {
   RefreshCw,
   Tag,
 } from 'lucide-react';
-import { type ReactNode, useState } from 'react';
+import { useState } from 'react';
+import type { ReactNode } from 'react';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { WorkItemDetails } from '../../../shared/workItemDetails';
-import { sameWorkItem, type WorkItemRef, workItemUrl } from '../../../shared/workItems';
+import { sameWorkItem, workItemUrl } from '../../../shared/workItems';
+import type { WorkItemRef } from '../../../shared/workItems';
 import { useSettings } from '../../contexts/SettingsContext';
 import {
   checksLine,
   commentsLine,
-  type InfoLine,
   mergeLine,
   noAccountLine,
   reviewersSaid,
@@ -25,8 +26,11 @@ import {
   threadsLine,
   titleLabel,
 } from '../../infoPanel/pullRequestLines';
-import { detailsTargetOf, type PullRequestSectionView } from '../../infoPanel/sessionPullRequest';
-import { type TabFacts, tabKind } from '../../sidePanel/tabKinds';
+import type { InfoLine } from '../../infoPanel/pullRequestLines';
+import { detailsTargetOf } from '../../infoPanel/sessionPullRequest';
+import type { PullRequestSectionView } from '../../infoPanel/sessionPullRequest';
+import { tabKind } from '../../sidePanel/tabKinds';
+import type { TabFacts } from '../../sidePanel/tabKinds';
 import {
   useBranchLookupEntry,
   useBranchPullRequestStore,
@@ -36,11 +40,11 @@ import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import {
-  type DetailsTarget,
   useDetailsEntry,
   useWorkItemDetails,
   useWorkItemDetailsStore,
 } from '../../stores/workItemDetailsStore';
+import type { DetailsTarget } from '../../stores/workItemDetailsStore';
 import { Avatar, CheckIcon, rollupOutcome, StateBadge } from '../Inbox/WorkItemDetailParts';
 import { itemStatus, summarizeChecks } from '../Inbox/workItemDetailPresentation';
 import { RunActionMenu } from '../RunActionMenu';

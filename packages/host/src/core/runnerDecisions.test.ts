@@ -24,10 +24,10 @@ import {
   sandboxLifetimeSeconds,
   scrubSecrets,
   scrubUpdate,
-  type SandboxEnd,
   updateForExit,
   updateForLine,
 } from './runnerDecisions.ts';
+import type { SandboxEnd } from './runnerDecisions.ts';
 
 const ID = 'session-sprocket-1';
 
@@ -301,7 +301,7 @@ describe('StderrTail', () => {
 
   it('keeps a bounded tail, however much is written', () => {
     const tail = new StderrTail();
-    for (let each = 0; each < 1_000; each += 1) tail.push(`${'x'.repeat(1_000)}\n`);
+    for (let each = 0; each < 1000; each += 1) tail.push(`${'x'.repeat(1000)}\n`);
     tail.push(`${'y'.repeat(MAX_ERROR_LENGTH * 3)}\n`);
     const last = tail.lastLine() ?? '';
     expect(last.length).toBeLessThanOrEqual(MAX_ERROR_LENGTH);
@@ -517,7 +517,7 @@ describe('sandboxLifetimeSeconds', () => {
   it('never runs past the cap: what is left of it, in whole seconds, once that is shorter', () => {
     expect(sandboxLifetimeSeconds(599_999, 600)).toBe(599);
     expect(sandboxLifetimeSeconds(90_500, 600)).toBe(90);
-    expect(sandboxLifetimeSeconds(1_000, 600)).toBe(1);
+    expect(sandboxLifetimeSeconds(1000, 600)).toBe(1);
   });
 
   it('is the whole of what is left of the cap without a lease', () => {
@@ -528,7 +528,7 @@ describe('sandboxLifetimeSeconds', () => {
   it('is a second at least, the grain a provider takes, when the cap is less than one away', () => {
     expect(sandboxLifetimeSeconds(300, 600)).toBe(1);
     expect(sandboxLifetimeSeconds(0, null)).toBe(1);
-    expect(sandboxLifetimeSeconds(-5_000, 600)).toBe(1);
+    expect(sandboxLifetimeSeconds(-5000, 600)).toBe(1);
   });
 });
 
@@ -546,8 +546,8 @@ describe('lifetimeStopAfterMs', () => {
   });
 
   it('always comes before its provider may stop it: the cap less the second a lifetime is counted in, a second at least', () => {
-    for (const capMs of [300, 1_500, 2_500, 45_000, 60_500, 61_000, 8 * 3_600_000]) {
-      const providerEarliestMs = Math.max(1_000, capMs - 1_000);
+    for (const capMs of [300, 1500, 2500, 45_000, 60_500, 61_000, 8 * 3_600_000]) {
+      const providerEarliestMs = Math.max(1000, capMs - 1000);
       expect(lifetimeStopAfterMs(capMs, STOP_TIMEOUT_MS), `${capMs}`).toBeLessThan(
         providerEarliestMs,
       );
@@ -559,13 +559,13 @@ describe('lifetimeStopAfterMs', () => {
 describe('reconnectDelayMs', () => {
   it('grows with each failure and stays within half to all of its step', () => {
     expect(reconnectDelayMs(0, 0)).toBe(250);
-    expect(reconnectDelayMs(0, 0.999_999)).toBeCloseTo(500, 0);
-    expect(reconnectDelayMs(3, 0)).toBe(2_000);
+    expect(reconnectDelayMs(0, 0.999999)).toBeCloseTo(500, 0);
+    expect(reconnectDelayMs(3, 0)).toBe(2000);
   });
 
   it('is capped at 30 seconds', () => {
     expect(RECONNECT_CAP_MS).toBe(30_000);
-    expect(reconnectDelayMs(50, 0.999_999)).toBeLessThanOrEqual(30_000);
+    expect(reconnectDelayMs(50, 0.999999)).toBeLessThanOrEqual(30_000);
     expect(reconnectDelayMs(50, 0)).toBe(15_000);
   });
 });

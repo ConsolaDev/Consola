@@ -94,10 +94,11 @@ describe('a write agent whose environment a parse lost (slice 3-B)', () => {
     const asked = h.world.harnessQueries.filter((query) => query?.harnessId === 'claude-work');
     // Once for the folder's apply (`reapply`), once for the entry's resolve.
     expect(asked.length).toBeGreaterThanOrEqual(2);
-    for (const query of asked)
+    for (const query of asked) {
       expect(query).toMatchObject({
         tools: 'write',
         environment: { name: 'sandboxed', isolation: 'sandbox', network: [], env: [] },
       });
+    }
   });
 });

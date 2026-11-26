@@ -1,14 +1,8 @@
 import { Bot, FolderGit2, MessagesSquare, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { messageForCellRefusal } from '../domain/cell';
-import {
-  type CloudSession,
-  keepsShownOn,
-  listPollIntervalMs,
-  type SessionsAnswer,
-  sessionLabel,
-  startedAt,
-} from '../domain/cloudSession';
+import { keepsShownOn, listPollIntervalMs, sessionLabel, startedAt } from '../domain/cloudSession';
+import type { CloudSession, SessionsAnswer } from '../domain/cloudSession';
 import {
   HARNESS_NAMES,
   NO_SESSIONS_TITLE,

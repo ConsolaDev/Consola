@@ -1,12 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  actRefusalIn,
-  clickInPage,
-  fillInPage,
-  type PageKeyPress,
-  pressInPage,
-  scrollInPage,
-} from './pageInput';
+import { actRefusalIn, clickInPage, fillInPage, pressInPage, scrollInPage } from './pageInput';
+import type { PageKeyPress } from './pageInput';
 
 /*
  * A small stand-in for the page's DOM: just what the in-page acts touch,
@@ -702,7 +696,7 @@ describe('pressInPage', () => {
     doc.anchorNode = first;
     const selection = doc.getSelection.bind(doc);
     // A page whose selection handling puts the caret back where it was.
-    doc.getSelection = () => ({ ...selection(), addRange: () => {} }) as never;
+    doc.getSelection = () => ({ ...selection(), addRange: () => {} });
     expect(refusalOf(() => pressInPage(page(second), key({ text: 'x' })))).toBe('not-focused');
     expect(doc.edits).toEqual([]);
   });

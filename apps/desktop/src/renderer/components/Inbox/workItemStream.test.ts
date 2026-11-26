@@ -390,7 +390,8 @@ describe('label colours', () => {
       border: 'rgba(215, 58, 74, 0.4)',
     });
     const { dark, light } = labelColors('0e8a16');
-    const green = (hex: string) => parseInt(hex.slice(3, 5), 16) > parseInt(hex.slice(1, 3), 16);
+    const green = (hex: string) =>
+      Number.parseInt(hex.slice(3, 5), 16) > Number.parseInt(hex.slice(1, 3), 16);
     expect(green(dark) && green(light)).toBe(true);
   });
 });

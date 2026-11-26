@@ -1,12 +1,7 @@
 import { GITHUB_TOKEN_PURPOSES } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import {
-  grantedAsAsked,
-  scopeFor,
-  TOKEN_PURPOSES,
-  type TokenScope,
-  uncoveredRepositories,
-} from './gitHubTokens.js';
+import { grantedAsAsked, scopeFor, TOKEN_PURPOSES, uncoveredRepositories } from './gitHubTokens.js';
+import type { TokenScope } from './gitHubTokens.js';
 
 const ask = (purpose: (typeof GITHUB_TOKEN_PURPOSES)[number], repositoryIds: number[]) => ({
   installationId: 41,

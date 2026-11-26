@@ -56,7 +56,7 @@ describe('memoizeRemoteResolver', () => {
   /** The arguments of each run of the fake ssh, in order. */
   const sshRuns = () =>
     fs.existsSync(runs) ? fs.readFileSync(runs, 'utf8').split('\n').filter(Boolean) : [];
-  const NAMES_GITHUB = "printf 'user git\\nhostname github.com\\nport 22\\n'";
+  const NAMES_GITHUB = String.raw`printf 'user git\nhostname github.com\nport 22\n'`;
 
   it('never blocks main on an ssh that hangs, and answers once the lookup gives up', async () => {
     // A slow `Match exec` in the person's ssh config, say.

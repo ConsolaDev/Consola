@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  parseFactorySpec,
-  type RunRecord,
-  type StepEntry,
-  type StepRun,
-} from '@consola/factory-spec';
+import { parseFactorySpec } from '@consola/factory-spec';
+import type { RunRecord, StepEntry, StepRun } from '@consola/factory-spec';
 import { gateMaterialRefs, gateOffer, gateRefusal, renderGateAsk } from './gate';
 
 const T0 = '2026-11-22T09:00:00.000Z';

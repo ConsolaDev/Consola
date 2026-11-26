@@ -7,8 +7,8 @@ import {
   NO_TAB_MESSAGE,
   NO_WINDOW_MESSAGE,
   NOT_IN_TIME_MESSAGE,
-  type AgentPagesBrowser,
 } from './AgentPages';
+import type { AgentPagesBrowser } from './AgentPages';
 import type { PageAvailability } from './BrowserService';
 import { DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
 

@@ -6,11 +6,10 @@
  * without prop drilling.
  */
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import {
-  useCommandHighlighting,
-  type UseCommandHighlightingResult,
-} from './useCommandHighlighting';
+import { createContext, useContext, useMemo } from 'react';
+import type { ReactNode } from 'react';
+import { useCommandHighlighting } from './useCommandHighlighting';
+import type { UseCommandHighlightingResult } from './useCommandHighlighting';
 
 interface CommandHighlightContextValue extends UseCommandHighlightingResult {
   /** Array of available skill names */

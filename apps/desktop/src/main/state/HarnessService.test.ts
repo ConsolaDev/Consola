@@ -3,7 +3,8 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { JsonStateFile } from './JsonStateFile';
-import { HarnessService, type HarnessStateFile } from './HarnessService';
+import { HarnessService } from './HarnessService';
+import type { HarnessStateFile } from './HarnessService';
 
 let dir: string;
 let service: HarnessService;

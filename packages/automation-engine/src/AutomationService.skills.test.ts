@@ -4,14 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { factoryFilesOf, parseFactory } from '@consola/factory-spec';
 import { inboxItem } from './inboxItems.test-helpers';
 import { factoryWith, sourcesHarness } from './sources/sources.test-helpers';
-import {
-  skillFilesOf,
-  stepsHarness,
-  turnReport,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { skillFilesOf, stepsHarness, turnReport, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * A run's own copy of the skills its steps' agents name (2-C): written into

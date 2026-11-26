@@ -2,7 +2,8 @@ import { EventEmitter } from 'node:events';
 import type { BrowserWindow, WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
 import type { CertificateTrust } from './CertificateTrust';
-import { installPopupPolicy, isGestureKey, PopupRegistry, type PopupHandle } from './popupWindows';
+import { installPopupPolicy, isGestureKey, PopupRegistry } from './popupWindows';
+import type { PopupHandle } from './popupWindows';
 
 function fakePopup(): PopupHandle & { destroyed: boolean } {
   return {

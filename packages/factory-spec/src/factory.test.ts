@@ -1,13 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  factoryFilesOf,
-  isIgnoredFileName,
-  parseFactory,
-  storedFactoryFiles,
-  type FactoryFiles,
-} from './factory';
+import { factoryFilesOf, isIgnoredFileName, parseFactory, storedFactoryFiles } from './factory';
+import type { FactoryFiles } from './factory';
 import { parseFactorySpec } from './parse';
-import { skillHash, type SkillFileEntry } from './skills';
+import { skillHash } from './skills';
+import type { SkillFileEntry } from './skills';
 
 const files = (over: Partial<FactoryFiles> = {}): FactoryFiles => ({
   factoryYml: null,

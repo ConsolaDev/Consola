@@ -23,8 +23,8 @@ import {
   pullRequestDetails,
   timelineQuery,
   toThread,
-  type OwnedNodeType,
 } from './itemDetails';
+import type { OwnedNodeType } from './itemDetails';
 import type {
   WorkItemDetails as SharedWorkItemDetails,
   WorkItemMutation,
@@ -69,7 +69,7 @@ const execFileAsync = promisify(execFile);
  */
 
 const BINARY_NAME = 'gh';
-const RUN_TIMEOUT_MS = 10000;
+const RUN_TIMEOUT_MS = 10_000;
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 const WEB_HOST = 'github.com';
 /** Parallel `gh api` calls per lookup batch: quick for a handful, polite for dozens. */
@@ -430,7 +430,7 @@ export class GitHubDriver implements GitProviderDriver {
     env: NodeJS.ProcessEnv,
   ): Promise<void> {
     const mutation = workItemMutationSchema.parse(input);
-    const prOnly: WorkItemMutation['kind'][] = [
+    const prOnly: Array<WorkItemMutation['kind']> = [
       'review',
       'merge',
       'ready',
@@ -457,8 +457,9 @@ export class GitHubDriver implements GitProviderDriver {
         );
         return;
       case 'close':
-        if (mutation.reason && ref.type !== 'issue')
+        if (mutation.reason && ref.type !== 'issue') {
           throw new Error('Only an issue is closed with a reason.');
+        }
         await this.exec(
           [
             ref.type,
@@ -515,8 +516,9 @@ export class GitHubDriver implements GitProviderDriver {
           );
           return;
         }
-        if (mutation.event !== 'approve' && !mutation.body)
+        if (mutation.event !== 'approve' && !mutation.body) {
           throw new Error('A review comment is required.');
+        }
         await this.exec(
           [
             'pr',
@@ -704,12 +706,13 @@ export class GitHubDriver implements GitProviderDriver {
 
   /** A REST list, every page of it. */
   private async paginate(endpoint: string, env: NodeJS.ProcessEnv): Promise<unknown[]> {
-    const pages = JSON.parse(
+    const pages: unknown = JSON.parse(
       await this.exec(['api', '--hostname', WEB_HOST, endpoint, '--paginate', '--slurp'], env),
     );
-    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page)))
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
       throw new Error('Unexpected GitHub list response.');
-    return pages.flat();
+    }
+    return (pages as unknown[][]).flat();
   }
 
   /**
@@ -784,8 +787,9 @@ export class GitHubDriver implements GitProviderDriver {
       url.port ||
       url.username ||
       url.password
-    )
+    ) {
       return false;
+    }
     return (
       /^\/user-attachments\/assets\/[\w-]+$/.test(url.pathname) ||
       /^\/[\w.-]+\/[\w.-]+\/assets\/\d+\/[\w-]+$/.test(url.pathname)
@@ -890,7 +894,7 @@ export class GitHubDriver implements GitProviderDriver {
         binary,
         args,
         {
-          env: this.getEnv() as { [key: string]: string },
+          env: this.getEnv(),
           timeout: RUN_TIMEOUT_MS,
           maxBuffer: 1024 * 1024,
         },
@@ -919,7 +923,7 @@ export class GitHubDriver implements GitProviderDriver {
     try {
       const { stdout } = await execFileAsync(binary, args, {
         cwd,
-        env: env as { [key: string]: string },
+        env,
         maxBuffer: 10 * 1024 * 1024,
         // Unlike run(), this used to have no timeout: a hung `gh api
         // graphql` (or any exec caller) would pin

@@ -31,7 +31,12 @@ export async function readSessionModel(
       const lines = data.subarray(start).toString('utf8').split('\n');
       for (let i = lines.length - 1; i >= 0; i--) {
         try {
-          const record = JSON.parse(lines[i]);
+          const record = JSON.parse(lines[i]) as {
+            type?: unknown;
+            model?: unknown;
+            message?: { model?: unknown };
+            payload?: { model?: unknown };
+          } | null;
           const candidate =
             driver === 'claude'
               ? record?.type === 'assistant' && record.message?.model

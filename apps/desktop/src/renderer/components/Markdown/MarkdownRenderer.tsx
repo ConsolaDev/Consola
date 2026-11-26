@@ -1,11 +1,14 @@
-import React, { type ReactNode, useMemo, useState } from 'react';
-import ReactMarkdown, { type Components } from 'react-markdown';
+import React, { useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import ReactMarkdown from 'react-markdown';
+import type { Components } from 'react-markdown';
 import rehypeRaw from 'rehype-raw';
 import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
 import { ClaimsClick, ImageZoomTrigger, OpenImageContext, ZoomableImage } from './ZoomableImage';
-import { ImageViewer, type ViewedImage } from '../ImageViewer';
+import { ImageViewer } from '../ImageViewer';
+import type { ViewedImage } from '../ImageViewer';
 import { useCommandHighlightContext, HighlightedSegments } from '../HighlightedText';
 import './styles.css';
 

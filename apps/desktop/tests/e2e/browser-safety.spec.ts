@@ -5,8 +5,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile, settingsChord } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
-import { startTlsFixture, type TlsFixture } from './helpers/tlsFixture';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
+import { startTlsFixture } from './helpers/tlsFixture';
+import type { TlsFixture } from './helpers/tlsFixture';
 
 /**
  * What the in-app browser does about a page's certificate, a sign-in request

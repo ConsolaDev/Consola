@@ -1,27 +1,12 @@
 import { ContextMenu, DropdownMenu } from '@radix-ui/themes';
 import { Ellipsis, Folder, Plus, Search, Undo2, X } from 'lucide-react';
-import {
-  forwardRef,
-  type KeyboardEvent,
-  type ReactElement,
-  type ReactNode,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react';
-import { type FileEntry, fileGroups, type SkillGroup } from '../domain/factories';
+import { forwardRef, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent, ReactElement, ReactNode } from 'react';
+import { fileGroups } from '../domain/factories';
+import type { FileEntry, SkillGroup } from '../domain/factories';
 import type { FileMark } from '../domain/factoryDraft';
-import {
-  kindOfPath,
-  type NameCheck,
-  type NamingTarget,
-  NEW_KINDS,
-  type NewKind,
-  namingParts,
-  namingStart,
-} from '../domain/factoryKinds';
+import { kindOfPath, NEW_KINDS, namingParts, namingStart } from '../domain/factoryKinds';
+import type { NameCheck, NamingTarget, NewKind } from '../domain/factoryKinds';
 import {
   moreLabel,
   NEW_LABELS,

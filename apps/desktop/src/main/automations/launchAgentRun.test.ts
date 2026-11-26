@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
+import { StartedByHandError } from '@consola/automation-engine';
+import type { AgentLaunchRequest } from '@consola/automation-engine';
 import type { Harness } from '../../shared/harness';
 import type { Session, Workspace } from '../../shared/workspace';
-import { getDriver, type HarnessDriver, toolPolicyProblem } from '../drivers';
+import { getDriver, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import { compileClaudeAgent } from '../drivers/claudeAgent';
 import type { McpServerReport } from '../drivers/HarnessDriver';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
@@ -16,8 +18,8 @@ import {
   launchedWithFullTools,
   prepareItemWorktree,
   worktreeHeld,
-  type AgentLaunchDeps,
 } from './launchAgentRun';
+import type { AgentLaunchDeps } from './launchAgentRun';
 
 let root: string;
 beforeEach(() => {
@@ -49,7 +51,7 @@ function workspace(): Workspace {
     sessions: [],
     createdAt: 0,
     updatedAt: 0,
-  } as Workspace;
+  };
 }
 
 function harnessRecord(fields: Partial<Harness>): Harness {
@@ -197,12 +199,12 @@ describe('launchAgentRun', () => {
         automation: { name: 'review-requests', runId: 'run-0' },
         workItem,
         workItemAction: 'Review',
-        createdAt: 2_000,
+        createdAt: 2000,
       },
       { id: 'old', name: 'Mine, before', workItem, workItemAction: 'Review', createdAt: 500 },
     ] as unknown as Session[];
     const d = deps({ getWorkspace: () => ws });
-    const since = new Date(1_000).toISOString();
+    const since = new Date(1000).toISOString();
     const request = { ...itemRun, item: { ...itemRun.item, startedByHandSince: since } };
     await launchAgentRun(d, request);
     expect(d.launchSession).toHaveBeenCalledTimes(1);
@@ -212,7 +214,7 @@ describe('launchAgentRun', () => {
       name: 'My review',
       workItem,
       workItemAction: 'Review',
-      createdAt: 3_000,
+      createdAt: 3000,
     } as unknown as Session);
     const refused = launchAgentRun(d, request);
     await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
@@ -323,7 +325,7 @@ describe('launchAgentRun', () => {
   it('a step launch looks for a review started by hand only when the engine asks it to', async () => {
     const ws = workspace();
     ws.sessions = [
-      { id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3_000 },
+      { id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3000 },
     ] as unknown as Session[];
     const d = deps({ getWorkspace: () => ws });
     const step = {
@@ -340,7 +342,7 @@ describe('launchAgentRun', () => {
     expect(d.launchSession).toHaveBeenCalledTimes(1);
 
     // The run's first agent step, an action: checked under the Inbox's lock, after the checkout was prepared.
-    const since = new Date(1_000).toISOString();
+    const since = new Date(1000).toISOString();
     const refused = launchAgentRun(d, {
       ...itemRun,
       item: { ...itemRun.item, startedByHandSince: since },
@@ -562,7 +564,11 @@ describe('launchAgentRun', () => {
     });
 
     it('a plugin dir that cannot be built starts nothing', async () => {
-      const { driver } = watchedClaude(vi.fn(async () => Promise.reject(new Error('EACCES'))));
+      const { driver } = watchedClaude(
+        vi.fn(async () => {
+          throw new Error('EACCES');
+        }),
+      );
       const d = deps({ driverFor: () => driver });
       await expect(
         launchAgentRun(
@@ -652,7 +658,9 @@ describe('launchAgentRun', () => {
 
     it('a CLI that cannot be asked which servers it has starts nothing, and says why', async () => {
       const d = deps({
-        serversForLaunch: vi.fn(async () => Promise.reject(new Error('spawn claude ENOENT'))),
+        serversForLaunch: vi.fn(async () => {
+          throw new Error('spawn claude ENOENT');
+        }),
       });
       await expect(launchAgentRun(d, step(investigator()))).rejects.toThrow(
         /^It did not start: Couldn't ask Claude work which MCP servers it has: spawn claude ENOENT\.$/,

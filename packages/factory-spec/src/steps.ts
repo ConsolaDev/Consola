@@ -8,15 +8,8 @@
  * pointing at the key it is about, so a refusal can say why.
  */
 import { z } from 'zod';
-import {
-  checkExpression,
-  expressionPaths,
-  MAX_IF_LENGTH,
-  parseExpression,
-  type Expr,
-  type ExprType,
-  type ExpressionScope,
-} from './expression';
+import { checkExpression, expressionPaths, MAX_IF_LENGTH, parseExpression } from './expression';
+import type { Expr, ExprType, ExpressionScope } from './expression';
 import { branchPlaceholderNames } from './branchName';
 import { parseDurationMs } from './duration';
 import {
@@ -29,19 +22,21 @@ import {
   gateHasNo,
   MAX_LOOP_STEPS,
   ON_EXHAUSTED_OUTSIDE,
-  type OnExhausted,
   parseGateBody,
   parseOnExhausted,
   parseRepeatHeader,
   parseRetry,
   parseThen,
 } from './flow';
+import type { OnExhausted } from './flow';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
 import type { Trigger } from './schema';
 import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
-import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
-import { checkUsesStep, parseUsesStep, usesTexts, type UsesStep } from './uses';
+import { hasTemplateBraces, parseTemplate, templatePaths } from './template';
+import type { TemplatePath } from './template';
+import { checkUsesStep, parseUsesStep, usesTexts } from './uses';
+import type { UsesStep } from './uses';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
@@ -176,10 +171,11 @@ export function flatSteps(entries: readonly StepEntry[]): FlatStep[] {
   const flat: FlatStep[] = [];
   entries.forEach((step, index) => {
     flat.push({ step, path: [index] });
-    if (step.kind === 'repeat')
+    if (step.kind === 'repeat') {
       step.steps.forEach((inner, at) =>
         flat.push({ step: inner, block: step, path: [index, 'steps', at] }),
       );
+    }
   });
   return flat;
 }
@@ -229,10 +225,10 @@ const CHECKOUT_CHANGES_NEEDS_A_RUN_CHECKOUT =
 /** The longest path a path artifact may name. */
 export const MAX_ARTIFACT_PATH = 200;
 /** What a path artifact's path may name of the item; `cleanBranchPart` cleans each, as a branch's. */
-const PATH_PLACEHOLDERS = ['item.key', 'item.number'];
+const PATH_PLACEHOLDERS = new Set(['item.key', 'item.number']);
 const PATH_PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
 /** Folders and files a path artifact never names, at any depth, compared case aside. */
-const PATH_REFUSED_PARTS = ['.git', '.claude', '.mcp.json'];
+const PATH_REFUSED_PARTS = new Set(['.git', '.claude', '.mcp.json']);
 
 /**
  * Why `path` is not a file a path artifact may name in a run's checkout, in
@@ -244,12 +240,12 @@ const PATH_REFUSED_PARTS = ['.git', '.claude', '.mcp.json'];
 export function artifactPathProblem(path: string): string | null {
   const words = `\`${path}\` is not a path in the checkout: no leading \`/\`, no \`..\`, nothing under \`.git/\` or \`.claude/\`, not \`.mcp.json\`, at most ${MAX_ARTIFACT_PATH} characters.`;
   if (path.length > MAX_ARTIFACT_PATH || /[\\\u0000-\u001f\u007f]/.test(path)) return words;
-  if (branchPlaceholderNames(path).some((name) => !PATH_PLACEHOLDERS.includes(name))) return words;
+  if (branchPlaceholderNames(path).some((name) => !PATH_PLACEHOLDERS.has(name))) return words;
   if (/[{}]/.test(path.replace(PATH_PLACEHOLDER, 'x'))) return words;
   // An empty part is an empty path, a leading or trailing `/`, or `//`.
   for (const part of path.split('/')) {
     if (part === '' || part === '.' || part === '..') return words;
-    if (PATH_REFUSED_PARTS.includes(part.toLowerCase())) return words;
+    if (PATH_REFUSED_PARTS.has(part.toLowerCase())) return words;
   }
   return null;
 }
@@ -278,7 +274,7 @@ const STEP_SKILLS_AND_SERVERS =
   'Name skills and servers in an agent file (`agents/<name>.md`), then set `agent:` on this step.';
 
 /** Outputs and artifacts share a namespace; these two names are taken before either is declared. */
-const RESERVED_OUTPUT_NAMES = ['handover', 'output'];
+const RESERVED_OUTPUT_NAMES = new Set(['handover', 'output']);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -340,7 +336,7 @@ function parseOutputType(name: string, value: unknown, fail: Fail): OutputType |
       }
       seen.add(entry);
     }
-    return { type: 'enum', values: [...values] as string[] };
+    return { type: 'enum', values: [...(values as string[])] };
   }
   const type = value.type;
   if (type === 'integer' || type === 'number') {
@@ -420,7 +416,7 @@ function parseOutputs(raw: unknown, fail: Fail): Record<string, OutputType> | nu
   const outputs: Record<string, OutputType> = {};
   let ok = true;
   for (const name of names) {
-    if (RESERVED_OUTPUT_NAMES.includes(name)) {
+    if (RESERVED_OUTPUT_NAMES.has(name)) {
       fail(
         `\`${name}\` is reserved: a step's handover and its \`output\` are artifacts, read as \`steps.<id>.${name}\`.`,
         ['outputs', name],
@@ -536,7 +532,7 @@ function parseIdAndIf(
 }
 
 /** A gate takes these keys and no other: it asks a person and runs nothing. */
-const GATE_STEP_KEYS = ['id', 'if', 'then', 'gate'];
+const GATE_STEP_KEYS = new Set(['id', 'if', 'then', 'gate']);
 
 /**
  * One leaf step, its issues at `[index, …]`. `position` is its place in
@@ -551,7 +547,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     );
     return null;
   }
-  if ('uses' in raw)
+  if ('uses' in raw) {
     return parseUsesStep(raw, failAt, {
       idAndIf: (given, bad) => parseIdAndIf(given, position, bad),
       outputs: parseOutputs,
@@ -567,6 +563,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
               ? laterKeyMessage(key)
               : undefined,
     });
+  }
   let ok = true;
   const bad: Fail = (message, path) => {
     ok = false;
@@ -575,8 +572,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 
   // A gate: every key it does not take is one it would run.
   if ('gate' in raw) {
-    for (const key of Object.keys(raw))
-      if (!GATE_STEP_KEYS.includes(key)) bad(gateHasNo(key), [key]);
+    for (const key of Object.keys(raw)) if (!GATE_STEP_KEYS.has(key)) bad(gateHasNo(key), [key]);
     const { id, named, condition } = parseIdAndIf(raw, position, bad);
     const body = parseGateBody(raw.gate, bad);
     const stop = 'then' in raw ? parseThen(raw.then, bad) : undefined;
@@ -594,17 +590,17 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
   // Keys: later slices', then strangers.
   for (const key of Object.keys(raw)) {
     if (ALL_KEYS.has(key)) continue;
-    if (key === 'inputs')
+    if (key === 'inputs') {
       bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
-    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
+    } else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
     else if (key === 'on_exhausted') bad(ON_EXHAUSTED_OUTSIDE, [key]);
-    else if (key === 'environment')
+    else if (key === 'environment') {
       bad('run' in raw ? ENVIRONMENT_ON_A_COMMAND : ENVIRONMENT_IN_AGENT_FILE, [key]);
-    else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
+    } else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key)) {
       bad(RUN_KEYS_ON_A_STEP[key], [key]);
-    else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
+    } else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key)) {
       bad(laterKeyMessage(key), [key]);
-    else bad(`Unrecognized key in a step: ${key}.`, [key]);
+    } else bad(`Unrecognized key in a step: ${key}.`, [key]);
   }
 
   const present = ONE_OF.filter((key) => key in raw);
@@ -631,11 +627,12 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     const given = raw.outputs;
     if (kind === 'run' && isRecord(given) && given.from === 'stdout') {
       const extra = Object.keys(given).filter((key) => key !== 'from' && key !== 'format');
-      if (extra.length > 0)
+      if (extra.length > 0) {
         bad(`\`${extra[0]}\` is not a key here; write \`{ from: stdout, format: json }\`.`, [
           'outputs',
           extra[0],
         ]);
+      }
       const format = given.format;
       if (format !== 'json' && format !== 'text') {
         bad('Say how to read stdout: `format: json` or `format: text`.', ['outputs', 'format']);
@@ -757,22 +754,23 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
   if ('agent' in raw) {
     const given = raw.agent;
     if (typeof given === 'string' && AUTOMATION_NAME_PATTERN.test(given)) agent = given;
-    else if (typeof given === 'string' && /[/@]/.test(given))
+    else if (typeof given === 'string' && /[/@]/.test(given)) {
       bad('Pinned references arrive with shared factories.', ['agent']);
-    else
+    } else {
       bad(
         "Expected `agent` to be an agent's name, its file agents/<name>.md without `.md`: e.g. `agent: investigator`.",
         ['agent'],
       );
+    }
   }
 
   let handover: 'required' | 'optional' = 'optional';
   const artifacts: string[] = [];
   const pathArtifacts: Array<{ name: string; path: string }> = [];
   if ('artifacts' in raw) {
-    if (!Array.isArray(raw.artifacts))
+    if (!Array.isArray(raw.artifacts)) {
       bad('Expected `artifacts` to be a list of names.', ['artifacts']);
-    else {
+    } else {
       for (const entry of raw.artifacts) {
         // A name, or `{ name, path }`: a file the step leaves in its run's checkout (slice 3-B).
         let name: unknown = entry;
@@ -828,9 +826,9 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 
   const reads: string[] = [];
   if ('reads' in raw) {
-    if (!Array.isArray(raw.reads))
+    if (!Array.isArray(raw.reads)) {
       bad('Expected `reads` to be a list of `<step>.<artifact>` names.', ['reads']);
-    else {
+    } else {
       for (const entry of raw.reads) {
         const ref = typeof entry === 'string' ? parseReadRef(entry) : null;
         if (!ref) {
@@ -845,9 +843,9 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
             `\`${entry as string}\` is not a step and one of its documents, e.g. \`review.handover\`.`,
             ['reads'],
           );
-        } else if (reads.includes(entry as string))
+        } else if (reads.includes(entry as string)) {
           bad(`\`${entry as string}\` is listed twice.`, ['reads']);
-        else reads.push(entry as string);
+        } else reads.push(entry as string);
       }
     }
   }
@@ -895,7 +893,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 }
 
 /** A loop takes these keys; `then` and `on_failure` are refused with why, anything else by name. */
-const BLOCK_KEYS = ['id', 'if', 'repeat', 'steps', 'on_exhausted'];
+const BLOCK_KEYS = new Set(['id', 'if', 'repeat', 'steps', 'on_exhausted']);
 
 /**
  * One `repeat:` block at `index`, its place in record order `position`: its
@@ -914,17 +912,17 @@ function parseBlock(
     fail(message, [index, ...path]);
   };
   for (const key of Object.keys(raw)) {
-    if (BLOCK_KEYS.includes(key)) continue;
-    if (key === 'then')
+    if (BLOCK_KEYS.has(key)) continue;
+    if (key === 'then') {
       bad('`then:` goes on a step; a loop ends by its `until` or its `on_exhausted`.', [key]);
-    else if (key === 'on_failure')
+    } else if (key === 'on_failure') {
       bad(
         "`on_failure` goes on a step or on the automation; a loop's rounds are bounded by `max`.",
         [key],
       );
-    else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
+    } else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key)) {
       bad(RUN_KEYS_ON_A_STEP[key], [key]);
-    else bad(`Unrecognized key in a loop: ${key}.`, [key]);
+    } else bad(`Unrecognized key in a loop: ${key}.`, [key]);
   }
   if (!('id' in raw)) bad('A loop needs an `id`, e.g. `id: polish`.');
   const { id, named, condition } = parseIdAndIf(raw, position, bad);
@@ -1017,8 +1015,9 @@ export function stepsSchema(): z.ZodType<StepEntry[], unknown> {
     };
     for (const { step, index } of entries) {
       unique(step.id, [index]);
-      if (step.kind === 'repeat')
+      if (step.kind === 'repeat') {
         step.steps.forEach((inner, at) => unique(inner.id, [index, 'steps', at]));
+      }
     }
     return ok ? entries.map(({ step }) => step) : z.NEVER;
   });
@@ -1323,48 +1322,56 @@ export function checkSteps(
       return;
     }
 
-    if (step.kind === 'agent' && step.action !== undefined && actionProblem)
+    if (step.kind === 'agent' && step.action !== undefined && actionProblem) {
       fail(actionProblem, at('action'));
+    }
 
     // Only what cannot have acted retries by itself (Call 8): a command that is not safe to run in a dry run may push or post.
     if (
       (step.kind === 'run' || step.kind === 'uses') &&
       (step.onFailure?.retry ?? 0) > 0 &&
       step.dryRun !== 'run'
-    )
+    ) {
       fail(
         step.kind === 'run'
           ? `\`${step.id}\` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.`
           : `\`${step.id}\` calls a tool that may post or change things, so it never retries by itself; a person retries it from the run page.`,
         at('on_failure'),
       );
+    }
 
     if (step.if !== undefined) here.condition(step.if, at('if'));
 
-    if (step.kind === 'agent')
+    if (step.kind === 'agent') {
       step.reads.forEach((read, readIndex) => here.document(read, at('reads', readIndex)));
+    }
     // A path artifact's placeholders name what the items have, as a run-owned branch's do (slice 3-B).
     if (step.kind === 'agent') {
       for (const { path: file } of step.pathArtifacts ?? []) {
         const names = branchPlaceholderNames(file);
-        if (itemKind === 'none' && names.length > 0)
+        if (itemKind === 'none' && names.length > 0) {
           fail(`\`{{${names[0]}}}\`: ${noItem}`, at('artifacts'));
-        else if (itemKind === 'untrusted' && names.includes('item.number'))
+        } else if (itemKind === 'untrusted' && names.includes('item.number')) {
           fail("A poll's items have no number; use `{{item.key}}`.", at('artifacts'));
+        }
       }
     }
-    if (step.kind === 'gate')
+    if (step.kind === 'gate') {
       step.show.forEach((shown, showIndex) => here.document(shown, at('gate', 'show', showIndex)));
+    }
 
-    if (step.kind === 'agent' && step.prompt !== undefined)
+    if (step.kind === 'agent' && step.prompt !== undefined) {
       here.text(step.prompt, 'prompt', at('prompt'));
+    }
     if (step.kind === 'gate') here.text(step.ask, 'prompt', at('gate', 'ask'));
     if (step.kind === 'run') {
-      for (const [name, value] of Object.entries(step.env))
+      for (const [name, value] of Object.entries(step.env)) {
         here.text(value, 'env', at('env', name));
+      }
     }
-    if (step.kind === 'uses')
+    if (step.kind === 'uses') {
       checkUsesStep(step, (ref) => here.templateProblem(ref, 'env'), at, fail);
+    }
   });
 }
 
@@ -1467,8 +1474,9 @@ function ifItemProblems(
               ? 'number'
               : 'boolean';
         if (op !== '==' && op !== '!=') {
-          if (type.kind !== 'number' || literal !== 'number')
+          if (type.kind !== 'number' || literal !== 'number') {
             problems.push(`\`${node.text}\`: \`${op}\` compares numbers`);
+          }
           return;
         }
         if (type.kind !== literal) {
@@ -1512,8 +1520,9 @@ export function stepItemFieldProblems(
   for (const { conditions, texts } of itemUses(entries)) {
     for (const condition of conditions) {
       const parsed = parseExpression(condition);
-      if (parsed.ok)
+      if (parsed.ok) {
         problems.push(...ifItemProblems(parsed.expr, (name, text) => lookup(name, text)?.type));
+      }
     }
     for (const [text, where] of texts) {
       for (const ref of templatePaths(text)) {

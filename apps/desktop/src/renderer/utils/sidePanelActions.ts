@@ -8,13 +8,8 @@ import {
   keyboardToConversation,
 } from '../components/SidePanel/keyboardAfterClose';
 import { isInFront } from '../sidePanel/layout';
-import {
-  shortcutActs,
-  tabFactsFor,
-  tabKind,
-  type TabFacts,
-  type TabKindId,
-} from '../sidePanel/tabKinds';
+import { shortcutActs, tabFactsFor, tabKind } from '../sidePanel/tabKinds';
+import type { TabFacts, TabKindId } from '../sidePanel/tabKinds';
 import { foundPullRequestNow } from '../stores/branchPullRequestStore';
 import { useCheckoutStore } from '../stores/checkoutStore';
 import { infoPanelShownNow, toggleInfoPanel } from '../stores/infoPanelRoomStore';

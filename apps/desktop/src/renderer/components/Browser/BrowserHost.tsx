@@ -1,13 +1,7 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type RefObject,
-} from 'react';
-import { browserPartitionFor, type BrowserTabSnapshot } from '../../../shared/browser';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { RefObject } from 'react';
+import { browserPartitionFor } from '../../../shared/browser';
+import type { BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
 import {
   dropAuthRequest,
@@ -29,8 +23,8 @@ import {
   pagePresence,
   retryDelayMs,
   visibleTabId,
-  type PagePresence,
 } from './browserView';
+import type { PagePresence } from './browserView';
 import './styles.css';
 
 /**
@@ -213,6 +207,7 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
         ref={webviewRef}
         className="browser-page-webview"
         src={initial.src}
+        // oxlint-disable-next-line react/no-unknown-property -- an Electron <webview> attribute
         partition={initial.partition}
         // Tells Electron this guest may ask for windows, which main's popup
         // policy then decides. A string, not `true`: React drops a boolean
