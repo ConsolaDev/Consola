@@ -21,8 +21,32 @@ export const BRANCH_PLACEHOLDERS = ['item.key', 'item.number', 'run.id'] as cons
 /** The longest a cleaned value may be before its hash is added. */
 const MAX_PART = 60;
 
-/** A placeholder as a template writes it, spaces allowed inside the braces. */
-const PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
+/**
+ * A placeholder as a template writes it, spaces allowed inside the braces,
+ * which `nameOf` trims. Everything between the braces is one group, so no
+ * space can be matched two ways (a lazy group beside `\s*` backtracks
+ * quadratically over a long run of spaces).
+ */
+const PLACEHOLDER = /\{\{([^{}]*)\}\}/g;
+
+/** A placeholder's name, as written between its braces. */
+const nameOf = (inside: string): string => inside.trim();
+
+/** `part` without the dashes and dots at either end. A loop: `[-.]+$` backtracks quadratically. */
+function withoutEdgeDashesAndDots(part: string): string {
+  let start = 0;
+  let end = part.length;
+  while (start < end && (part[start] === '-' || part[start] === '.')) start++;
+  while (end > start && (part[end - 1] === '-' || part[end - 1] === '.')) end--;
+  return part.slice(start, end);
+}
+
+/** `part` without every `.lock` it ends with. */
+function withoutLockSuffixes(part: string): string {
+  let rest = part;
+  while (rest.endsWith('.lock')) rest = rest.slice(0, -'.lock'.length);
+  return rest;
+}
 
 function shortHash(value: string): string {
   return sha256Hex(value).slice(0, 8);
@@ -32,7 +56,7 @@ function shortHash(value: string): string {
 function trimmed(part: string): string {
   let current = part;
   for (;;) {
-    const next = current.replace(/^[-.]+|[-.]+$/g, '').replace(/(\.lock)+$/, '');
+    const next = withoutLockSuffixes(withoutEdgeDashesAndDots(current));
     if (next === current) return current;
     current = next;
   }
@@ -68,7 +92,8 @@ export interface BranchValues {
  * and the entry's checks keep from reaching a run.
  */
 export function renderBranch(template: string, values: BranchValues): string {
-  return template.replace(PLACEHOLDER, (_whole, name: string) => {
+  return template.replace(PLACEHOLDER, (_whole, inside: string) => {
+    const name = nameOf(inside);
     if (name === 'item.key') {
       if (values.itemKey === undefined) throw new Error('This run has no item.key for its branch.');
       return cleanBranchPart(values.itemKey);
@@ -114,7 +139,7 @@ export function refFormatProblem(name: string): string | null {
 
 /** The placeholders a template names, in order (`item.key`, …), as written between the braces. */
 export function branchPlaceholderNames(template: string): string[] {
-  return [...template.matchAll(PLACEHOLDER)].map((match) => match[1]);
+  return [...template.matchAll(PLACEHOLDER)].map((match) => nameOf(match[1]));
 }
 
 /** The values a template is checked with: an item `SHOP-42`, number 42, run `3f2a91c0`. */
