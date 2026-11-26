@@ -13,7 +13,7 @@
  * arrive with. The hash is the file's say, not its spelling: what the
  * version of every entry whose agent names it covers.
  */
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256';
 import { LineCounter, parseDocument } from 'yaml';
 import { closestNode, formatPath } from './issues';
 import type { FactorySpecIssue } from './issues';
@@ -100,9 +100,7 @@ export function looksLikeCredential(name: string): boolean {
 /** sha256 of what the file says (`stableStringify({ isolation, network, env, description })`), full hex. */
 export function environmentHash(environment: Omit<EnvironmentDefinition, 'hash' | 'name'>): string {
   const { isolation, network, env, description } = environment;
-  return createHash('sha256')
-    .update(stableStringify({ isolation, network, env, description }))
-    .digest('hex');
+  return sha256Hex(stableStringify({ isolation, network, env, description }));
 }
 
 /** Why a name `env:` lists is refused, or null. */

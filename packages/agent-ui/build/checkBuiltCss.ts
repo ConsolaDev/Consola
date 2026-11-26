@@ -33,9 +33,13 @@ import {
   SCOPE_CLASS,
 } from './scopeCss.ts';
 
-/** Consola's own rules (`src/styles.css`), which name the chat's elements directly. */
+/**
+ * Consola's own rules (`src/styles.css`), which name the chat's elements directly: its root, and
+ * the popups' portals `AgentChat` marks as the chat's (the portal itself, as a box).
+ */
 const OWN_PREFIXES = [
   `.${SCOPE_CLASS}`,
+  `.${PORTAL_CLASS}`,
   `:where([data-theme]) .${SCOPE_CLASS}`,
   `:where([data-theme]) .${PORTAL_CLASS}`,
 ].map(compact);

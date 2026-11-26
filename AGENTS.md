@@ -119,8 +119,9 @@ The script also holds four rules the package graph cannot see:
   imports the desktop's renderer by path, not as a dependency.
 - A change to the desktop's or cloud-web's CSS that `@consola/agent-ui`'s
   page tests read as files (`src/testing/embeddingPages.ts`: the desktop's
-  `global.css` and theme tokens, cloud-web's `ui/styles.css`, and the Radix
-  Themes stylesheet its `package.json` or the lockfile installs) checks
+  `global.css` and theme tokens, cloud-web's `ui/styles.css` and
+  `ui/Sessions.css`, and the Radix Themes stylesheet its `package.json` or the
+  lockfile installs) checks
   agent-ui too. `ci-scope.test.mjs` fails when that module reads a file the
   rule does not name.
 - A change to CI itself, the root `package.json`, `pnpm-workspace.yaml`,
@@ -228,7 +229,7 @@ person. The cell signs each session's pass with a key of its own
 (`PASS_PRIVATE_KEY`), never `cloud-global`'s, and in the cell only
 `adapters/token` imports `jose`; the runner's socket (`adapters/runner`) may
 use `hono` and `@hono/node-ws`. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with four
+imports from the desktop, the website, another app or `packages/*`, with five
 exceptions. `cloud-global` and `cloud-region` both import
 `packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
 the regions, the workspace roles, the claims of the token `cloud-global` mints
@@ -244,11 +245,14 @@ so any layer of the cell may import it; before changing it, read
 `packages/runner-protocol/AGENTS.md`. And `cloud-region` imports
 `packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
 every runner shares, to check the factory files it stores; it does no I/O
-either, so any layer of the cell may import it. Last, `cloud-web`'s `ui`
-imports `packages/agent-ui` (`@consola/agent-ui`, MIT), the chat a running
-cloud session's page mounts, with its stylesheet: the app's one workspace
-package, and only there (its `boundary.test.ts`), never in `domain`,
-`services` or a test. Setup is in `apps/cloud-global/README.md` and
+either, so any layer of the cell may import it. `cloud-web`'s `domain`
+imports it too, and only there (its `boundary.test.ts`), so a factory's
+definition page checks the files as the person edits them with the very rules
+the cell saves them by. It holds no Node builtin, so it loads in a browser
+(its `sha256.test.ts`). Last, `cloud-web`'s `ui` imports `packages/agent-ui`
+(`@consola/agent-ui`, MIT), the chat a running cloud session's page mounts,
+with its stylesheet, and only there, never in `domain`, `services` or a
+test. Setup is in `apps/cloud-global/README.md` and
 `apps/cloud-region/README.md`. Before
 changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
 `apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer

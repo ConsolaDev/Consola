@@ -45,15 +45,17 @@ const WEBSITE_DEPLOY = new Set(['vercel.json', '.vercelignore']);
 /**
  * Files of other apps the chat view's page tests read at test time
  * (packages/agent-ui/src/testing/embeddingPages.ts): the desktop's tokens and
- * global.css, and cloud-web's own CSS and the Radix Themes stylesheet in its
- * node_modules, which its package.json (or the lockfile, within its range)
- * decides. ci-scope.test.mjs checks every file that module reads is here.
+ * global.css, and cloud-web's own CSS (its session page's included) and the
+ * Radix Themes stylesheet in its node_modules, which its package.json (or the
+ * lockfile, within its range) decides. ci-scope.test.mjs checks every file that
+ * module reads is here.
  */
 const AGENT_UI_READS = new Set([
   'apps/desktop/src/renderer/styles/global.css',
   'apps/desktop/src/renderer/styles/themes/tokens.css',
   'apps/desktop/src/renderer/styles/themes/light.css',
   'apps/cloud-web/src/ui/styles.css',
+  'apps/cloud-web/src/ui/Sessions.css',
   'apps/cloud-web/package.json',
 ]);
 const LOCKFILE = 'pnpm-lock.yaml';

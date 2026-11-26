@@ -10,7 +10,7 @@
  * that is text), two paths that are one file where case or accents are
  * ignored, and anything but regular files and folders.
  */
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256';
 import { readFrontmatter, splitFrontmatter } from './frontmatter';
 import type { FactorySpecIssue } from './issues';
 import { stableStringify } from './run';
@@ -360,8 +360,6 @@ export function parseSkill(
  * renamed changes it; the order the entries come in does not.
  */
 export function skillHash(files: ReadonlyArray<{ path: string; bytes: Uint8Array }>): string {
-  const listed = [...files]
-    .sort(byPath)
-    .map((entry) => [entry.path, createHash('sha256').update(entry.bytes).digest('hex')]);
-  return createHash('sha256').update(stableStringify(listed)).digest('hex');
+  const listed = [...files].sort(byPath).map((entry) => [entry.path, sha256Hex(entry.bytes)]);
+  return sha256Hex(stableStringify(listed));
 }

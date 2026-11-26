@@ -298,8 +298,9 @@ and the routes in `adapters/http/factories.ts`.
   `parseFactory` checks every file and the references across them. Any issue
   refuses the whole set: 400 `invalid_files`, with every issue in
   factory-spec's shape (`file`, `line`, `message`…). Never write a second
-  schema here. `folderOf` sorts the files as the folder's reader would, into
-  records built by `Object.fromEntries`, so a name such as `__proto__` is
+  schema here. factory-spec's `storedFactoryFiles` sorts the files as the
+  folder's reader would (the web app checks a set being edited with it too),
+  into records built by `Object.fromEntries`, so a name such as `__proto__` is
   checked, never lost. A body over `SAVE_BODY_MAX` is 413 `too_large` before
   it is read.
 - **Versions.** A factory is made blank: version 1, holding no files. Each

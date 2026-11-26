@@ -19,9 +19,10 @@ it('connects and shows the thread, titled as the thread is, with nothing said an
   await commands.takePageNoise();
   await mountChat({ hostUrl, pass, sessionId });
   await expect.element(answerOf(assistantText)).toBeVisible();
-  // The header reads the title from the thread's row in the host's shell, which the host keeps
+  // t3's header reads the title from the thread's row in the host's shell, which the host keeps
   // as the thread is: a row it left behind would still say the first message or "New thread".
-  await expect.element(page.getByText(threadTitle, { exact: true })).toBeVisible();
+  // The header renders, but is not shown (`styles.css`): the page around the chat names it.
+  await expect.element(page.getByText(threadTitle, { exact: true })).toBeInTheDocument();
   // Once connected, t3's client reads the session's scopes, its shell and its thread; a refused
   // shell is retried with a backoff, so a few seconds show whether anything is asked again.
   await new Promise((resolve) => setTimeout(resolve, 2000));

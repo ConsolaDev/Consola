@@ -617,3 +617,54 @@ export function factoryFilesOf(
   }
   return files;
 }
+
+const STORED_AUTOMATION = /^automations\/([^/]+)\.yaml$/;
+const STORED_AGENT = /^agents\/([^/]+)\.md$/;
+const STORED_SKILL = /^skills\/([^/]+)\/(.+)$/;
+const utf8 = new TextEncoder();
+
+/**
+ * A stored factory's files, a path inside the folder and its text each, as `parseFactory` takes a
+ * folder: each file where the folder's reader would put it, a file under a later slice's folder
+ * (`LATER_FOLDERS`) as that folder being there, and any other path a stray, which the parser
+ * refuses as the folder's reader does. The records are made with `Object.fromEntries`, so a name
+ * such as `__proto__` is a key like any other, never lost.
+ *
+ * The cell checks a set it is asked to store with this, and the web app the set a person is
+ * editing, so the two read a set one way.
+ */
+export function storedFactoryFiles(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): FactoryFiles {
+  let factoryYml: string | null = null;
+  const automations: Array<[string, string]> = [];
+  const agents: Array<[string, string]> = [];
+  const skills = new Map<string, SkillFileEntry[]>();
+  const laterFolders = new Set<string>();
+  const stray: string[] = [];
+  for (const { path, content } of files) {
+    const automation = STORED_AUTOMATION.exec(path);
+    const agent = STORED_AGENT.exec(path);
+    const skill = STORED_SKILL.exec(path);
+    const folder = path.split('/')[0] ?? '';
+    if (path === 'factory.yml') factoryYml = content;
+    else if (automation?.[1]) automations.push([automation[1], content]);
+    else if (agent?.[1]) agents.push([agent[1], content]);
+    else if (skill?.[1] && skill[2]) {
+      const entries = skills.get(skill[1]) ?? [];
+      entries.push({ path: skill[2], bytes: utf8.encode(content) });
+      skills.set(skill[1], entries);
+    } else if (path.includes('/') && own(LATER_FOLDERS, folder)) laterFolders.add(folder);
+    else stray.push(path);
+  }
+  return {
+    factoryYml,
+    automations: Object.fromEntries(automations),
+    agents: Object.fromEntries(agents),
+    skills: Object.fromEntries(skills),
+    stray,
+    laterFolders: [...laterFolders],
+    unread: [],
+    outside: [],
+  };
+}

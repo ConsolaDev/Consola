@@ -1,8 +1,7 @@
-/* A factory's page, in the Overview's shapes: its tile beside its name, over a monospace row of
-   its facts; then groups drawn as Connections draws them (`.group`, `.group-label`,
-   `.group-box`). The definition is a list of files beside the one chosen, its text in the
-   desktop's monospace; the settings are rows of a group, each a label over its control. Every
-   class here is `factory-`. */
+/* A factory's Settings, in the Overview's shapes: its tile beside its name, over a monospace row
+   of its facts; then groups drawn as Connections draws them (`.group`, `.group-label`,
+   `.group-box`), its settings rows of a group, each a label over its control. The definition has
+   a stylesheet of its own (`FactoryDefinition.css`). Every class here is `factory-`. */
 
 .factory-head {
   display: flex;
@@ -74,150 +73,6 @@
   margin: 0;
 }
 
-/* ---- The definition: its files ---- */
-
-.factory-files-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 4px 16px;
-}
-
-.factory-files-note {
-  margin: 0;
-  padding-inline: 2px;
-  color: var(--text-3);
-  font-size: var(--font-size-sm);
-}
-
-.factory-files-empty {
-  padding: 28px 16px;
-  color: var(--text-2);
-  font-size: var(--font-size-md);
-  text-align: center;
-}
-
-.factory-files-empty p {
-  margin: 0;
-}
-
-.factory-files {
-  display: grid;
-  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
-  min-height: 320px;
-  overflow: hidden;
-}
-
-/* The list, as the sidebar draws rows: 28px, 3px corners, the chosen one on the active fill. */
-.factory-file-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 6px;
-  overflow-y: auto;
-  border-right: 1px solid var(--gray-a5);
-}
-
-.factory-file-group ul {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.factory-file-folder {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  padding: 4px 8px;
-  color: var(--text-3);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-}
-
-.factory-file-folder + ul .factory-file-button {
-  padding-left: 28px;
-}
-
-.factory-file-button {
-  display: block;
-  width: 100%;
-  min-height: 30px;
-  padding: 4px 8px;
-  overflow: hidden;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--sidebar-font-size);
-  text-align: left;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background 140ms var(--ease-out-quart);
-}
-
-.factory-file-button:hover {
-  background: var(--hover);
-}
-
-.factory-file-button[aria-current="true"] {
-  background: var(--active);
-}
-
-.factory-file-button:focus-visible {
-  outline: 1px solid var(--cyan);
-  outline-offset: -1px;
-}
-
-.factory-file {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.factory-file-path {
-  display: block;
-  margin: 0;
-  padding: 8px 14px;
-  overflow: hidden;
-  border-bottom: 1px solid var(--gray-a5);
-  color: var(--text-2);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.factory-file-text {
-  flex: 1;
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 320px;
-  height: 60vh;
-  margin: 0;
-  padding: 12px 14px;
-  overflow: auto;
-  border: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-md);
-  line-height: 1.6;
-  tab-size: 2;
-  resize: none;
-}
-
-.factory-file-text:focus-visible {
-  outline: 1px solid var(--cyan);
-  outline-offset: -1px;
-}
-
 /* ---- The settings ---- */
 
 .factory-settings {
@@ -282,16 +137,6 @@
 }
 
 @media (max-width: 640px) {
-  .factory-files {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .factory-file-list {
-    max-height: 200px;
-    border-right: 0;
-    border-bottom: 1px solid var(--gray-a5);
-  }
-
   .factory-setting-input {
     max-width: none;
   }

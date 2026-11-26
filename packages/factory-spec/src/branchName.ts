@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256';
 
 /**
  * A branch name from an item key someone else wrote (slice 3, *The
@@ -25,7 +25,7 @@ const MAX_PART = 60;
 const PLACEHOLDER = /\{\{\s*([^{}]*?)\s*\}\}/g;
 
 function shortHash(value: string): string {
-  return createHash('sha256').update(value, 'utf8').digest('hex').slice(0, 8);
+  return sha256Hex(value).slice(0, 8);
 }
 
 /** Trim `-` and `.` from both ends and strip `.lock` endings, until nothing changes. */

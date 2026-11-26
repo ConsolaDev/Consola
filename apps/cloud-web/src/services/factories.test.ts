@@ -355,3 +355,87 @@ describe('changing factories', () => {
     expect(await service.loadFactories(ACME)).toEqual({ kind: 'unavailable' });
   });
 });
+
+describe('saveFactory', () => {
+  const files = [
+    { path: 'factory.yml', content: 'version: 1\n' },
+    { path: 'agents/reviewer.md', content: '---\ndescription: Reviews.\n---\nBody\n' },
+  ];
+  const saved = {
+    factoryId: 'f-1',
+    version: 4,
+    savedAt: '2026-11-24T10:00:00.000Z',
+    savedBy: 'p-ada',
+    files,
+  };
+
+  it('sends every file as the next version of the one they were read from', async () => {
+    const { service, seen } = harness({
+      cell: {
+        'POST /cell/eu/api/factories/f-1/versions': {
+          status: 201,
+          body: { version: saved, notices: [] },
+        },
+      },
+    });
+    expect(await service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
+      kind: 'saved',
+      version: saved,
+    });
+    const sent = seen.find((entry) => entry.url.endsWith('/api/factories/f-1/versions'));
+    expect(sent?.authorization).toBe('Bearer token-1');
+    expect(JSON.parse(sent?.body ?? '')).toEqual({ baseVersion: 3, files });
+  });
+
+  it('says every issue the cell found, and that someone saved first', async () => {
+    const issues = [
+      { message: 'No skill named `relase`.', file: 'agents/reviewer.md', path: 'skills', line: 4 },
+      { message: 'A factory holds at most 500 files.', path: '' },
+    ];
+    const refused = harness({
+      cell: {
+        'POST /cell/eu/api/factories/f-1/versions': {
+          status: 400,
+          body: { error: 'invalid_files', issues },
+        },
+      },
+    });
+    expect(await refused.service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
+      kind: 'invalid',
+      issues,
+    });
+    const moved = harness({
+      cell: {
+        'POST /cell/eu/api/factories/f-1/versions': {
+          status: 409,
+          body: { error: 'version_moved', latestVersion: 5 },
+        },
+      },
+    });
+    expect(await moved.service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
+      kind: 'version-moved',
+      latestVersion: 5,
+    });
+  });
+
+  it.each([
+    [{ status: 404, body: { error: 'factory_not_found' } }, { kind: 'not-found' }],
+    [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'pending' }],
+    [{ status: 413, body: { error: 'too_large' } }, { kind: 'too-large' }],
+    [{ status: 400, body: { error: 'invalid_files', issues: 'nope' } }, { kind: 'unavailable' }],
+    [{ status: 409, body: { error: 'version_moved' } }, { kind: 'unavailable' }],
+    [{ status: 201, body: { version: { version: 'four' }, notices: [] } }, { kind: 'unavailable' }],
+    [{ status: 500, body: { error: 'boom' } }, { kind: 'unavailable' }],
+  ])("answers %j in the page's terms", async (answer, expected) => {
+    const { service } = harness({ cell: { 'POST /cell/eu/api/factories/f-1/versions': answer } });
+    expect(await service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual(expected);
+  });
+
+  it('saves nothing for a workspace the session no longer has open', async () => {
+    const { service, seen } = harness({ workspaceId: 'ws-other' });
+    expect(await service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
+      kind: 'switched',
+    });
+    expect(seen.some((entry) => entry.url.includes('/versions'))).toBe(false);
+  });
+});

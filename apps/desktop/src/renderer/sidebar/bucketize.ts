@@ -39,9 +39,16 @@ const byKey = (a: TreeNode, b: TreeNode) =>
 const maxOf = (node: TreeNode, pick: (entry: Entry) => number): number =>
   Math.max(...membersOf(node).map(pick));
 
-/** Newest first; ties break on key so the order never shuffles. */
-function newestFirst(nodes: TreeNode[], pick: (node: TreeNode) => number): TreeNode[] {
-  return [...nodes].sort((a, b) => pick(b) - pick(a) || byKey(a, b));
+/** Newest first by each pick in turn; ties break on key so the order never shuffles. */
+function newestFirst(nodes: TreeNode[], ...picks: Array<(node: TreeNode) => number>): TreeNode[] {
+  const byPicks = (a: TreeNode, b: TreeNode) => {
+    for (const pick of picks) {
+      const difference = pick(b) - pick(a);
+      if (difference !== 0) return difference;
+    }
+    return 0;
+  };
+  return [...nodes].sort((a, b) => byPicks(a, b) || byKey(a, b));
 }
 
 const lastActivity = (node: TreeNode) => maxOf(node, (entry) => entry.activityAt);
@@ -55,6 +62,14 @@ const arrivedAt = (entry: Entry) =>
 
 /** Where a tree sits when nothing that runs may move it: its root's creation or waking. */
 const placedAt = (node: TreeNode) => Math.max(node.entry.createdAt, cameBackAt(node.entry));
+
+/**
+ * When a settled tree went onto the shelf: the moment its last member was put
+ * away, since a tree is settled only once every member is. Main writes
+ * `settledAt` with every settle, so the activity fallback only keeps an entry
+ * without one in a stable place.
+ */
+const shelvedAt = (node: TreeNode) => maxOf(node, (entry) => entry.settledAt ?? entry.activityAt);
 
 /** When a snoozed tree comes back: its soonest member. */
 const nextWake = (node: TreeNode) =>
@@ -79,6 +94,11 @@ const nextWake = (node: TreeNode) =>
  * Working is newest first by when its run started, as the list saw it, so a
  * subagent starting inside a running tree does not lift it, and a tree still
  * in its grace (`lingering`) keeps its place while it finishes.
+ *
+ * Settled is newest first by when each tree was put away, by hand or by the
+ * AutoSettler, so what was just settled is at the top of the shelf however
+ * old the session is or when it last worked. What one sweep or one batch put
+ * away shares that moment, and keeps the order it last worked in.
  */
 export function bucketize(
   roots: TreeNode[],
@@ -108,6 +128,6 @@ export function bucketize(
       : newestFirst(placed.waiting, placedAt),
     working: newestFirst(placed.working, started),
     snoozed: [...placed.snoozed].sort((a, b) => nextWake(a) - nextWake(b) || byKey(a, b)),
-    settled: newestFirst(placed.settled, lastActivity),
+    settled: newestFirst(placed.settled, shelvedAt, lastActivity),
   };
 }

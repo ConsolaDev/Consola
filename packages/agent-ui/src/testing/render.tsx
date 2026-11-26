@@ -129,17 +129,20 @@ export const addToPage = (element: HTMLElement) => {
 
 /**
  * Mounts `AgentChat` in a container of a chat's size, until the test ends: at the end of the
- * page's `<body>`, or of `parent` (an element of the page's around the chat). The package is
- * imported here, on first use, as a page imports it (its stylesheet with it), so a test can look
- * at the page before anything of the package has run.
+ * page's `<body>`, or of `parent` (an element of the page's around the chat). With `className`,
+ * the container is the page's own element of that class, which the page's CSS places and sizes
+ * (cloud-web's `.session-chat-frame`), rather than 720px tall. The package is imported here, on
+ * first use, as a page imports it (its stylesheet with it), so a test can look at the page before
+ * anything of the package has run.
  */
 export const mountChat = async (
   props: AgentChatProps,
-  { parent }: { readonly parent?: HTMLElement } = {},
+  { parent, className }: { readonly parent?: HTMLElement; readonly className?: string } = {},
 ) => {
   const { AgentChat } = await import('../index.ts');
   const container = document.createElement('div');
-  container.style.height = '720px';
+  if (className === undefined) container.style.height = '720px';
+  else container.className = className;
   if (parent === undefined) addToPage(container);
   else {
     parent.append(container);

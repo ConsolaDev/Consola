@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { sha256Hex } from './sha256';
 import type { Automation, AutomationMode } from './schema';
 
 /**
@@ -379,7 +379,7 @@ export function automationVersion(
     onFailure: automation.onFailure,
     resolvedBody,
   });
-  return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
+  return sha256Hex(canonical).slice(0, 16);
 }
 
 /**

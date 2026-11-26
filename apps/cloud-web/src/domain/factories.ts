@@ -1,4 +1,5 @@
 import type { components as cell } from './cellApiContract';
+import type { FactoryIssue } from './factoryProblems';
 import type { Team } from './teams';
 
 /**
@@ -155,6 +156,23 @@ export type FactoryFile = cell['schemas']['FactoryFile'];
 /** What reading one factory with its latest version's files came to. */
 export type FactoryRead =
   | { kind: 'found'; factory: Factory; version: FactoryVersion }
+  /** The factory is gone, or now belongs to a team the person is not in. */
+  | { kind: 'not-found' }
+  | { kind: 'pending' }
+  | { kind: 'switched' }
+  | { kind: 'signed-out' }
+  | { kind: 'unavailable' };
+
+/** What saving a factory's files as its next version came to. */
+export type FactorySave =
+  /** Saved: the version the cell stored. */
+  | { kind: 'saved'; version: FactoryVersion }
+  /** The cell found the files break the factory schema: every issue. Nothing was saved. */
+  | { kind: 'invalid'; issues: FactoryIssue[] }
+  /** Someone saved a newer version since the files were read. Nothing was saved. */
+  | { kind: 'version-moved'; latestVersion: number }
+  /** More than any factory's files can hold. Nothing was saved. */
+  | { kind: 'too-large' }
   /** The factory is gone, or now belongs to a team the person is not in. */
   | { kind: 'not-found' }
   | { kind: 'pending' }

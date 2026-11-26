@@ -2,6 +2,7 @@ import { FACTORY_NAME_MAX } from './factories';
 import type {
   FactoriesState,
   FactoryChange,
+  FactorySave,
   FactorySourceKind,
   NewFactoryProblem,
   SourceOption,
@@ -166,11 +167,103 @@ export function sidebarLineForFactoriesState(
 
 export const LOADING_FACTORIES = 'Loading…';
 
-/** Said where a factory's definition has no files yet. */
+/** Said where a factory's definition has no files yet, and what fills it. */
 export const NO_FILES = 'No files yet.';
+export const NO_FILES_HINT =
+  'A factory is set up from a repository or the setup helper. Once its files are here, you can read them and make a quick edit.';
 
-/** Said on a factory's definition while its files can only be read. */
-export const EDITING_NEXT = 'Read-only for now. Editing the files comes next.';
+/** What the sidebar's dot on a factory's definition means. */
+export const UNSAVED_EDITS = 'Unsaved changes';
+
+/** Said where a factory's definition would be, when the page's code could not be loaded. */
+export const DEFINITION_NOT_LOADED =
+  'The factory’s files couldn’t be loaded on this page. Reload it to try again.';
+
+/** The banner over a factory's definition, until the person hides it for good. */
+export const DEFINITION_BANNER_TITLE = 'Your factory is defined in code';
+export const DEFINITION_BANNER_TEXT =
+  'Its automations, agents and skills live as files. Read them here, and make a quick edit when you need one.';
+
+/** Said in the file list when its filter matches no file. */
+export function noFileMatches(filter: string): string {
+  return `No file matches “${filter.trim()}”.`;
+}
+
+/** How many problems the files have, as the Problems panel heads them. */
+export function problemsCount(count: number): string {
+  if (count === 0) return 'No problems';
+  return count === 1 ? '1 problem' : `${count} problems`;
+}
+
+/** Why Save is off while the files have problems. */
+export function fixToSave(count: number): string {
+  return count === 1 ? 'Fix the problem to save.' : `Fix the ${count} problems to save.`;
+}
+
+/** Said in place of the problems while the page's check cannot run, as a save still can. */
+export const CHECK_UNAVAILABLE =
+  'The files can’t be checked on this page right now. Saving still checks them.';
+
+/** Said over the problems the cell found that the page's own check did not. */
+export const CELL_FOUND_PROBLEMS = 'Saving found problems, so nothing was saved.';
+
+/** What Discard asks before it drops the person's changes. */
+export function discardQuestion(files: number): string {
+  return files === 1
+    ? 'Discard your changes to 1 file? This can’t be undone.'
+    : `Discard your changes to ${files} files? This can’t be undone.`;
+}
+
+/** Said when someone saved a newer version while the person was editing. */
+export function versionMovedLine(latestVersion: number): string {
+  return `Version ${latestVersion} was saved while you were editing. Saving now would undo it, so bring it in first.`;
+}
+
+export function bringInLabel(latestVersion: number): string {
+  return `Bring in version ${latestVersion}`;
+}
+
+/** What bringing a newer version in came to: the files to check before saving, if any. */
+export function broughtInLine(
+  version: number,
+  bothChanged: readonly string[],
+  goneThere: readonly string[],
+): string {
+  const said = [`Brought in version ${version}.`];
+  if (bothChanged.length > 0) {
+    said.push(
+      `You and they both changed ${listOf(bothChanged)}: yours is kept, so check it before saving.`,
+    );
+  }
+  if (goneThere.length > 0) {
+    said.push(
+      `Version ${version} removed ${listOf(goneThere)}: saving adds your edited copy back.`,
+    );
+  }
+  if (said.length === 1) said.push('Your changes are on top of it.');
+  return said.join(' ');
+}
+
+const LIST = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
+
+function listOf(paths: readonly string[]): string {
+  return LIST.format(paths);
+}
+
+/** What a save that did not land says; a refusal of the files themselves shows as problems. */
+export function messageForSave(
+  answer: Exclude<FactorySave, { kind: 'saved' } | { kind: 'invalid' } | { kind: 'version-moved' }>,
+  workspace: { name: string; region: string },
+): string {
+  switch (answer.kind) {
+    case 'too-large':
+      return 'These files are more than a factory can hold, so nothing was saved.';
+    case 'not-found':
+      return FACTORY_GONE;
+    default:
+      return messageForFactoriesState(answer, workspace);
+  }
+}
 
 const RELATIVE = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
 const ON_DATE = new Intl.DateTimeFormat('en', { dateStyle: 'medium' });
@@ -199,4 +292,18 @@ export function whenSaved(savedAt: string, now: Date): string | null {
 export function versionLine(version: { version: number; savedAt: string }, now: Date): string {
   const when = whenSaved(version.savedAt, now);
   return when ? `Version ${version.version}, saved ${when}` : `Version ${version.version}`;
+}
+
+/**
+ * When a version was saved, and by the person if it was them: "saved 2 hours ago", "saved just
+ * now by you". Someone else is not named: the page holds no one's name but the person's.
+ */
+export function savedWords(
+  version: { savedAt: string; savedBy: string },
+  now: Date,
+  personId: string,
+): string | null {
+  const when = whenSaved(version.savedAt, now);
+  if (!when) return null;
+  return version.savedBy === personId ? `saved ${when} by you` : `saved ${when}`;
 }

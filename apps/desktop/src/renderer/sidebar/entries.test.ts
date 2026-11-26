@@ -80,6 +80,19 @@ describe('sessionEntries', () => {
     expect(woken).toMatchObject({ createdAt: 60, unsettledAt: 400 });
   });
 
+  it('carries when the session went onto the Settled shelf', () => {
+    const [plain, shelved] = sessionEntries(
+      [session('a'), session('b')],
+      {
+        records: { b: { sessionId: 'b', workspaceId: 'w', lastActiveAt: 500, settledAt: 700 } },
+        attention: { b: 'settled' },
+      },
+      [],
+    );
+    expect('settledAt' in plain).toBe(false);
+    expect(shelved).toMatchObject({ attention: 'settled', settledAt: 700 });
+  });
+
   it('reads a session main said nothing about as ready, active at its creation seed', () => {
     const [entry] = sessionEntries([session('a')], none, []);
     expect(entry).toMatchObject({ attention: 'ready', activityAt: 100 });
