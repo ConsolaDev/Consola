@@ -1,57 +1,49 @@
-import { GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS, gitHubTokenRequest } from '@consola/cloud-contract';
-import type { GitHubTokenAsk } from '@consola/cloud-contract';
-import type { Region } from '../../shared/region.js';
+import { PGlite } from '@electric-sql/pglite';
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
+import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
-import type { Database } from '../adapters/persistence/database.js';
-import { schema } from '../adapters/persistence/schema.js';
-import { createTokenMintStore } from '../adapters/persistence/tokenMintStore.js';
+import { createGitHubStores } from '../adapters/persistence/gitHubStores.js';
+import * as gitHubTables from '../adapters/persistence/gitHubTables.js';
 import type { GitHubRepository } from '../domain/connections.js';
+import type { GitHubApp, GitHubTokenMinter, MintAnswer, TokenMintStore } from './gitHubPorts.js';
 import { mintGitHubToken } from './gitHubTokens.js';
-import type {
-  CellRequestVerifier,
-  GitHubApp,
-  GitHubTokenMinter,
-  MintAnswer,
-  TokenMintStore,
-} from './ports.js';
+import type { GitHubTokenRequest } from './gitHubTokens.js';
 
-let db: Database;
-let close: () => Promise<void>;
+let client: PGlite;
 let mints: TokenMintStore;
 
 const now = 1_800_000_000;
+const clock = { nowSeconds: () => now };
 
-// Acme (EU) holds installation 41 on the `acme` organisation; Bolt (EU) holds 42; Sprocket (US)
-// holds 52 on the `sprocket` organisation.
+// Acme holds installation 41 on the `acme` organisation; Sprocket holds 52 on `sprocket`.
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  await db.insert(schema.organization).values([
-    { id: 'acme', name: 'Acme', slug: 'acme', region: 'eu', createdAt: new Date() },
-    { id: 'bolt', name: 'Bolt', slug: 'bolt', region: 'eu', createdAt: new Date() },
-    { id: 'sprocket', name: 'Sprocket', slug: 'sprocket', region: 'us', createdAt: new Date() },
-  ]);
-  const installation = (installationId: number, organizationId: string, login: string) => ({
-    installationId,
-    organizationId,
-    accountId: installationId + 9000,
-    accountLogin: login,
-    accountType: 'Organization',
-    connectedAt: new Date(),
-  });
-  await db
-    .insert(schema.githubInstallation)
-    .values([
-      installation(41, 'acme', 'acme'),
-      installation(42, 'bolt', 'bolt'),
-      installation(52, 'sprocket', 'sprocket'),
-    ]);
-  mints = createTokenMintStore(db);
+  client = new PGlite();
+  const statements = await generateMigration(
+    generateDrizzleJson({}),
+    generateDrizzleJson(gitHubTables),
+  );
+  for (const statement of statements) await client.exec(statement);
+  const stores = createGitHubStores(drizzle(client));
+  for (const [id, workspaceId] of [
+    [41, 'acme'],
+    [52, 'sprocket'],
+  ] as const) {
+    await stores.installations.connect({
+      installation: {
+        id,
+        account: { id: id + 9000, login: workspaceId, type: 'Organization' },
+        repositorySelection: 'selected',
+      },
+      workspaceId,
+      connectedBy: 'dana',
+      at: new Date(),
+    });
+  }
+  mints = stores.mints;
 });
 
 afterEach(async () => {
-  await close();
+  await client.close();
 });
 
 const repository = (id: number, fullName: string): GitHubRepository => ({
@@ -64,7 +56,6 @@ const repository = (id: number, fullName: string): GitHubRepository => ({
 /** What each installation covers, as GitHub lists it. */
 const COVERED: Record<number, GitHubRepository[]> = {
   41: [repository(410, 'acme/catalog-portal'), repository(411, 'acme/api')],
-  42: [repository(420, 'bolt/site')],
   52: [repository(520, 'sprocket/factory'), repository(521, 'sprocket/api')],
 };
 
@@ -112,53 +103,26 @@ function fakeGitHub(
   return { github, asked, revoked };
 }
 
-/**
- * A verifier that knows what each region's cell signed: `signedBy` returns the string a cell
- * would send, and only those strings are signed.
- */
-function fakeCells() {
-  const signed = new Map<string, { region: Region; payload: unknown }>();
-  const verifier: CellRequestVerifier = {
-    async verifyTokenRequest(value) {
-      const found = signed.get(value);
-      return found ? { kind: 'signed', ...found } : { kind: 'unsigned' };
-    },
-  };
-  const signedBy = (region: Region, payload: unknown) => {
-    const value = `signed-${signed.size}`;
-    signed.set(value, { region, payload });
-    return value;
-  };
-  return { verifier, signedBy };
-}
-
-const ask = (overrides: Partial<GitHubTokenAsk> = {}) =>
-  gitHubTokenRequest({
-    workspaceId: 'acme',
-    installationId: 41,
-    purpose: 'factory-pull',
-    repositoryIds: [410],
-    issuedAt: now,
-    ...overrides,
-  });
+const ask = (overrides: Partial<GitHubTokenRequest> = {}): GitHubTokenRequest => ({
+  workspaceId: 'acme',
+  installationId: 41,
+  purpose: 'factory-pull',
+  repositoryIds: [410],
+  ...overrides,
+});
 
 function setUp(github: ReturnType<typeof fakeGitHub> | null = fakeGitHub()) {
-  const cells = fakeCells();
-  const mint = (signed: string) =>
-    mintGitHubToken(
-      { cellRequests: cells.verifier, mints, github: github?.github ?? null },
-      signed,
-      now,
-    );
-  return { ...cells, mint };
+  const mint = (request: GitHubTokenRequest) =>
+    mintGitHubToken({ mints, github: github?.github ?? null, clock }, request);
+  return { mint };
 }
 
-describe('minting a GitHub token for a cell', () => {
+describe('minting a GitHub token', () => {
   it('mints a token narrowed to the repositories and the purpose’s permissions, and records it', async () => {
     const github = fakeGitHub();
-    const { mint, signedBy } = setUp(github);
+    const { mint } = setUp(github);
 
-    expect(await mint(signedBy('eu', ask()))).toEqual({
+    expect(await mint(ask())).toEqual({
       kind: 'minted',
       token: 'ghs_narrowed_1',
       expiresAt: now + 3600,
@@ -181,14 +145,12 @@ describe('minting a GitHub token for a cell', () => {
     ]);
   });
 
-  it('gives each purpose its own permissions, whatever else the cell would like', async () => {
+  it('gives each purpose its own permissions, whatever else the work would like', async () => {
     const github = fakeGitHub();
-    const { mint, signedBy } = setUp(github);
-    await mint(signedBy('eu', ask({ purpose: 'factory-save' })));
-    await mint(signedBy('eu', ask({ purpose: 'review-run', repositoryIds: [411, 410] })));
-    await mint(
-      signedBy('us', ask({ workspaceId: 'sprocket', installationId: 52, repositoryIds: [520] })),
-    );
+    const { mint } = setUp(github);
+    await mint(ask({ purpose: 'factory-save' }));
+    await mint(ask({ purpose: 'review-run', repositoryIds: [411, 410] }));
+    await mint(ask({ workspaceId: 'sprocket', installationId: 52, repositoryIds: [520] }));
 
     expect(github.asked.map(({ scope }) => scope)).toEqual([
       { repositoryIds: [410], permissions: { contents: 'write' } },
@@ -198,12 +160,10 @@ describe('minting a GitHub token for a cell', () => {
   });
 
   it('records every mint', async () => {
-    const { mint, signedBy } = setUp();
-    await mint(signedBy('eu', ask()));
-    await mint(signedBy('eu', ask({ purpose: 'factory-save' })));
-    await mint(
-      signedBy('us', ask({ workspaceId: 'sprocket', installationId: 52, repositoryIds: [521] })),
-    );
+    const { mint } = setUp();
+    await mint(ask());
+    await mint(ask({ purpose: 'factory-save' }));
+    await mint(ask({ workspaceId: 'sprocket', installationId: 52, repositoryIds: [521] }));
     expect((await mints.mintsOf('acme')).map((each) => each.purpose)).toEqual([
       'factory-pull',
       'factory-save',
@@ -215,124 +175,83 @@ describe('minting a GitHub token for a cell', () => {
     /** Asserts nothing was asked of GitHub's minting, and nothing recorded. */
     async function nothingMinted(github: ReturnType<typeof fakeGitHub>) {
       expect(github.asked).toEqual([]);
-      for (const workspace of ['acme', 'bolt', 'sprocket']) {
+      for (const workspace of ['acme', 'sprocket']) {
         expect(await mints.mintsOf(workspace)).toEqual([]);
       }
     }
 
-    it('a request no cell signed', async () => {
-      const github = fakeGitHub();
-      const { mint } = setUp(github);
-      expect(await mint('a-request-nobody-signed')).toEqual({ kind: 'unsigned' });
-      await nothingMinted(github);
-    });
-
-    it('a signed request the contract does not read, saying why', async () => {
-      const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      const expired = ask({ issuedAt: now - GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS - 60 });
-      expect(await mint(signedBy('eu', expired))).toEqual({
-        kind: 'unreadable',
-        reason: 'the request has expired',
-      });
-      expect(
-        await mint(signedBy('eu', { ...ask(), permissions: { administration: 'write' } })),
-      ).toEqual({
-        kind: 'unreadable',
-        reason: 'the request has `permissions`, which the contract does not name',
-      });
-      await nothingMinted(github);
-    });
-
     it('a request for no repository, never a token for the whole installation', async () => {
       const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      expect(await mint(signedBy('eu', ask({ repositoryIds: [] })))).toEqual({
+      const { mint } = setUp(github);
+      expect(await mint(ask({ repositoryIds: [] }))).toEqual({
         kind: 'invalid',
         problems: ['no-repositories'],
       });
       await nothingMinted(github);
     });
 
-    it('a factory token for more than its one repository', async () => {
+    it('a factory token for more than its one repository, or a repository named twice', async () => {
       const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      expect(
-        await mint(signedBy('eu', ask({ purpose: 'factory-save', repositoryIds: [410, 411] }))),
-      ).toEqual({ kind: 'invalid', problems: ['too-many-repositories'] });
+      const { mint } = setUp(github);
+      expect(await mint(ask({ purpose: 'factory-save', repositoryIds: [410, 411] }))).toEqual({
+        kind: 'invalid',
+        problems: ['too-many-repositories'],
+      });
+      expect(await mint(ask({ purpose: 'review-run', repositoryIds: [410, 410] }))).toEqual({
+        kind: 'invalid',
+        problems: ['repeated-repository'],
+      });
       await nothingMinted(github);
     });
 
-    it("another workspace's installation, in the same region: Bolt never gets Acme's", async () => {
+    it("another workspace's installation: Sprocket never gets Acme's", async () => {
       const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      expect(await mint(signedBy('eu', ask({ workspaceId: 'bolt', installationId: 41 })))).toEqual({
+      const { mint } = setUp(github);
+      expect(await mint(ask({ workspaceId: 'sprocket', installationId: 41 }))).toEqual({
         kind: 'installation-not-found',
       });
-      expect(
-        await mint(
-          signedBy('eu', ask({ workspaceId: 'acme', installationId: 42, repositoryIds: [420] })),
-        ),
-      ).toEqual({ kind: 'installation-not-found' });
-      await nothingMinted(github);
-    });
-
-    it('an installation no workspace holds, or a workspace that is not there', async () => {
-      const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      expect(await mint(signedBy('eu', ask({ installationId: 99 })))).toEqual({
-        kind: 'installation-not-found',
-      });
-      expect(await mint(signedBy('eu', ask({ workspaceId: 'nobody' })))).toEqual({
+      expect(await mint(ask({ installationId: 52, repositoryIds: [520] }))).toEqual({
         kind: 'installation-not-found',
       });
       await nothingMinted(github);
     });
 
-    it("a workspace in another region than the cell that signed: the US cell never gets Acme's", async () => {
+    it('an installation no workspace holds, or a workspace that holds none', async () => {
       const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      expect(await mint(signedBy('us', ask()))).toEqual({ kind: 'other-region' });
-      expect(
-        await mint(
-          signedBy(
-            'eu',
-            ask({ workspaceId: 'sprocket', installationId: 52, repositoryIds: [520] }),
-          ),
-        ),
-      ).toEqual({ kind: 'other-region' });
+      const { mint } = setUp(github);
+      expect(await mint(ask({ installationId: 99 }))).toEqual({
+        kind: 'installation-not-found',
+      });
+      expect(await mint(ask({ workspaceId: 'nobody' }))).toEqual({
+        kind: 'installation-not-found',
+      });
       await nothingMinted(github);
     });
 
     it('a repository the installation does not cover, naming each one', async () => {
       const github = fakeGitHub();
-      const { mint, signedBy } = setUp(github);
-      // 520 is Sprocket's, 420 Bolt's: neither is Acme's installation's.
-      expect(
-        await mint(signedBy('eu', ask({ purpose: 'review-run', repositoryIds: [410, 520, 420] }))),
-      ).toEqual({ kind: 'not-covered', repositoryIds: [420, 520] });
+      const { mint } = setUp(github);
+      // 520 and 521 are Sprocket's: neither is Acme's installation's.
+      expect(await mint(ask({ purpose: 'review-run', repositoryIds: [410, 521, 520] }))).toEqual({
+        kind: 'not-covered',
+        repositoryIds: [520, 521],
+      });
       await nothingMinted(github);
     });
 
     it('anything, when this server has no GitHub App', async () => {
-      const { mint, signedBy } = setUp(null);
-      expect(await mint(signedBy('eu', ask()))).toEqual({ kind: 'not-configured' });
+      const { mint } = setUp(null);
+      expect(await mint(ask())).toEqual({ kind: 'not-configured' });
       expect(await mints.mintsOf('acme')).toEqual([]);
     });
 
     it('an installation GitHub no longer has, or a list GitHub would not give', async () => {
       const gone = fakeGitHub(undefined, { kind: 'gone' });
-      const goneCells = setUp(gone);
-      expect(await goneCells.mint(goneCells.signedBy('eu', ask()))).toEqual({
-        kind: 'installation-gone',
-      });
+      expect(await setUp(gone).mint(ask())).toEqual({ kind: 'installation-gone' });
       await nothingMinted(gone);
 
       const silent = fakeGitHub(undefined, { kind: 'unavailable' });
-      const silentCells = setUp(silent);
-      expect(await silentCells.mint(silentCells.signedBy('eu', ask()))).toEqual({
-        kind: 'unavailable',
-      });
+      expect(await setUp(silent).mint(ask())).toEqual({ kind: 'unavailable' });
       await nothingMinted(silent);
     });
   });
@@ -345,8 +264,8 @@ describe('minting a GitHub token for a cell', () => {
     'passes on GitHub refusing the mint (%j), and records nothing',
     async (given, outcome) => {
       const github = fakeGitHub(() => given);
-      const { mint, signedBy } = setUp(github);
-      expect(await mint(signedBy('eu', ask()))).toEqual(outcome);
+      const { mint } = setUp(github);
+      expect(await mint(ask())).toEqual(outcome);
       expect(github.revoked).toEqual([]);
       expect(await mints.mintsOf('acme')).toEqual([]);
     },
@@ -394,8 +313,8 @@ describe('minting a GitHub token for a cell', () => {
         expiresAt: new Date((now + 3600) * 1000),
         ...granted,
       }));
-      const { mint, signedBy } = setUp(github);
-      expect(await mint(signedBy('eu', ask()))).toEqual({ kind: 'not-as-asked' });
+      const { mint } = setUp(github);
+      expect(await mint(ask())).toEqual({ kind: 'not-as-asked' });
       expect(github.revoked).toEqual(['ghs_too_wide']);
       expect(await mints.mintsOf('acme')).toEqual([]);
     },
@@ -403,7 +322,6 @@ describe('minting a GitHub token for a cell', () => {
 
   it('revokes the token and hands out nothing when the mint cannot be recorded', async () => {
     const github = fakeGitHub();
-    const cells = fakeCells();
     const failing: TokenMintStore = {
       ...mints,
       record: async () => {
@@ -411,11 +329,7 @@ describe('minting a GitHub token for a cell', () => {
       },
     };
     await expect(
-      mintGitHubToken(
-        { cellRequests: cells.verifier, mints: failing, github: github.github },
-        cells.signedBy('eu', ask()),
-        now,
-      ),
+      mintGitHubToken({ mints: failing, github: github.github, clock }, ask()),
     ).rejects.toThrow('the database is gone');
     expect(github.revoked).toEqual(['ghs_narrowed_1']);
   });
