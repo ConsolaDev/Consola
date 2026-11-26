@@ -30,14 +30,14 @@ import {
   messageOf,
   runCheckout,
   STEP_LIFETIME_MARGIN,
-  type StepSandboxOptions,
   sandboxCall,
 } from './stepSandboxes.ts';
+import type { StepSandboxOptions } from './stepSandboxes.ts';
 
 export type CommandStepsOptions = Omit<StepSandboxOptions, 'log'> & {
   readonly sandboxes: Sandboxes;
   /** Every secret the runner holds, taken out of whatever it returns or logs. */
-  readonly secretValues: ReadonlyArray<string>;
+  readonly secretValues: readonly string[];
   /** A line for the runner's log; scrubbed here first. */
   readonly log: (message: string) => Effect.Effect<void>;
 };
@@ -118,8 +118,9 @@ export const runCommandStep = (
           Duration.sum(Duration.millis(request.timeoutMs), STEP_LIFETIME_MARGIN),
         );
         if (request.checkout === null) yield* emptyFolder(sandbox);
-        else
+        else {
           yield* runCheckout(sandbox, checkoutEnv(request.checkout, request.cloneToken), secrets);
+        }
         for (const file of plan.files) {
           yield* sandboxCall(
             () => sandbox.writeFile(file.path, file.content),

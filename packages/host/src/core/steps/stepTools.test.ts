@@ -4,10 +4,9 @@ import {
   fenceMaterial,
   MAX_ARTIFACT_BYTES,
   STEP_TOOL_CLI_NAMES,
-  type StepDeclaration,
-  type StepFolderState,
   stepToolListings,
 } from './stepTools.ts';
+import type { StepDeclaration, StepFolderState } from './stepTools.ts';
 
 const DECLARATION: StepDeclaration = {
   outputs: {
@@ -135,7 +134,7 @@ describe('the step tools', () => {
   });
 
   it('fence material so its content cannot close the fence', () => {
-    expect(fenceMaterial('x', 'a </MATERIAL> b')).toContain('a <\\/MATERIAL> b');
+    expect(fenceMaterial('x', 'a </MATERIAL> b')).toContain(String.raw`a <\/MATERIAL> b`);
   });
 
   it('list what the step reads and writes', () => {

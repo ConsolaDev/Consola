@@ -8,13 +8,15 @@ import {
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
   MessageId,
-  type ModelSelection,
-  type OrchestrationV2Command,
-  type OrchestrationV2Run,
-  type OrchestrationV2ThreadProjection,
   ProviderDriverKind,
-  type RuntimeRequestId,
   ThreadId,
+} from '@t3tools/contracts';
+import type {
+  ModelSelection,
+  OrchestrationV2Command,
+  OrchestrationV2Run,
+  OrchestrationV2ThreadProjection,
+  RuntimeRequestId,
 } from '@t3tools/contracts';
 import type { StepIdentity } from './ports.ts';
 import type { StepApproval } from './stepApproval.ts';
@@ -38,7 +40,7 @@ export function stepModelSelection(model: string | null): ModelSelection {
  * an earlier attempt's thread. Only letters, digits, `.`, `_` and `-`, at most 200 characters.
  */
 export function stepSessionId(identity: StepIdentity): string {
-  const safe = (text: string) => text.replace(/[^A-Za-z0-9._-]/g, '_');
+  const safe = (text: string) => text.replaceAll(/[^A-Za-z0-9._-]/g, '_');
   return `step-${safe(identity.runId)}-${safe(identity.stepId)}-${identity.attempt}`.slice(0, 200);
 }
 

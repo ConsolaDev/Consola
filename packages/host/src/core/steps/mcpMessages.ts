@@ -7,11 +7,7 @@
 import type { StepToolAnswer, StepToolListing } from './stepTools.ts';
 
 /** The protocol versions it speaks, newest first; a client asking for another gets the newest. */
-export const MCP_PROTOCOL_VERSIONS: ReadonlyArray<string> = [
-  '2025-06-18',
-  '2025-03-26',
-  '2024-11-05',
-];
+export const MCP_PROTOCOL_VERSIONS: readonly string[] = ['2025-06-18', '2025-03-26', '2024-11-05'];
 
 /** The server's name and version, in `initialize`'s answer. */
 export const STEP_TOOLS_SERVER_INFO = { name: 'consola-step-tools', version: '1.0.0' } as const;
@@ -93,14 +89,14 @@ const result = (id: JsonRpcId, value: unknown) => ({ jsonrpc: '2.0', id, result:
 /** JSON-RPC's codes: -32700 parse error, -32600 invalid request, -32602 invalid params, -32601 no such method. */
 export function mcpError(id: JsonRpcId | null, problem: string, code?: number) {
   const known: Record<string, number> = {
-    'Parse error': -32700,
-    'Invalid Request': -32600,
-    'Invalid params': -32602,
+    'Parse error': -32_700,
+    'Invalid Request': -32_600,
+    'Invalid params': -32_602,
   };
   return {
     jsonrpc: '2.0',
     id,
-    error: { code: code ?? known[problem] ?? -32600, message: problem },
+    error: { code: code ?? known[problem] ?? -32_600, message: problem },
   };
 }
 
@@ -113,11 +109,11 @@ export const initializeResult = (id: JsonRpcId, protocolVersion: string) =>
 
 export const pingResult = (id: JsonRpcId) => result(id, {});
 
-export const listToolsResult = (id: JsonRpcId, tools: ReadonlyArray<StepToolListing>) =>
+export const listToolsResult = (id: JsonRpcId, tools: readonly StepToolListing[]) =>
   result(id, { tools });
 
 export const callToolResult = (id: JsonRpcId, answer: StepToolAnswer) =>
   result(id, { content: [{ type: 'text', text: answer.text }], isError: answer.isError });
 
 export const unknownMethod = (id: JsonRpcId, method: string) =>
-  mcpError(id, `Method not found: ${method.slice(0, 64)}`, -32601);
+  mcpError(id, `Method not found: ${method.slice(0, 64)}`, -32_601);

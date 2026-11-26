@@ -331,7 +331,7 @@ export type RunStore = {
   answeredWaiting(
     workspaceId: string,
     limit: number,
-  ): Promise<{ run: RunWrite; answer: RunAnswer }[]>;
+  ): Promise<Array<{ run: RunWrite; answer: RunAnswer }>>;
   /** The answer given to a run's request to be approved at `version`, or null while none was. */
   answerOf(workspaceId: string, runId: string, version: number): Promise<RunAnswer | null>;
   /**
@@ -433,7 +433,7 @@ export type GitHubTokenMint =
       token: string;
       /** In whole seconds since the epoch. */
       expiresAt: number;
-      repositories: { id: number; fullName: string }[];
+      repositories: Array<{ id: number; fullName: string }>;
       /** As GitHub granted them, by GitHub's names. */
       permissions: Record<string, string>;
     }

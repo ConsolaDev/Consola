@@ -7,10 +7,10 @@ import {
   GITHUB_URL_MAX,
   isDeliveryId,
   PULL_REQUEST_TITLE_MAX,
-  type PullRequestFacts,
   readGitHubEventFacts,
   readGitHubPermissions,
 } from './github.js';
+import type { PullRequestFacts } from './github.js';
 
 /** What the other side really sends: the value after `JSON.stringify` and `JSON.parse`. */
 const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value));

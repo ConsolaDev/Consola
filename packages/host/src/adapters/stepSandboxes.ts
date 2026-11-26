@@ -164,7 +164,7 @@ export const attemptSandbox = (
 export const runCheckout = (
   sandbox: Sandbox,
   env: Readonly<Record<string, string>>,
-  secrets: ReadonlyArray<string>,
+  secrets: readonly string[],
 ): Effect.Effect<void, StepFailed> =>
   Effect.gen(function* () {
     const stderr = new StderrTail(secrets);

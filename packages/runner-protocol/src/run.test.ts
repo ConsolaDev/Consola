@@ -2,14 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { GIT_REF_MAX } from './github.js';
 import {
   RUN_STEPS_MAX,
-  type RunRecord,
   readRunRecord,
   STEP_ARTIFACTS_MAX,
   STEP_DENIED_TOOLS_MAX,
   STEP_OUTPUTS_MAX,
   STEP_PREVIOUS_MAX,
-  type StepRecord,
 } from './run.js';
+import type { RunRecord, StepRecord } from './run.js';
 
 /** What the other side really sends: the value after `JSON.stringify` and `JSON.parse`. */
 const wire = (value: unknown): unknown => JSON.parse(JSON.stringify(value));

@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - The tests hash as the runner does.
 import { createHash } from 'node:crypto';
-import { OUTPUT_TAIL_MAX, type RunRecord, readRunRecord } from '@consola/runner-protocol';
+import { OUTPUT_TAIL_MAX, readRunRecord } from '@consola/runner-protocol';
+import type { RunRecord } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vite-plus/test';
 import { endedRecordOf, frameBytesOf, runIdOf, tailWithin, withinFrame } from './runRecord.ts';
 

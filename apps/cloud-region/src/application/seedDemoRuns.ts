@@ -228,7 +228,7 @@ const DAY = 24 * 60;
 
 /** A pull request's head commit, made up from its number, the same at every seed. */
 const headOf = (number: number): string =>
-  ((number * 2654435761) >>> 0).toString(16).padStart(8, '0').repeat(5);
+  ((number * 2_654_435_761) >>> 0).toString(16).padStart(8, '0').repeat(5);
 
 const pr = (number: number, title: string): RunItem => ({
   url: `https://github.com/${REPO}/pull/${number}`,

@@ -25,9 +25,9 @@ export const COMMAND_FILES_FOLDER = `${STEP_WORKSPACE}/.consola/attempt`;
 export const COMMAND_OUTPUT_FILE = `${STEP_WORKSPACE}/.consola/outputs.env`;
 
 /** The template's checkout script (`sandbox-template/consola-step-checkout`). */
-export const STEP_CHECKOUT_ARGV: ReadonlyArray<string> = ['consola-step-checkout'];
+export const STEP_CHECKOUT_ARGV: readonly string[] = ['consola-step-checkout'];
 /** The template's script that becomes an agent step's host (`sandbox-template/consola-step-start`). */
-export const STEP_HOST_ARGV: ReadonlyArray<string> = ['consola-step-start'];
+export const STEP_HOST_ARGV: readonly string[] = ['consola-step-start'];
 /** How a command step's command runs. */
 export const commandArgv = (command: string): string[] => ['bash', '-c', command];
 
@@ -157,7 +157,7 @@ export const STEP_THREAD_TITLE = 'Consola step';
  * can set the CLI's environment or name commands it runs (a credential helper). The step reads
  * what its pull request changes in them from its `changes` document.
  */
-export const CHECKOUT_CLAUDE_SETTINGS: ReadonlyArray<string> = [
+export const CHECKOUT_CLAUDE_SETTINGS: readonly string[] = [
   '.claude/settings.json',
   '.claude/settings.local.json',
 ];
@@ -182,7 +182,7 @@ export const STEP_LAUNCH_ARGS = [
 ].join(' ');
 
 /** Launch flags that would widen what the CLI may do or load: none is ever in `STEP_LAUNCH_ARGS`. */
-export const LOOSENING_LAUNCH_FLAGS: ReadonlyArray<string> = [
+export const LOOSENING_LAUNCH_FLAGS: readonly string[] = [
   '--permission-mode',
   '--dangerously-skip-permissions',
   '--allow-dangerously-skip-permissions',

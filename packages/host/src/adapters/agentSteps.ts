@@ -36,12 +36,12 @@ import {
   declarationOf,
   declarationText,
   DECLARATION_FILE,
-  type MissingFromStep,
   missingFrom,
   missingSentence,
   nothingMissing,
   OUTPUTS_FILE,
 } from '../core/steps/stepFolder.ts';
+import type { MissingFromStep } from '../core/steps/stepFolder.ts';
 import {
   CHANGES_DOCUMENT,
   CHANGES_FILE,
@@ -69,16 +69,17 @@ import {
   stepRunOf,
   stepSessionId,
 } from '../core/steps/stepTurn.ts';
-import { makeStepHostClient, makeStepKeys, type StepHostClient } from './stepHostClient.ts';
+import { makeStepHostClient, makeStepKeys } from './stepHostClient.ts';
+import type { StepHostClient } from './stepHostClient.ts';
 import {
   attemptSandbox,
   runCheckout,
   messageOf,
   STEP_LIFETIME_MARGIN,
-  type StepSandboxOptions,
   StepFailed,
   sandboxCall,
 } from './stepSandboxes.ts';
+import type { StepSandboxOptions } from './stepSandboxes.ts';
 
 /** How often the runner reads the step's thread while a turn runs. */
 export const STEP_POLL_INTERVAL = Duration.millis(500);
@@ -94,7 +95,7 @@ export type AgentStepsOptions = Omit<StepSandboxOptions, 'log'> & {
   /** Each harness's API key the runner holds; a step gets its own harness's alone. */
   readonly apiKeys: Readonly<Partial<Record<Harness, string>>>;
   /** Every secret the runner holds, taken out of whatever it returns or logs. */
-  readonly secretValues: ReadonlyArray<string>;
+  readonly secretValues: readonly string[];
   /** A line for the runner's log; scrubbed here first. */
   readonly log: (message: string) => Effect.Effect<void>;
   /** `STEP_POLL_INTERVAL` unless a test shortens it. */
@@ -109,7 +110,7 @@ type Progress = {
   readonly hostStderr: MaskedTail;
 };
 
-const unique = (names: ReadonlyArray<string>): string[] => [...new Set(names)];
+const unique = (names: readonly string[]): string[] => [...new Set(names)];
 
 /** Resolves once `signal` aborts (at once when it has). */
 const aborted = (signal: AbortSignal): Effect.Effect<void> =>
@@ -153,7 +154,7 @@ export const runAgentStep = (
     const result = (
       status: AgentStepResult['status'],
       error: string | null,
-      folder: { outputs: AgentStepResult['outputs']; artifacts: ReadonlyArray<StepDocument> },
+      folder: { outputs: AgentStepResult['outputs']; artifacts: readonly StepDocument[] },
     ): AgentStepResult => {
       const said = new MaskedTail(secrets);
       if (progress.projection !== null) said.push(assistantText(progress.projection));
@@ -267,7 +268,7 @@ export const runAgentStep = (
 const prepare = (
   sandbox: Sandbox,
   request: AgentStepRequest,
-  secrets: ReadonlyArray<string>,
+  secrets: readonly string[],
 ): Effect.Effect<StepDeclaration, StepFailed> =>
   Effect.gen(function* () {
     const readable = [...request.readable];
@@ -315,7 +316,7 @@ const startHost = (
   request: AgentStepRequest,
   apiKey: string,
   progress: Progress,
-  secrets: ReadonlyArray<string>,
+  secrets: readonly string[],
 ): Effect.Effect<StartedHost, StepFailed> =>
   Effect.gen(function* () {
     const keys = makeStepKeys();
@@ -387,7 +388,7 @@ const awaitTurn = (
   progress: Progress,
   index: number,
   text: string,
-  secrets: ReadonlyArray<string>,
+  secrets: readonly string[],
 ): Effect.Effect<OrchestrationV2Run, StepFailed> =>
   Effect.gen(function* () {
     const sessionId = stepSessionId(request);

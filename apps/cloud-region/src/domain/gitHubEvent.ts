@@ -3,13 +3,11 @@ import {
   GITHUB_ACTION_MAX,
   GITHUB_LOGIN_MAX,
   GITHUB_URL_MAX,
-  type GitHubEventFacts,
   isRepository,
   PULL_REQUEST_TITLE_MAX,
-  type PullRequestFacts,
-  type Repository,
   readGitHubEventFacts,
 } from '@consola/runner-protocol';
+import type { GitHubEventFacts, PullRequestFacts, Repository } from '@consola/runner-protocol';
 
 /**
  * What the cell makes of a GitHub event it records, for the workspace's runner (CON-116, stage
@@ -81,7 +79,7 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
  * hold, so neither could a run's record of it) as U+FFFD.
  */
 export function titleOf(title: string): string {
-  const clean = title.replaceAll('\u0000', '�').replace(LONE_SURROGATE, '�');
+  const clean = title.replaceAll('\u0000', '�').replaceAll(LONE_SURROGATE, '�');
   if (clean.length <= PULL_REQUEST_TITLE_MAX) return clean;
   const end = /[\uD800-\uDBFF]/.test(clean.charAt(PULL_REQUEST_TITLE_MAX - 1))
     ? PULL_REQUEST_TITLE_MAX - 1

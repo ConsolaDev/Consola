@@ -1,4 +1,5 @@
-import { isRepository, type RunItem } from '@consola/runner-protocol';
+import { isRepository } from '@consola/runner-protocol';
+import type { RunItem } from '@consola/runner-protocol';
 import type { StepCheckout } from '../steps/ports.ts';
 
 /**

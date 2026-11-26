@@ -1,4 +1,5 @@
-import { type GitHubPermissions, TOKEN_REFUSAL_MAX } from '@consola/runner-protocol';
+import { TOKEN_REFUSAL_MAX } from '@consola/runner-protocol';
+import type { GitHubPermissions } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vitest';
 import { automationsOf, checkFactoryFiles } from './factory.js';
 import type { RunWrite } from './run.js';
@@ -189,8 +190,9 @@ describe('purposeFor', () => {
     for (const asked of asks) {
       const judged = purposeFor(asked);
       expect(judged.ok).toBe(false);
-      if (!judged.ok)
+      if (!judged.ok) {
         expect(judged.reason).toMatch(/^No GitHub token a run can have grants exactly/);
+      }
     }
   });
 

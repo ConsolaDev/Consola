@@ -16,7 +16,7 @@ export const MASK = '***';
 export const OUTPUT_TAIL_LENGTH = 16 * 1024;
 
 /** Every form of every secret, longest first; empty secrets are ignored. */
-export function maskFormsOfAll(secrets: ReadonlyArray<string>): string[] {
+export function maskFormsOfAll(secrets: readonly string[]): string[] {
   const forms = new Set<string>();
   for (const secret of secrets) {
     if (secret === '') continue;
@@ -25,14 +25,14 @@ export function maskFormsOfAll(secrets: ReadonlyArray<string>): string[] {
   return [...forms].sort((a, b) => b.length - a.length);
 }
 
-const replaceForms = (text: string, forms: ReadonlyArray<string>): string => {
+const replaceForms = (text: string, forms: readonly string[]): string => {
   let masked = text;
   for (const form of forms) masked = masked.split(form).join(MASK);
   return masked;
 };
 
 /** `text` with every form of every secret replaced by `***`, the longest first. */
-export function maskText(text: string, secrets: ReadonlyArray<string>): string {
+export function maskText(text: string, secrets: readonly string[]): string {
   return replaceForms(text, maskFormsOfAll(secrets));
 }
 
@@ -44,7 +44,7 @@ export function maskText(text: string, secrets: ReadonlyArray<string>): string {
  * stream that ends part-way through a secret has that start masked too.
  */
 export class MaskedTail {
-  private readonly forms: ReadonlyArray<string>;
+  private readonly forms: readonly string[];
   private readonly holdBack: number;
   private readonly limit: number;
   private tail = '';
@@ -53,7 +53,7 @@ export class MaskedTail {
   private byteCount = 0;
   private readonly encoder = new TextEncoder();
 
-  constructor(secrets: ReadonlyArray<string>, limit: number = OUTPUT_TAIL_LENGTH) {
+  constructor(secrets: readonly string[], limit: number = OUTPUT_TAIL_LENGTH) {
     this.forms = maskFormsOfAll(secrets);
     this.holdBack = Math.max(0, ...this.forms.map((form) => form.length - 1));
     this.limit = limit;

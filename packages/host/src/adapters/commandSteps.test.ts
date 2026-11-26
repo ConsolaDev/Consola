@@ -5,7 +5,8 @@ import * as Effect from 'effect/Effect';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { MASK } from '../core/steps/mask.ts';
 import type { CommandStepRequest, CommandStepResult } from '../core/steps/ports.ts';
-import { LocalProvider, type LocalStepsOptions } from '../testing/localProvider.ts';
+import { LocalProvider } from '../testing/localProvider.ts';
+import type { LocalStepsOptions } from '../testing/localProvider.ts';
 import { isolateMachine } from '../testing/machine.ts';
 import { makeCommandSteps } from './commandSteps.ts';
 
@@ -95,7 +96,7 @@ describe('CommandSteps on sandboxes', () => {
           'echo "token=$GH_TOKEN"',
           'printf "%s" "$GH_TOKEN" | base64',
           'echo "to stderr: $GH_TOKEN" >&2',
-          'echo "names: $(env | cut -d= -f1 | sort | tr "\\n" " ")"',
+          String.raw`echo "names: $(env | cut -d= -f1 | sort | tr "\n" " ")"`,
           'echo "review_id=17" >> "$CONSOLA_OUTPUT"',
           'echo "echoed=$GH_TOKEN" >> "$CONSOLA_OUTPUT"',
           'echo "not a line" >> "$CONSOLA_OUTPUT"',
@@ -188,7 +189,7 @@ describe('CommandSteps on sandboxes', () => {
     'keeps the last 16 KiB of each stream, and counts all of it',
     async () => {
       const { result } = await runCommand({
-        command: 'head -c 40000 /dev/zero | tr "\\0" "x"; printf "\\nend\\n"',
+        command: String.raw`head -c 40000 /dev/zero | tr "\0" "x"; printf "\nend\n"`,
       });
       expect(result.output.truncated).toBe(true);
       expect(result.output.stdout.length).toBe(16 * 1024);
@@ -203,7 +204,7 @@ describe('CommandSteps on sandboxes', () => {
     async () => {
       const { result, provider } = await runCommand({
         command: 'echo started; exec sleep 60',
-        timeoutMs: 3_000,
+        timeoutMs: 3000,
       });
       expect(result).toMatchObject({
         exitCode: null,

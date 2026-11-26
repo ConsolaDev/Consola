@@ -1,21 +1,19 @@
 import { stepRecordsOf } from '@consola/automation-engine/core';
-import {
-  type RunRecord as EngineRun,
-  type RunItem as EngineItem,
-  isStepsEntry,
-  leafSteps,
-  type FactoryParseResult,
-  type StepRun,
-  type StepsAutomation,
+import { isStepsEntry, leafSteps } from '@consola/factory-spec';
+import type {
+  RunRecord as EngineRun,
+  RunItem as EngineItem,
+  FactoryParseResult,
+  StepRun,
+  StepsAutomation,
 } from '@consola/factory-spec';
-import {
-  OUTPUT_TAIL_MAX,
-  type PullRequestFacts,
-  type RunItem,
-  type RunRecord,
-  type RunStatus,
-  SOCKET_FRAME_MAX_BYTES,
-  type StepRecord,
+import { OUTPUT_TAIL_MAX, SOCKET_FRAME_MAX_BYTES } from '@consola/runner-protocol';
+import type {
+  PullRequestFacts,
+  RunItem,
+  RunRecord,
+  RunStatus,
+  StepRecord,
 } from '@consola/runner-protocol';
 import type { OutputTail } from '../steps/ports.ts';
 

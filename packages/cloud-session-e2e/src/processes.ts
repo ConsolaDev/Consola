@@ -6,9 +6,11 @@
  * wait that polls, a free port for the cell, and the processes below a runner (its sandboxes), so
  * the teardown leaves nothing running.
  */
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import type { Server } from 'node:http';
-import { type AddressInfo, createServer as createNetServer } from 'node:net';
+import { createServer as createNetServer } from 'node:net';
+import type { AddressInfo } from 'node:net';
 
 /** Starting node and loading t3 takes seconds; under load, far more. */
 export const WAIT_MS = 90_000;
@@ -43,7 +45,7 @@ export const waitFor = async <A>(
 /** Starts `node <script> <args>` with `env`, collecting what it prints. */
 export const startNode = (
   script: string,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   env: NodeJS.ProcessEnv,
 ): Started => {
   // The machine's PATH holds only fake CLIs and /usr/bin:/bin, so node is named by its path.
@@ -113,5 +115,5 @@ export const freePort = () =>
 export const portOf = (server: Server) => (server.address() as AddressInfo).port;
 
 /** Waits until none of `pids` is alive. */
-export const noneAlive = (pids: ReadonlyArray<number>, what: string) =>
+export const noneAlive = (pids: readonly number[], what: string) =>
   waitFor(() => (pids.every((pid) => !isAlive(pid)) ? true : undefined), what);

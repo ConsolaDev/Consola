@@ -1,10 +1,6 @@
 import { parseFactory } from '@consola/factory-spec';
-import {
-  readCellMessage,
-  RUN_PROBLEM_TEXT_MAX,
-  RUN_PROBLEMS_MAX,
-  type RunRecord,
-} from '@consola/runner-protocol';
+import { readCellMessage, RUN_PROBLEM_TEXT_MAX, RUN_PROBLEMS_MAX } from '@consola/runner-protocol';
+import type { RunRecord } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vitest';
 import {
   checkRun,

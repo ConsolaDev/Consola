@@ -1,13 +1,12 @@
-import { type ItemSource, resolveWebhookTrigger } from '@consola/automation-engine/core';
+import { resolveWebhookTrigger } from '@consola/automation-engine/core';
+import type { ItemSource } from '@consola/automation-engine/core';
 import {
-  type Automation,
-  type FactoryParseResult,
   isRunOwnedCheckout,
   isStepsEntry,
   parseFactory,
-  type StepsAutomation,
   storedFactoryFiles,
 } from '@consola/factory-spec';
+import type { Automation, FactoryParseResult, StepsAutomation } from '@consola/factory-spec';
 import type { FactorySnapshot, PullRequestFacts } from '@consola/runner-protocol';
 
 /**

@@ -8,19 +8,11 @@
  * with the same rules (`checkOutputs`, `ARTIFACT_NAME_PATTERN`, the size of a document), so a
  * tampered file never becomes an output or a document.
  */
-import {
-  ARTIFACT_NAME_PATTERN,
-  checkOutputs,
-  type OutputType,
-  type OutputValue,
-} from '@consola/factory-spec';
+import { ARTIFACT_NAME_PATTERN, checkOutputs } from '@consola/factory-spec';
+import type { OutputType, OutputValue } from '@consola/factory-spec';
 import type { AgentStepRequest, StepDocument } from './ports.ts';
-import {
-  MAX_ARTIFACT_BYTES,
-  type StepDeclaration,
-  type StepFolderState,
-  utf8Bytes,
-} from './stepTools.ts';
+import { MAX_ARTIFACT_BYTES, utf8Bytes } from './stepTools.ts';
+import type { StepDeclaration, StepFolderState } from './stepTools.ts';
 
 /** The declaration the runner writes, in the step's folder. */
 export const DECLARATION_FILE = 'declaration.json';
@@ -141,9 +133,9 @@ export type CheckedStepFolder = {
   /** The outputs that pass their declared types. */
   readonly outputs: Readonly<Record<string, OutputValue>>;
   /** The documents of names the step writes, each text within the size a document may have. */
-  readonly artifacts: ReadonlyArray<StepDocument>;
+  readonly artifacts: readonly StepDocument[];
   /** What it refused, for the runner's log: never a value. */
-  readonly refused: ReadonlyArray<string>;
+  readonly refused: readonly string[];
 };
 
 /**
@@ -181,8 +173,8 @@ export function checkStepFolder(
 
 /** What a step has left unset: declared outputs without a valid value, required documents not written. */
 export type MissingFromStep = {
-  readonly outputs: ReadonlyArray<string>;
-  readonly artifacts: ReadonlyArray<string>;
+  readonly outputs: readonly string[];
+  readonly artifacts: readonly string[];
 };
 
 export function missingFrom(
@@ -192,7 +184,7 @@ export function missingFrom(
   const written = new Set(checked.artifacts.map((document) => document.name));
   return {
     outputs: Object.keys(declaration.outputs).filter(
-      (name) => !Object.prototype.hasOwnProperty.call(checked.outputs, name),
+      (name) => !Object.hasOwn(checked.outputs, name),
     ),
     artifacts: declaration.required.filter((name) => !written.has(name)),
   };
@@ -202,10 +194,8 @@ export const nothingMissing = (missing: MissingFromStep): boolean =>
   missing.outputs.length === 0 && missing.artifacts.length === 0;
 
 /** "a", "a and b", "a, b and c". */
-const listed = (names: ReadonlyArray<string>): string =>
-  names.length < 2
-    ? names.join('')
-    : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+const listed = (names: readonly string[]): string =>
+  names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names.at(-1)}`;
 
 /** The sentence a step fails with when it ended without what it must leave, after its reminder. */
 export function missingSentence(missing: MissingFromStep): string {

@@ -82,7 +82,7 @@ describe('the step tools server’s MCP messages', () => {
       id: 5,
       problem: 'Invalid params',
     });
-    expect(mcpError(5, 'Invalid params').error.code).toBe(-32602);
+    expect(mcpError(5, 'Invalid params').error.code).toBe(-32_602);
   });
 
   it('refuses every other method', () => {
@@ -91,6 +91,6 @@ describe('the step tools server’s MCP messages', () => {
       id: 6,
       method: 'resources/list',
     });
-    expect(unknownMethod(6, 'resources/list').error.code).toBe(-32601);
+    expect(unknownMethod(6, 'resources/list').error.code).toBe(-32_601);
   });
 });

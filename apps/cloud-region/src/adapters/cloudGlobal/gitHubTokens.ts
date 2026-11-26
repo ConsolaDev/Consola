@@ -25,7 +25,7 @@ function readMinted(body: unknown): GitHubTokenMint {
   if (typeof token !== 'string' || !TOKEN.test(token)) return unavailable;
   if (!isGitHubId(expiresAt) || expiresAt > LATEST_SECONDS) return unavailable;
   if (!Array.isArray(repositories) || !isRecord(permissions)) return unavailable;
-  const named: { id: number; fullName: string }[] = [];
+  const named: Array<{ id: number; fullName: string }> = [];
   for (const each of repositories) {
     if (!isRecord(each) || !isGitHubId(each.id) || typeof each.fullName !== 'string') {
       return unavailable;

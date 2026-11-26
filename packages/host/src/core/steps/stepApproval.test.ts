@@ -1,10 +1,7 @@
 import type { OrchestrationV2ThreadProjection } from '@t3tools/contracts';
 import { describe, expect, it } from 'vite-plus/test';
-import {
-  decideStepApproval,
-  pendingStepRequests,
-  type StepPermissionRequest,
-} from './stepApproval.ts';
+import { decideStepApproval, pendingStepRequests } from './stepApproval.ts';
+import type { StepPermissionRequest } from './stepApproval.ts';
 
 const request = (fields: Partial<StepPermissionRequest>): StepPermissionRequest => ({
   requestId: 'runtime-request:1' as StepPermissionRequest['requestId'],

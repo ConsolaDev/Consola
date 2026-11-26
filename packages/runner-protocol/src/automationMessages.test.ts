@@ -298,7 +298,7 @@ describe('the cell messages for runs', () => {
     ['an empty token', { ...token, token: '' }],
     ['a token past its bound', { ...token, token: 'g'.repeat(GITHUB_TOKEN_MAX + 1) }],
     ['a token that expires at no time', { ...token, expiresAt: 'in an hour' }],
-    ['a token that expires in whole seconds', { ...token, expiresAt: 1764068400 }],
+    ['a token that expires in whole seconds', { ...token, expiresAt: 1_764_068_400 }],
     ['a token with an extra field', { ...token, permissions: {} }],
     ['a refusal without a reason', { ...tokenRefused, reason: '' }],
     [

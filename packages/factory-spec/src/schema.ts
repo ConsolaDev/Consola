@@ -120,10 +120,10 @@ const NOT_A_CONNECTION = (id: string) =>
   `"${id}" is not a trigger. The key of \`on\` is \`cron\`, \`poll\`, \`manual\` or a lowercase connection id, ${TRIGGER_EXAMPLE}.`;
 
 /** What a connection's trigger holds under its name: the events that fire it, and the filter its connection reads. */
-const CONNECTION_KEYS = ['events', 'filter'];
+const CONNECTION_KEYS = new Set(['events', 'filter']);
 
 /** Consola's own triggers: every other key of `on` names a connection. */
-const OWN_TRIGGERS = ['cron', 'poll', 'manual'];
+const OWN_TRIGGERS = new Set(['cron', 'poll', 'manual']);
 
 /** Triggers a later slice brings, refused with what they arrive with. */
 const LATER_TRIGGERS: Record<string, string> = {
@@ -159,11 +159,13 @@ function writtenEvents(value: unknown): unknown {
 
 /** Why `key` cannot sit beside the trigger `kind` in `on`, in words that say where it goes. */
 function besideTrigger(kind: string, key: string, on: Record<string, unknown>): string {
-  if (OWN_TRIGGERS.includes(kind) || !CONNECTION_ID_PATTERN.test(kind))
+  if (OWN_TRIGGERS.has(kind) || !CONNECTION_ID_PATTERN.test(kind)) {
     return `\`on\` holds one trigger, \`${kind}\`; remove \`${key}\`.`;
-  const filter = isRecord(on[kind]) ? (on[kind] as Record<string, unknown>).filter : undefined;
-  if (key === 'filter')
+  }
+  const filter = isRecord(on[kind]) ? on[kind].filter : undefined;
+  if (key === 'filter') {
     return `\`filter:\` goes under \`${kind}:\`, beside \`events:\`: write \`${connectionTriggerLine(kind, writtenEvents(on[kind]), on.filter)}\`.`;
+  }
   return `\`on\` holds one trigger, \`${kind}\`, and \`${key}\` cannot sit beside it: a connection takes \`events:\` and \`filter:\`, under its name, e.g. \`${connectionTriggerLine(kind, writtenEvents(on[kind]), filter)}\`.`;
 }
 
@@ -197,11 +199,12 @@ function parseConnectionTrigger(
     fail(message, [connection, ...path]);
   };
   for (const key of Object.keys(written)) {
-    if (!CONNECTION_KEYS.includes(key))
+    if (!CONNECTION_KEYS.has(key)) {
       bad(
         `Unrecognized key in \`${connection}\`: ${key}. A connection takes \`events\` and \`filter\`.`,
         [key],
       );
+    }
   }
 
   const events: string[] = [];
@@ -488,15 +491,16 @@ function refuseEntryFilter(entry: unknown, ctx: z.RefinementCtx): unknown {
   const kind = on === 'manual' ? 'manual' : isRecord(on) ? Object.keys(on)[0] : undefined;
   let message: string;
   if (kind === 'poll') message = 'Filter in the command, for example with `--jq`.';
-  else if (kind === 'cron')
+  else if (kind === 'cron') {
     message = '`filter` narrows which items fire an event; a schedule has no items.';
-  else if (kind === 'manual')
+  } else if (kind === 'manual') {
     message = '`filter` narrows which items fire an event; a run on demand has no event.';
-  else if (kind !== undefined && CONNECTION_ID_PATTERN.test(kind) && isRecord(on))
+  } else if (kind !== undefined && CONNECTION_ID_PATTERN.test(kind) && isRecord(on)) {
     message = `\`filter:\` goes under \`${kind}:\` in \`on:\`, beside \`events:\`: write \`${connectionTriggerLine(kind, writtenEvents(on[kind]), filter)}\`.`;
-  else
+  } else {
     message =
       '`filter:` goes under the connection in `on:`, beside `events:`, e.g. `on: { github: { events: [pull_request.opened], filter: { repos: [sprocket/catalog-portal] } } }`.';
+  }
   ctx.addIssue({ code: 'custom', path: ['filter'], message });
   return rest;
 }

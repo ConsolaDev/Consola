@@ -391,7 +391,7 @@ describe('the run store', () => {
     expect(await runs.answeredWaiting('acme', 10)).toEqual([]);
 
     // Nor over one that waits at a gate, or was rejected: neither is a first record.
-    const later: [string, Partial<RunWrite>][] = [
+    const later: Array<[string, Partial<RunWrite>]> = [
       ['gated', { status: 'waiting', waitingOn: 'person', startedAt: at(2) }],
       ['dismissed', { status: 'rejected', startedAt: null, finishedAt: at(2) }],
     ];

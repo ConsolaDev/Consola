@@ -1,33 +1,27 @@
 import {
-  type AgentRequirements,
   agentRequirements,
   agentStepLaunch,
-  type CommandOutcome,
-  type CommandResult,
   commandOutcome,
   endedWithout,
-  type ItemSource,
   lastLineOf,
   MAX_ARTIFACT_BYTES,
   maskSecrets,
-  type PreparedCommand,
   prepareCommand,
-  type RunDefinition,
   reminderPrompt,
   requiredOf,
   stepCap,
   writableOf,
 } from '@consola/automation-engine/core';
-import {
-  type AgentStep,
-  CHECKOUT_CHANGES_REF,
-  type CommandStep,
-  checkOutputs,
-  leafSteps,
-  parseReadRef,
-  type StepPermissions,
-  type StepRun,
-} from '@consola/factory-spec';
+import type {
+  AgentRequirements,
+  CommandOutcome,
+  CommandResult,
+  ItemSource,
+  PreparedCommand,
+  RunDefinition,
+} from '@consola/automation-engine/core';
+import { CHECKOUT_CHANGES_REF, checkOutputs, leafSteps, parseReadRef } from '@consola/factory-spec';
+import type { AgentStep, CommandStep, StepPermissions, StepRun } from '@consola/factory-spec';
 import type {
   AgentStepRequest,
   AgentStepResult,
@@ -340,12 +334,13 @@ export function planCommandStep(input: {
 
   const env: Record<string, string> = {};
   const fileEnv: Record<string, string> = {};
-  const files: { path: string; content: string }[] = [];
+  const files: Array<{ path: string; content: string }> = [];
   for (const { name, value } of command.values) {
     const document = documents.documentAt(value);
     if (document !== null) {
-      if (!files.some((file) => file.path === value))
+      if (!files.some((file) => file.path === value)) {
         files.push({ path: value, content: document });
+      }
       fileEnv[name] = value;
       continue;
     }

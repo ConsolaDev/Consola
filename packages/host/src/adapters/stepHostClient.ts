@@ -13,7 +13,8 @@
  * closed. A socket the host would close at the pass's end is never held, so a long turn needs no
  * reconnection.
  */
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { PASS_MAX_LIFETIME_SECONDS, PASS_TYPE, passClaims } from '@consola/runner-protocol';
 import {
   ORCHESTRATION_PROTOCOL_HEADER,
@@ -21,11 +22,10 @@ import {
   ORCHESTRATION_PROTOCOL_VERSION,
   ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
-  type OrchestrationV2Command,
   OrchestrationV2ThreadBoundedSnapshot,
-  type OrchestrationV2ThreadProjection,
   WsRpcGroup,
 } from '@t3tools/contracts';
+import type { OrchestrationV2Command, OrchestrationV2ThreadProjection } from '@t3tools/contracts';
 import {
   joinSocketFrameParts,
   SOCKET_FRAME_PARTS_QUERY_PARAM,

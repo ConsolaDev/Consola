@@ -1,7 +1,6 @@
 import {
   advanceSteps,
   closeSteps,
-  type ItemSource,
   maskFormsOf,
   resolveWebhookTrigger,
   runCostOf,
@@ -12,13 +11,15 @@ import {
   withStep,
   withUpdate,
 } from '@consola/automation-engine/core';
-import { flatSteps, leafSteps, type RepeatStep, type StepRun } from '@consola/factory-spec';
-import {
-  type GitHubEventNotice,
-  type RunAnswered,
-  type RunRecord,
-  type RunRefused,
-  SOCKET_FRAME_MAX_BYTES,
+import type { ItemSource } from '@consola/automation-engine/core';
+import { flatSteps, leafSteps } from '@consola/factory-spec';
+import type { RepeatStep, StepRun } from '@consola/factory-spec';
+import { SOCKET_FRAME_MAX_BYTES } from '@consola/runner-protocol';
+import type {
+  GitHubEventNotice,
+  RunAnswered,
+  RunRecord,
+  RunRefused,
 } from '@consola/runner-protocol';
 import type { OutputTail, StepCheckout } from '../steps/ports.ts';
 import { admissionOf } from './approval.ts';
@@ -29,20 +30,15 @@ import {
   endedRecordOf,
   itemOfEvent,
   newRunState,
-  type RunState,
   rebuildRunState,
   recordOf,
   runIdOf,
   strippedRecordOf,
   withinFrame,
 } from './runRecord.ts';
-import {
-  type StepEnd,
-  agentOutcome,
-  commandOutcomeOf,
-  planAgentStep,
-  planCommandStep,
-} from './steps.ts';
+import type { RunState } from './runRecord.ts';
+import { agentOutcome, commandOutcomeOf, planAgentStep, planCommandStep } from './steps.ts';
+import type { StepEnd } from './steps.ts';
 import { eventNameOf, matchEvent, parseSnapshot } from './triggers.ts';
 
 /**
@@ -94,7 +90,12 @@ const ENDED_KEPT = 64;
 /** The most deliveries the ring remembers acknowledging. */
 const ACKED_KEPT = 1024;
 
-const OPEN_STATUSES: readonly string[] = ['needs-approval', 'queued', 'running', 'waiting'];
+const OPEN_STATUSES: ReadonlySet<string> = new Set<string>([
+  'needs-approval',
+  'queued',
+  'running',
+  'waiting',
+]);
 
 /** Why a gate parks a run the web cannot answer yet. */
 const gateWords = (stepId: string): string =>
@@ -140,7 +141,7 @@ export function createAutomationsRing(
   const sayRecord = (record: RunRecord): void => {
     held.delete(record.id);
     held.set(record.id, record);
-    const ended = [...held.values()].filter((run) => !OPEN_STATUSES.includes(run.status));
+    const ended = [...held.values()].filter((run) => !OPEN_STATUSES.has(run.status));
     for (const run of ended.slice(0, Math.max(0, ended.length - ENDED_KEPT))) held.delete(run.id);
     link.send({ type: 'run.record', run: record });
   };
@@ -281,8 +282,9 @@ export function createAutomationsRing(
     const plan = planAgentStep({ ...walk, stepId, checkout });
     if (!plan.ok) return settle(walk, stepId, { status: 'failed', error: plan.error });
     const step = leafSteps(state.automation.steps).find((candidate) => candidate.id === stepId);
-    if (step?.kind !== 'agent')
+    if (step?.kind !== 'agent') {
       return settle(walk, stepId, { status: 'failed', error: 'It is not an agent step.' });
+    }
     const now = ports.now();
     walk.state.tails.delete(stepId);
     setSteps(walk, withAttemptStarted(state.engine.steps ?? [], stepId, now, step.agent), now);
@@ -393,8 +395,9 @@ export function createAutomationsRing(
     }
     if (walk.done) return false;
     const record = (state.engine.steps ?? []).find((candidate) => candidate.id === stepId);
-    if (record === undefined)
+    if (record === undefined) {
       return settle(walk, stepId, { status: 'failed', error: 'Its record is gone.' });
+    }
     const outcome = commandOutcomeOf({
       documents: walk.documents,
       prepared: plan.prepared,

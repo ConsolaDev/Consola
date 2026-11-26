@@ -5,13 +5,13 @@ import {
   isRecord,
   isTextUpTo,
   objectOf,
-  type Reader,
-  type ReadResult,
   read,
   readerOf,
   refused,
 } from './read.js';
-import { isRepository, type Repository } from './repository.js';
+import type { Reader, ReadResult } from './read.js';
+import { isRepository } from './repository.js';
+import type { Repository } from './repository.js';
 
 /**
  * What the cell tells a runner of a GitHub event (`github.event`), and what a runner may ask a

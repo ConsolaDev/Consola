@@ -52,7 +52,8 @@ import { listenHost } from './adapters/rpcServer.ts';
 import type { HostListening } from './adapters/rpcServer.ts';
 import { makeSandboxSessions, SHUTDOWN_STOP_TIMEOUT } from './adapters/sandboxSessions.ts';
 import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
-import { type AutomationsRing, createAutomationsRing } from './core/automations/ring.ts';
+import { createAutomationsRing } from './core/automations/ring.ts';
+import type { AutomationsRing } from './core/automations/ring.ts';
 import { isLoopback } from './core/bind.ts';
 import { isIdle } from './core/idle.ts';
 import {

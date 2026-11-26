@@ -90,7 +90,7 @@ const FACTS = {
 } as const;
 
 /** The workspace's runner, as the use case reaches it: what it was handed, and whether it took it. */
-let handed: { workspaceId: string; deliveryId: string }[] = [];
+let handed: Array<{ workspaceId: string; deliveryId: string }> = [];
 let runnerTakes = true;
 const runners: Pick<RunnerChannel, 'handEvent'> = {
   handEvent: (workspaceId, event) => {

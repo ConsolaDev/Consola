@@ -137,7 +137,7 @@ export const mapOf =
     if (!isRecord(value)) return refused(`\`${at}\` is not an object`);
     const entries = Object.entries(value);
     if (entries.length > max) return refused(`\`${at}\` holds more than ${max} entries`);
-    const kept: [string, T][] = [];
+    const kept: Array<[string, T]> = [];
     for (const [key, entry] of entries) {
       const one = reader(entry, `${at}.<entry>`);
       if (!one.ok) return one;
@@ -160,7 +160,7 @@ export const objectOf =
     if (problem !== null) return refused(problem);
     const built: Record<string, unknown> = {};
     for (const name of names) {
-      const one = (readers[name] as Reader<unknown>)(value[name], `${at}.${name}`);
+      const one = readers[name](value[name], `${at}.${name}`);
       if (!one.ok) return one;
       built[name] = one.value;
     }

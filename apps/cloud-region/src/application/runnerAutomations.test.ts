@@ -1,18 +1,17 @@
-import { type GitHubTokenRequest, readGitHubTokenRequest } from '@consola/cloud-contract';
-import {
-  type GitHubStepTokenRequest,
-  RUN_PROBLEM_TEXT_MAX,
-  RUN_PROBLEMS_MAX,
-  readCellMessage,
-} from '@consola/runner-protocol';
+import { readGitHubTokenRequest } from '@consola/cloud-contract';
+import type { GitHubTokenRequest } from '@consola/cloud-contract';
+import { RUN_PROBLEM_TEXT_MAX, RUN_PROBLEMS_MAX, readCellMessage } from '@consola/runner-protocol';
+import type { GitHubStepTokenRequest } from '@consola/runner-protocol';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { gitHubEvents as eventTable } from '../adapters/persistence/tables.js';
 import type { Factory } from '../domain/factory.js';
 import { HELD_EVENTS_MAX, HELD_EVENTS_WINDOW_SECONDS, handOverOf } from '../domain/gitHubEvent.js';
-import { NO_STEP_DETAIL, type RunWrite, type StepRecord } from '../domain/run.js';
+import { NO_STEP_DETAIL } from '../domain/run.js';
+import type { RunWrite, StepRecord } from '../domain/run.js';
 import { MINT_REFUSALS } from '../domain/stepToken.js';
 import type {
   AutomationPorts,

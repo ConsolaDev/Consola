@@ -1,4 +1,5 @@
-import { MAX_ARTIFACT_BYTES, type RunFolderPort } from '@consola/automation-engine/core';
+import { MAX_ARTIFACT_BYTES } from '@consola/automation-engine/core';
+import type { RunFolderPort } from '@consola/automation-engine/core';
 
 /**
  * One run's documents, held in memory while the runner walks it: what its steps wrote (each

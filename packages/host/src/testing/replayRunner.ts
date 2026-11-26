@@ -16,7 +16,8 @@
  * run).
  */
 import { runHostProcess, runnerCommand } from '../bin.ts';
-import { LocalProvider, type LocalStepsOptions } from './localProvider.ts';
+import { LocalProvider } from './localProvider.ts';
+import type { LocalStepsOptions } from './localProvider.ts';
 
 const stopHangsForTests = process.env.CONSOLA_TEST_SANDBOX_STOP === 'hangs';
 const createHangsForTests = process.env.CONSOLA_TEST_SANDBOX_CREATE === 'hangs';

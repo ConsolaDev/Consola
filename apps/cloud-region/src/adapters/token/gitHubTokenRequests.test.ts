@@ -12,7 +12,7 @@ import { createGitHubTokenRequestSigner } from './gitHubTokenRequests.js';
 
 /** A new Ed25519 private key, as the JWK `CELL_PRIVATE_KEY` holds. */
 const newPrivateJwk = (): Record<string, unknown> =>
-  generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as Record<string, unknown>;
+  generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
 
 const SIGNED_AT = 1_800_000_000;
 

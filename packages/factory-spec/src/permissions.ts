@@ -29,7 +29,7 @@ export type PermissionAccess = 'read' | 'write';
 export type StepPermissions = Partial<Record<GitHubPermission, PermissionAccess>>;
 
 /** Every GitHub token can read `metadata`, and none can write it. */
-const READ_ONLY: readonly GitHubPermission[] = ['metadata'];
+const READ_ONLY: ReadonlySet<GitHubPermission> = new Set<GitHubPermission>(['metadata']);
 
 /** Why an agent step takes no `permissions:`. */
 export const AGENT_PERMISSIONS_REASON =
@@ -57,8 +57,9 @@ const isPermission = (name: string): name is GitHubPermission =>
 /** Why `name` is no permission a step can ask for: the spelling GitHub's API uses, when it is one. */
 function unknownName(name: string): string {
   const underscored = name.replace(/-/g, '_');
-  if (underscored !== name && isPermission(underscored))
+  if (underscored !== name && isPermission(underscored)) {
     return `Write \`${underscored}\`, as GitHub's API names it.`;
+  }
   return `\`${name}\` is not a permission a step can ask for; a step asks for ${NAMES}.`;
 }
 
@@ -86,10 +87,11 @@ export function parsePermissions(
     const access = raw[name];
     let problem: string | undefined;
     if (!isPermission(name)) problem = unknownName(name);
-    else if (access !== 'read' && access !== 'write')
+    else if (access !== 'read' && access !== 'write') {
       problem = `Expected \`read\` or \`write\` for \`${name}\`.`;
-    else if (access === 'write' && READ_ONLY.includes(name))
+    } else if (access === 'write' && READ_ONLY.has(name)) {
       problem = `\`${name}\` is read-only on GitHub: write \`${name}: read\`.`;
+    }
     if (problem === undefined) given[name as GitHubPermission] = access as PermissionAccess;
     else {
       ok = false;

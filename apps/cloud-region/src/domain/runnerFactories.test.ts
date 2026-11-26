@@ -1,9 +1,9 @@
 import {
   FACTORIES_PER_ANSWER_MAX,
-  type FactorySnapshot,
   readCellMessage,
   SOCKET_FRAME_MAX_BYTES,
 } from '@consola/runner-protocol';
+import type { FactorySnapshot } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vitest';
 import { factoriesAnswer } from './runnerFactories.js';
 

@@ -146,9 +146,9 @@ export function makeCellLink(options: CellLinkOptions): CellLinkAdapter {
       }
       const resolve = waiting.resolve as (answer: TokenAnswer) => void;
       if (message.type === 'github.token') resolve({ ok: true, token: message.token });
-      else if (message.type === 'github.token.refused')
+      else if (message.type === 'github.token.refused') {
         resolve({ ok: false, reason: message.reason });
-      else waiting.reject(new Error('The cell answered a token request with factories.'));
+      } else waiting.reject(new Error('The cell answered a token request with factories.'));
     },
     connected: () => {
       for (const waiting of pending.values()) options.sendNow(waiting.message);

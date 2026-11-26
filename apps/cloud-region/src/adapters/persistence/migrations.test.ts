@@ -7,7 +7,6 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import { migrateDatabase, openDatabase } from './database.js';
-import type { Database } from './database.js';
 import { runs, teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url));
@@ -117,7 +116,7 @@ describe("the migration that gives a run's item its head commit and base branch"
       );
     }
 
-    await migrateDatabase(db as Database);
+    await migrateDatabase(db);
 
     const items = await db
       .select({ runId: runs.runId, item: runs.item })

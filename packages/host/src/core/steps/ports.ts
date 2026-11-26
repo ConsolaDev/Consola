@@ -87,7 +87,7 @@ export type CommandStepRequest = StepIdentity & {
   /** Variables whose values are secrets (a GitHub token): masked in everything that comes back. */
   readonly secretEnv: Readonly<Record<string, string>>;
   /** Files written before the command runs, each at `path`, relative to the attempt's folder. */
-  readonly files: readonly { readonly path: string; readonly content: string }[];
+  readonly files: ReadonlyArray<{ readonly path: string; readonly content: string }>;
   /** Variables whose value is the absolute path, inside the sandbox, of one of `files`, by its `path`. */
   readonly fileEnv: Readonly<Record<string, string>>;
   readonly timeoutMs: number;

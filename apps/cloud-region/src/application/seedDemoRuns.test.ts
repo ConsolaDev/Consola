@@ -111,8 +111,9 @@ describe('seedDemoRuns', () => {
         'utf8',
       );
     const demo = (path: string) => DEMO_FACTORY_FILES.find((file) => file.path === path)?.content;
-    for (const path of ['automations/review-pr.yaml', 'agents/reviewer.md'])
+    for (const path of ['automations/review-pr.yaml', 'agents/reviewer.md']) {
       expect([path, demo(path)]).toEqual([path, fixture(path)]);
+    }
   });
 
   it('is pending for a workspace the cell does not hold', async () => {

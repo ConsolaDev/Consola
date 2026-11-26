@@ -18,7 +18,8 @@
  * Every process runs on a machine of the test's own (`@consola/host`'s `src/testing/machine.ts`),
  * as `cloudSession.test.ts` sets it up.
  */
-import { generateKeyPairSync, type KeyObject, randomBytes } from 'node:crypto';
+import { generateKeyPairSync, randomBytes } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -29,7 +30,8 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createServer as createHttpServer, type Server } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import type { Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -41,12 +43,12 @@ import {
   GITHUB_EVENT_DELIVERY_PATH,
   GITHUB_EVENT_TYPE,
   GITHUB_TOKEN_REQUEST_TYPE,
-  type GitHubTokenRequest,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
   readGitHubTokenRequest,
 } from '@consola/cloud-contract';
+import type { GitHubTokenRequest } from '@consola/cloud-contract';
 import {
   cliVariablesIn,
   homeVariables,
@@ -54,18 +56,10 @@ import {
   readCalls,
   writeFakeClis,
 } from '@consola/host/src/testing/machine.ts';
-import {
-  type LocalStepsOptions,
-  RUNNER_SECRET_VARIABLES,
-} from '@consola/host/src/testing/localProvider.ts';
-import {
-  CompactSign,
-  calculateJwkThumbprint,
-  compactVerify,
-  exportJWK,
-  type JWK,
-  SignJWT,
-} from 'jose';
+import { RUNNER_SECRET_VARIABLES } from '@consola/host/src/testing/localProvider.ts';
+import type { LocalStepsOptions } from '@consola/host/src/testing/localProvider.ts';
+import { CompactSign, calculateJwkThumbprint, compactVerify, exportJWK, SignJWT } from 'jose';
+import type { JWK } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
   descendantsOf,
@@ -73,12 +67,12 @@ import {
   isAlive,
   isRunning,
   portOf,
-  type Started,
   sleep,
   startNode,
   WAIT_MS,
   waitFor,
 } from './processes.ts';
+import type { Started } from './processes.ts';
 
 const resolve = createRequire(import.meta.url).resolve;
 /** The cell as `pnpm --filter @consola/cloud-region build` writes it (turbo's `^build` does). */
@@ -157,7 +151,7 @@ type StepSummary = {
   readonly output: { readonly stdout: string; readonly stderr: string } | null;
 };
 
-type RunDetail = { readonly run: RunSummary; readonly steps: ReadonlyArray<StepSummary> };
+type RunDetail = { readonly run: RunSummary; readonly steps: readonly StepSummary[] };
 
 /** A token the stand-in minted, and the request the cell signed for it. */
 type Minted = { readonly request: GitHubTokenRequest; readonly token: string };
@@ -197,7 +191,7 @@ const current = (): Cloud => {
 };
 
 /** Every file under `folder`, by its path inside it: a factory's files, as the web app sends them. */
-const filesIn = (folder: string, prefix = ''): { path: string; content: string }[] =>
+const filesIn = (folder: string, prefix = ''): Array<{ path: string; content: string }> =>
   readdirSync(join(folder, prefix), { withFileTypes: true }).flatMap((entry) => {
     const path = prefix ? `${prefix}/${entry.name}` : entry.name;
     return entry.isDirectory()
@@ -398,7 +392,10 @@ const deliverPullRequest = (deliveryId: string, number = PULL_REQUEST, action = 
 const saveReviewFactory = async (): Promise<{ id: string; version: number }> => {
   await deliverOutbox({ type: 'workspace.created' });
   await deliverOutbox({ type: 'member.added', personId: PERSON_ID, role: 'member' });
-  const teams = await askCell<{ teams: { id: string; first: boolean }[] }>('GET', '/api/teams');
+  const teams = await askCell<{ teams: Array<{ id: string; first: boolean }> }>(
+    'GET',
+    '/api/teams',
+  );
   expect(teams.status).toBe(200);
   const team = teams.body.teams.find((each) => each.first);
   if (team === undefined) throw new Error('the workspace has no first team');
@@ -439,7 +436,7 @@ const readRun = async (runId: string): Promise<RunDetail> => {
 };
 
 /** The run once its status is one of `statuses`. */
-const runOnce = (runId: string, statuses: ReadonlyArray<string>, timeoutMs = WAIT_MS) =>
+const runOnce = (runId: string, statuses: readonly string[], timeoutMs = WAIT_MS) =>
   waitFor(
     async () => {
       if (!isRunning(current().runner.child)) {
@@ -478,7 +475,7 @@ const ghCalls = (): GhCall[] => {
 };
 
 /** Nothing the cell, the runner or the cell's records hold carries a secret the test made. */
-const expectNoSecretIn = (said: ReadonlyArray<string>) => {
+const expectNoSecretIn = (said: readonly string[]) => {
   const { cell, runner, passPrivateKey, cellPrivateKey, minted } = current();
   const printed = [cell.stdout(), cell.stderr(), runner.stdout(), runner.stderr(), ...said].join(
     '\n',
@@ -521,13 +518,13 @@ const writeStubGh = (bin: string, calls: string, body: string) => {
     '#!/bin/sh',
     `calls='${calls}'`,
     `body='${body}'`,
-    "tab=$(printf '\\t')",
+    String.raw`tab=$(printf '\t')`,
     'line="gh"',
     'for arg in "$@"; do',
     '  line="$line$tab$arg"',
     '  case "$arg" in body=@*) cp "${arg#body=@}" "$body" ;; esac',
     'done',
-    'printf "%s\\n" "$line" >> "$calls"',
+    String.raw`printf "%s\n" "$line" >> "$calls"`,
     'printf "token\\t%s\\n" "${GH_TOKEN:-}" >> "$calls"',
     'echo "Posted the review with ${GH_TOKEN:-no token}."',
     '',
@@ -871,7 +868,7 @@ describe('a pull request’s triggered run', () => {
       });
       expect(again.status).toBe(409);
       // Give a stray start the time to show, then: no token, no gh, no sandbox.
-      await sleep(1_000);
+      await sleep(1000);
       expect(current().minted).toEqual([]);
       expect(ghCalls()).toEqual([]);
       expect(descendantsOf(current().runner.child.pid ?? -1)).toEqual([]);

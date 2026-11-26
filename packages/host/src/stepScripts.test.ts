@@ -12,7 +12,6 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { readSessionLine } from './core/runnerDecisions.ts';
 import {
@@ -32,7 +31,7 @@ import { isolateMachine } from './testing/machine.ts';
  */
 const machine = isolateMachine();
 
-const TEMPLATE = join(dirname(fileURLToPath(import.meta.url)), '..', 'sandbox-template');
+const TEMPLATE = join(import.meta.dirname, '..', 'sandbox-template');
 const CHECKOUT_SCRIPT = join(TEMPLATE, 'consola-step-checkout');
 const START_SCRIPT = join(TEMPLATE, 'consola-step-start');
 const REPOSITORY = 'sprocket/catalog-portal';
@@ -67,7 +66,7 @@ const git = (cwd: string, ...args: string[]): string => {
   return ran.stdout.trim();
 };
 
-const writeScript = (file: string, lines: ReadonlyArray<string>) => {
+const writeScript = (file: string, lines: readonly string[]) => {
   writeFileSync(file, ['#!/bin/sh', ...lines, ''].join('\n'));
   chmodSync(file, 0o755);
 };
@@ -199,9 +198,9 @@ describe('consola-step-checkout', () => {
   });
 
   it('cuts a long diff, keeping the file list whole and saying how much was left out', () => {
-    const { origin, head } = remote(2_000);
+    const { origin, head } = remote(2000);
     const scripted = scriptMachine(origin);
-    const max = 4_000;
+    const max = 4000;
     const ran = run(CHECKOUT_SCRIPT, scripted, {
       CONSOLA_REPOSITORY: REPOSITORY,
       CONSOLA_CHECKOUT_COMMIT: head,

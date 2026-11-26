@@ -8,11 +8,10 @@ import {
   number,
   objectOf,
   oneOf,
-  type Reader,
-  type ReadResult,
   readerOf,
   text,
 } from './read.js';
+import type { Reader, ReadResult } from './read.js';
 
 /**
  * A run, as a runner records it into its cell (`run.record`) and the cell hands it back
@@ -147,7 +146,7 @@ export type StepRecord = {
   /** The latest execution's validated outputs. */
   readonly outputs: Record<string, OutputValue> | null;
   /** The documents it wrote, by name, and their size. */
-  readonly artifacts: { readonly name: string; readonly bytes: number }[];
+  readonly artifacts: Array<{ readonly name: string; readonly bytes: number }>;
   /** An agent step's turns over its latest attempt: how many, its cap, the tools refused. */
   readonly turn: {
     readonly turns: number | null;

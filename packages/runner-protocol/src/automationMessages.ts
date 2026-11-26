@@ -1,10 +1,5 @@
-import {
-  type GitHubEventFacts,
-  type GitHubPermissions,
-  isDeliveryId,
-  readGitHubEventFacts,
-  readGitHubPermissions,
-} from './github.js';
+import { isDeliveryId, readGitHubEventFacts, readGitHubPermissions } from './github.js';
+import type { GitHubEventFacts, GitHubPermissions } from './github.js';
 import {
   fieldProblem,
   isId,
@@ -14,14 +9,15 @@ import {
   isTextUpTo,
   listOf,
   objectOf,
-  type Reader,
-  type ReadResult,
   read,
   readerOf,
   refused,
 } from './read.js';
-import { isRepository, type Repository } from './repository.js';
-import { readRunRecord, type RunRecord } from './run.js';
+import type { Reader, ReadResult } from './read.js';
+import { isRepository } from './repository.js';
+import type { Repository } from './repository.js';
+import { readRunRecord } from './run.js';
+import type { RunRecord } from './run.js';
 
 /**
  * The messages for automation runs (CON-116, stage 1). The cell stays the store and writes no run

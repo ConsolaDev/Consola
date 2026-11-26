@@ -18,7 +18,7 @@ const fail = (problem: string): never => {
 };
 
 /** Runs the server for `argv` (`step-tools` and its flags). */
-export const stepToolsMain = async (argv: ReadonlyArray<string>): Promise<void> => {
+export const stepToolsMain = async (argv: readonly string[]): Promise<void> => {
   let folder: string | undefined;
   try {
     const parsed = parseArgs({

@@ -56,12 +56,12 @@ import {
   isRunning,
   noneAlive,
   portOf,
-  type Started,
   sleep,
   startNode,
   WAIT_MS,
   waitFor,
 } from './processes.ts';
+import type { Started } from './processes.ts';
 
 const resolve = createRequire(import.meta.url).resolve;
 /** The cell as `pnpm --filter @consola/cloud-region build` writes it (turbo's `^build` does). */

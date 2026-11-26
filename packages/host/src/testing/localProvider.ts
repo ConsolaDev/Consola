@@ -94,7 +94,7 @@ export type LocalSandboxRecord = {
   readonly env: Readonly<Record<string, string>>;
   /** Each command started in it: its argv and its own variables. */
   readonly commands: Array<{
-    readonly argv: ReadonlyArray<string>;
+    readonly argv: readonly string[];
     readonly env: Readonly<Record<string, string>>;
   }>;
   /** What the step tools' server answered each call `steps.toolCalls` made, in order. */
@@ -116,7 +116,7 @@ export type LocalToolCall = { readonly name: string; readonly arguments: unknown
 export type LocalStepsOptions = {
   readonly fixture?: string;
   readonly mode?: string;
-  readonly toolCalls?: ReadonlyArray<LocalToolCall>;
+  readonly toolCalls?: readonly LocalToolCall[];
   readonly tamper?: (stepFolder: string) => void;
   /** The checkout fails, printing this as its `clone-failed` message (with what git said). */
   readonly checkoutFails?: string;
@@ -149,7 +149,7 @@ const MAIN = join(import.meta.dirname, '..', 'main.ts');
 const callStepTools = (
   folder: string,
   env: Record<string, string>,
-  calls: ReadonlyArray<LocalToolCall>,
+  calls: readonly LocalToolCall[],
   pids: number[],
 ): Promise<unknown[]> =>
   new Promise((resolve, reject) => {
@@ -173,8 +173,9 @@ const callStepTools = (
         const message = JSON.parse(buffered.slice(0, newline)) as { id?: number; result?: unknown };
         buffered = buffered.slice(newline + 1);
         newline = buffered.indexOf('\n');
-        if (typeof message.id === 'number' && message.id > 0)
+        if (typeof message.id === 'number' && message.id > 0) {
           answers.set(message.id, message.result);
+        }
         if (answers.size === calls.length) child.stdin.end();
       }
     });
@@ -289,10 +290,10 @@ class LocalSandbox implements ProviderSandbox {
 
   /** The argv a step's command runs as here, after anything it does first. */
   private async stepArgv(
-    argv: ReadonlyArray<string>,
+    argv: readonly string[],
     env: Record<string, string>,
   ): Promise<string[] | null> {
-    const is = (wanted: ReadonlyArray<string>) =>
+    const is = (wanted: readonly string[]) =>
       argv.length === wanted.length && argv.every((arg, index) => arg === wanted[index]);
     if (is(STEP_CHECKOUT_ARGV)) {
       const repo = this.pathOf(STEP_REPO);

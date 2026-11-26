@@ -45,11 +45,10 @@ import { spawn, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 const USAGE =
   'usage: node packages/host/scripts/step-sandbox-canary.mjs --no-model [--keep]\n       ANTHROPIC_API_KEY=… node packages/host/scripts/step-sandbox-canary.mjs --spend-tokens [--claude <path>] [--model <model>] [--keep]';
-const HOST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const HOST = path.join(import.meta.dirname, '..');
 const TEMPLATE = path.join(HOST, 'sandbox-template');
 const MAIN = path.join(HOST, 'src', 'main.ts');
 /** The Claude Code the template pins (`sandbox-template/Dockerfile`). */
@@ -235,7 +234,7 @@ function makeProvider({ SandboxError, scratch, claudeDir, origin }) {
       return text
         .replaceAll('/opt/consola/consola-host.mjs', MAIN)
         .replaceAll('/usr/local/bin/node', process.execPath)
-        .replace(/(^|[^\w/.-])\/workspace(?=$|[/\s"'])/g, `$1${this.record.folder}/workspace`);
+        .replaceAll(/(^|[^\w/.-])\/workspace(?=$|[/\s"'])/g, `$1${this.record.folder}/workspace`);
     }
     ensure() {
       if (this.record.stopped) throw new SandboxError('not-running', `${this.id} has stopped.`);
@@ -403,7 +402,7 @@ async function main() {
       fail(`ANTHROPIC_API_KEY is not set: the canary runs Claude with it.\n${USAGE}`);
     }
     console.log(
-      `It runs one agent step (two turns of ${opts.model}, reading a ~200 KB document) and one command step, each bounded by ${STEP_TIMEOUT_MS / 60000} minutes: at most about US$1 on the key's account.`,
+      `It runs one agent step (two turns of ${opts.model}, reading a ~200 KB document) and one command step, each bounded by ${STEP_TIMEOUT_MS / 60_000} minutes: at most about US$1 on the key's account.`,
     );
     if (!opts.spend) {
       console.log(
@@ -575,7 +574,7 @@ async function main() {
         'git rev-parse HEAD',
         'echo "token=$GH_TOKEN"',
         'printf "%s" "$GH_TOKEN" | base64',
-        'echo "names: $(env | cut -d= -f1 | sort | tr "\\n" " ")"',
+        String.raw`echo "names: $(env | cut -d= -f1 | sort | tr "\n" " ")"`,
         'cat "$REVIEW"',
         'echo "review_id=42" >> "$CONSOLA_OUTPUT"',
       ].join('\n'),

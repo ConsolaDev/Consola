@@ -766,14 +766,14 @@ describe('the dependency rule', () => {
 const RING = 'core/automations';
 const RING_PACKAGES = [RUNNER_PROTOCOL, FACTORY_SPEC, AUTOMATION_ENGINE_CORE];
 const RING_REACHES = [RING, 'core/steps/ports'];
-const RING_GLOBALS = [
+const RING_GLOBALS = new Set([
   ...MACHINE_GLOBALS,
   'Date',
   'crypto',
   'performance',
   'console',
   'queueMicrotask',
-];
+]);
 
 /** Every way one of the ring's files leaves it, as `<file> imports <specifier>` or `<file> uses <global>`. */
 function ringViolationsOf(file: string, source: string): string[] {
@@ -786,9 +786,7 @@ function ringViolationsOf(file: string, source: string): string[] {
     }
     return !RING_PACKAGES.includes(specifier);
   });
-  const globals = [
-    ...new Set(referencesOf(source, file).filter((name) => RING_GLOBALS.includes(name))),
-  ];
+  const globals = [...new Set(referencesOf(source, file).filter((name) => RING_GLOBALS.has(name)))];
   return [
     ...imports.map((specifier) => `${file} imports ${specifier}`),
     ...globals.map((name) => `${file} uses ${name}`),

@@ -5,19 +5,21 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { AUTOMATION_NAME_PATTERN } from '@consola/factory-spec';
 import {
-  type FactoryFile,
-  type FactoryPick,
-  type FactorySnapshot,
-  type GitHubEventNotice,
   ITEM_KINDS,
   OUTPUT_TAIL_MAX,
-  type PullRequestFacts,
   RUN_STATUSES,
-  type RunRecord,
   readRunRecord,
   STEP_KINDS,
   STEP_STATUSES,
   WAITING_ON,
+} from '@consola/runner-protocol';
+import type {
+  FactoryFile,
+  FactoryPick,
+  FactorySnapshot,
+  GitHubEventNotice,
+  PullRequestFacts,
+  RunRecord,
 } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vite-plus/test';
 import type {
@@ -29,7 +31,8 @@ import type {
   CommandSteps,
 } from '../steps/ports.ts';
 import type { CellLink, RingPorts, TokenAnswer, TokenRequest } from './ports.ts';
-import { createAutomationsRing, RUNNER_STOPPED, type RingOptions } from './ring.ts';
+import { createAutomationsRing, RUNNER_STOPPED } from './ring.ts';
+import type { RingOptions } from './ring.ts';
 
 /*
  * The ring over fakes of every port: a cell link that keeps what is said and answers from a
@@ -111,16 +114,18 @@ function checkRunProblems(run: RunRecord): string[] {
     if (!has(ITEM_KINDS, run.item.kind)) problems.push('item.kind');
   }
   for (const [i, step] of run.steps.entries()) {
-    if (!has(STEP_KINDS, step.kind) || step.kind === 'orchestrator')
+    if (!has(STEP_KINDS, step.kind) || step.kind === 'orchestrator') {
       problems.push(`steps[${i}].kind`);
+    }
     if (!has(STEP_STATUSES, step.status)) problems.push(`steps[${i}].status`);
     if (step.attempt < 1) problems.push(`steps[${i}].attempt`);
     for (const time of [step.startedAt, step.finishedAt]) {
       if (time !== null && !ISO_TIME.test(time)) problems.push(`steps[${i}] time`);
     }
     for (const stream of [step.output?.stdout, step.output?.stderr]) {
-      if (stream !== undefined && utf8Bytes(stream) > OUTPUT_TAIL_MAX)
+      if (stream !== undefined && utf8Bytes(stream) > OUTPUT_TAIL_MAX) {
         problems.push(`steps[${i}].output`);
+      }
     }
   }
   for (const time of [run.createdAt, run.updatedAt, run.startedAt, run.finishedAt]) {
@@ -157,8 +162,9 @@ class FakeLink implements CellLink {
       const read = readRunRecord(JSON.parse(JSON.stringify(message.run)));
       if (!read.ok) throw new Error(`the protocol refuses a record: ${read.reason}`);
       const problems = checkRunProblems(message.run);
-      if (problems.length > 0)
+      if (problems.length > 0) {
         throw new Error(`the cell would refuse a record: ${problems.join(', ')}`);
+      }
     }
     if (!this.up) return false;
     this.said.push(message);
@@ -189,7 +195,7 @@ class FakeLink implements CellLink {
 
   latest(id?: string): RunRecord {
     const records = this.records(id);
-    const last = records[records.length - 1];
+    const last = records.at(-1);
     if (last === undefined) throw new Error('no record said');
     return last;
   }

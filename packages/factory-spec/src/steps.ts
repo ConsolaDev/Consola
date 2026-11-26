@@ -31,12 +31,8 @@ import {
 import type { OnExhausted } from './flow';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import type { OutputType } from './outputs';
-import {
-  AGENT_PERMISSIONS_REASON,
-  LOOP_PERMISSIONS_REASON,
-  parsePermissions,
-  type StepPermissions,
-} from './permissions';
+import { AGENT_PERMISSIONS_REASON, LOOP_PERMISSIONS_REASON, parsePermissions } from './permissions';
+import type { StepPermissions } from './permissions';
 import type { Trigger } from './schema';
 import { AGENT_SECRETS_REASON, parseSecretNames, secretTemplateReason } from './secrets';
 import { hasTemplateBraces, parseTemplate, templatePaths } from './template';

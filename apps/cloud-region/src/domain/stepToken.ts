@@ -1,6 +1,8 @@
 import type { GitHubTokenPurpose } from '@consola/cloud-contract';
-import { type Automation, leafSteps, type StepPermissions } from '@consola/factory-spec';
-import { type GitHubPermissions, TOKEN_REFUSAL_MAX } from '@consola/runner-protocol';
+import { leafSteps } from '@consola/factory-spec';
+import type { Automation, StepPermissions } from '@consola/factory-spec';
+import { TOKEN_REFUSAL_MAX } from '@consola/runner-protocol';
+import type { GitHubPermissions } from '@consola/runner-protocol';
 import type { RunWrite } from './run.js';
 
 /**
@@ -33,10 +35,10 @@ export const ALWAYS_ALLOWED: Readonly<Record<string, 'read'>> = {
  * what it granted, and the cell hands a token on only when that is this (`grantedAsPurpose`), so
  * the two drifting apart refuses a token rather than widening one.
  */
-export const RUN_TOKEN_PURPOSES: readonly {
+export const RUN_TOKEN_PURPOSES: ReadonlyArray<{
   purpose: GitHubTokenPurpose;
   grants: Readonly<Record<string, 'read' | 'write'>>;
-}[] = [
+}> = [
   { purpose: 'run-read', grants: { contents: 'read' } },
   { purpose: 'review-run', grants: { contents: 'read', pull_requests: 'write' } },
 ];

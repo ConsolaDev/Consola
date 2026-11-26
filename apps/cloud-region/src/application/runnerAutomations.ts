@@ -10,9 +10,11 @@ import type {
 } from '@consola/runner-protocol';
 import { automationsOf } from '../domain/factory.js';
 import { HELD_EVENTS_MAX, HELD_EVENTS_WINDOW_SECONDS } from '../domain/gitHubEvent.js';
-import { type RunProblem, type RunWrite, refusalOf } from '../domain/run.js';
+import { refusalOf } from '../domain/run.js';
+import type { RunProblem, RunWrite } from '../domain/run.js';
 import { RUN_DECISION_OF } from '../domain/runApproval.js';
-import { factoriesAnswer, type LeftOut } from '../domain/runnerFactories.js';
+import { factoriesAnswer } from '../domain/runnerFactories.js';
+import type { LeftOut } from '../domain/runnerFactories.js';
 import {
   beyondCheckout,
   grantedAsPurpose,

@@ -27,12 +27,8 @@ import {
   OUTPUTS_FILE,
   readDeclaration,
 } from '../core/steps/stepFolder.ts';
-import {
-  callStepTool,
-  type StepDeclaration,
-  type StepToolAnswer,
-  stepToolListings,
-} from '../core/steps/stepTools.ts';
+import { callStepTool, stepToolListings } from '../core/steps/stepTools.ts';
+import type { StepDeclaration, StepToolAnswer } from '../core/steps/stepTools.ts';
 
 const readText = (file: string): string | null => {
   try {
@@ -112,7 +108,7 @@ export function serveStepTools(folder: string, input: Readable, output: Writable
         const listings = listingsOf(folder);
         return send(
           listings === null
-            ? mcpError(request.id, NO_DECLARATION.text, -32603)
+            ? mcpError(request.id, NO_DECLARATION.text, -32_603)
             : listToolsResult(request.id, listings),
         );
       }

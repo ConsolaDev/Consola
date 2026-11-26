@@ -15,11 +15,8 @@ import {
   stepT3Settings,
 } from '../core/steps/stepSandbox.ts';
 import { readDeclaration } from '../core/steps/stepFolder.ts';
-import {
-  LocalProvider,
-  type LocalSandboxRecord,
-  type LocalStepsOptions,
-} from '../testing/localProvider.ts';
+import { LocalProvider } from '../testing/localProvider.ts';
+import type { LocalSandboxRecord, LocalStepsOptions } from '../testing/localProvider.ts';
 import { isolateMachine } from '../testing/machine.ts';
 import { makeAgentSteps } from './agentSteps.ts';
 
@@ -323,7 +320,7 @@ describe('AgentSteps on sandboxes', () => {
         () => (provider.sandboxes[0]?.commands.length ?? 0) >= 2,
         "the step's host to start",
       );
-      await sleep(3_000);
+      await sleep(3000);
       controller.abort();
       const ran = await running;
       expect(ran.result).toMatchObject({ status: 'failed', error: 'The step was stopped.' });

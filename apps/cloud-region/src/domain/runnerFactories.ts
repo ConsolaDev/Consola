@@ -2,11 +2,10 @@ import {
   FACTORIES_PER_ANSWER_MAX,
   FACTORY_FILE_PATH_MAX,
   FACTORY_FILE_TEXT_MAX,
-  type FactoriesAnswer,
-  type FactorySnapshot,
   FILES_PER_FACTORY_MAX,
   SOCKET_FRAME_MAX_BYTES,
 } from '@consola/runner-protocol';
+import type { FactoriesAnswer, FactorySnapshot } from '@consola/runner-protocol';
 
 /**
  * The cell's answer to a runner's `factories.request`: the factories it asked for, each at one
