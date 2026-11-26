@@ -198,7 +198,7 @@ function looped(...lines: string[]): Automation {
 const POLISH = [
   '- id: polish',
   '  repeat: { max: 3, until: steps.review.findings == 0 }',
-  '  on_exhausted: { gate: "Open it anyway?" }',
+  '  on_exhausted: { gate: { ask: "Open it anyway?" } }',
   '  steps:',
   '    - id: review\n      prompt: Review it.\n      outputs: { findings: { type: integer } }',
   '    - id: address\n      if: steps.review.findings > 0\n      run: echo\n      dry_run: run',
@@ -544,7 +544,7 @@ automations:
         prompt: "Fix {{item.key}}."
       - id: polish
         repeat: { max: 3, until: steps.review.findings == 0 }
-        on_exhausted: { gate: "Review still has findings after 3 rounds" }
+        on_exhausted: { gate: { ask: "Review still has findings after 3 rounds" } }
         steps:
           - id: review
             agent: pre-pr-reviewer

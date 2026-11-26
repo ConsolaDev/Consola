@@ -187,7 +187,7 @@ describe('a loop runs round by round', () => {
   });
 
   it('on_exhausted gate after three rounds: it waits, and approve goes on', async () => {
-    const h = await accepted(LOOP_ENTRY('  on_exhausted: { gate: Open it anyway? }\n'));
+    const h = await accepted(LOOP_ENTRY('  on_exhausted: { gate: { ask: Open it anyway? } }\n'));
     const run = await fire(h);
     await rounds(h, run.id, 2, 2, 1);
     expect(h.store.get(run.id)?.status).toBe('waiting');
@@ -226,7 +226,7 @@ describe('a loop runs round by round', () => {
   });
 
   it("on_exhausted gate's reject ends the run rejected at the loop", async () => {
-    const h = await accepted(LOOP_ENTRY('  on_exhausted: { gate: Open it anyway? }\n'));
+    const h = await accepted(LOOP_ENTRY('  on_exhausted: { gate: { ask: Open it anyway? } }\n'));
     const run = await fire(h);
     await rounds(h, run.id, 2, 2, 1);
     h.service.answerGate(run.id, 'polish', 'reject');
@@ -566,7 +566,7 @@ describe('a stop between rounds (review S8)', () => {
   });
 
   it('fails a loop that would ask at its exhaustion gate, naming its last round', async () => {
-    const h = await accepted(LOOP_ENTRY('  on_exhausted: { gate: Open it anyway? }\n'));
+    const h = await accepted(LOOP_ENTRY('  on_exhausted: { gate: { ask: Open it anyway? } }\n'));
     const run = await fire(h);
     await rounds(h, run.id, 2, 2);
     await endLook(h, run.id, 1);

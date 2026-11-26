@@ -71,7 +71,7 @@ const GATED_LOOP = `- name: gated-loop
           if: steps.look.findings > 0
           run: echo fixed
           dry_run: run
-      on_exhausted: { gate: "Still findings after 3 rounds. Go on?" }
+      on_exhausted: { gate: { ask: "Still findings after 3 rounds. Go on?" } }
     - id: decide
       gate: { ask: "Publish it?", choices: [publish, hold] }
     - id: publish

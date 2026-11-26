@@ -188,7 +188,7 @@ describe('what an agent writing an entry is told', () => {
       [
         'Control flow in steps:',
         '- `gate: { ask, show?, choices? }` is a step of its own: the run waits, with no process, until a person answers in Consola. Its output is `decision` (one of `choices`, or `approve`); Reject ends the run. No tool answers a gate.',
-        '- `repeat: { max, until }` with `steps:` (1 to 10, no loop inside) runs them again until `until` holds, at most `max` (1 to 10) rounds; `on_exhausted:` is `fail` (the default), `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.',
+        '- `repeat: { max, until }` with `steps:` (1 to 10, no loop inside) runs them again until `until` holds, at most `max` (1 to 10) rounds; `on_exhausted:` is `fail` (the default), `continue` or `{ gate: { ask, show } }`, written as the body of a gate step (`show` when it needs one).',
         '- `then: stop` on a step ends the run, completed, once that step completes.',
         '- `on_failure: { retry: <0-3> }` on a step retries it by itself only if it cannot have acted: an agent naming no MCP server, or a `dry_run: run` command. On the automation, the whole run starts again only if nothing in it acted.',
         "- `budget: { usd: <n> }` on the automation stops the run at its next step once its agents' turns cost that much (0.01 to 1000).",

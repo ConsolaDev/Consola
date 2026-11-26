@@ -144,7 +144,7 @@ describe('gateOffer', () => {
   });
 
   it("offers an exhaustion gate's question and approve, with its loop", () => {
-    const entries = POLISH('{ gate: Open it anyway? }');
+    const entries = POLISH('{ gate: { ask: Open it anyway? } }');
     const offer = gateOffer(entries, 'polish');
     expect(offer).toMatchObject({ ask: 'Open it anyway?', show: [], choices: ['approve'] });
     expect(offer?.loop?.id).toBe('polish');
@@ -234,7 +234,7 @@ describe('gateRefusal', () => {
   });
 
   it("takes an exhaustion gate's approve and reject only", () => {
-    const entries = POLISH('{ gate: Open it anyway? }');
+    const entries = POLISH('{ gate: { ask: Open it anyway? } }');
     const waiting = waitingAt('polish', 'repeat');
     expect(gateRefusal(waiting, entries, 'polish', 'approve')).toBeNull();
     expect(gateRefusal(waiting, entries, 'polish', 'reject')).toBeNull();
@@ -268,26 +268,30 @@ describe('gateMaterialRefs', () => {
         previous: [{ attempt: 2, status: 'completed', round: 2 }],
       }),
     ];
-    expect(gateMaterialRefs(POLISH('{ gate: Open it anyway? }'), records, 'polish')).toEqual([
-      { step: 'review', name: 'handover' },
-    ]);
+    expect(
+      gateMaterialRefs(POLISH('{ gate: { ask: Open it anyway? } }'), records, 'polish'),
+    ).toEqual([{ step: 'review', name: 'handover' }]);
     // Only a step that completed: a row of this round in any other state shows nothing, whatever it lists.
     const notCompleted = records.map((record) =>
       record.id === 'review' ? { ...record, status: 'skipped' as const } : record,
     );
-    expect(gateMaterialRefs(POLISH('{ gate: Open it anyway? }'), notCompleted, 'polish')).toEqual(
-      [],
-    );
+    expect(
+      gateMaterialRefs(POLISH('{ gate: { ask: Open it anyway? } }'), notCompleted, 'polish'),
+    ).toEqual([]);
     // A step that completed in the round without a handover shows none.
     const without = records.map((record) =>
       record.id === 'review' ? { ...record, artifacts: [] } : record,
     );
-    expect(gateMaterialRefs(POLISH('{ gate: Open it anyway? }'), without, 'polish')).toEqual([]);
+    expect(
+      gateMaterialRefs(POLISH('{ gate: { ask: Open it anyway? } }'), without, 'polish'),
+    ).toEqual([]);
     // One from an earlier round is not this round's.
     const earlier = records.map((record) =>
       record.id === 'review' ? { ...record, round: 2 } : record,
     );
-    expect(gateMaterialRefs(POLISH('{ gate: Open it anyway? }'), earlier, 'polish')).toEqual([]);
+    expect(
+      gateMaterialRefs(POLISH('{ gate: { ask: Open it anyway? } }'), earlier, 'polish'),
+    ).toEqual([]);
   });
 
   it('shows what an exhaustion gate names in its show:, and nothing else (review M10)', () => {

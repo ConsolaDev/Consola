@@ -417,7 +417,7 @@ describe('repeat:', () => {
     ['fail', 'fail'],
     ['continue', 'continue'],
     [
-      '{ gate: "Open the pull request anyway?" }',
+      '{ gate: { ask: "Open the pull request anyway?" } }',
       { ask: 'Open the pull request anyway?', show: [] },
     ],
     [
@@ -433,13 +433,18 @@ describe('repeat:', () => {
   });
 
   const SHAPE =
-    '`on_exhausted` is `fail`, `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.';
+    '`on_exhausted` is `fail`, `continue` or `{ gate: { ask: "<question>", show: [...] } }`, `show` when it needs one.';
   it.each([
     ['stop', '', SHAPE],
     ['{ retry: 1 }', '', SHAPE],
     ['{ gate: ok, then: stop }', '', SHAPE],
     ['{ gate: 3 }', '.gate', SHAPE],
-    ['{ gate: "" }', '.gate', 'A gate asks 1 to 300 characters of text.'],
+    ['{ gate: { ask: "" } }', '.gate.ask', 'A gate asks 1 to 300 characters of text.'],
+    [
+      '{ gate: "Open it anyway?" }',
+      '.gate',
+      'A gate\'s question goes under `ask:`, as a gate step\'s does: write `on_exhausted: { gate: { ask: "Open it anyway?" } }`.',
+    ],
     ['{ gate: { ask: ok, choices: [a, b] } }', '.gate.choices', SHAPE],
   ])('refuses on_exhausted: %s', (value, at, message) => {
     expect(only(steps(loopPlus(`  on_exhausted: ${value}`)))).toMatchObject({
@@ -453,9 +458,9 @@ describe('repeat:', () => {
       only(steps(loopPlus('  on_exhausted: { gate: { ask: ok, show: [nowhere.handover] } }')))
         .message,
     ).toMatch(/there is no step `nowhere`/);
-    expect(only(steps(loopPlus('  on_exhausted: { gate: "{{item.title}}?" }'))).message).toMatch(
-      /someone else wrote/,
-    );
+    expect(
+      only(steps(loopPlus('  on_exhausted: { gate: { ask: "{{item.title}}?" } }'))).message,
+    ).toMatch(/someone else wrote/);
   });
 
   it('refuses on_exhausted outside a loop', () => {
@@ -504,7 +509,7 @@ describe('a loop, read by every other part of the format', () => {
         '- id: polish',
         '  if: "item.number > 1"',
         '  repeat: { max: 2, until: "item.number > 2" }',
-        '  on_exhausted: { gate: "Approve #{{item.number}} anyway?" }',
+        '  on_exhausted: { gate: { ask: "Approve #{{item.number}} anyway?" } }',
         '  steps:',
         '    - id: look\n      prompt: "Look at {{item.url}}."',
       ].join('\n'),

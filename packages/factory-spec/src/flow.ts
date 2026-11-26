@@ -142,7 +142,7 @@ const REPEAT_NO_MAX =
 const REPEAT_MAX = `\`max\` is a whole number from 1 to ${MAX_ROUNDS}.`;
 const REPEAT_UNTIL = 'Say when the loop is done: `until: steps.review.findings == 0`.';
 const ON_EXHAUSTED_SHAPE =
-  '`on_exhausted` is `fail`, `continue`, `{ gate: "<question>" }` or `{ gate: { ask, show } }`.';
+  '`on_exhausted` is `fail`, `continue` or `{ gate: { ask: "<question>", show: [...] } }`, `show` when it needs one.';
 
 /**
  * A loop's header, `repeat: { max, until }`: `max` rounds at most, required in
@@ -185,9 +185,10 @@ export function parseRepeatHeader(
 
 /**
  * A loop's `on_exhausted`: `fail`, `continue`, or a gate that asks a person
- * whether to go on (`{ gate: "<question>" }`, normalised to `{ ask, show: [] }`,
- * or `{ gate: { ask, show } }`, whose `show` is a gate's). An exhaustion gate
- * offers approve and reject only, so it takes no `choices`.
+ * whether to go on, `{ gate: { ask, show } }`, written as a gate step's body
+ * is, `show` when it needs one. A question alone in place of the body meant
+ * the same as `{ gate: { ask } }`, and is refused with the body to write. An
+ * exhaustion gate offers approve and reject only, so it takes no `choices`.
  */
 export function parseOnExhausted(value: unknown, fail: Fail): OnExhausted | undefined {
   if (value === 'fail' || value === 'continue') return value;
@@ -198,16 +199,11 @@ export function parseOnExhausted(value: unknown, fail: Fail): OnExhausted | unde
   }
   const gate = value.gate;
   if (typeof gate === 'string') {
-    if (!gate.trim() || gate.length > MAX_GATE_ASK) {
-      fail(GATE_ASK, at(['gate']));
-      return undefined;
-    }
-    const parsed = parseTemplate(gate);
-    if (!parsed.ok) {
-      fail(parsed.problem[0].toUpperCase() + parsed.problem.slice(1) + '.', at(['gate']));
-      return undefined;
-    }
-    return { ask: gate, show: [] };
+    fail(
+      `A gate's question goes under \`ask:\`, as a gate step's does: write \`on_exhausted: { gate: { ask: ${JSON.stringify(gate.trim() || '<question>')} } }\`.`,
+      at(['gate']),
+    );
+    return undefined;
   }
   if (!isRecord(gate) || 'choices' in gate) {
     fail(ON_EXHAUSTED_SHAPE, at(isRecord(gate) ? ['gate', 'choices'] : ['gate']));
