@@ -1,24 +1,24 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { FactoryStore, RunStore, TeamStore } from '../../application/ports.js';
 import { answerRunApproval, listRuns as listRunsUseCase, readRun } from '../../application/runs.js';
-import type { CellEnv } from './caller.js';
+import { behindCaller } from './caller.js';
+import type { CallerCheck } from './caller.js';
 import { getRun, listRuns, postRunApproval } from './contract.js';
 
-const WORKSPACE_PENDING = { error: 'workspace_pending' } as const;
 
 /**
- * The runs routes, on `app` behind its token check: each hands its use case the caller the
- * token names, and takes no workspace from the request. A run id in the path is looked up in the
- * caller's workspace alone, and a run the caller does not see is `run_not_found`. They only read:
- * a runner records runs through the store, never here.
+ * The runs routes, on `app`, each behind the caller check: each hands its use case the caller the
+ * session names, and takes no workspace from the request. A run id in the path is looked up in
+ * the caller's workspace alone, and a run the caller does not see is `run_not_found`. Only a
+ * person's answer to a run waiting for approval is written here: a runner records runs through
+ * the store, never here.
  */
 export function runRoutes(
-  app: OpenAPIHono<CellEnv>,
-  teams: TeamStore,
-  factories: FactoryStore,
-  runs: RunStore,
+  app: OpenAPIHono,
+  deps: { caller: CallerCheck; teams: TeamStore; factories: FactoryStore; runs: RunStore },
 ): void {
-  app.openapi(listRuns, async (c) => {
+  const { caller, teams, factories, runs } = deps;
+  app.openapi(behindCaller(caller, listRuns), async (c) => {
     const query = c.req.valid('query');
     const answer = await listRunsUseCase(teams, factories, runs, c.var.caller, {
       phases: query.phase ?? [],
@@ -44,13 +44,11 @@ export function runRoutes(
         );
       case 'invalid-cursor':
         return c.json({ error: 'invalid_request' } as const, 400);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
     }
   });
 
   // A person's answer to a run waiting for approval: recorded, never acted on here.
-  app.openapi(postRunApproval, async (c) => {
+  app.openapi(behindCaller(caller, postRunApproval), async (c) => {
     const answer = await answerRunApproval(
       teams,
       factories,
@@ -72,12 +70,10 @@ export function runRoutes(
         return c.json({ error: 'version_moved' } as const, 409);
       case 'already-answered':
         return c.json({ error: 'already_answered' } as const, 409);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
     }
   });
 
-  app.openapi(getRun, async (c) => {
+  app.openapi(behindCaller(caller, getRun), async (c) => {
     const answer = await readRun(teams, factories, runs, c.var.caller, c.req.valid('param').runId);
     switch (answer.kind) {
       case 'found':
@@ -96,8 +92,6 @@ export function runRoutes(
         );
       case 'not-found':
         return c.json({ error: 'run_not_found' } as const, 404);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
     }
   });
 }

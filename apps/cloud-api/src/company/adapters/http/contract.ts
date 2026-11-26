@@ -1,4 +1,3 @@
-import { WORKSPACE_ROLES } from '../../../shared/workspaceRole.js';
 import { AUTOMATION_MODES } from '@consola/factory-spec';
 import { AGENT_RUN_STATES, DISPATCHED_AGENT_STATUSES, HARNESSES } from '@consola/runner-protocol';
 import { createRoute, z } from '@hono/zod-openapi';
@@ -9,7 +8,6 @@ import {
   FACTORY_NAME_MAX,
   FACTORY_NAME_PROBLEMS,
 } from '../../domain/factory.js';
-import { REGIONS } from '../../domain/region.js';
 import {
   ITEM_KINDS,
   OUTPUT_TAIL_MAX,
@@ -24,19 +22,22 @@ import {
 } from '../../domain/run.js';
 import { APPROVAL_DECISIONS } from '../../domain/runApproval.js';
 import { TEAM_NAME_MAX, TEAM_PROBLEMS } from '../../domain/team.js';
+import { callerFailures } from './caller.js';
 
 /**
- * The cell's contract: every route it serves, what each takes and every answer it gives. `app.ts`
- * implements these routes, and TypeScript checks each handler's answers against them.
- * `openapi.json` is generated from them (`openapi.test.ts`), and the web app's client for the
- * cell is generated from that.
+ * Company's contract: every route it serves, what each takes and every answer it gives. `app.ts`
+ * registers these routes, and TypeScript checks each handler's answers against them. The app's
+ * `openapi.json` is generated from them and the other parts' (`src/openapi.test.ts`), and the web
+ * app's client is generated from that.
+ *
+ * Every route is behind `requireCaller`, so each spreads its answers (`callerFailures`) into its
+ * own. A status a route answers itself as well is one answer holding both its codes and the
+ * check's (`forbidden`, `conflict`), since a status holds one answer.
  *
  * Answers are strict objects: the HTTP suite checks every body it gets against them, so a field
  * the contract does not name fails a test. Request bodies are checked for their shape only, never
  * for the domain's rules: `checkTeamName` names a team name's problems, whatever its schema says.
  */
-
-const Region = z.enum(REGIONS);
 
 const failure = <const Code extends string>(code: Code) =>
   z.strictObject({ error: z.literal(code) });
@@ -50,42 +51,29 @@ const body = <Schema extends z.ZodType>(schema: Schema) => ({
   body: { content: { 'application/json': { schema } }, required: true },
 });
 
-/**
- * What every route behind the token check can answer before it runs (`caller.ts`). Spread into
- * each such route's responses, so the contract says it once.
- */
-const tokenFailures = {
-  401: {
-    content: {
-      'application/json': {
-        schema: z.union([failure('token_required'), failure('invalid_token')]),
-      },
-    },
-    description:
-      'No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): ' +
-      'malformed, forged, expired, or signed by a key cloud-global does not publish. A new token ' +
-      'is the fix.',
-  },
-  421: json(
-    z.strictObject({ error: z.literal('wrong_region'), region: Region }),
-    "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
-  ),
-  503: json(
-    failure('token_check_unavailable'),
-    "The cell cannot get cloud-global's keys just now, so it checks no token.",
-  ),
-} as const;
-
 const unsupportedMediaType = json(
   failure('unsupported_media_type'),
   'The body is not JSON (`Content-Type: application/json`).',
 );
-const notAllowed = json(failure('not_allowed'), 'The caller’s role does not manage teams.');
-const workspacePending = json(
-  failure('workspace_pending'),
-  'The cell does not hold the workspace yet: cloud-global has not delivered its creation. ' +
-    'Asking again later helps.',
-);
+
+/** `requireCaller`'s 403: the person is not a member of the workspace, or no longer. */
+const NOT_A_MEMBER = callerFailures[403].content['application/json'].schema;
+/** `requireCaller`'s 409s: no workspace active, or another than the page shows. */
+const SWITCHED = callerFailures[409].content['application/json'].schema.options;
+
+/** A route's own 400, whose `invalid_request` `requireCaller` answers too: one answer, saying both. */
+const badRequest = <Schema extends z.ZodType>(schema: Schema, description: string) =>
+  json(schema, `${description} Or (\`invalid_request\`): ${callerFailures[400].description}`);
+
+/** A route's own 403, as one answer with `requireCaller`'s. */
+const forbidden = <Own extends z.ZodType>(own: Own, description: string) =>
+  json(z.union([own, NOT_A_MEMBER]), `${description} Or: ${callerFailures[403].description}`);
+
+/** A route's own 409s, as one answer with `requireCaller`'s. */
+const conflict = <const Own extends readonly z.ZodType[]>(description: string, ...own: Own) =>
+  json(z.union([...own, ...SWITCHED]), `${description} Or: ${callerFailures[409].description}`);
+
+const notAllowed = forbidden(failure('not_allowed'), 'The caller’s role does not manage teams.');
 const teamNotFound = json(
   failure('team_not_found'),
   'The workspace has no team with that id, whether or not another workspace does.',
@@ -94,22 +82,9 @@ const teamNotFound = json(
 const TeamId = z.string().openapi({ param: { name: 'teamId', in: 'path' } });
 const PersonId = z
   .string()
-  .openapi({ param: { name: 'personId', in: 'path' }, description: "The person's global id." });
+  .openapi({ param: { name: 'personId', in: 'path' }, description: "The person's id." });
 
-// The health check, the outbox and GitHub's events: the three routes that take no token.
-
-export const getHealth = createRoute({
-  method: 'get',
-  path: '/api/health',
-  summary: 'Whether the cell can reach its database, and which region it serves',
-  description: 'Needs no token: it says nothing a workspace holds.',
-  responses: {
-    200: json(z.strictObject({ ok: z.literal(true), region: Region }), 'It can.'),
-    503: json(z.strictObject({ ok: z.literal(false), region: Region }), 'It cannot.'),
-  },
-});
-
-// Behind the token check.
+// Teams: a workspace's, each with its members (`domain/team.ts`).
 
 export const Team = z
   .strictObject({
@@ -121,7 +96,10 @@ export const Team = z
     }),
     memberIds: z
       .array(z.string())
-      .openapi({ description: 'Its members’ global ids, in the order they joined it.' }),
+      .openapi({
+        description:
+          'Its members’ ids, in the order they joined it: only people who are members of the workspace now.',
+      }),
   })
   .openapi('Team');
 
@@ -146,21 +124,18 @@ const InvalidTeam = z
   .strictObject({ error: z.literal('invalid_team'), problems: z.array(z.enum(TEAM_PROBLEMS)) })
   .openapi('InvalidTeam', { description: 'Every problem with the name, at once.' });
 
-const refusedName = {
-  content: {
-    'application/json': { schema: z.union([InvalidTeam, failure('invalid_request')]) },
-  },
-  description: 'The rules refuse the name, or the body is not what the route takes.',
-};
+const refusedName = badRequest(
+  z.union([InvalidTeam, failure('invalid_request')]),
+  'The rules refuse the name, or the body is not what the route takes.',
+);
 
 export const listTeams = createRoute({
   method: 'get',
   path: '/api/teams',
   summary: "The caller's workspace's teams, as the caller sees them",
   responses: {
+    ...callerFailures,
     200: json(TeamList, 'The teams.'),
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -170,20 +145,15 @@ export const postTeam = createRoute({
   summary: 'Make a team, with nobody in it',
   request: body(TeamName),
   responses: {
+    ...callerFailures,
     201: json(Team, 'The team made.'),
     400: refusedName,
     403: notAllowed,
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([failure('name_taken'), failure('workspace_pending')]),
-        },
-      },
-      description:
-        'Another team of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`).',
-    },
+    409: conflict(
+      'Another team of the workspace has the name, in any case (`name_taken`).',
+      failure('name_taken'),
+    ),
     415: unsupportedMediaType,
-    ...tokenFailures,
   },
 });
 
@@ -196,21 +166,16 @@ export const patchTeam = createRoute({
   summary: 'Rename a team, the first one included',
   request: { params: teamParams, ...body(TeamName) },
   responses: {
+    ...callerFailures,
     200: json(Team, 'The team, renamed.'),
     400: refusedName,
-    403: notAllowed,
     404: teamNotFound,
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([failure('name_taken'), failure('workspace_pending')]),
-        },
-      },
-      description:
-        'Another team of the workspace has the name, in any case, or the cell does not hold the workspace yet.',
-    },
+    403: notAllowed,
+    409: conflict(
+      'Another team of the workspace has the name, in any case (`name_taken`).',
+      failure('name_taken'),
+    ),
     415: unsupportedMediaType,
-    ...tokenFailures,
   },
 });
 
@@ -220,23 +185,15 @@ export const deleteTeam = createRoute({
   summary: 'Delete a team, and every place in it',
   request: { params: teamParams },
   responses: {
+    ...callerFailures,
     204: { description: 'The team is gone.' },
-    403: notAllowed,
     404: teamNotFound,
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([
-            failure('first_team'),
-            failure('owns_factories'),
-            failure('workspace_pending'),
-          ]),
-        },
-      },
-      description:
-        "The workspace's first team, which is never deleted (`first_team`), a team that owns a factory, which is not deleted while it does (`owns_factories`), or the cell does not hold the workspace yet.",
-    },
-    ...tokenFailures,
+    403: notAllowed,
+    409: conflict(
+      "The workspace's first team, which is never deleted (`first_team`), or a team that owns a factory, which is not deleted while it does (`owns_factories`).",
+      failure('first_team'),
+      failure('owns_factories'),
+    ),
   },
 });
 
@@ -247,19 +204,14 @@ export const putTeamMember = createRoute({
   description: 'Someone already in the team stays as they are.',
   request: { params: memberParams },
   responses: {
+    ...callerFailures,
     200: json(Team, 'The team, with the person in it.'),
-    403: notAllowed,
     404: teamNotFound,
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([failure('not_a_workspace_member'), failure('workspace_pending')]),
-        },
-      },
-      description:
-        'The person is not a member of the workspace (`not_a_workspace_member`), or the cell does not hold the workspace yet.',
-    },
-    ...tokenFailures,
+    403: notAllowed,
+    409: conflict(
+      'The person is not a member of the workspace (`not_a_workspace_member`).',
+      failure('not_a_workspace_member'),
+    ),
   },
 });
 
@@ -270,11 +222,10 @@ export const deleteTeamMember = createRoute({
   description: 'Someone not in the team changes nothing.',
   request: { params: memberParams },
   responses: {
+    ...callerFailures,
     200: json(Team, 'The team, without the person.'),
     403: notAllowed,
     404: teamNotFound,
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -442,9 +393,8 @@ export const listFactories = createRoute({
   path: '/api/factories',
   summary: "The caller's workspace's factories, as the caller sees them",
   responses: {
+    ...callerFailures,
     200: json(FactoryList, 'The factories.'),
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -456,28 +406,21 @@ export const postFactory = createRoute({
     'Its files are stored in the cell, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.',
   request: body(NewFactory),
   responses: {
+    ...callerFailures,
     201: json(Factory, 'The factory made.'),
-    400: {
-      content: {
-        'application/json': { schema: z.union([InvalidFactory, failure('invalid_request')]) },
-      },
-      description: 'The rules refuse the name, or the body is not what the route takes.',
-    },
+    400: badRequest(
+      z.union([InvalidFactory, failure('invalid_request')]),
+      'The rules refuse the name, or the body is not what the route takes.',
+    ),
     404: json(
       failure('team_not_found'),
       'The workspace has no team with that id that the caller sees: none, or one a member is not in.',
     ),
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([failure('name_taken'), failure('workspace_pending')]),
-        },
-      },
-      description:
-        'Another factory of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`).',
-    },
+    409: conflict(
+      'Another factory of the workspace has the name, in any case (`name_taken`).',
+      failure('name_taken'),
+    ),
     415: unsupportedMediaType,
-    ...tokenFailures,
   },
 });
 
@@ -489,10 +432,9 @@ export const getFactory = createRoute({
   summary: 'A factory, with its latest version’s files',
   request: { params: factoryParams },
   responses: {
+    ...callerFailures,
     200: json(FactoryWithFiles, 'The factory and its latest version.'),
     404: factoryNotFound,
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -504,14 +446,12 @@ export const patchFactory = createRoute({
     'Whoever sees the factory may rename it. Moving it needs the caller to see the team it moves to as well: owners and admins any team, a member a team they are in. Its versions stay as they are.',
   request: { params: factoryParams, ...body(FactoryChange) },
   responses: {
+    ...callerFailures,
     200: json(Factory, 'The factory, changed.'),
-    400: {
-      content: {
-        'application/json': { schema: z.union([InvalidFactory, failure('invalid_request')]) },
-      },
-      description:
-        'The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one.',
-    },
+    400: badRequest(
+      z.union([InvalidFactory, failure('invalid_request')]),
+      'The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one.',
+    ),
     404: {
       content: {
         'application/json': {
@@ -521,17 +461,11 @@ export const patchFactory = createRoute({
       description:
         'The caller sees no such factory (`factory_not_found`), or no such team to move it to (`team_not_found`): none, or one a member is not in.',
     },
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([failure('name_taken'), failure('workspace_pending')]),
-        },
-      },
-      description:
-        'Another factory of the workspace has the name, in any case (`name_taken`), or the cell does not hold the workspace yet (`workspace_pending`).',
-    },
+    409: conflict(
+      'Another factory of the workspace has the name, in any case (`name_taken`).',
+      failure('name_taken'),
+    ),
     415: unsupportedMediaType,
-    ...tokenFailures,
   },
 });
 
@@ -541,8 +475,9 @@ export const getFactoryVersion = createRoute({
   summary: "One version of a factory's files, an earlier one or the latest",
   request: { params: z.object({ factoryId: FactoryId, version: VersionNumber }) },
   responses: {
+    ...callerFailures,
     200: json(FactoryVersion, 'The version.'),
-    400: json(failure('invalid_request'), 'The version is not a number from 1.'),
+    400: badRequest(failure('invalid_request'), 'The version is not a number from 1.'),
     404: {
       content: {
         'application/json': {
@@ -552,8 +487,6 @@ export const getFactoryVersion = createRoute({
       description:
         'The caller sees no such factory (`factory_not_found`), or it has no version with that number (`version_not_found`).',
     },
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -565,35 +498,24 @@ export const postFactoryVersion = createRoute({
     'The files must keep the factory schema (`packages/factory-spec`), and `baseVersion` must still be the latest version. Whoever sees the factory may save it.',
   request: { params: factoryParams, ...body(NewFactoryVersion) },
   responses: {
+    ...callerFailures,
     201: json(SavedFactoryVersion, 'The version saved.'),
-    400: {
-      content: {
-        'application/json': { schema: z.union([InvalidFiles, failure('invalid_request')]) },
-      },
-      description:
-        'The files fail the factory schema (`invalid_files`), or the body is not what the route takes.',
-    },
+    400: badRequest(
+      z.union([InvalidFiles, failure('invalid_request')]),
+      'The files fail the factory schema (`invalid_files`), or the body is not what the route takes.',
+    ),
     404: factoryNotFound,
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([
-            z
-              .strictObject({ error: z.literal('version_moved'), latestVersion: z.number().int() })
-              .openapi('VersionMoved', {
-                description:
-                  'The latest version is no longer `baseVersion`: someone saved since. Nothing is saved.',
-              }),
-            failure('workspace_pending'),
-          ]),
-        },
-      },
-      description:
-        'The factory has a newer version than the one the files were edited from (`version_moved`), or the cell does not hold the workspace yet.',
-    },
+    409: conflict(
+      'The factory has a newer version than the one the files were edited from (`version_moved`).',
+      z
+        .strictObject({ error: z.literal('version_moved'), latestVersion: z.number().int() })
+        .openapi('VersionMoved', {
+          description:
+            'The latest version is no longer `baseVersion`: someone saved since. Nothing is saved.',
+        }),
+    ),
     413: json(failure('too_large'), 'The body is larger than any factory’s files can be.'),
     415: unsupportedMediaType,
-    ...tokenFailures,
   },
 });
 
@@ -618,8 +540,8 @@ export const listFactoryTemplates = createRoute({
   description:
     'The same for every workspace. A template’s files reach a factory only through `POST /api/factories/{factoryId}/versions`, which checks them as any other files.',
   responses: {
+    ...callerFailures,
     200: json(z.array(FactoryTemplate), 'The templates.'),
-    ...tokenFailures,
   },
 });
 
@@ -1044,13 +966,12 @@ export const listRuns = createRoute({
     'A request is one run; the automation runs it started are not listed here but in its own answer. Filters combine; the values of one filter are alternatives.',
   request: { query: RunsQuery },
   responses: {
+    ...callerFailures,
     200: json(RunList, 'A page of runs, the counts and what the filters offer.'),
-    400: json(
+    400: badRequest(
       failure('invalid_request'),
       'A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long.',
     ),
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -1060,13 +981,12 @@ export const getRun = createRoute({
   summary: 'One run: its steps, and a request’s facts and the runs it started',
   request: { params: z.object({ runId: RunId }) },
   responses: {
+    ...callerFailures,
     200: json(RunDetail, 'The run.'),
     404: json(
       failure('run_not_found'),
       'The workspace has no run with that id that the caller sees: none, or one of a factory of a team a member is not in.',
     ),
-    409: workspacePending,
-    ...tokenFailures,
   },
 });
 
@@ -1085,9 +1005,10 @@ export const postRunApproval = createRoute({
     "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.",
   request: { params: z.object({ runId: RunId }), ...body(ApprovalAnswer) },
   responses: {
+    ...callerFailures,
     201: json(RunApproval, 'The answer is recorded.'),
-    400: json(failure('invalid_request'), 'The body is not what the route takes.'),
-    403: json(
+    400: badRequest(failure('invalid_request'), 'The body is not what the route takes.'),
+    403: forbidden(
       failure('not_allowed'),
       "The caller sees the run, but is not on its factory's owning team.",
     ),
@@ -1095,22 +1016,13 @@ export const postRunApproval = createRoute({
       failure('run_not_found'),
       'The workspace has no run with that id that the caller sees.',
     ),
-    409: {
-      content: {
-        'application/json': {
-          schema: z.union([
-            failure('not_waiting'),
-            failure('already_answered'),
-            failure('version_moved'),
-            failure('workspace_pending'),
-          ]),
-        },
-      },
-      description:
-        "The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), the version is not the run's (`version_moved`), or the cell does not hold the workspace yet (`workspace_pending`).",
-    },
+    409: conflict(
+      "The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), or the version is not the run's (`version_moved`).",
+      failure('not_waiting'),
+      failure('already_answered'),
+      failure('version_moved'),
+    ),
     415: unsupportedMediaType,
-    ...tokenFailures,
   },
 });
 
@@ -1122,18 +1034,8 @@ const sessionNotFound = json(
   "The caller sees no such session: none, another person's or another workspace's, as if it did not exist.",
 );
 
-/**
- * A route's 503s: the token check's, and `no_runner` from the route itself. One status holds
- * one answer in the contract, so the two are one union, which replaces `tokenFailures`' 503.
- */
-const noRunner = (description: string) => ({
-  content: {
-    'application/json': {
-      schema: z.union([failure('no_runner'), failure('token_check_unavailable')]),
-    },
-  },
-  description: `${description} Or the cell cannot get cloud-global's keys just now, so it checks no token (\`token_check_unavailable\`).`,
-});
+/** A route's 503: no runner to reach. */
+const noRunner = (description: string) => json(failure('no_runner'), description);
 
 const SessionId = z.string().openapi({ param: { name: 'sessionId', in: 'path' } });
 const sessionParams = z.object({ sessionId: SessionId });
@@ -1288,8 +1190,8 @@ export const getCloudSessionOptions = createRoute({
   path: '/api/cloud-sessions/options',
   summary: "What the workspace's runner offers a new session",
   responses: {
+    ...callerFailures,
     200: json(CloudSessionOptions, 'What the connected runner offers.'),
-    ...tokenFailures,
     503: noRunner('No runner is configured or connected for the workspace (`no_runner`).'),
   },
 });
@@ -1302,22 +1204,17 @@ export const postCloudSession = createRoute({
     'Nothing is recorded or sent unless the connected runner offers both the repository and the harness. The session starts as `starting`; the runner moves it on.',
   request: body(NewCloudSession),
   responses: {
+    ...callerFailures,
     201: json(CloudSession, 'The session, recorded and handed to the runner.'),
-    400: {
-      content: {
-        'application/json': {
-          schema: z.union([
-            failure('repository_not_offered'),
-            failure('harness_not_offered'),
-            failure('invalid_request'),
-          ]),
-        },
-      },
-      description:
-        'The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`).',
-    },
+    400: badRequest(
+      z.union([
+        failure('repository_not_offered'),
+        failure('harness_not_offered'),
+        failure('invalid_request'),
+      ]),
+      'The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`).',
+    ),
     415: unsupportedMediaType,
-    ...tokenFailures,
     503: noRunner(
       'No runner is configured or connected for the workspace (`no_runner`): nothing was recorded.',
     ),
@@ -1331,8 +1228,8 @@ export const listCloudSessions = createRoute({
   description:
     "A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.",
   responses: {
+    ...callerFailures,
     200: json(z.array(CloudSession), 'The sessions.'),
-    ...tokenFailures,
   },
 });
 
@@ -1342,9 +1239,9 @@ export const getCloudSession = createRoute({
   summary: 'One of the caller’s own cloud sessions, or one of the workspace’s agent runs',
   request: { params: sessionParams },
   responses: {
+    ...callerFailures,
     200: json(CloudSession, 'The session.'),
     404: sessionNotFound,
-    ...tokenFailures,
   },
 });
 
@@ -1356,9 +1253,9 @@ export const postCloudSessionStop = createRoute({
     'The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.',
   request: { params: sessionParams },
   responses: {
+    ...callerFailures,
     202: json(CloudSession, 'The session, ended: `stopped`, or the end it had already.'),
     404: sessionNotFound,
-    ...tokenFailures,
   },
 });
 
@@ -1368,9 +1265,10 @@ export const postCloudSessionPass = createRoute({
   summary:
     'A pass to a running session the caller sees: their own, or an agent run of the workspace',
   description:
-    "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.",
+    "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but `requireCaller`'s refusals.",
   request: { params: sessionParams },
   responses: {
+    ...callerFailures,
     200: { ...json(CloudSessionPass, 'The pass, and the host it opens.'), headers: noStore },
     404: {
       ...json(
@@ -1379,34 +1277,6 @@ export const postCloudSessionPass = createRoute({
       ),
       headers: noStore,
     },
-    ...tokenFailures,
     503: noRunner('The cell has no pass key, and so no runner (`no_runner`).'),
   },
 });
-
-/** Every route in the contract, in the order `app.ts` registers them. */
-export const ROUTES = [
-  getHealth,
-  listTeams,
-  postTeam,
-  patchTeam,
-  deleteTeam,
-  putTeamMember,
-  deleteTeamMember,
-  listFactories,
-  postFactory,
-  getFactory,
-  patchFactory,
-  getFactoryVersion,
-  postFactoryVersion,
-  listFactoryTemplates,
-  listRuns,
-  getRun,
-  postRunApproval,
-  getCloudSessionOptions,
-  postCloudSession,
-  listCloudSessions,
-  getCloudSession,
-  postCloudSessionStop,
-  postCloudSessionPass,
-];
