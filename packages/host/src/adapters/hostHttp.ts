@@ -63,6 +63,7 @@ import { computeLatestLocalTurnOrdinal } from 't3/orchestration-v2/threadHistory
 import { boundedSnapshotResponseFields } from 't3/orchestration-v2/ThreadStream.ts';
 import { projectThreadProjectionForWire } from 't3/orchestration-v2/WireProjection.ts';
 import type { PassClaims } from '../core/pass.ts';
+import { readableThread } from '../runtime/threadRuntime.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import { shellHttpAnswer } from './hostShell.ts';
 import type { PassRejected } from './passVerifier.ts';
@@ -202,8 +203,9 @@ const shellSnapshot = (http: HostHttp, url: URL) => {
  * Another thread is not there.
  */
 const boundedThreadSnapshot = (http: HostHttp, url: URL, threadId: string) => {
-  const { runtime } = http;
-  if (threadId !== runtime.snapshot().thread.id) {
+  // The session's thread, or an agent run's dispatched agent's (read-only).
+  const runtime = readableThread(http.runtime, http.runtime.snapshot().thread.id, threadId);
+  if (runtime === undefined) {
     return HttpServerResponse.schemaJson(EnvironmentResourceNotFoundError)(
       new EnvironmentResourceNotFoundError({
         code: 'not_found',

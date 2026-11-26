@@ -354,12 +354,14 @@ describe('makeCellSocket', () => {
       Effect.gen(function* () {
         const cell = yield* fakeCell();
         const runner = yield* runnerOf(cell);
+        // 32 ends whose errors together pass the limit (each '€' is 3 bytes).
+        const error = '€'.repeat(Math.ceil(CELL_FRAME_LIMIT_BYTES / 32 / 3));
         for (let each = 0; each < 32; each += 1) {
           yield* runner.socket.send({
             type: 'session.update',
             sessionId: `session-acme-long-${each}`,
             status: 'failed',
-            error: '€'.repeat(1000),
+            error,
           });
         }
         const connection = yield* cell.next;

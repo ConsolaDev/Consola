@@ -1,8 +1,10 @@
 import { messageForCellRefusal } from './cell';
 import type {
+  AgentRunPhase,
   CellFailureCode,
   CloudSession,
   CloudSessionStatus,
+  DispatchedAgentStatus,
   Harness,
   PassAnswer,
   SessionAnswer,
@@ -54,25 +56,90 @@ export const CONNECTING_WORDS = 'Connecting to the session…';
 /** The chat's code did not arrive (a new version of the app was deployed meanwhile, say). */
 export const CHAT_NOT_LOADED_WORDS = 'The chat couldn’t be loaded. Reload the page to try again.';
 
-/** A failure the cell decided itself, by its code. */
-const FAILURE_CODE_WORDS: Readonly<Record<CellFailureCode, string>> = {
-  runner_restarted: 'The runner restarted.',
-  runner_unreachable: 'The runner couldn’t be reached to start this session.',
-  runner_failed: 'The runner stopped this session without saying why.',
+type Failed = Pick<CloudSession, 'error' | 'errorCode' | 'repository' | 'harness'>;
+
+/**
+ * A failure the cell decided itself, by its code. The last four are an agent run's that the cell
+ * could not hand to a runner when the pull request's event arrived: it was recorded failed, and
+ * nothing ran.
+ */
+const FAILURE_CODE_WORDS: Readonly<Record<CellFailureCode, (session: Failed) => string>> = {
+  runner_restarted: () => 'The runner restarted.',
+  runner_unreachable: () => 'The runner couldn’t be reached to start this session.',
+  runner_failed: () => 'The runner stopped this session without saying why.',
+  runner_unavailable: () =>
+    'No runner was connected when the pull request’s event arrived, so this run never started.',
+  repository_not_offered: ({ repository }) =>
+    `The connected runner doesn’t offer ${repository}, so this run never started.`,
+  harness_not_offered: ({ harness }) =>
+    `The connected runner has no API key for ${HARNESS_NAMES[harness] ?? harness}, so this run never started.`,
+  agent_run_invalid: () =>
+    'The region couldn’t put this run together from the factory’s files, so it never started.',
 };
 
 /**
  * Why a session failed: the runner's message as it came, or the sentence for the cell's code. A
  * code this page does not know (a newer cell's) is never shown as text.
  */
-export function failedWords(session: Pick<CloudSession, 'error' | 'errorCode'>): string {
+export function failedWords(session: Failed): string {
   if (session.error) return `This session failed: ${session.error}`;
   const code = session.errorCode;
-  if (code && Object.hasOwn(FAILURE_CODE_WORDS, code)) return FAILURE_CODE_WORDS[code];
+  if (code && Object.hasOwn(FAILURE_CODE_WORDS, code)) return FAILURE_CODE_WORDS[code](session);
   return 'This session failed.';
 }
 
-/** A session that is not the person's, or not there: the cell says the same of both. */
+/** How an agent run's phase is said (`agentRunPhase`), in a row and on its page. */
+export const AGENT_RUN_PHASE_WORDS: Readonly<Record<AgentRunPhase, string>> = {
+  starting: 'Starting',
+  working: 'Working',
+  waiting: 'Waiting on a question',
+  done: 'Finished',
+  failed: 'Failed',
+  stopped: 'Stopped before it finished',
+};
+
+/** How a dispatched agent's status is said. */
+export const DISPATCHED_STATUS_WORDS: Readonly<Record<DispatchedAgentStatus, string>> = {
+  working: 'Working',
+  done: 'Done',
+  failed: 'Failed',
+};
+
+/** What marks an agent run in the list, beside its automation's name. */
+export const AGENT_RUN_LABEL = 'Agent run';
+
+/** An agent run that has reported no result yet, by where it stands. */
+export function noSummaryWords(phase: AgentRunPhase, agent: string): string {
+  switch (phase) {
+    case 'starting':
+      return `${agent} starts once the sandbox is ready.`;
+    case 'working':
+    case 'waiting':
+      return `${agent} hasn’t reported a result yet.`;
+    default:
+      return `${agent} reported no result.`;
+  }
+}
+
+/** An agent run that has dispatched no agent, by where it stands. */
+export function noAgentsWords(phase: AgentRunPhase, agent: string): string {
+  return phase === 'starting' || phase === 'working' || phase === 'waiting'
+    ? `${agent} hasn’t dispatched an agent yet.`
+    : `${agent} dispatched no agent.`;
+}
+
+/** A dispatched agent that has sent no report. */
+export const NO_AGENT_REPORT = 'No report yet.';
+
+/** How many agents the run dispatched, as the section's head counts them. */
+export function dispatchedCount(count: number): string {
+  return count === 1 ? '1 agent' : `${count} agents`;
+}
+
+/**
+ * A session that is not the person’s, or not there: the cell says the same of both. (An agent
+ * run is every member’s, so for one this is a run that is gone or a wrong link.)
+ */
 const NOT_HERE = 'This session isn’t here. It may be someone else’s, or the link may be wrong.';
 
 /** Why a session could not be started, for what was asked. */
@@ -123,11 +190,11 @@ export function messageForPassAnswer(
 /** No session yet. */
 export const NO_SESSIONS_TITLE = 'No sessions yet';
 export const NO_SESSIONS_WORDS =
-  'A session runs an agent on one of the runner’s repositories, in a sandbox of its own. Only you see your sessions.';
+  'A session runs an agent on one of the runner’s repositories, in a sandbox of its own. Only you see your sessions; agent runs a factory starts on a pull request show here for everyone.';
 
 /** A list that refreshed and could not: the rows stay as they were read last. */
 export function sessionsRefreshFailedWords(at: string): string {
-  return `Couldn’t refresh. These are your sessions as of ${clockTime(at)}.`;
+  return `Couldn’t refresh. These are the sessions as of ${clockTime(at)}.`;
 }
 
 /** A session's page that refreshed and could not: the session stays as it was read last. */

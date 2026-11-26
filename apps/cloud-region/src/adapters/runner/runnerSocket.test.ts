@@ -186,6 +186,8 @@ async function holds(id: string, status: CloudSessionStatus, over: Partial<Cloud
     runnerId: 'runner-1',
     createdAt: 1000,
     endedAt: status === 'stopped' || status === 'failed' ? 1500 : null,
+    origin: null,
+    agentRun: null,
     ...over,
   });
 }

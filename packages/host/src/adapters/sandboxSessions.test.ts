@@ -1,4 +1,4 @@
-import type { Harness, SessionStart, SessionUpdate } from '@consola/runner-protocol';
+import type { AgentRun, Harness, SessionStart, SessionUpdate } from '@consola/runner-protocol';
 import { FakeProvider, SandboxError, sandboxesFrom } from '@consola/sandbox';
 import type { FakeProcess, FakeProviderOptions, SandboxProvider } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
@@ -120,6 +120,7 @@ const harness = Effect.fn('harness')(function* (
     readonly callTimeout?: Duration.Input;
     readonly leaseRenewEvery?: Duration.Input;
     readonly offer?: { readonly repositories: string[]; readonly harnesses: Harness[] };
+    readonly template?: string;
   } = {},
 ) {
   const fake = new FakeProvider({ templates: { 'consola-session': {} }, ...options.fake });
@@ -128,6 +129,7 @@ const harness = Effect.fn('harness')(function* (
   const logged: string[] = [];
   const sessions = yield* makeSandboxSessions({
     sandboxes: sandboxesFrom(options.provider?.(fake) ?? fake),
+    ...(options.template === undefined ? {} : { template: options.template }),
     offer: options.offer ?? OFFER,
     secrets: SECRETS,
     secretValues: SECRET_VALUES,
@@ -1201,6 +1203,181 @@ describe('makeSandboxSessions', () => {
         yield* h.sessions.start(startOf('session-acme-17'));
         yield* h.sessions.stopAll;
         expect(h.fake.sandboxes).toHaveLength(1);
+      }),
+    ));
+
+  it('makes the sandbox from the template it is given', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          template: 'consola-session-foreman',
+          fake: {
+            templates: { 'consola-session-foreman': {} },
+            programs: { 'consola-session-start': readyUntilStopped() },
+          },
+        });
+        yield* h.sessions.start(startOf('session-acme-foreman'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        expect(h.fake.sandboxes[0]?.template).toBe('consola-session-foreman');
+        yield* h.sessions.stopAll;
+      }),
+    ));
+});
+
+describe('makeSandboxSessions, for an agent run', () => {
+  const AGENT_RUN: AgentRun = {
+    agent: 'foreman',
+    prompt: 'Review pull request 12 and post the review with gh.',
+    checkout: { ref: 'refs/pull/12/head', sha: 'b'.repeat(40) },
+    agents: [{ name: 'reviewer', description: 'Reviews a diff', instructions: 'Review it.' }],
+    files: [
+      { path: 'factory.yml', content: 'automations: {}\n' },
+      { path: 'agents/reviewer.md', content: '# Reviewer\n' },
+    ],
+  };
+  const AGENT_RUN_JSON = `${JSON.stringify(AGENT_RUN)}\n`;
+  const agentRunStart = (sessionId: string): SessionStart => ({
+    ...startOf(sessionId),
+    agentRun: AGENT_RUN,
+  });
+
+  it("writes the run's files and the run itself before its start script runs, and gives it the run's variables", () =>
+    run(
+      Effect.gen(function* () {
+        const seen: Record<string, string | undefined> = {};
+        const h = yield* harness({
+          fake: {
+            programs: {
+              'consola-session-start': async (child) => {
+                for (const path of [
+                  '/workspace/factory/factory.yml',
+                  '/workspace/factory/agents/reviewer.md',
+                  '/workspace/.consola/agent-run.json',
+                ]) {
+                  seen[path] = child.files.readText(path);
+                }
+                child.stdout(line({ type: 'ready', port: 4100 }));
+                await child.killed;
+              },
+            },
+          },
+        });
+        yield* h.sessions.start(agentRunStart('session-run-1'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        expect(seen).toEqual({
+          '/workspace/factory/factory.yml': 'automations: {}\n',
+          '/workspace/factory/agents/reviewer.md': '# Reviewer\n',
+          '/workspace/.consola/agent-run.json': AGENT_RUN_JSON,
+        });
+        expect(h.fake.sandboxes[0]?.env).toMatchObject({
+          CONSOLA_AGENT_RUN: '/workspace/.consola/agent-run.json',
+          CONSOLA_CHECKOUT_REF: 'refs/pull/12/head',
+          CONSOLA_CHECKOUT_SHA: 'b'.repeat(40),
+          GH_TOKEN: GIT_TOKEN,
+          GIT_TOKEN,
+        });
+        yield* h.sessions.stopAll;
+        expectNoSecret(h);
+      }),
+    ));
+
+  it('fails the session and stops its sandbox when a file cannot be written, and starts nothing', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+          provider: (fake) => ({
+            ...byId(fake),
+            create: async (options) => {
+              const sandbox = await fake.create(options);
+              return {
+                ...sandbox,
+                writeFile: async (path) => {
+                  throw new Error(`No room for ${path} (${GIT_TOKEN})`);
+                },
+              };
+            },
+          }),
+        });
+        yield* h.sessions.start(agentRunStart('session-run-2'));
+        const failed = yield* h.next;
+        expect(failed).toMatchObject({ sessionId: 'session-run-2', status: 'failed' });
+        expect(failed.error).toMatch(
+          /^The agent run's file \/workspace\/\S+ could not be written into the sandbox: .*No room/,
+        );
+        yield* h.untilEnded('session-run-2');
+        expect(h.fake.sandboxes[0]?.state).toBe('stopped');
+        expect(h.fake.sandboxes[0]?.commands).toEqual([]);
+        expect(finalsOf(h.sent, 'session-run-2')).toHaveLength(1);
+        expectNoSecret(h);
+      }),
+    ));
+
+  it("says each agent-run line as the run's report, scrubbed, and says the last one again with the session's state", () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: {
+            programs: {
+              'consola-session-start': async (child) => {
+                child.stdout(line({ type: 'ready', port: 4100 }));
+                child.stdout(line({ type: 'agent-run', state: 'working' }));
+                child.stdout(
+                  line({
+                    type: 'agent-run',
+                    state: 'done',
+                    summary: `Posted the review with ${GIT_TOKEN}.`,
+                    agents: [{ id: 'thread-2', agent: 'reviewer', status: 'done' }],
+                  }),
+                );
+                await child.killed;
+              },
+            },
+          },
+        });
+        yield* h.sessions.start(agentRunStart('session-run-3'));
+        expect(yield* h.next).toMatchObject({ status: 'running' });
+        expect(yield* h.next).toEqual({
+          type: 'session.update',
+          sessionId: 'session-run-3',
+          agentRun: { state: 'working' },
+        });
+        const done = {
+          state: 'done',
+          summary: 'Posted the review with [redacted].',
+          agents: [{ id: 'thread-2', agent: 'reviewer', status: 'done' }],
+        };
+        expect(yield* h.next).toEqual({
+          type: 'session.update',
+          sessionId: 'session-run-3',
+          agentRun: done,
+        });
+        // What the socket sends again after each `hello`.
+        expect(h.sessions.liveNow().states).toEqual([
+          {
+            type: 'session.update',
+            sessionId: 'session-run-3',
+            status: 'running',
+            hostUrl: 'https://4100-fake-1.fake-sandbox.test',
+            agentRun: done,
+          },
+        ]);
+        yield* h.sessions.stopAll;
+        expectNoSecret(h);
+      }),
+    ));
+
+  it('writes nothing into the sandbox of an ordinary session', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+        });
+        yield* h.sessions.start(startOf('session-acme-plain'));
+        yield* h.next;
+        expect(h.fake.sandboxes[0]?.files.paths()).toEqual([]);
+        expect(h.fake.sandboxes[0]?.env).not.toHaveProperty('CONSOLA_AGENT_RUN');
+        yield* h.sessions.stopAll;
       }),
     ));
 });

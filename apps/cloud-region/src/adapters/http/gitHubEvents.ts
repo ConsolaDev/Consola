@@ -8,7 +8,7 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
-import type { DeliveryVerifier, GitHubEventStore } from '../../application/ports.js';
+import type { AgentRunPorts, DeliveryVerifier, GitHubEventStore } from '../../application/ports.js';
 import { receiveGitHubEvent } from '../../application/receiveGitHubEvent.js';
 import type { GitHubEventAnswer } from '../../application/receiveGitHubEvent.js';
 import type { Region } from '../../domain/region.js';
@@ -57,8 +57,10 @@ export function gitHubEventRoutes(deps: {
   events: DeliveryVerifier;
   gitHubEvents: GitHubEventStore;
   report: (line: string) => void;
+  /** What starting the agent runs an event fires needs; without it an event starts none. */
+  agentRuns?: AgentRunPorts;
 }): OpenAPIHono {
-  const { region, events, gitHubEvents, report } = deps;
+  const { region, events, gitHubEvents, report, agentRuns } = deps;
   const refuseUnreadable = (c: Context, why: string) => {
     report(`The cell refused a GitHub event: ${why}.`);
     return c.json({ error: 'unreadable' }, GITHUB_EVENT_ANSWER.unreadable);
@@ -81,7 +83,11 @@ export function gitHubEventRoutes(deps: {
   routes.openapi(
     { ...postGitHubEventDelivery, middleware: [mediaType, size] as const },
     async (c) => {
-      const answer = await receiveGitHubEvent({ events, gitHubEvents }, region, await c.req.text());
+      const answer = await receiveGitHubEvent(
+        { events, gitHubEvents, ...(agentRuns ? { agentRuns } : {}) },
+        region,
+        await c.req.text(),
+      );
       const line = lineFor(answer, region);
       if (line !== null) report(line);
 

@@ -1,23 +1,42 @@
 import { describe, expect, it } from 'vitest';
 import type { paths } from './cellApiContract';
 import {
+  agentRunPhase,
+  agentRunPhaseWords,
+  agentRunSummary,
   chatMounted,
+  dispatchedAgents,
+  isAgentRun,
   keepsShownOn,
   listPollIntervalMs,
   pollIntervalMs,
+  pullRequestLabel,
+  pullRequestUrl,
   sessionLabel,
+  sessionPollIntervalMs,
   sessionScreen,
+  shortSha,
   shouldRenewPass,
   startedAt,
 } from './cloudSession';
 import type {
+  AgentRun,
+  AgentRunPhase,
+  AgentRunReport,
   CellFailureCode,
   CloudSession,
+  CloudSessionOrigin,
   CloudSessionStatus,
+  DispatchedAgentStatus,
   Harness,
   StartRefusalCode,
 } from './cloudSession';
 import {
+  AGENT_RUN_PHASE_WORDS,
+  DISPATCHED_STATUS_WORDS,
+  dispatchedCount,
+  noAgentsWords,
+  noSummaryWords,
   HARNESS_NAMES,
   messageForPassAnswer,
   messageForSessionAnswer,
@@ -42,6 +61,8 @@ const session: CloudSession = {
   runnerId: 'runner-1',
   createdAt: 1_795_000_000,
   endedAt: null,
+  origin: null,
+  agentRun: null,
 };
 
 const ACME = { name: 'Acme', region: 'eu' };
@@ -203,6 +224,146 @@ describe('sessionScreen', () => {
       }),
     ).toEqual({ kind: 'failed', words: 'This session failed.' });
   });
+});
+
+describe('an agent run', () => {
+  const origin: CloudSessionOrigin = {
+    kind: 'automation',
+    factoryId: 'f-1',
+    factoryName: 'Code review',
+    automation: 'review-pull-requests',
+    agent: 'foreman',
+    item: {
+      kind: 'pull_request',
+      repository: 'sprocket/catalog-portal',
+      number: 12,
+      url: 'https://github.com/sprocket/catalog-portal/pull/12',
+      title: 'Fix the flaky login test',
+      headSha: '0123456789abcdef0123456789abcdef01234567',
+    },
+  };
+  const run: AgentRun = {
+    ...session,
+    personId: null,
+    title: 'review-pull-requests · sprocket/catalog-portal#12 Fix the flaky login test',
+    origin,
+    agentRun: null,
+  };
+  const reported = (agentRun: AgentRunReport, status = run.status) => ({
+    ...run,
+    status,
+    agentRun,
+  });
+
+  it('is told apart from a person’s session by what started it', () => {
+    expect(isAgentRun(run)).toBe(true);
+    expect(isAgentRun(session)).toBe(false);
+  });
+
+  it('names its pull request as a person does, and links it only on https', () => {
+    expect(pullRequestLabel(origin.item)).toBe(
+      'sprocket/catalog-portal#12 Fix the flaky login test',
+    );
+    expect(pullRequestLabel({ ...origin.item, title: '  ' })).toBe('sprocket/catalog-portal#12');
+    expect(pullRequestUrl(origin.item)).toBe(origin.item.url);
+    expect(pullRequestUrl({ ...origin.item, url: 'javascript:alert(1)' })).toBeNull();
+    expect(pullRequestUrl({ ...origin.item, url: 'http://github.com/x' })).toBeNull();
+    expect(shortSha(origin.item.headSha)).toBe('0123456');
+  });
+
+  it('stands where the runner last reported, while the sandbox runs', () => {
+    expect(agentRunPhase(run)).toBe('working');
+    expect(agentRunPhase(reported({ state: 'working' }))).toBe('working');
+    expect(agentRunPhase(reported({ state: 'waiting' }))).toBe('waiting');
+    expect(agentRunPhase({ ...run, status: 'starting' })).toBe('starting');
+  });
+
+  it('keeps a finished or failed report as its end, whatever came of the sandbox after', () => {
+    expect(agentRunPhase(reported({ state: 'done' }, 'stopped'))).toBe('done');
+    expect(agentRunPhase(reported({ state: 'done' }, 'failed'))).toBe('done');
+    expect(agentRunPhase(reported({ state: 'failed' }, 'running'))).toBe('failed');
+  });
+
+  it('failed, or was stopped before it finished, when the sandbox ended first', () => {
+    const failed: AgentRun = { ...run, status: 'failed', errorCode: 'runner_unavailable' };
+    expect(agentRunPhase(failed)).toBe('failed');
+    expect(agentRunPhase(reported({ state: 'working' }, 'stopped'))).toBe('stopped');
+    expect(agentRunPhase({ ...run, status: 'stopped' })).toBe('stopped');
+  });
+
+  it('says where it stands in words', () => {
+    const phases: Record<AgentRunPhase, string> = AGENT_RUN_PHASE_WORDS;
+    expect(phases).toEqual({
+      starting: 'Starting',
+      working: 'Working',
+      waiting: 'Waiting on a question',
+      done: 'Finished',
+      failed: 'Failed',
+      stopped: 'Stopped before it finished',
+    });
+    expect(agentRunPhaseWords(reported({ state: 'waiting' }))).toBe('Waiting on a question');
+    expect(agentRunPhaseWords(reported({ state: 'done' }, 'stopped'))).toBe('Finished');
+  });
+
+  it('reads the foreman’s result and the agents it dispatched from the report', () => {
+    expect(agentRunSummary(run)).toBeNull();
+    expect(dispatchedAgents(run)).toEqual([]);
+    expect(agentRunSummary(reported({ state: 'working', summary: ' \n ' }))).toBeNull();
+    const review = { id: 'c-2', agent: 'review', status: 'done' as const, summary: 'LGTM.' };
+    const done = reported({
+      state: 'done',
+      summary: 'Posted the review.\n\n- one',
+      agents: [review],
+    });
+    expect(agentRunSummary(done)).toBe('Posted the review.\n\n- one');
+    expect(dispatchedAgents(done)).toEqual([review]);
+    const statuses: Record<DispatchedAgentStatus, string> = DISPATCHED_STATUS_WORDS;
+    expect(statuses).toEqual({ working: 'Working', done: 'Done', failed: 'Failed' });
+  });
+
+  it('says what it has not reported yet, by where it stands', () => {
+    expect(noSummaryWords('starting', 'foreman')).toBe('foreman starts once the sandbox is ready.');
+    expect(noSummaryWords('working', 'foreman')).toBe('foreman hasn’t reported a result yet.');
+    expect(noSummaryWords('failed', 'foreman')).toBe('foreman reported no result.');
+    expect(noAgentsWords('waiting', 'foreman')).toBe('foreman hasn’t dispatched an agent yet.');
+    expect(noAgentsWords('done', 'foreman')).toBe('foreman dispatched no agent.');
+    expect(dispatchedCount(1)).toBe('1 agent');
+    expect(dispatchedCount(3)).toBe('3 agents');
+  });
+
+  it('is read every 5 s while it runs, since its report moves, and never once it ended', () => {
+    expect(sessionPollIntervalMs(run)).toBe(5000);
+    expect(sessionPollIntervalMs({ ...run, status: 'starting' })).toBe(2000);
+    expect(sessionPollIntervalMs({ ...run, status: 'stopped' })).toBeNull();
+    expect(sessionPollIntervalMs(session)).toBe(10_000);
+  });
+
+  it.each([
+    [
+      'runner_unavailable',
+      'No runner was connected when the pull request’s event arrived, so this run never started.',
+    ],
+    [
+      'repository_not_offered',
+      'The connected runner doesn’t offer sprocket/catalog-portal, so this run never started.',
+    ],
+    [
+      'harness_not_offered',
+      'The connected runner has no API key for Claude Code, so this run never started.',
+    ],
+    [
+      'agent_run_invalid',
+      'The region couldn’t put this run together from the factory’s files, so it never started.',
+    ],
+  ] satisfies Array<[CellFailureCode, string]>)(
+    'words the cell’s code %s for a run it could not hand to a runner',
+    (errorCode, words) => {
+      expect(sessionScreen({ ...run, status: 'failed', errorCode })).toEqual({
+        kind: 'failed',
+        words,
+      });
+    },
+  );
 });
 
 describe('startedAt', () => {

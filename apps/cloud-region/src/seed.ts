@@ -2,7 +2,8 @@
 // show before a runner records any: `pnpm --filter @consola/cloud-region db:seed`. Local only: it
 // refuses any database but a PGlite folder (`seedRefusal`), and refuses to run while a cell
 // answers on this configuration's port, since PGlite takes one process per folder. It is never
-// reachable over HTTP. Seeding again refreshes the same runs (`seedDemoRuns`).
+// reachable over HTTP. Seeding again refreshes the same runs (`seedDemoRuns`). It also installs
+// the code review team template in each workspace's first team (`seedCodeReviewTeam`).
 
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +12,9 @@ import { migrateDatabase, openDatabase } from './adapters/persistence/database.j
 import { createDrizzleStores } from './adapters/persistence/stores.js';
 import { workspaces } from './adapters/persistence/tables.js';
 import { seedDemoRuns } from './application/seedDemoRuns.js';
+import { seedCodeReviewTeam } from './application/seedTemplates.js';
 import { ConfigError, loadConfig, seedRefusal } from './config.js';
+import { CODE_REVIEW_TEAM_TEMPLATE } from './domain/factoryTemplates.js';
 
 const ENV_FILE = fileURLToPath(new URL('../.env', import.meta.url));
 
@@ -68,6 +71,16 @@ try {
     if (seeded === 'workspace-pending') continue;
     console.log(
       `${id}: ${seeded.runs} demo runs in ${seeded.factories.map((name) => `"${name}"`).join(', ')}`,
+    );
+  }
+  for (const { id } of held) {
+    const team = await seedCodeReviewTeam(stores, id);
+    if (team === 'workspace-pending') continue;
+    const name = `"${CODE_REVIEW_TEAM_TEMPLATE.name}"`;
+    console.log(
+      team.kind === 'taken'
+        ? `${id}: ${name} is a factory of another team than the first; left alone.`
+        : `${id}: ${name} ${team.kind === 'unchanged' ? 'already holds the template' : team.kind}, at version ${team.version}.`,
     );
   }
 } finally {

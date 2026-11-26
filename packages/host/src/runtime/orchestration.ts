@@ -80,6 +80,12 @@ export interface OrchestrationOptions {
   readonly stateDir: string;
   /** The session's harness: the one provider the composition hydrates (`hostDriverFor`). */
   readonly harness: SessionSpec['harness'];
+  /**
+   * t3's MCP credentials and provider MCP sessions: an agent run's (`agentRunMcp.ts`), which give
+   * each provider session the host's `/mcp` server; absent, the stand-in that gives none
+   * (`standIns.ts` `layerMcp`).
+   */
+  readonly mcp?: typeof HostStandIns.layerMcp;
 }
 
 /** t3's `ServerConfig` for a host: t3's own paths under `stateDir`, and no HTTP server. */
@@ -320,7 +326,7 @@ const makeOrchestration = <R>(
     // Merged, not only provided: the server-config RPCs read t3's provider list from it.
     Layer.provideMerge(ProviderRegistry.layer),
     Layer.provideMerge(layerProviderInstances(drivers)),
-    Layer.provide(HostStandIns.layerMcp),
+    Layer.provide(options.mcp ?? HostStandIns.layerMcp),
     Layer.provide(HostStandIns.layerTerminals),
     Layer.provideMerge(Layer.mergeAll(IdAllocator.layer, VcsProcess.layer, ProcessRunner.layer)),
     Layer.provideMerge(layerServerInfrastructure(options.stateDir, options.harness)),

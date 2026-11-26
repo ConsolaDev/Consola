@@ -1,7 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
 import type { GitHubEventMessage, WorkspaceRole } from '@consola/cloud-contract';
-import type { Harness, PassClaims, Repository } from '@consola/runner-protocol';
+import type { AgentRun, Harness, PassClaims, Repository } from '@consola/runner-protocol';
 import type { CloudSession, CloudSessionStatus, RunnerIdentity } from '../domain/cloudSession.js';
 import type { Factory, FactoryChange, FactoryFile, FactoryVersion } from '../domain/factory.js';
 import type {
@@ -295,6 +295,8 @@ export type SessionStartRequest = {
   workspaceId: string;
   repository: Repository;
   harness: Harness;
+  /** For an agent run: its first agent, prompt, agents, files and checkout. */
+  agentRun?: AgentRun;
 };
 
 /** The runner that serves a workspace, as the use cases see it. */
@@ -309,7 +311,10 @@ export type RunnerChannel = {
 
 /** What a use case may change on a row; a key left out stays. */
 export type CloudSessionChanges = Partial<
-  Pick<CloudSession, 'status' | 'title' | 'hostUrl' | 'error' | 'errorCode' | 'endedAt'>
+  Pick<
+    CloudSession,
+    'status' | 'title' | 'hostUrl' | 'error' | 'errorCode' | 'endedAt' | 'agentRun'
+  >
 >;
 
 /** The cell's record of its cloud sessions. Every method throws when the database does not answer. */
@@ -317,10 +322,13 @@ export type CloudSessionStore = {
   insert(session: CloudSession): Promise<void>;
   /** One session by id, whoever's. For the runner's updates, never for a person's request. */
   find(sessionId: string): Promise<CloudSession | null>;
-  /** The session if it is `personId`'s own in `workspaceId`, else null. */
-  findOwn(workspaceId: string, personId: string, sessionId: string): Promise<CloudSession | null>;
-  /** The person's sessions in the workspace, newest first. */
-  listOwn(workspaceId: string, personId: string): Promise<CloudSession[]>;
+  /**
+   * The session if `personId` sees it in `workspaceId` (`isSeenBy`): their own, or one of the
+   * workspace's agent runs. Else null.
+   */
+  findSeen(workspaceId: string, personId: string, sessionId: string): Promise<CloudSession | null>;
+  /** What the person sees in the workspace: their own sessions and its agent runs, newest first. */
+  listSeen(workspaceId: string, personId: string): Promise<CloudSession[]>;
   /** The runner's sessions in its workspace that have not ended: `starting` or `running`. */
   listLive(runner: RunnerIdentity): Promise<CloudSession[]>;
   /**
@@ -360,3 +368,13 @@ export type CloudSessionPorts = {
 
 /** What a runner's messages need: the sessions, and the time. */
 export type RunnerUpdatePorts = Pick<CloudSessionPorts, 'sessions' | 'clock'>;
+
+/**
+ * What starting agent runs needs: the workspace's factories, to find their teams, and what a
+ * session's start needs. `report` hears why a run failed to start or an event started nothing,
+ * one line each, never what the event says beyond ids and names.
+ */
+export type AgentRunPorts = Pick<CloudSessionPorts, 'sessions' | 'runners' | 'ids' | 'clock'> & {
+  factories: FactoryStore;
+  report: (line: string) => void;
+};

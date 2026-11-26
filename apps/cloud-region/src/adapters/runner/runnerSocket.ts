@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { readRunnerMessage } from '@consola/runner-protocol';
+import { RUNNER_SOCKET_FRAME_LIMIT_BYTES, readRunnerMessage } from '@consola/runner-protocol';
 import type {
   CellMessage,
   ReadResult,
@@ -27,11 +27,11 @@ import { noRunner } from './noRunner.js';
 export const RUNNER_SOCKET_PATH = '/api/runner';
 
 /**
- * The largest frame a runner may send, in bytes: room for a `hello` listing many sessions and an
- * update carrying a long error, and no more. Past it the socket closes with 1009 (Message Too
- * Big) before the frame is read, so a runner cannot fill the cell's memory one frame at a time.
+ * The largest frame a runner may send, in bytes: the protocol's limit for the socket, which the
+ * runner keeps too. Past it the socket closes with 1009 (Message Too Big) before the frame is
+ * read, so a runner cannot fill the cell's memory one frame at a time.
  */
-export const RUNNER_FRAME_LIMIT_BYTES = 64 * 1024;
+export const RUNNER_FRAME_LIMIT_BYTES = RUNNER_SOCKET_FRAME_LIMIT_BYTES;
 
 /** Why the cell closes a runner's socket. A runner reconnects after either. */
 export const RUNNER_SOCKET_CLOSE = {
@@ -341,6 +341,7 @@ export function createRunnerSocket(deps: {
             repository: request.repository,
             harness: request.harness,
             passPublicKeyPem: settings.passPublicKeyPem,
+            ...(request.agentRun ? { agentRun: request.agentRun } : {}),
           });
         },
         async stopSession(runnerId, sessionId) {

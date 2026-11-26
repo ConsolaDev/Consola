@@ -19,9 +19,37 @@ import {
   restoredSaid,
   SKILL_FILE_HINT,
   savedWords,
+  templateAddedLine,
+  templateFilesCount,
 } from './factoryMessages';
 
 const ACME = { name: 'Acme', region: 'eu' };
+
+describe('adding a template', () => {
+  it('says how many files it added and replaced, and that saving keeps them', () => {
+    const name = 'Code review team';
+    expect(templateAddedLine(name, ['a', 'b', 'c', 'd', 'e', 'f'], [])).toBe(
+      'Code review team added 6 files. Save to keep them, or Discard to drop them.',
+    );
+    expect(templateAddedLine(name, ['a', 'b'], ['c'])).toBe(
+      'Code review team added 2 files and replaced 1 file. Save to keep them, or Discard to drop them.',
+    );
+    expect(templateAddedLine(name, [], ['c'])).toBe(
+      'Code review team replaced 1 file. Save to keep it, or Discard to drop it.',
+    );
+    expect(templateAddedLine(name, [], [])).toBe(
+      'This factory already holds every file of Code review team as it is. Nothing changed.',
+    );
+    expect(templateAddedLine(name, ['a'], [], ['b'])).toBe(
+      'Code review team added 1 file. Save to keep it, or Discard to drop it. It left 1 file under Removed on save alone: restore it and add Code review team again to take its version.',
+    );
+    expect(templateAddedLine(name, [], [], ['b', 'c'])).toBe(
+      'Code review team changed nothing. It left 2 files under Removed on save alone: restore them and add Code review team again to take its version.',
+    );
+    expect(templateFilesCount(1)).toBe('1 file');
+    expect(templateFilesCount(6)).toBe('6 files');
+  });
+});
 
 describe('the definition’s sentences', () => {
   it('count problems, and say what Save waits for', () => {

@@ -122,13 +122,13 @@ describe('startSession', () => {
       repository: 'sprocket/catalog-portal',
       harness: 'claude',
     });
-    expect(await ports.sessions.listOwn('acme', 'person-1')).toHaveLength(1);
+    expect(await ports.sessions.listSeen('acme', 'person-1')).toHaveLength(1);
   });
 
   it('with no runner connected answers no_runner and records nothing', async () => {
     const { ports, channel } = setup(null);
     expect(await startSession(ports, caller(), request)).toEqual({ kind: 'no_runner' });
-    expect(await ports.sessions.listOwn('acme', 'person-1')).toEqual([]);
+    expect(await ports.sessions.listSeen('acme', 'person-1')).toEqual([]);
     expect(channel.startSession).not.toHaveBeenCalled();
   });
 
@@ -139,7 +139,7 @@ describe('startSession', () => {
       harness: 'claude',
     });
     expect(answer).toEqual({ kind: 'repository_not_offered' });
-    expect(await ports.sessions.listOwn('acme', 'person-1')).toEqual([]);
+    expect(await ports.sessions.listSeen('acme', 'person-1')).toEqual([]);
     expect(channel.startSession).not.toHaveBeenCalled();
   });
 
@@ -147,7 +147,7 @@ describe('startSession', () => {
     const { ports, channel } = setup();
     const answer = await startSession(ports, caller(), { ...request, harness: 'codex' });
     expect(answer).toEqual({ kind: 'harness_not_offered' });
-    expect(await ports.sessions.listOwn('acme', 'person-1')).toEqual([]);
+    expect(await ports.sessions.listSeen('acme', 'person-1')).toEqual([]);
     expect(channel.startSession).not.toHaveBeenCalled();
   });
 
@@ -168,7 +168,7 @@ describe('startSession', () => {
       },
     });
     // What the transport said is never kept: it is not the runner's report.
-    expect(JSON.stringify(await ports.sessions.listOwn('acme', 'person-1'))).not.toContain(
+    expect(JSON.stringify(await ports.sessions.listSeen('acme', 'person-1'))).not.toContain(
       'secret-detail',
     );
   });

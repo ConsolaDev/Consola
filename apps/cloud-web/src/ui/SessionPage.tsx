@@ -1,16 +1,19 @@
 import { lazy, Suspense, useRef, useState } from 'react';
 import {
+  agentRunPhase,
   chatMounted,
+  isAgentRun,
   isEnded,
   keepsShownOn,
-  pollIntervalMs,
   sessionLabel,
+  sessionPollIntervalMs,
   sessionScreen,
   shouldRenewPass,
   startedAt,
 } from '../domain/cloudSession';
 import type { CloudSession, SessionAnswer } from '../domain/cloudSession';
 import {
+  AGENT_RUN_PHASE_WORDS,
   CHAT_NOT_LOADED_WORDS,
   CONNECTING_WORDS,
   HARNESS_NAMES,
@@ -24,6 +27,7 @@ import { agoInWords, fullTime } from '../domain/runWords';
 import { hashOfSessions } from '../domain/sessionsRoute';
 import type { MyWorkspace } from '../domain/workspace';
 import { cloudSessionsService } from '../services/cloudSessions';
+import { AgentRunFacts, AgentRunReport } from './AgentRunReport';
 import { useNow, usePoll } from './usePoll';
 
 /** What stands in the chat's place when its code could not be loaded. */
@@ -67,9 +71,15 @@ type Stopping =
  * the chat, connected straight to the session's host with a pass from the cell, under the warning
  * that unpushed changes are lost when it stops.
  *
- * It reads the session again every 2 s while it starts and every 10 s while it runs, and never
- * once it has ended. The read that finds it ended unmounts the chat, which drops its connection
- * and its pass, and the page asks for no pass again: nothing reconnects.
+ * It reads the session again every 2 s while it starts and every 10 s while it runs (5 s for an
+ * agent run, whose report moves), and never once it has ended. The read that finds it ended
+ * unmounts the chat, which drops its connection and its pass, and the page asks for no pass
+ * again: nothing reconnects.
+ *
+ * An agent run (an automation started it on a pull request) says what it is in its facts (the
+ * automation and its factory, the pull request, the commit) and where it stands beside its
+ * status, then the runner's last report of it (`AgentRunReport`: the foreman's result and the
+ * agents it dispatched) above the chat while it runs, and alone once it has ended.
  */
 export function SessionPage({
   workspace,
@@ -94,7 +104,7 @@ export function SessionPage({
       if (keepsShownOn(answer) && previous.kind === 'shown') {
         // The session stays as it was read, saying when; the next read may work.
         setView({ ...previous, failedAt: previous.failedAt ?? new Date().toISOString() });
-        return pollIntervalMs(previous.session.status);
+        return sessionPollIntervalMs(previous.session);
       }
       // Gone, signed out or switched: the page says so, and a running chat unmounts with its pass.
       setView({ kind: 'refused', answer });
@@ -118,7 +128,7 @@ export function SessionPage({
       // Not found: the host has not said its address yet, or the session just ended. The next
       // read asks again, or finds it ended.
     }
-    return pollIntervalMs(session.status);
+    return sessionPollIntervalMs(session);
   });
 
   /** The chat's `onPassExpired`: a new pass from the cell, only while the session runs. */
@@ -156,6 +166,9 @@ export function SessionPage({
   const session = view.kind === 'shown' ? view.session : null;
   const screen = session ? sessionScreen(session) : null;
   const started = session ? startedAt(session) : null;
+  const run = session && isAgentRun(session) ? session : null;
+  const phase = run ? agentRunPhase(run) : null;
+  const what = run ? 'run' : 'session';
 
   return (
     <div className="session-page">
@@ -181,11 +194,16 @@ export function SessionPage({
             {SESSION_STATUS_WORDS[session.status]}
           </span>
         )}
+        {phase && (
+          <span className="session-state agent-run-phase" data-phase={phase}>
+            {AGENT_RUN_PHASE_WORDS[phase]}
+          </span>
+        )}
         {session && !isEnded(session.status) && (
           <div className="session-controls">
             {stopping.kind === 'asking' ? (
               <>
-                <span>Stop this session?</span>
+                <span>Stop this {what}?</span>
                 <button
                   type="button"
                   className="button"
@@ -194,7 +212,7 @@ export function SessionPage({
                   Keep it
                 </button>
                 <button type="button" className="button danger" onClick={() => void stop()}>
-                  Stop session
+                  Stop {what}
                 </button>
               </>
             ) : (
@@ -243,7 +261,11 @@ export function SessionPage({
       {session && screen && started && (
         <>
           <div className="session-facts">
-            <span className="session-repository">{session.repository}</span>
+            {run ? (
+              <AgentRunFacts run={run} />
+            ) : (
+              <span className="session-repository">{session.repository}</span>
+            )}
             <span>{HARNESS_NAMES[session.harness]}</span>
             <span>
               Started{' '}
@@ -260,6 +282,12 @@ export function SessionPage({
               </span>
             )}
           </div>
+
+          {run && screen.kind === 'running' && (
+            <div className="agent-run-pane" data-live="">
+              <AgentRunReport run={run} />
+            </div>
+          )}
 
           {screen.kind === 'running' ? (
             <>
@@ -296,6 +324,14 @@ export function SessionPage({
                 )}
               </div>
             </>
+          ) : run ? (
+            // Starting, stopped or failed: the words, then what the run reported, which stays.
+            <div className="agent-run-pane">
+              <p className="session-words" data-kind={screen.kind} role="status">
+                {screen.words}
+              </p>
+              <AgentRunReport run={run} />
+            </div>
           ) : (
             <p className="session-words" data-kind={screen.kind} role="status">
               {screen.words}

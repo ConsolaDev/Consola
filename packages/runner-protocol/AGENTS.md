@@ -14,9 +14,9 @@ say to each other, written once so that neither keeps its own copy:
   (`runnerId`, the `repositories` and `harnesses` it offers, the
   `runningSessionIds` it still holds, and `endedSessions`, the sessions that
   ended while the socket was down, each with its real end) and
-  `session.update` (`status`, `hostUrl`, `title`, `error`). Cell to runner:
-  `session.start` and `session.stop`. Read with `readRunnerMessage` and
-  `readCellMessage`;
+  `session.update` (`status`, `hostUrl`, `title`, `error`, `agentRun`). Cell
+  to runner: `session.start` (with `agentRun` for an agent run, below) and
+  `session.stop`. Read with `readRunnerMessage` and `readCellMessage`;
 - the session pass both sides check: `PASS_AUDIENCE`, `PASS_TYPE` (the JWS
   `typ`), `PASS_MAX_LIFETIME_SECONDS`, `PassClaims`, `passClaims` (builds the
   claims, throws on a grant the reader would refuse) and `readPassClaims`;
@@ -66,6 +66,29 @@ throws on what it reads.
   `endedSessions`. The cell applies them before it judges `runningSessionIds`,
   so a session that ended keeps its real end instead of becoming "the runner
   restarted".
+
+## Agent runs
+
+A session can start as an agent run (`src/agentRun.ts`): an automation's
+orchestrator agent takes the first turn and dispatches the others, with no
+one typing its first message or approving its commands.
+
+- `session.start` may carry `agentRun` (`AgentRun`): the orchestrator's
+  `agent` name, the whole first `prompt`, an optional `model`, an optional
+  `checkout` (a `refs/pull/<n>/head` or `refs/heads/…` ref and the 40-hex
+  commit it must be), the `agents` it may dispatch (16 at most, each with its
+  whole `instructions`) and the factory `files` (128 at most, relative paths),
+  which the runner writes under `AGENT_RUN_FACTORY_DIR`. The repository is
+  cloned in `SESSION_REPOSITORY_DIR`.
+- `session.update` may carry `agentRun` (`AgentRunReport`): the run's `state`,
+  the orchestrator's last message as `summary`, and the `agents` it dispatched.
+- Read with `readAgentRun` and `readAgentRunReport`; a bad one refuses the
+  whole message, naming `agentRun`. Caps: `AGENT_RUN_PROMPT_MAX`,
+  `AGENT_RUN_FILES_MAX_BYTES` (characters) and `AGENT_RUN_SUMMARY_MAX`.
+- `prompt` and each agent's `instructions` are composed by the cell; the
+  runner passes them on as they are and never interprets them.
+- Both sides cap the socket's frames at `RUNNER_SOCKET_FRAME_LIMIT_BYTES`
+  (4 MiB), so an agent run fits in one `session.start`.
 
 ## Changing the protocol
 

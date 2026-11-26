@@ -1,3 +1,4 @@
+import type { CellRefusal } from './cell';
 import type { components as cell } from './cellApiContract';
 import type { FactoryIssue } from './factoryProblems';
 import type { Team } from './teams';
@@ -152,6 +153,16 @@ export type FactoryChange =
 export type FactoryVersion = cell['schemas']['FactoryVersion'];
 
 export type FactoryFile = cell['schemas']['FactoryFile'];
+
+/**
+ * Ready-made factory files a person can start from (`GET /api/factory-templates`), such as the
+ * code review team: they join a factory's files as unsaved changes (`withFiles`), and reach the
+ * cell only through the ordinary save, which checks them as any other files.
+ */
+export type FactoryTemplate = cell['schemas']['FactoryTemplate'];
+
+/** What reading the templates came to. */
+export type TemplatesAnswer = { kind: 'listed'; templates: FactoryTemplate[] } | CellRefusal;
 
 /** What reading one factory with its latest version's files came to. */
 export type FactoryRead =

@@ -20,7 +20,14 @@ import {
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
-import { encodeHostLine, HOST_LINE_TYPES, reportSession, sessionStatusOf } from './stdoutEvents.ts';
+import {
+  currentStatus,
+  encodeHostLine,
+  HOST_LINE_TYPES,
+  reportAgentRun,
+  reportSession,
+  sessionStatusOf,
+} from './stdoutEvents.ts';
 import type { HostLine } from './stdoutEvents.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
@@ -104,7 +111,7 @@ const titleLines = (lines: readonly HostLine[]) =>
 
 describe('the host lines', () => {
   it('are one JSON object per line, of the types the runner reads', () => {
-    expect(HOST_LINE_TYPES).toEqual(['ready', 'dev-pass', 'title', 'status', 'exit']);
+    expect(HOST_LINE_TYPES).toEqual(['ready', 'dev-pass', 'title', 'status', 'exit', 'agent-run']);
     expect(encodeHostLine({ type: 'ready', port: 7420 })).toBe('{"type":"ready","port":7420}\n');
     expect(encodeHostLine({ type: 'title', title: 'Tidy the "Acme" docs\n' })).toBe(
       '{"type":"title","title":"Tidy the \\"Acme\\" docs\\n"}\n',
@@ -187,6 +194,90 @@ describe('reportSession', () => {
             expect(titleLines(lines)).toEqual([text, REPLAY_TITLE]);
           }),
       ),
+    REPLAY_TIMEOUT_MS,
+  );
+});
+
+describe('an agent run’s lines', () => {
+  const view = (state: 'working' | 'done', status: 'working' | 'idle', summary?: string) => ({
+    report: { state, ...(summary === undefined ? {} : { summary }) },
+    status,
+  });
+
+  it('says the report whenever it changes, and the status of every thread', () =>
+    Effect.gen(function* () {
+      const views = [
+        view('working', 'working'),
+        view('working', 'working'),
+        view('done', 'idle', 'Posted the review.'),
+      ];
+      const handle = {
+        snapshot: () => projectionTitled('New thread'),
+        snapshots: () => Stream.make(projectionTitled('New thread')),
+        agentRun: { views: () => Stream.fromIterable(views), view: () => views[2] },
+      } as unknown as ThreadHandle;
+      const lines: HostLine[] = [];
+      const write = (line: HostLine) => Effect.sync(() => lines.push(line));
+      yield* reportAgentRun(handle.agentRun as NonNullable<ThreadHandle['agentRun']>, write);
+      expect(lines).toEqual([
+        { type: 'agent-run', state: 'working' },
+        { type: 'agent-run', state: 'done', summary: 'Posted the review.' },
+      ]);
+      lines.length = 0;
+      yield* reportSession(handle, write, { status: 'idle', title: 'New thread' });
+      expect(lines).toEqual([
+        { type: 'status', status: 'working' },
+        { type: 'status', status: 'idle' },
+      ]);
+      expect(currentStatus(handle)).toBe('idle');
+    }).pipe(Effect.runPromise));
+
+  it(
+    'simple: the host sends the run’s prompt as the first message, in full access, and says working then done',
+    () =>
+      Effect.gen(function* () {
+        const { variant, transcript, text, cwd } = yield* loadReplay('simple');
+        return yield* withState((stateDir) =>
+          Effect.gen(function* () {
+            const spec: SessionSpec = {
+              ...sessionSpec('agent-run', cwd, variant.modelSelection),
+              agentRun: { agent: 'foreman', prompt: text, agents: [], files: [] },
+            };
+            const handle = yield* (yield* ThreadRuntime.ThreadRuntime).open(spec);
+            const agentRun = handle.agentRun;
+            if (agentRun === null) return yield* Effect.die(new Error('no agent run'));
+            expect(handle.snapshot().thread.runtimeMode).toBe('full-access');
+            const lines: HostLine[] = [];
+            yield* reportAgentRun(agentRun, (line) => Effect.sync(() => lines.push(line))).pipe(
+              Effect.forkScoped,
+            );
+            yield* agentRun.start;
+            const done = yield* waitForSnapshot(handle, (current) =>
+              statuses(current).includes('completed'),
+            );
+            const first = done.messages.find((message) => message.role === 'user');
+            expect(first?.text).toBe(text);
+            yield* waitForLines(lines, (written) =>
+              written.some((line) => line.type === 'agent-run' && line.state === 'done'),
+            );
+            const states = lines.flatMap((line) => (line.type === 'agent-run' ? [line.state] : []));
+            expect(states[0]).toBe('working');
+            expect(states.at(-1)).toBe('done');
+            const last = lines.at(-1);
+            expect(last?.type === 'agent-run' && last.summary).toBeTruthy();
+            expect(currentStatus(handle)).toBe('idle');
+          }).pipe(
+            Effect.scoped,
+            Effect.provide(
+              ThreadRuntime.layerForTests(
+                { stateDir },
+                // The fixture's first frame holds no MCP server, so the replay starts without one.
+                { drivers: [replayClaudeDriver(transcript)], agentRunMcp: false },
+              ),
+            ),
+          ),
+        );
+      }).pipe(Effect.scoped, Effect.runPromise),
     REPLAY_TIMEOUT_MS,
   );
 });

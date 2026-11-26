@@ -13,12 +13,29 @@ describe('readHostLine', () => {
     { type: 'status', status: 'waiting' },
     { type: 'status', status: 'idle' },
     { type: 'exit', reason: 'idle' },
+    { type: 'agent-run', state: 'working' },
+    {
+      type: 'agent-run',
+      state: 'done',
+      summary: 'Posted the review.',
+      agents: [
+        { id: 'thread-2', agent: 'reviewer', status: 'done', summary: 'Two findings.' },
+        { id: 'thread-3', agent: 'tester', status: 'failed' },
+      ],
+    },
   ])('reads %j', (line) => {
     expect(readHostLine(roundTrip(line))).toEqual(line);
   });
 
   it('names every type it reads in HOST_LINE_TYPES', () => {
-    expect([...HOST_LINE_TYPES].sort()).toEqual(['dev-pass', 'exit', 'ready', 'status', 'title']);
+    expect([...HOST_LINE_TYPES].sort()).toEqual([
+      'agent-run',
+      'dev-pass',
+      'exit',
+      'ready',
+      'status',
+      'title',
+    ]);
   });
 
   it.each([
@@ -35,6 +52,13 @@ describe('readHostLine', () => {
     ['an unknown status', { type: 'status', status: 'busy' }],
     ['an exit for another reason', { type: 'exit', reason: 'clone-failed', message: 'x' }],
     ['a dev pass with no lifetime', { type: 'dev-pass', pass: 'a.b.c' }],
+    ['an agent run with an unknown state', { type: 'agent-run', state: 'paused' }],
+    ['an agent run with no state', { type: 'agent-run', summary: 'x' }],
+    ['an agent run with an extra field', { type: 'agent-run', state: 'done', cost: 1 }],
+    [
+      'an agent run whose agent has an unknown status',
+      { type: 'agent-run', state: 'working', agents: [{ id: 'a', agent: 'b', status: 'idle' }] },
+    ],
   ])('refuses %s', (_case, value) => {
     expect(readHostLine(value)).toBeNull();
   });

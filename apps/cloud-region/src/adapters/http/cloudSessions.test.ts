@@ -233,6 +233,107 @@ describe('listing and reading', () => {
   });
 });
 
+describe('agent runs', () => {
+  /** An agent run an automation started in Acme, as `startAgentRun` records it, and reported on. */
+  async function anAgentRun(ports: CloudSessionPorts) {
+    await ports.sessions.insert({
+      id: 'run-1',
+      workspaceId: 'acme',
+      personId: null,
+      repository: 'sprocket/catalog-portal',
+      harness: 'claude',
+      status: 'starting',
+      title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
+      hostUrl: null,
+      error: null,
+      errorCode: null,
+      runnerId: 'runner-1',
+      createdAt: 2000,
+      endedAt: null,
+      origin: {
+        kind: 'automation',
+        factoryId: 'factory-1',
+        factoryName: 'Reviews',
+        automation: 'review-pull-requests',
+        agent: 'foreman',
+        item: {
+          kind: 'pull_request',
+          repository: 'sprocket/catalog-portal',
+          number: 7,
+          url: 'https://github.com/sprocket/catalog-portal/pull/7',
+          title: 'Price the catalog in euros',
+          headSha: 'a'.repeat(40),
+        },
+      },
+      agentRun: null,
+    });
+    await applyRunnerUpdate(
+      ports,
+      { workspaceId: 'acme', runnerId: 'runner-1' },
+      {
+        type: 'session.update',
+        sessionId: 'run-1',
+        status: 'running',
+        agentRun: {
+          state: 'working',
+          summary: 'Dispatched a review.',
+          agents: [{ id: 'c-1', agent: 'review', status: 'working' }],
+        },
+      },
+    );
+  }
+
+  it("are listed for every member beside their own sessions, in the contract's shape", async () => {
+    const { app, ports, as } = build();
+    await post(app, '/api/cloud-sessions', valid);
+    await anAgentRun(ports);
+    as('person-2');
+    const listed = await app.request('/api/cloud-sessions');
+    expect(listed.status).toBe(200);
+    expect(await answerOf(listCloudSessions, listed)).toEqual([
+      expect.objectContaining({
+        id: 'run-1',
+        personId: null,
+        status: 'running',
+        origin: expect.objectContaining({ automation: 'review-pull-requests', agent: 'foreman' }),
+        agentRun: {
+          state: 'working',
+          summary: 'Dispatched a review.',
+          agents: [{ id: 'c-1', agent: 'review', status: 'working' }],
+        },
+      }),
+    ]);
+    as('person-1');
+    const own = (await answerOf(
+      listCloudSessions,
+      await app.request('/api/cloud-sessions'),
+    )) as Array<{
+      id: string;
+      origin: unknown;
+      agentRun: unknown;
+    }>;
+    expect(own.map((s) => s.id)).toEqual(['run-1', 'session-1']);
+    expect(own[1]).toMatchObject({ origin: null, agentRun: null });
+  });
+
+  it('are read and stopped by any member, and never by another workspace', async () => {
+    const { app, ports, as, channel } = build();
+    await anAgentRun(ports);
+    as('person-2');
+    const read = await app.request('/api/cloud-sessions/run-1');
+    expect(read.status).toBe(200);
+    expect(await answerOf(getCloudSession, read)).toMatchObject({ id: 'run-1', personId: null });
+    const stopped = await post(app, '/api/cloud-sessions/run-1/stop');
+    expect(stopped.status).toBe(202);
+    expect(await answerOf(postCloudSessionStop, stopped)).toMatchObject({ status: 'stopped' });
+    expect(channel.stopSession).toHaveBeenCalledWith('runner-1', 'run-1');
+    as('person-2', 'globex');
+    const elsewhere = await app.request('/api/cloud-sessions/run-1');
+    expect(elsewhere.status).toBe(404);
+    expect(await answerOf(getCloudSession, elsewhere)).toEqual({ error: 'not_found' });
+  });
+});
+
 describe('POST /api/cloud-sessions/:id/stop', () => {
   it('is 202 with the session, now stopped', async () => {
     const { app, channel } = build();

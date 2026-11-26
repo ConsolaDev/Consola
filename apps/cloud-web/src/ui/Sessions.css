@@ -444,3 +444,277 @@
 .session-words .button {
   margin-top: 16px;
 }
+
+/* ---- Agent runs ---- */
+
+/* In the list: the row's own link (the automation's name) stretches over the row, so the pull
+   request's link beside it is a sibling, never a link inside a link. */
+.sessions-row[data-kind="agent-run"] {
+  position: relative;
+}
+
+.sessions-row-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  max-width: 50%;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.sessions-row-link > svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+.sessions-row-link::after {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+  content: "";
+}
+
+.sessions-row-link:focus-visible {
+  outline: none;
+}
+
+.sessions-row-link:focus-visible::after {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.sessions-run-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sessions-run-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* The pull request: above the row's stretched link, so it takes its own click. */
+.sessions-run-item {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.sessions-run-item:hover {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+a.sessions-run-item:focus-visible {
+  border-radius: var(--radius-sm);
+  outline: 2px solid var(--cyan);
+  outline-offset: 2px;
+}
+
+.sessions-run-item > svg {
+  flex: none;
+}
+
+.sessions-run-phase {
+  color: var(--text-2);
+}
+
+.sessions-run-phase[data-phase="waiting"] {
+  color: var(--warning);
+}
+
+.sessions-run-phase[data-phase="failed"] {
+  color: var(--danger);
+}
+
+.sessions-dot[data-status="done"] {
+  background: var(--success);
+}
+
+/* On its page: the facts name the automation, its factory, the pull request and the commit. */
+.agent-run-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text);
+  font-weight: var(--font-weight-medium);
+}
+
+.agent-run-automation {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+.agent-run-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cyan-text);
+  text-decoration: none;
+}
+
+.agent-run-link:hover {
+  text-decoration: underline;
+}
+
+.agent-run-commit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.session-state.agent-run-phase[data-phase="waiting"] {
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+  color: var(--text);
+}
+
+.session-state.agent-run-phase[data-phase="done"] {
+  background: color-mix(in srgb, var(--success) 14%, transparent);
+}
+
+.session-state.agent-run-phase[data-phase="failed"] {
+  background: color-mix(in srgb, var(--danger) 13%, transparent);
+}
+
+/* The report: above the chat while the run lives (at most two fifths of the page, scrolling),
+   the rest of the page once it has ended. */
+.agent-run-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.agent-run-pane[data-live] {
+  flex: none;
+  max-height: 40%;
+  border-bottom: 1px solid var(--line);
+}
+
+.agent-run-pane .session-words {
+  margin: 24px auto 0;
+}
+
+.agent-run-report {
+  box-sizing: border-box;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 12px 16px 20px;
+}
+
+.agent-run-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 12px 0 8px;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+}
+
+.agent-run-heading-note {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+}
+
+/* What an agent said, as it wrote it: its line breaks kept, long words broken. */
+.agent-run-summary {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--gray-2);
+  color: var(--text);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.agent-run-quiet {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.agent-run-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agent-run-agent > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 8px 0 4px;
+  border-radius: var(--radius-md);
+  color: var(--text);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  list-style: none;
+}
+
+.agent-run-agent > summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-run-agent > summary:hover {
+  background: var(--hover);
+}
+
+.agent-run-agent > summary:focus-visible {
+  outline: 2px solid var(--cyan);
+  outline-offset: -2px;
+}
+
+.agent-run-chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 200ms ease;
+}
+
+.agent-run-agent[open] .agent-run-chevron {
+  transform: rotate(90deg);
+}
+
+.agent-run-agent-name {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.agent-run-agent-status {
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.agent-run-agent-status[data-status="failed"] {
+  color: var(--danger);
+}
+
+.agent-run-agent-report {
+  margin: 4px 0 8px 26px;
+  font-size: var(--font-size-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-run-chevron {
+    transition: none;
+  }
+}

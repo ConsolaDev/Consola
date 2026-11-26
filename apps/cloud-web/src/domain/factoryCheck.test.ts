@@ -1,3 +1,7 @@
+/// <reference types="node" />
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { checkFactory } from './factoryCheck';
 import { problemCounts, sortedProblems } from './factoryProblems';
@@ -82,6 +86,83 @@ describe('checkFactory', () => {
 
   it('refuses a stray file as the cell does', () => {
     const problems = checkFactory([...FACTORY, { path: 'README.md', content: 'Hello' }]);
+    expect(problems.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * The code review team, as the cell offers it (`GET /api/factory-templates`): factory-spec embeds
+ * these very files. Read from disk, since no test imports a workspace package.
+ */
+const TEMPLATE_ROOT = fileURLToPath(
+  new URL('../../../../packages/factory-spec/templates/code-review-team/', import.meta.url),
+);
+const TEAM = readdirSync(TEMPLATE_ROOT, { recursive: true, withFileTypes: true })
+  .filter((entry) => entry.isFile())
+  .map((entry) => {
+    const absolute = join(entry.parentPath, entry.name);
+    return {
+      path: relative(TEMPLATE_ROOT, absolute).split(sep).join('/'),
+      content: readFileSync(absolute, 'utf8'),
+    };
+  })
+  .sort((a, b) => a.path.localeCompare(b.path));
+
+describe('checkFactory on an agent team', () => {
+  it('reads the code review team’s files', () => {
+    expect(TEAM.map((file) => file.path)).toEqual([
+      'agents/foreman/agent.md',
+      'agents/review/agent.md',
+      'automations/review-pull-requests/automation.md',
+      'skills/code-quality/SKILL.md',
+      'skills/code-review/SKILL.md',
+      'skills/github/SKILL.md',
+    ]);
+  });
+
+  it('finds nothing wrong with the template, alone or beside a steps factory', () => {
+    expect(checkFactory(TEAM)).toEqual([]);
+    expect(checkFactory([...FACTORY, ...TEAM])).toEqual([]);
+  });
+
+  it('says a broken agent.md on its own file', () => {
+    const broken = TEAM.map((file) =>
+      file.path === 'agents/review/agent.md'
+        ? { ...file, content: '---\ndescription: [unclosed\n---\nBody\n' }
+        : file,
+    );
+    const problems = checkFactory(broken);
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems).toContainEqual(expect.objectContaining({ file: 'agents/review/agent.md' }));
+    const counts = problemCounts(
+      problems,
+      broken.map((file) => file.path),
+    );
+    expect(counts.get('agents/review/agent.md')).toBeGreaterThan(0);
+  });
+
+  it('says an agent type the team does not know, on its file', () => {
+    const problems = checkFactory(
+      TEAM.map((file) =>
+        file.path === 'agents/review/agent.md'
+          ? { ...file, content: file.content.replace('agentType: REVIEW', 'agentType: JUDGE') }
+          : file,
+      ),
+    );
+    expect(problems).toEqual([expect.objectContaining({ file: 'agents/review/agent.md' })]);
+  });
+
+  it('still refuses a stray file in a team’s set, outside the team’s own trees', () => {
+    const problems = checkFactory([...TEAM, { path: 'README.md', content: 'Hello' }]);
+    expect(problems).toContainEqual(expect.objectContaining({ file: 'README.md' }));
+  });
+
+  it('leaves a team’s trees to the steps parser in a set that holds no team', () => {
+    // No agent.md or automation.md: no team, so the steps design reads the folder as strays.
+    const problems = checkFactory([
+      ...FACTORY,
+      { path: 'agents/foreman/notes.md', content: 'Notes' },
+    ]);
     expect(problems.length).toBeGreaterThan(0);
   });
 });

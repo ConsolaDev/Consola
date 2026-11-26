@@ -23,6 +23,8 @@ const session = (status: CloudSessionStatus): CloudSession => ({
   runnerId: 'runner-1',
   createdAt: 100,
   endedAt: null,
+  origin: null,
+  agentRun: null,
 });
 
 describe('nextStatus', () => {

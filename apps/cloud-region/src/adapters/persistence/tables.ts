@@ -355,16 +355,20 @@ export const runApprovals = pgTable(
 );
 
 /**
- * A person's cloud session. No foreign key to `workspace`: a session is the workspace's whatever
- * the outbox has delivered yet. `error` is a message a runner reported and `error_code` a code the
- * cell decided (`CELL_FAILURE_CODES`); a failure has one of them.
+ * A cloud session: a person's, or an agent run an automation started, which has no `person_id`
+ * and has its `origin`. No foreign key to `workspace`: a session is the workspace's whatever the
+ * outbox has delivered yet. `error` is a message a runner reported and `error_code` a code the
+ * cell decided (`CELL_FAILURE_CODES`); a failure has one of them. `runner_id` is null for an agent
+ * run no runner took. `origin` and `agent_run` (the runner's last report) are JSON as text, not
+ * `json` or `jsonb`, which refuse a `\u0000` escape that a pull request's title or an agent's
+ * summary can hold.
  */
 export const cloudSessions = pgTable(
   'cloud_session',
   {
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull(),
-    personId: text('person_id').notNull(),
+    personId: text('person_id'),
     repository: text('repository').notNull(),
     harness: text('harness').notNull(),
     status: text('status').$type<CloudSessionStatus>().notNull(),
@@ -372,9 +376,14 @@ export const cloudSessions = pgTable(
     hostUrl: text('host_url'),
     error: text('error'),
     errorCode: text('error_code').$type<CellFailureCode>(),
-    runnerId: text('runner_id').notNull(),
+    runnerId: text('runner_id'),
     createdAt: bigint('created_at', { mode: 'number' }).notNull(),
     endedAt: bigint('ended_at', { mode: 'number' }),
+    origin: text('origin'),
+    agentRun: text('agent_run'),
   },
-  (table) => [index('cloud_session_owner').on(table.workspaceId, table.personId, table.createdAt)],
+  (table) => [
+    index('cloud_session_owner').on(table.workspaceId, table.personId, table.createdAt),
+    index('cloud_session_workspace').on(table.workspaceId, table.createdAt),
+  ],
 );

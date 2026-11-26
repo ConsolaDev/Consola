@@ -1,5 +1,5 @@
 import { isHarness, isRepository } from '@consola/runner-protocol';
-import type { EndedStatus, Harness, Repository } from '@consola/runner-protocol';
+import type { AgentRunReport, EndedStatus, Harness, Repository } from '@consola/runner-protocol';
 
 /** Where a cloud session is in its life. `stopped` and `failed` are ends. */
 export const CLOUD_SESSION_STATUSES = ['starting', 'running', 'stopped', 'failed'] as const;
@@ -17,11 +17,49 @@ export const CELL_FAILURE_CODES = {
   runnerUnreachable: 'runner_unreachable',
   /** The runner reported a failure without a message of its own. */
   runnerFailed: 'runner_failed',
+  /** An agent run found no runner connected for its workspace, so nothing ran. */
+  runnerUnavailable: 'runner_unavailable',
+  /** An agent run's repository is not one the connected runner offers. */
+  repositoryNotOffered: 'repository_not_offered',
+  /** An agent run's agent names a harness the connected runner does not offer. */
+  harnessNotOffered: 'harness_not_offered',
+  /** The cell could not compose a start the protocol reads from the factory's team. */
+  agentRunInvalid: 'agent_run_invalid',
 } as const;
 export type CellFailureCode = (typeof CELL_FAILURE_CODES)[keyof typeof CELL_FAILURE_CODES];
 
+/** The item an agent run was started on: a GitHub pull request, as its event described it. */
+export type AgentRunItem = {
+  kind: 'pull_request';
+  /** `owner/name`. */
+  repository: string;
+  number: number;
+  url: string;
+  title: string;
+  /** The commit the event named, which the run checks out. */
+  headSha: string;
+};
+
+/**
+ * What started an agent run: an automation of a factory's team, on an item. A person's session
+ * has none.
+ */
+export type SessionOrigin = {
+  kind: 'automation';
+  factoryId: string;
+  factoryName: string;
+  automation: string;
+  /** The agent that takes the first turn: the automation's, by default the team's foreman. */
+  agent: string;
+  item: AgentRunItem;
+};
+
 /**
  * One cloud session as the cell records it. Times are whole seconds since the epoch.
+ *
+ * A session is a person's, or an agent run: a session an automation started, which nobody types
+ * into (`origin`). A person's session is theirs alone; an agent run is the workspace's, and every
+ * member sees it (`isSeenBy`).
  *
  * A failure carries exactly one of two things, never both: `error`, the message the runner
  * reported (provider or start script), or `errorCode`, a code the cell decided itself
@@ -30,8 +68,11 @@ export type CellFailureCode = (typeof CELL_FAILURE_CODES)[keyof typeof CELL_FAIL
 export type CloudSession = {
   id: string;
   workspaceId: string;
-  /** The person who started it, by their global id: the only one who sees it. */
-  personId: string;
+  /**
+   * The person who started it, by their global id: the only one who sees it. Null for an agent
+   * run, which no person started.
+   */
+  personId: string | null;
   repository: Repository;
   harness: Harness;
   status: CloudSessionStatus;
@@ -40,11 +81,32 @@ export type CloudSession = {
   hostUrl: string | null;
   error: string | null;
   errorCode: CellFailureCode | null;
-  /** The runner the start was handed to; only its updates count. */
-  runnerId: string;
+  /**
+   * The runner the start was handed to; only its updates count. Null for an agent run no runner
+   * took, which ended `failed` as it was recorded.
+   */
+  runnerId: string | null;
   createdAt: number;
   endedAt: number | null;
+  /** What started an agent run; null for a person's session. */
+  origin: SessionOrigin | null;
+  /** The last report the runner sent of an agent run; null until it sent one. */
+  agentRun: AgentRunReport | null;
 };
+
+/** Whether the session is an agent run, which an automation started and the workspace sees. */
+export const isAgentRun = (session: CloudSession): boolean => session.origin !== null;
+
+/**
+ * Whether a person of a workspace sees a session: their own, or any agent run of the workspace.
+ * Anything else is not found, as if it did not exist.
+ */
+export const isSeenBy = (
+  session: CloudSession,
+  viewer: { workspaceId: string; personId: string },
+): boolean =>
+  session.workspaceId === viewer.workspaceId &&
+  (session.personId === viewer.personId || isAgentRun(session));
 
 export const isEnded = (status: CloudSessionStatus): boolean =>
   status === 'stopped' || status === 'failed';

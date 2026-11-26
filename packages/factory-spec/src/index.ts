@@ -226,3 +226,26 @@ export {
   USES_REF_PATTERN,
   usesTexts,
 } from './uses';
+// Agent teams: Warp's software-factory layout (agents/<name>/agent.md,
+// automations/<name>/automation.md, skills/<name>/), an alternative to the steps design.
+export {
+  CODE_REVIEW_TEAM_FILES,
+  hasAgentTeam,
+  matchPullRequestAutomations,
+  parseAgentTeam,
+  planAgentRun,
+  pullRequestEventOf,
+  type AgentRunPlaces,
+  type AgentRunPlan,
+  type AgentTeam,
+  type AgentType,
+  type ListFilter,
+  type PullRequestEvent,
+  type TeamAgent,
+  type TeamAutomation,
+  type TeamFile,
+  type TeamIssue,
+  type TeamSkill,
+  type TeamTrigger,
+  type TeamTriggerFilter,
+} from './team';

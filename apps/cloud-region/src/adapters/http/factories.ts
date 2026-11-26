@@ -3,6 +3,7 @@ import { bodyLimit } from 'hono/body-limit';
 import {
   changeFactory,
   createFactory,
+  factoryTemplates,
   listFactories as listFactoriesUseCase,
   readFactory,
   readFactoryVersion,
@@ -15,6 +16,7 @@ import {
   getFactory,
   getFactoryVersion,
   listFactories,
+  listFactoryTemplates,
   patchFactory,
   postFactory,
   postFactoryVersion,
@@ -158,5 +160,17 @@ export function factoryRoutes(
           return c.json(WORKSPACE_PENDING, 409);
       }
     },
+  );
+
+  app.openapi(listFactoryTemplates, (c) =>
+    c.json(
+      factoryTemplates().map(({ id, name, description, files }) => ({
+        id,
+        name,
+        description,
+        files: files.map(({ path, content }) => ({ path, content })),
+      })),
+      200,
+    ),
   );
 }

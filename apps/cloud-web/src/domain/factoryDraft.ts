@@ -2,7 +2,8 @@ import type { FactoryFile, FactoryVersion } from './factories';
 
 /**
  * A person's changes to a factory's files, over the version they were made from: files edited,
- * added, renamed and removed, all kept until Save sends the whole set as the next version.
+ * added (one by one, or a template's at once, `withFiles`), renamed and removed, all kept until
+ * Save sends the whole set as the next version.
  *
  * Every file the person sees is a `DraftFile`: its text, where it is now, and the saved path it
  * came from (none for a file made since). A rename moves a file and keeps its text; renaming it
@@ -304,6 +305,52 @@ export function changeSummary(draft: FactoryDraft): ChangeSummary {
       marks.filter((mark) => mark.isNew || mark.renamedFrom !== null || mark.changed).length +
       removed,
   };
+}
+
+/** What merging files into a draft came to. */
+export type WithFiles = {
+  /** The draft holding them, as unsaved changes. */
+  draft: FactoryDraft;
+  /** Paths the draft did not hold. */
+  added: string[];
+  /** Paths it held with other text, which the merged files' text replaced. */
+  replaced: string[];
+  /** Paths waiting under "Removed on save", which the merged files left alone. */
+  skipped: string[];
+};
+
+/**
+ * The draft with `files` merged in as unsaved changes, as a template's files join a factory: a
+ * file at a path the tree holds takes the new text, a path the draft does not hold is added as a
+ * new file, and one whose text is already the same is neither. A path the person removed waits
+ * under "Removed on save" and is left alone, since adding it would undo their removal; Restore
+ * brings it back. Nothing is saved: the person saves them as any change, and Discard drops them.
+ */
+export function withFiles(
+  draft: FactoryDraft,
+  files: ReadonlyArray<{ path: string; content: string }>,
+): WithFiles {
+  let next = draft;
+  const added: string[] = [];
+  const replaced: string[] = [];
+  const skipped: string[] = [];
+  const removed = new Set(removedPaths(draft));
+  for (const { path, content } of files) {
+    const now = contentOf(next, path);
+    if (now === content) {
+      continue;
+    }
+    if (now !== undefined) {
+      replaced.push(path);
+      next = withEdit(next, path, content);
+    } else if (removed.has(path)) {
+      skipped.push(path);
+    } else {
+      added.push(path);
+      next = withFileAdded(next, path, content);
+    }
+  }
+  return { draft: next, added, replaced, skipped };
 }
 
 /**

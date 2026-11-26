@@ -1,6 +1,7 @@
-import { MAX_FACTORY_TEXT_BYTES } from '@consola/factory-spec';
+import { CODE_REVIEW_TEAM_FILES, MAX_FACTORY_TEXT_BYTES } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import {
+  automationsOf,
   checkFactoryFiles,
   checkFactoryName,
   FACTORY_BYTES_MAX,
@@ -71,6 +72,34 @@ describe('checkFactoryName', () => {
 describe('checkFactoryFiles', () => {
   it('takes files that keep the factory schema', () => {
     expect(checkFactoryFiles(VALID)).toEqual({ ok: true, notices: [] });
+  });
+
+  it("takes an agent team beside the steps design's files, and the team alone", () => {
+    expect(checkFactoryFiles([...VALID, ...CODE_REVIEW_TEAM_FILES])).toEqual({
+      ok: true,
+      notices: [],
+    });
+    expect(checkFactoryFiles(CODE_REVIEW_TEAM_FILES)).toEqual({ ok: true, notices: [] });
+    expect(automationsOf([...VALID, ...CODE_REVIEW_TEAM_FILES])).toEqual(automationsOf(VALID));
+  });
+
+  it("refuses a team's problems, each naming its file", () => {
+    const check = checkFactoryFiles([
+      ...CODE_REVIEW_TEAM_FILES,
+      file('automations/nightly/automation.md', '---\nagent: nobody\n---\nRun.\n'),
+    ]);
+    expect(check.ok).toBe(false);
+    expect(check.ok ? [] : check.issues).toContainEqual(
+      expect.objectContaining({ file: 'automations/nightly/automation.md', path: '' }),
+    );
+  });
+
+  it("still refuses a stray in an agent's folder when the set holds no team", () => {
+    const check = checkFactoryFiles([...VALID, file('agents/reviewer/notes.md', 'Notes.\n')]);
+    expect(check.ok).toBe(false);
+    expect(check.ok ? [] : check.issues).toContainEqual(
+      expect.objectContaining({ file: 'agents/reviewer/notes.md' }),
+    );
   });
 
   it('takes no files at all: a blank factory', () => {

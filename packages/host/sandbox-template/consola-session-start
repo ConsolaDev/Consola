@@ -7,18 +7,38 @@
 # Its variables are the ones the runner gives a sandbox (sandboxEnvFor):
 # CONSOLA_SESSION_ID, CONSOLA_HARNESS, CONSOLA_REPOSITORY,
 # CONSOLA_PASS_PUBLIC_KEY, CONSOLA_SESSION_IDLE_MINUTES, GIT_TOKEN (for a
-# repository that needs one) and the harness's API key. CONSOLA_WORKSPACE moves
-# /workspace, for this script's tests (src/bundle.test.ts); the runner never
-# sets it.
+# repository that needs one) and the harness's API key. An agent run's sandbox
+# also has CONSOLA_AGENT_RUN (the run's file, which the runner wrote, handed to
+# the host as --agent-run), GH_TOKEN (gh reads it as it is: nothing to set up),
+# and, for a run on a commit, CONSOLA_CHECKOUT_REF and CONSOLA_CHECKOUT_SHA:
+# that ref is fetched after the clone and the commit checked out, detached.
+# CONSOLA_WORKSPACE moves /workspace, for this script's tests
+# (src/bundle.test.ts); the runner never sets it.
 #
 # Stdout belongs to the runner, which reads it as JSON lines: the script prints
-# one line only, `clone-failed`, when the clone fails, and then exits 1. What
-# else it has to say goes to stderr. The git token never reaches a command
-# line, a URL, the repository's config or a message.
+# one line only, `clone-failed`, when the clone or the checkout fails, and then
+# exits 1. What else it has to say goes to stderr. The git token never reaches
+# a command line, a URL, the repository's config or a message.
 set -eu
 
 fail() {
   printf 'consola-session-start: %s\n' "$1" >&2
+  exit 1
+}
+
+# Prints the one `clone-failed` line, "$1: " then git's words ($2) on one line,
+# with the token (as it is and URL-encoded) taken out, and exits 1.
+say_failed() {
+  CONSOLA_FAILED="$1" CONSOLA_CLONE_OUTPUT="$2" node -e '
+    const token = process.env.GIT_TOKEN || "";
+    const said = (process.env.CONSOLA_CLONE_OUTPUT || "")
+      .split("\n").map((line) => line.trim()).filter((line) => line !== "").join(" ");
+    let message = `${process.env.CONSOLA_FAILED}: ${said || "git failed."}`;
+    if (token !== "") {
+      for (const form of [token, encodeURIComponent(token)]) message = message.split(form).join("[redacted]");
+    }
+    process.stdout.write(`${JSON.stringify({ type: "exit", reason: "clone-failed", message })}\n`);
+  ' || :
   exit 1
 }
 
@@ -39,18 +59,7 @@ helper='!f() { test "$1" = get && test -n "${GIT_TOKEN-}" || return 0; printf "%
 if ! output=$(GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
   -c "credential.https://github.com.helper=$helper" \
   clone --quiet -- "https://github.com/$CONSOLA_REPOSITORY.git" "$repo" 2>&1); then
-  # git's own words, on one line, with the token (as it is and URL-encoded) taken out.
-  CONSOLA_CLONE_OUTPUT="$output" node -e '
-    const token = process.env.GIT_TOKEN || "";
-    let said = process.env.CONSOLA_CLONE_OUTPUT || "";
-    if (token !== "") {
-      for (const form of [token, encodeURIComponent(token)]) said = said.split(form).join("[redacted]");
-    }
-    said = said.split("\n").map((line) => line.trim()).filter((line) => line !== "").join(" ");
-    const message = `Could not clone ${process.env.CONSOLA_REPOSITORY}: ${said || "git clone failed."}`;
-    process.stdout.write(`${JSON.stringify({ type: "exit", reason: "clone-failed", message })}\n`);
-  ' || :
-  exit 1
+  say_failed "Could not clone $CONSOLA_REPOSITORY" "$output"
 fi
 
 # The repository keeps the helper, for the session's own fetches and pushes; an
@@ -59,6 +68,40 @@ git -C "$repo" config credential.helper ''
 git -C "$repo" config credential.https://github.com.helper "$helper"
 git -C "$repo" config user.name 'Consola session'
 git -C "$repo" config user.email session@consola.invalid
+
+# An agent run on a commit (a pull request's head, say): its ref is fetched
+# through the same helper, and the commit checked out, detached. HEAD must be
+# that commit exactly, or the session does not start.
+if [ -n "${CONSOLA_CHECKOUT_REF-}" ]; then
+  ref="$CONSOLA_CHECKOUT_REF"
+  sha="${CONSOLA_CHECKOUT_SHA-}"
+  what="Could not check out $ref at $sha in $CONSOLA_REPOSITORY"
+  case "$sha" in
+    *[!0-9a-f]* | '') say_failed "$what" 'CONSOLA_CHECKOUT_SHA is not a commit.' ;;
+  esac
+  [ "${#sha}" -eq 40 ] || say_failed "$what" 'CONSOLA_CHECKOUT_SHA is not a commit.'
+  case "$ref" in
+    refs/*) ;;
+    *) say_failed "$what" 'CONSOLA_CHECKOUT_REF is not a ref.' ;;
+  esac
+  if ! output=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch --quiet --no-tags \
+    origin "+$ref:refs/consola/checkout" 2>&1); then
+    say_failed "$what" "$output"
+  fi
+  # A commit the ref has moved on from is asked for by itself.
+  if ! git -C "$repo" cat-file -e "$sha^{commit}" 2>/dev/null; then
+    if ! output=$(GIT_TERMINAL_PROMPT=0 git -C "$repo" fetch --quiet --no-tags \
+      origin "$sha" 2>&1); then
+      say_failed "$what" "$output"
+    fi
+  fi
+  if ! output=$(git -C "$repo" -c advice.detachedHead=false checkout --quiet --detach \
+    "$sha" 2>&1); then
+    say_failed "$what" "$output"
+  fi
+  head=$(git -C "$repo" rev-parse HEAD 2>/dev/null || :)
+  [ "$head" = "$sha" ] || say_failed "$what" "HEAD is ${head:-not a commit}."
+fi
 
 # The key the host checks every pass with (a public key).
 mkdir -p "$workspace/.consola"
@@ -72,7 +115,7 @@ if [ "$CONSOLA_HARNESS" = codex ]; then
     fail 'Codex could not sign in with OPENAI_API_KEY (codex login --with-api-key).'
 fi
 
-exec node /opt/consola/consola-host.mjs session \
+set -- \
   --session-id "$CONSOLA_SESSION_ID" \
   --harness "$CONSOLA_HARNESS" \
   --cwd "$repo" \
@@ -80,3 +123,11 @@ exec node /opt/consola/consola-host.mjs session \
   --port 7420 \
   --pass-public-key "$key_file" \
   --idle-minutes "${CONSOLA_SESSION_IDLE_MINUTES:-10}"
+
+# An agent run: the host reads the run the runner wrote, and takes its first turn.
+if [ -n "${CONSOLA_AGENT_RUN-}" ]; then
+  [ -f "$CONSOLA_AGENT_RUN" ] || fail "CONSOLA_AGENT_RUN names $CONSOLA_AGENT_RUN, which is not a file."
+  set -- "$@" --agent-run "$CONSOLA_AGENT_RUN"
+fi
+
+exec node /opt/consola/consola-host.mjs session "$@"

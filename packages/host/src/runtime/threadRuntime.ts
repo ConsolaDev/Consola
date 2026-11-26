@@ -35,6 +35,10 @@ import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
 import { decideCommand } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
+import { openAgentRun } from './agentRun.ts';
+import type { AgentRunHandle } from './agentRun.ts';
+import { makeAgentRunMcp } from './agentRunMcp.ts';
+import type { AgentRunMcp } from './agentRunMcp.ts';
 import { defaultModelSelection, hostDriverFor, titleModelSelection } from './drivers.ts';
 import type { HostDriversEnv } from './drivers.ts';
 import {
@@ -94,7 +98,51 @@ export type ThreadHandle = {
    * would go stale, so the session must stop. Never succeeds; closing the scope ends it quietly.
    */
   readonly ended: Effect.Effect<never, ThreadStreamEnded>;
+  /**
+   * A session started as an agent run (`SessionSpec.agentRun`): its dispatched agents, its tools
+   * over MCP and its report (`agentRun.ts`). Null for every other session.
+   */
+  readonly agentRun: AgentRunSession | null;
 };
+
+/** An agent run's handle, with its MCP credentials' port and tokens (`agentRunMcp.ts`). */
+export type AgentRunSession = AgentRunHandle & Pick<AgentRunMcp, 'setPort' | 'threadForToken'>;
+
+/** What a client may read of a thread: the session's own, or an agent run's dispatched agent's. */
+export type ReadableThread = Pick<
+  ThreadHandle,
+  'snapshot' | 'snapshotSequence' | 'events' | 'commandOutput'
+>;
+
+/**
+ * The thread a client may read by `threadId`: the session's own (`sessionId`), or, for an agent
+ * run, one of its dispatched agents, read-only (no command reaches one from a client); undefined
+ * for any other id.
+ */
+export function readableThread(
+  handle: Pick<ThreadHandle, 'snapshot' | 'snapshotSequence' | 'events' | 'commandOutput'> & {
+    readonly agentRun?: AgentRunSession | null;
+  },
+  sessionId: string,
+  threadId: string,
+): ReadableThread | undefined {
+  if (threadId === sessionId) return handle;
+  const child = handle.agentRun?.child(threadId);
+  if (child === undefined) return undefined;
+  return {
+    snapshot: child.snapshot,
+    snapshotSequence: child.snapshotSequence,
+    events: (afterSequence) =>
+      child
+        .events(afterSequence)
+        .pipe(
+          Stream.mapError(
+            (cause) => new ThreadRuntimeError({ sessionId, operation: 'events', cause }),
+          ),
+        ),
+    commandOutput: child.commandOutput,
+  };
+}
 
 /**
  * The services of the session's composition that t3's `ws.ts` builds its server config and
@@ -130,6 +178,13 @@ export type ThreadShellView = {
   readonly snapshot: Effect.Effect<OrchestrationV2ShellSnapshot, ThreadRuntimeError>;
   /** The thread's row now (t3's `getThreadShell`), `null` when t3 has none. */
   readonly thread: Effect.Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>;
+  /**
+   * The stored events of every thread the shell lists, after `afterSequence`: the session's
+   * (`ThreadHandle.events`), and for an agent run its dispatched agents' too.
+   */
+  events(afterSequence: number): Stream.Stream<ThreadEvent, ThreadRuntimeError>;
+  /** A listed thread's row now, `null` for a thread the shell does not list. */
+  row(threadId: string): Effect.Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>;
 };
 
 export class ThreadRuntimeError extends Schema.TaggedError<ThreadRuntimeError>()(
@@ -186,6 +241,11 @@ export interface ThreadRuntimeTestSeam {
    * `streamStoredEvents` had ended (`ThreadHandle.ended`).
    */
   readonly endEventsAfter?: number;
+  /**
+   * `false` keeps the MCP stand-in for an agent run, as for any other session: a recorded fixture
+   * holds no MCP server in its first frame, so a replay of an agent run must start without one.
+   */
+  readonly agentRunMcp?: boolean;
 }
 
 /**
@@ -193,6 +253,13 @@ export interface ThreadRuntimeTestSeam {
  * default (`DEFAULT_RUNTIME_MODE`) is `full-access`, which asks nothing; the host never uses it.
  */
 export const HOST_RUNTIME_MODE: RuntimeMode = 'approval-required';
+
+/**
+ * The one exception: an agent run's threads (`SessionSpec.agentRun`), which nobody watches or
+ * approves, open in `full-access`. It runs only in a sandbox, which is its boundary (`bin.ts`
+ * refuses `--agent-run` with `--dev`).
+ */
+export const AGENT_RUN_RUNTIME_MODE: RuntimeMode = 'full-access';
 
 export class ThreadRuntime extends Context.Service<
   ThreadRuntime,
@@ -215,6 +282,7 @@ const make = (
   runtimeMode: RuntimeMode,
   orchestration: typeof layerOrchestration,
   endEventsAfter?: number,
+  agentRunMcp = true,
 ) =>
   Layer.succeed(
     ThreadRuntime,
@@ -226,8 +294,14 @@ const make = (
           new ThreadRuntimeError({ sessionId, operation, cause });
         const toStderr = Effect.provideService(Logger.LogToStderr, true);
 
+        // An agent run's provider sessions get the host's `/mcp` server; every other keeps none.
+        const mcp = spec.agentRun !== undefined && agentRunMcp ? yield* makeAgentRunMcp : undefined;
         const context = yield* Layer.build(
-          orchestration({ stateDir: options.stateDir, harness: spec.harness }),
+          orchestration({
+            stateDir: options.stateDir,
+            harness: spec.harness,
+            ...(mcp === undefined ? {} : { mcp: mcp.layer }),
+          }),
         ).pipe(Effect.mapError(failed('open')), toStderr);
         yield* startOrchestration.pipe(
           Effect.provideContext(context),
@@ -270,7 +344,7 @@ const make = (
             projectId,
             title: 'New thread',
             modelSelection: spec.modelSelection ?? defaultModelSelection(spec.harness),
-            runtimeMode,
+            runtimeMode: spec.agentRun === undefined ? runtimeMode : AGENT_RUN_RUNTIME_MODE,
             interactionMode: 'default',
             branch: null,
             worktreePath: null,
@@ -322,6 +396,32 @@ const make = (
           Effect.forkScoped,
         );
 
+        const agentRun: AgentRunSession | null =
+          spec.agentRun === undefined
+            ? null
+            : {
+                ...(yield* openAgentRun({
+                  sessionId,
+                  threadId,
+                  projectId,
+                  run: spec.agentRun,
+                  defaultModel: spec.modelSelection ?? defaultModelSelection(spec.harness),
+                  orchestrator,
+                  providers: Context.get(context, ProviderRegistry.ProviderRegistry),
+                  commandOutput,
+                }).pipe(Effect.mapError(failed('open')), toStderr)),
+                // With the MCP stand-in (a replay's), no credential is ever issued or found.
+                setPort: mcp?.setPort ?? (() => Effect.void),
+                threadForToken: mcp?.threadForToken ?? (() => null),
+              };
+
+        const threadEvents = (afterSequence?: number) =>
+          orchestrator
+            .streamStoredEventsFrom({
+              threadId,
+              ...(afterSequence === undefined ? {} : { afterSequence }),
+            })
+            .pipe(Stream.mapError(failed('events')));
         const threadShell = orchestrator
           .getThreadShell(threadId)
           .pipe(Effect.mapError(failed('read its shell')));
@@ -332,29 +432,50 @@ const make = (
             const project = yield* projects
               .getShell(projectId)
               .pipe(Effect.mapError(failed('read its shell')));
+            // An agent run's dispatched agents follow its thread, read-only (`rpcServer.ts`).
+            const childRows: OrchestrationV2ThreadShell[] = [];
+            for (const child of agentRun?.children() ?? []) {
+              const row = yield* child.shellRow.pipe(Effect.mapError(failed('read its shell')));
+              if (row !== null && row.archivedAt === null) childRows.push(row);
+            }
             const snapshot: OrchestrationV2ShellSnapshot = {
               schemaVersion: ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION,
               snapshotSequence,
               projects: Option.toArray(project),
-              threads: thread === null || thread.archivedAt !== null ? [] : [thread],
+              threads: [
+                ...(thread === null || thread.archivedAt !== null ? [] : [thread]),
+                ...childRows,
+              ],
               archivedThreads: [],
             };
             return snapshot;
           }),
           thread: threadShell,
+          events: (afterSequence) =>
+            agentRun === null
+              ? threadEvents(afterSequence)
+              : orchestrator.streamStoredEventsFrom({ afterSequence }).pipe(
+                  Stream.filter(
+                    (stored) =>
+                      stored.event.threadId === threadId ||
+                      agentRun.child(stored.event.threadId) !== undefined,
+                  ),
+                  Stream.mapError(failed('events')),
+                ),
+          row: (id) => {
+            if (id === threadId) return threadShell;
+            const child = agentRun?.child(id);
+            return child === undefined
+              ? Effect.succeed(null)
+              : child.shellRow.pipe(Effect.mapError(failed('read its shell')));
+          },
         };
 
         const handle: ThreadHandle = {
           snapshot: () => current.projection,
           snapshotSequence: () => current.snapshotSequence,
           snapshots: () => SubscriptionRef.changes(projections),
-          events: (afterSequence) =>
-            orchestrator
-              .streamStoredEventsFrom({
-                threadId,
-                ...(afterSequence === undefined ? {} : { afterSequence }),
-              })
-              .pipe(Stream.mapError(failed('events'))),
+          events: threadEvents,
           dispatch: Effect.fn('ThreadHandle.dispatch')(function* (command) {
             if (decideCommand(command.type) === 'not-offered') {
               return yield* new NotOfferedError({ commandType: command.type });
@@ -376,6 +497,7 @@ const make = (
           shell,
           lastActivityMs: () => lastActivity,
           ended: Deferred.await(streamEnded),
+          agentRun,
         };
         return handle;
       }),
@@ -409,4 +531,5 @@ export const layerForTests = (
         seam.drivers ?? [hostDriverFor(orchestrationOptions.harness)],
       ),
     seam.endEventsAfter,
+    seam.agentRunMcp ?? true,
   );

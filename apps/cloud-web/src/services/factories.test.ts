@@ -439,3 +439,38 @@ describe('saveFactory', () => {
     expect(seen.some((entry) => entry.url.includes('/versions'))).toBe(false);
   });
 });
+
+describe('loadTemplates', () => {
+  const TEMPLATES = 'GET /cell/eu/api/factory-templates';
+  const team = {
+    id: 'code-review-team',
+    name: 'Code review team',
+    description: 'A foreman that reviews every pull request with a review agent.',
+    files: [
+      { path: 'agents/foreman/agent.md', content: '---\ndescription: Leads.\n---\nLead.\n' },
+      { path: 'skills/code-review/SKILL.md', content: 'Review well.\n' },
+    ],
+  };
+
+  it('answers the templates the cell offers, with their files, on a cell token', async () => {
+    const { service, toCell } = harness({ cell: { [TEMPLATES]: { status: 200, body: [team] } } });
+    expect(await service.loadTemplates(ACME)).toEqual({ kind: 'listed', templates: [team] });
+    expect(toCell()[0]?.authorization).toBe('Bearer token-1');
+  });
+
+  it.each([
+    [{ status: 200, body: { templates: [team] } }],
+    [{ status: 200, body: [{ ...team, files: [{ path: 'a.md' }] }] }],
+    [{ status: 503, body: { error: 'token_check_unavailable' } }],
+    [{ status: 404, body: { error: 'not_found' } }],
+  ])('is unavailable for %j', async (answer) => {
+    const { service } = harness({ cell: { [TEMPLATES]: answer } });
+    expect(await service.loadTemplates(ACME)).toEqual({ kind: 'unavailable' });
+  });
+
+  it('reads nothing for a workspace the session no longer has open', async () => {
+    const { service, toCell } = harness({ workspaceId: 'ws-other' });
+    expect(await service.loadTemplates(ACME)).toEqual({ kind: 'switched' });
+    expect(toCell()).toHaveLength(0);
+  });
+});
