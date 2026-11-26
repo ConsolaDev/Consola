@@ -1531,10 +1531,9 @@ it in the web app, and the runner reviews the pull request in one E2B sandbox
 and posts the review with `gh` from another. The automated version, with no
 credential, is `packages/cloud-session-e2e/src/triggeredRun.test.ts`.
 
-**Nobody has run this for real yet.** Every step below is read from the code
-and held by that test against stand-ins, but none has run against GitHub,
-E2B, a model or the real `cloud-global` mint: see "Not yet run for real" at
-the end.
+**It has run for real.** On 2026-11-25 and 2026-11-26 the whole flow ran on
+this Mac against a test repository on GitHub: "Seen for real" at the end says
+what was observed, and what has not been seen yet.
 
 It builds on "Local cloud session demo" above: the same three processes, the
 same `.env` files, with these settings added (each `.env.example` says what
@@ -1650,21 +1649,34 @@ Then, from the repository root:
 A step's token is in no log and no record: the runner masks it in what it
 says, and the cell hands it on once and keeps nothing of it.
 
-**Not yet run for real** (each is held by a test against a stand-in, never
-against the real thing):
+**Seen for real** on 2026-11-25 and 2026-11-26, on this Mac, against a test
+repository on GitHub:
 
-- a step on E2B: the `consola-session` template was rebuilt on 2026-11-25
-  with the steps' scripts and `step-tools`, and no step has run in a sandbox
-  made from it;
-- the real Claude Code in a step's sandbox on E2B:
-  `scripts/step-sandbox-canary.mjs` passed every row on 2026-11-25, on folders
-  of this Mac with Claude Code 2.1.332, where the template pins 2.1.330;
-- `cloud-global` minting `run-read` and `review-run` for the cell's signed
-  request, and GitHub granting them (its mint was checked against GitHub on
-  2026-11-22 for other purposes);
-- `gh` posting a review with a `review-run` token;
-- a webhook through the tunnel reaching the runner, and the web app's Runs
-  pages showing a run a runner recorded.
+- GitHub's `pull_request` webhooks (`opened`, `synchronize`, `reopened`) came
+  through a named Cloudflare tunnel to `cloud-global`, which passed each on to
+  the EU cell, which handed it to the runner. The runner recorded a run for
+  each, the web app's Runs pages showed them, and a person approved them
+  there.
+- Agent steps ran on E2B, in sandboxes made from the `consola-session`
+  template as rebuilt on 2026-11-25 (with the steps' scripts and
+  `consola-host step-tools`), with the real Claude Code the template pins.
+  They read the pull request and set their outputs and documents.
+- `cloud-global` minted `run-read` and `review-run` tokens for the cell's
+  signed requests, and GitHub granted them.
+- `gh api` in a command step's sandbox posted reviews with a `review-run`
+  token, on the commit the run read: reviews that requested changes, that
+  commented and that approved were all posted, and one carried inline
+  comments on lines of the diff. The inline comments came from a factory
+  whose posting step sends `comments` with the review. The shipped Review pull
+  requests files post the handover as the review's body, with no inline
+  comments, and never approve: their `post` step sends an `APPROVE` verdict as
+  `COMMENT`.
+- `scripts/step-sandbox-canary.mjs` passed every row on 2026-11-25, on folders
+  of this Mac with Claude Code 2.1.332, where the template pins 2.1.330.
+
+**Not yet seen for real:** a step that fails or times out on E2B; a runner
+restart while a run waits for approval or runs; and a run on a repository
+whose pull requests come from outside contributors.
 
 ## Licensing
 
