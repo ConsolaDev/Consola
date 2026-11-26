@@ -1,7 +1,7 @@
 import { asc, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceStore } from '../../application/ports.js';
-import { migrateDatabase, openDatabase } from './database.js';
+import { openTestDatabase } from './testDatabase.js';
 import type { Database } from './database.js';
 import { schema } from './schema.js';
 import { createWorkspaceStore } from './workspaceStore.js';
@@ -12,8 +12,7 @@ let workspaces: WorkspaceStore;
 let wakes: number;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   await db.insert(schema.user).values([
     { id: 'dana', name: 'Dana', email: 'dana@acme.test', emailVerified: true },
     { id: 'lee', name: 'Lee', email: 'lee@sprocket.test', emailVerified: true },

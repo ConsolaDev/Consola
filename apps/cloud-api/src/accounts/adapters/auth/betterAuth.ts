@@ -5,7 +5,7 @@ import { organization } from 'better-auth/plugins';
 import type { MembershipStore, PeopleStore, SessionStore } from '../../application/ports.js';
 import { mayCreateAccount, mayStartSession } from '../../application/signIn.js';
 import { workspaceForNewSession } from '../../application/workspaces.js';
-import type { CloudConfig } from '../../config.js';
+import type { CloudConfig } from '../../../config.js';
 import type { SignedIn } from '../../domain/person.js';
 import type { Database } from '../persistence/database.js';
 import { schema } from '../persistence/schema.js';
@@ -47,6 +47,9 @@ export function closedPaths(plugin: BetterAuthPlugin): string[] {
   );
 }
 
+/** What Better Auth needs of the configuration: where the web app is, the secret, and Google. */
+export type AuthSettings = Pick<CloudConfig, 'publicUrl' | 'authSecret' | 'google'>;
+
 /**
  * Better Auth for this deployment, which owns sign-in and sessions and nothing else: Google is
  * the only way in, and `mayJoin` is asked before an account is created (`mayCreateAccount`) and
@@ -65,7 +68,7 @@ export function closedPaths(plugin: BetterAuthPlugin): string[] {
 export function createAuth(
   deps: {
     db: Database;
-    config: CloudConfig;
+    config: AuthSettings;
     people: PeopleStore;
     memberships: MembershipStore;
     sessions: SessionStore;

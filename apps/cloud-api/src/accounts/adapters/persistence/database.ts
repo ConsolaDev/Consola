@@ -18,8 +18,9 @@ export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 
 export type OpenDatabase = { db: Database; close(): Promise<void> };
 
-// Resolves from both `src/adapters/persistence` and `dist/adapters/persistence`.
-const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../drizzle', import.meta.url));
+// The app's one migration chain, which holds every part's tables. Resolves from both
+// `src/accounts/adapters/persistence` and `dist/accounts/adapters/persistence`.
+const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../../drizzle', import.meta.url));
 
 type Driver = 'pglite' | 'pg';
 
