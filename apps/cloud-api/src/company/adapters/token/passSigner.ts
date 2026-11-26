@@ -1,7 +1,7 @@
 import { PASS_TYPE } from '@consola/runner-protocol';
 import { exportSPKI, importJWK, SignJWT } from 'jose';
 import type { PassSigner } from '../../application/ports.js';
-import { ConfigError } from '../../config.js';
+import { ConfigError } from '../../../companyConfig.js';
 
 /** The one algorithm a pass is signed with, and the one its host checks: EdDSA over Ed25519. */
 const PASS_ALGORITHM = 'EdDSA';

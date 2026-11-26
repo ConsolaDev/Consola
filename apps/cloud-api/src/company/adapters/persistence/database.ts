@@ -15,8 +15,9 @@ export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
 export type OpenDatabase = { db: Database; close(): Promise<void> };
 
-// Resolves from both `src/adapters/persistence` and `dist/adapters/persistence`.
-const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../drizzle', import.meta.url));
+// The app's one chain. Resolves from both `src/company/adapters/persistence` and
+// `dist/company/adapters/persistence`.
+const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../../drizzle', import.meta.url));
 
 type Driver = 'pglite' | 'pg';
 

@@ -1,9 +1,3 @@
-import {
-  GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
-  GITHUB_EVENT_DELIVERY_PATH,
-  OUTBOX_DELIVERY_MEDIA_TYPE,
-  OUTBOX_DELIVERY_PATH,
-} from '@consola/cloud-contract';
 import { WORKSPACE_ROLES } from '../../../shared/workspaceRole.js';
 import { AUTOMATION_MODES } from '@consola/factory-spec';
 import { AGENT_RUN_STATES, DISPATCHED_AGENT_STATUSES, HARNESSES } from '@consola/runner-protocol';
@@ -115,96 +109,7 @@ export const getHealth = createRoute({
   },
 });
 
-export const postOutboxDelivery = createRoute({
-  method: 'post',
-  path: OUTBOX_DELIVERY_PATH,
-  summary: "Deliver one of cloud-global's outbox messages",
-  description:
-    'Only cloud-global calls it. The body is the message, signed as a compact JWS with the cell ' +
-    'token’s key (`packages/cloud-contract`, "Delivering a message"), so it takes no token.',
-  request: {
-    body: {
-      content: { [OUTBOX_DELIVERY_MEDIA_TYPE]: { schema: z.string() } },
-      required: true,
-    },
-  },
-  responses: {
-    200: json(
-      z.strictObject({ applied: z.literal(true) }),
-      'The cell has the message: applied now, or before.',
-    ),
-    400: json(
-      failure('unreadable'),
-      'Not sent as a signed message, over the size a message can be, or not a message the contract reads.',
-    ),
-    401: json(failure('unsigned'), 'Not signed by cloud-global.'),
-    409: json(
-      z.strictObject({ nextSequence: z.number().int() }),
-      "Messages before this one are missing: the sequence of the workspace's message the cell applies next.",
-    ),
-    421: json(
-      z.strictObject({ error: z.literal('otherRegion'), region: Region }),
-      'A message about a workspace in another region.',
-    ),
-    503: json(failure('unavailable'), "The cell cannot get cloud-global's keys or its database."),
-  },
-});
-
-export const postGitHubEventDelivery = createRoute({
-  method: 'post',
-  path: GITHUB_EVENT_DELIVERY_PATH,
-  summary: 'Deliver one of GitHub’s webhook events, passed on by cloud-global',
-  description:
-    'Only cloud-global calls it, for a workspace whose GitHub installation the event came ' +
-    'through. The body is the event, signed as a compact JWS with the cell token’s key ' +
-    '(`packages/cloud-contract`, "Passing on a GitHub event"), so it takes no token. The cell ' +
-    'records each delivery once, by GitHub’s id of it.',
-  request: {
-    body: {
-      content: { [GITHUB_EVENT_DELIVERY_MEDIA_TYPE]: { schema: z.string() } },
-      required: true,
-    },
-  },
-  responses: {
-    200: json(
-      z.strictObject({ recorded: z.literal(true) }),
-      'The cell had recorded the event before: a delivery sent again, which changed nothing.',
-    ),
-    201: json(z.strictObject({ recorded: z.literal(true) }), 'The cell recorded the event now.'),
-    400: json(
-      failure('unreadable'),
-      'Not sent as a signed event, over the size an event can be, or not an event the contract reads.',
-    ),
-    401: json(failure('unsigned'), 'Not signed by cloud-global as an event.'),
-    409: json(
-      failure('workspacePending'),
-      'The cell does not hold the workspace yet: cloud-global has not delivered its creation.',
-    ),
-    421: json(
-      z.strictObject({ error: z.literal('otherRegion'), region: Region }),
-      'An event for a workspace in another region.',
-    ),
-    503: json(failure('unavailable'), "The cell cannot get cloud-global's keys or its database."),
-  },
-});
-
 // Behind the token check.
-
-export const Caller = z
-  .strictObject({
-    personId: z.string(),
-    workspaceId: z.string(),
-    role: z.enum(WORKSPACE_ROLES),
-    region: Region,
-  })
-  .openapi('Caller', { description: 'Who is asking, as their checked cell token says.' });
-
-export const getMe = createRoute({
-  method: 'get',
-  path: '/api/me',
-  summary: 'Who is asking, as this cell sees them',
-  responses: { 200: json(Caller, 'The caller.'), ...tokenFailures },
-});
 
 export const Team = z
   .strictObject({
@@ -1482,9 +1387,6 @@ export const postCloudSessionPass = createRoute({
 /** Every route in the contract, in the order `app.ts` registers them. */
 export const ROUTES = [
   getHealth,
-  postOutboxDelivery,
-  postGitHubEventDelivery,
-  getMe,
   listTeams,
   postTeam,
   patchTeam,

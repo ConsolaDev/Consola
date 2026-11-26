@@ -1,4 +1,3 @@
-import type { GitHubEventMessage } from '@consola/cloud-contract';
 import {
   hasAgentTeam,
   matchPullRequestAutomations,
@@ -34,6 +33,22 @@ import { recordRun } from './runs.js';
  * in this experiment the cell, not a runner, decides that a run starts, so it is the run's writer.
  */
 
+/**
+ * A GitHub event the company recorded for a workspace, as starting its agent runs reads it: the
+ * workspace whose installation it came through, GitHub's id of the delivery and the event's
+ * name, for the log, and its payload as GitHub sent it. The webhook's own record of an event
+ * holds more (the installation), and is one of these.
+ */
+export type GitHubEventMessage = {
+  readonly workspaceId: string;
+  /** GitHub's id of the delivery (`X-GitHub-Delivery`). */
+  readonly deliveryId: string;
+  /** The event's name (`X-GitHub-Event`): `pull_request`, `push`, … */
+  readonly event: string;
+  /** The event's payload, as GitHub sent it. */
+  readonly payload: Record<string, unknown>;
+};
+
 /** The event's name GitHub gives a pull request's webhook. */
 const PULL_REQUEST = 'pull_request';
 
@@ -50,7 +65,7 @@ const about = (event: GitHubEventMessage) =>
   `GitHub delivery ${event.deliveryId} (${event.event}) for workspace ${event.workspaceId}`;
 
 /**
- * Starts the agent runs a GitHub event fires, once the cell has recorded it for the first time:
+ * Starts the agent runs a GitHub event fires, once it is recorded for the first time:
  * for a `pull_request` event, each automation of each of the workspace's factories whose latest
  * files hold an agent team with no issues, whose triggers match it
  * (`matchPullRequestAutomations`), starts one run (`startAgentRun`). Any other event starts

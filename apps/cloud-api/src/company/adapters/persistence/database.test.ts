@@ -26,7 +26,7 @@ describe('the database', () => {
 
   it('applies every migration in the journal from empty, the latest included', async () => {
     const journal = JSON.parse(
-      readFileSync(new URL('../../../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
+      readFileSync(new URL('../../../../drizzle/meta/_journal.json', import.meta.url), 'utf8'),
     ) as { entries: Array<{ tag: string }> };
     const { db, close } = openDatabase('pglite:memory');
     await migrateDatabase(db);

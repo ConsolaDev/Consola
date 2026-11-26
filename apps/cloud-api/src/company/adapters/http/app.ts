@@ -2,7 +2,6 @@ import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { checkHealth } from '../../application/health.js';
-import { describeMe } from '../../application/me.js';
 import type {
   Clock,
   CloudSessionPorts,
@@ -19,10 +18,8 @@ import type { Region } from '../../domain/region.js';
 import { requireCaller } from './caller.js';
 import type { CellEnv } from './caller.js';
 import { cloudSessionRoutes } from './cloudSessions.js';
-import { getHealth, getMe } from './contract.js';
+import { getHealth } from './contract.js';
 import { factoryRoutes } from './factories.js';
-import { gitHubEventRoutes } from './gitHubEvents.js';
-import { outboxRoutes } from './outbox.js';
 import { runRoutes } from './runs.js';
 import { teamRoutes } from './teams.js';
 
@@ -100,21 +97,11 @@ export function createApp(deps: {
     return c.json({ ok: false, region } as const, 503);
   });
 
-  // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
-  app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
-  // An event recorded for the first time starts the agent runs it fires, on the cloud sessions'
-  // ports and the workspace's factories.
-  const agentRuns = { ...cloudSessions, factories, runs, report };
-  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report, agentRuns }));
-
   // No token either: a runner is no person, and presents its secret instead.
   app.route('/', deps.runner);
 
   // Everything registered from here on is behind the check.
   app.use('*', requireCaller({ region, tokens, clock }));
-
-  // Who is asking, as this cell sees them.
-  app.openapi(getMe, (c) => c.json(describeMe(c.var.caller), 200));
 
   teamRoutes(app, teams);
   factoryRoutes(app, teams, factories);
