@@ -1,7 +1,11 @@
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
-import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
+import { NewWorkspaceDialog } from '../Dialogs/NewWorkspaceDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
+import {
+  openNewWorkspaceDialog,
+  useNewWorkspaceDialogStore,
+} from '../../stores/newWorkspaceDialogStore';
 import { useEffect, useRef } from 'react';
 import type { CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
@@ -38,24 +42,26 @@ export function Layout() {
   const sidebarWidth = useNavigationStore((state) => state.sidebarWidth);
   const layoutRef = useRef<HTMLDivElement>(null);
 
+  // Either dialog already answers ⌘N; a second press must not start
+  // something behind it.
+  const isMakingSomething = () =>
+    !!useNewSessionDialogStore.getState().destination ||
+    !!useNewWorkspaceDialogStore.getState().openedAt;
+
   // ⌘N starts the next thing there is to start: a session in the open
   // workspace, or, with none open, the workspace itself.
   const handleNewSession = () => {
-    if (activeWorkspaceId) {
-      if (!useNewSessionDialogStore.getState().destination) {
-        void createQuickSession(activeWorkspaceId);
-      }
-    } else {
-      void pickFoldersAndCreateWorkspace();
-    }
+    if (isMakingSomething()) return;
+    if (activeWorkspaceId) void createQuickSession(activeWorkspaceId);
+    else openNewWorkspaceDialog();
   };
 
   useKeyboardShortcuts({
     onNewSession: handleNewSession,
     onNewSessionWithOptions: () => {
-      if (useNewSessionDialogStore.getState().destination) return;
+      if (isMakingSomething()) return;
       if (activeWorkspaceId) openNewSessionDialog(activeWorkspaceId);
-      else void pickFoldersAndCreateWorkspace();
+      else openNewWorkspaceDialog();
     },
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,
@@ -99,6 +105,7 @@ export function Layout() {
       style={layoutStyle}
     >
       <NewSessionDialog />
+      <NewWorkspaceDialog />
       <AutoSettleExplanation />
       <Toaster />
       <QuitHint />

@@ -1,4 +1,3 @@
-import { dialogBridge } from '../services/dialogBridge';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import type { Workspace } from '../stores/workspaceStore';
 import { useNavigationStore } from '../stores/navigationStore';
@@ -33,15 +32,4 @@ export async function createWorkspaceFromFolders(
   }
   await useNavigationStore.getState().setActiveWorkspace(workspace.id);
   return workspace;
-}
-
-/**
- * Pick one or more folders and turn them straight into a workspace.
- *
- * The quick door — the rail's ＋ and ⌘N with no workspace open. The welcome
- * screen offers the same thing with a chance to review and name it first.
- */
-export async function pickFoldersAndCreateWorkspace(): Promise<Workspace | undefined> {
-  const folders = await dialogBridge.selectFolders();
-  return createWorkspaceFromFolders(folders);
 }
