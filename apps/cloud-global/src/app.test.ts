@@ -217,7 +217,7 @@ async function answerOf(method: string, path: string, response: Response) {
     parsed?.error,
     `${method} ${path} ${response.status} matches the contract`,
   ).toBeUndefined();
-  // biome-ignore lint/suspicious/noExplicitAny: the tests read bodies by their fields.
+  // `any`: the tests read bodies by their fields.
   return { status: response.status, body: body as any };
 }
 

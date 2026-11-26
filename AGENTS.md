@@ -24,10 +24,14 @@ pnpm --filter @consola/automation-engine test   # Just the engine's tests
 pnpm run lint             # Biome, then Oxlint (lint:oxlint), as CI's lint job runs them
 ```
 
-Linting is two tools. Biome formats, lints CSS and keeps its own rules
-(`biome.jsonc`). Oxlint runs Cloudflare's preset (`@cloudflare/oxlint-config`,
-in `oxlint.config.mts`), whose type-aware rules read the real types through
-`tsrs`. Those rules read the workspace packages' types from their `dist/`, so
+Linting is two tools, and each check runs in one of them. Biome formats,
+lints CSS and owns accessibility (`biome.jsonc`). Oxlint owns JavaScript and
+TypeScript linting with Cloudflare's preset (`@cloudflare/oxlint-config`, in
+`oxlint.config.mts`), whose type-aware rules read the real types through
+`tsrs`. Where both have a rule, Biome's is off when its own rule sources call
+Oxlint's the same rule and Oxlint runs it as an error everywhere Biome lints;
+Biome keeps the rest, including those Oxlint leaves to TypeScript in `.ts`
+files, and Oxlint leaves accessibility to Biome. Those rules read the workspace packages' types from their `dist/`, so
 `lint:oxlint` builds the packages first: run bare `oxlint` without them and
 every import from one is `any`, which the `no-unsafe-*` rules then report. A
 rule of the preset that stays off says why beside it in the config, and a

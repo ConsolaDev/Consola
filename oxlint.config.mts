@@ -1,6 +1,8 @@
-// Oxlint runs beside Biome: Biome formats, lints CSS and keeps its own rules;
-// Oxlint adds Cloudflare's preset (@cloudflare/oxlint-config), whose
-// type-aware rules read the real types through `tsrs`. They need the
+// Oxlint owns JavaScript and TypeScript linting; Biome formats, lints CSS
+// and owns accessibility, and turns off its rules that Oxlint runs as the same
+// rule (biome.jsonc), so each check runs in one tool. Oxlint runs Cloudflare's
+// preset (@cloudflare/oxlint-config), whose type-aware rules read the real
+// types through `tsrs`. They need the
 // workspace packages' `dist/` types, so `pnpm lint:oxlint` builds those first:
 // without them every import from a workspace package reads as `any`.
 import cloudflare from '@cloudflare/oxlint-config';
@@ -114,6 +116,11 @@ export default defineConfig({
     'quality/no-unsafe-dictionary-type': 'warn',
 
     // ---- Off here, each with its reason ----
+
+    // Accessibility is Biome's (biome.jsonc's a11y group, where both are
+    // errors), so each finding is reported once.
+    'jsx-a11y/alt-text': 'off',
+    'react/button-has-type': 'off',
 
     // Terminal input parsing, and the sanitizers that strip control
     // characters from untrusted text (oneLine, a step's output, secrets),
