@@ -6,7 +6,8 @@ import type { MembershipStore, PeopleStore, SessionStore } from '../../applicati
 import { mayCreateAccount, mayStartSession } from '../../application/signIn.js';
 import { workspaceForNewSession } from '../../application/workspaces.js';
 import type { CloudConfig } from '../../../config.js';
-import type { SignedIn } from '../../domain/person.js';
+import { personAsking } from '../../domain/person.js';
+import type { PersonAsking, SignedIn } from '../../domain/person.js';
 import type { Database } from '../persistence/database.js';
 import { schema } from '../persistence/schema.js';
 
@@ -133,4 +134,14 @@ export function currentSessionOf(auth: CloudAuth): (headers: Headers) => Promise
       activeWorkspaceId: session.activeOrganizationId ?? null,
     };
   };
+}
+
+/**
+ * Who a request's session says is asking, as the company part takes it (its `WhoIsAsking`): the
+ * person's id and the session's active workspace, read from the database like every session,
+ * and nothing else of the account. Null when the request has no session.
+ */
+export function whoIsAskingOf(auth: CloudAuth): (headers: Headers) => Promise<PersonAsking | null> {
+  const currentSession = currentSessionOf(auth);
+  return async (headers) => personAsking(await currentSession(headers));
 }
