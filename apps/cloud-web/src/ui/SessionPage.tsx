@@ -1,23 +1,14 @@
-import { lazy, Suspense, useRef, useState } from 'react';
+import { useState } from 'react';
 import {
   agentRunPhase,
-  chatMounted,
   isAgentRun,
   isEnded,
-  keepsShownOn,
   sessionLabel,
-  sessionPollIntervalMs,
-  sessionScreen,
-  shouldRenewPass,
   startedAt,
 } from '../domain/cloudSession';
-import type { CloudSession, SessionAnswer } from '../domain/cloudSession';
 import {
   AGENT_RUN_PHASE_WORDS,
-  CHAT_NOT_LOADED_WORDS,
-  CONNECTING_WORDS,
   HARNESS_NAMES,
-  messageForPassAnswer,
   messageForSessionAnswer,
   messageForStopAnswer,
   SESSION_STATUS_WORDS,
@@ -27,36 +18,10 @@ import { agoInWords, fullTime } from '../domain/runWords';
 import { hashOfSessions } from '../domain/sessionsRoute';
 import type { MyWorkspace } from '../domain/workspace';
 import { cloudSessionsService } from '../services/cloudSessions';
-import { AgentRunFacts, AgentRunReport } from './AgentRunReport';
-import { useNow, usePoll } from './usePoll';
-
-/** What stands in the chat's place when its code could not be loaded. */
-function ChatNotLoaded() {
-  return (
-    <p className="session-words" role="alert">
-      {CHAT_NOT_LOADED_WORDS}
-    </p>
-  );
-}
-
-// The chat is most of the app's weight, so it loads only when a session runs.
-const SessionChat = lazy(() =>
-  import('./SessionChat').then(
-    (module) => ({ default: module.SessionChat }),
-    () => ({ default: ChatNotLoaded }),
-  ),
-);
-
-type PageView =
-  | { kind: 'loading' }
-  | { kind: 'shown'; session: CloudSession; failedAt: string | null }
-  | { kind: 'refused'; answer: Exclude<SessionAnswer, { kind: 'found' }> };
-
-/** The way into a running session's chat: none yet, a pass to its host, or why there is none. */
-type ChatAccess =
-  | { kind: 'none' }
-  | { kind: 'open'; pass: string; hostUrl: string }
-  | { kind: 'refused'; message: string };
+import { AgentRunFacts } from './AgentRunReport';
+import { SessionConversation } from './SessionConversation';
+import { useCloudSession } from './useCloudSession';
+import { useNow } from './usePoll';
 
 type Stopping =
   | { kind: 'idle' }
@@ -67,19 +32,15 @@ type Stopping =
 
 /**
  * One cloud session, laid out as a run's page: its header (the way back, its name, its status and
- * Stop), a line of its facts, then what its status shows (`sessionScreen`). While it runs, that is
+ * Stop), a line of its facts, then what its status shows (`SessionConversation`): while it runs,
  * the chat, connected straight to the session's host with a pass from the cell, under the warning
- * that unpushed changes are lost when it stops.
+ * that unpushed changes are lost when it stops. The session is read and its chat's pass kept as
+ * `useCloudSession` says.
  *
- * It reads the session again every 2 s while it starts and every 10 s while it runs (5 s for an
- * agent run, whose report moves), and never once it has ended. The read that finds it ended
- * unmounts the chat, which drops its connection and its pass, and the page asks for no pass
- * again: nothing reconnects.
- *
- * An agent run (an automation started it on a pull request) says what it is in its facts (the
- * automation and its factory, the pull request, the commit) and where it stands beside its
- * status, then the runner's last report of it (`AgentRunReport`: the foreman's result and the
- * agents it dispatched) above the chat while it runs, and alone once it has ended.
+ * An agent run's session is its run's conversation, which its run's page shows (Runs); opened by
+ * its address, this page shows it too, saying what it is in its facts (the automation and its
+ * factory, the pull request, the commit) and where it stands beside its status, with the runner's
+ * last report of it.
  */
 export function SessionPage({
   workspace,
@@ -88,66 +49,9 @@ export function SessionPage({
   workspace: MyWorkspace;
   sessionId: string;
 }) {
-  const [view, setView] = useState<PageView>({ kind: 'loading' });
-  const [access, setAccess] = useState<ChatAccess>({ kind: 'none' });
+  const { view, access, readNow, renewPass, showStopped } = useCloudSession(workspace, sessionId);
   const [stopping, setStopping] = useState<Stopping>({ kind: 'idle' });
-  // What the reads and the chat's renewal see as they start.
-  const latest = useRef({ view, access });
-  latest.current = { view, access };
   const now = useNow(30_000);
-
-  const readNow = usePoll(`${workspace.id} ${sessionId}`, async (current) => {
-    const answer = await cloudSessionsService.loadSession(workspace, sessionId);
-    if (!current()) return null;
-    if (answer.kind !== 'found') {
-      const previous = latest.current.view;
-      if (keepsShownOn(answer) && previous.kind === 'shown') {
-        // The session stays as it was read, saying when; the next read may work.
-        setView({ ...previous, failedAt: previous.failedAt ?? new Date().toISOString() });
-        return sessionPollIntervalMs(previous.session);
-      }
-      // Gone, signed out or switched: the page says so, and a running chat unmounts with its pass.
-      setView({ kind: 'refused', answer });
-      setAccess({ kind: 'none' });
-      return null;
-    }
-
-    const { session } = answer;
-    setView({ kind: 'shown', session, failedAt: null });
-    if (!chatMounted(session.status)) {
-      // The chat unmounts; its pass is forgotten with it.
-      setAccess({ kind: 'none' });
-    } else if (latest.current.access.kind !== 'open') {
-      const pass = await cloudSessionsService.issuePass(workspace, sessionId);
-      if (!current()) return null;
-      if (pass.kind === 'issued') {
-        setAccess({ kind: 'open', pass: pass.pass.pass, hostUrl: pass.pass.hostUrl });
-      } else if (pass.kind !== 'not-found') {
-        setAccess({ kind: 'refused', message: messageForPassAnswer(pass, workspace) });
-      }
-      // Not found: the host has not said its address yet, or the session just ended. The next
-      // read asks again, or finds it ended.
-    }
-    return sessionPollIntervalMs(session);
-  });
-
-  /** The chat's `onPassExpired`: a new pass from the cell, only while the session runs. */
-  const renewPass = async (): Promise<string> => {
-    const shown = latest.current.view;
-    if (shown.kind !== 'shown' || !shouldRenewPass(shown.session.status)) {
-      throw new Error(messageForPassAnswer({ kind: 'not-found' }, workspace));
-    }
-    try {
-      return await cloudSessionsService.renewPass(workspace, sessionId);
-    } catch (error) {
-      // The session has most likely ended: read it now, so the chat goes without waiting. Its
-      // pass is dropped, so a session still running gets a new one from that read (or a later
-      // one, at the poll's pace), never from a loop of the chat's own.
-      setAccess({ kind: 'none' });
-      readNow();
-      throw error;
-    }
-  };
 
   const stop = async () => {
     setStopping({ kind: 'stopping' });
@@ -157,14 +61,10 @@ export function SessionPage({
       return;
     }
     setStopping({ kind: 'idle' });
-    setView({ kind: 'shown', session: answer.session, failedAt: null });
-    setAccess({ kind: 'none' });
-    // A read already under way may predate the stop: start again, so it is never shown.
-    readNow();
+    showStopped(answer.session);
   };
 
   const session = view.kind === 'shown' ? view.session : null;
-  const screen = session ? sessionScreen(session) : null;
   const started = session ? startedAt(session) : null;
   const run = session && isAgentRun(session) ? session : null;
   const phase = run ? agentRunPhase(run) : null;
@@ -258,7 +158,7 @@ export function SessionPage({
         </div>
       )}
 
-      {session && screen && started && (
+      {session && started && (
         <>
           <div className="session-facts">
             {run ? (
@@ -283,60 +183,12 @@ export function SessionPage({
             )}
           </div>
 
-          {run && screen.kind === 'running' && (
-            <div className="agent-run-pane" data-live="">
-              <AgentRunReport run={run} />
-            </div>
-          )}
-
-          {screen.kind === 'running' ? (
-            <>
-              <p className="session-warning">{screen.warning}</p>
-              <div className="session-body">
-                {access.kind === 'open' ? (
-                  <div className="session-chat">
-                    <Suspense
-                      fallback={
-                        <p className="session-words" role="status">
-                          {CONNECTING_WORDS}
-                        </p>
-                      }
-                    >
-                      <SessionChat
-                        hostUrl={access.hostUrl}
-                        pass={access.pass}
-                        sessionId={session.id}
-                        onPassExpired={renewPass}
-                      />
-                    </Suspense>
-                  </div>
-                ) : access.kind === 'refused' ? (
-                  <div className="session-words" role="alert">
-                    <p>{access.message}</p>
-                    <button type="button" className="button" onClick={readNow}>
-                      Try again
-                    </button>
-                  </div>
-                ) : (
-                  <p className="session-words" role="status">
-                    {CONNECTING_WORDS}
-                  </p>
-                )}
-              </div>
-            </>
-          ) : run ? (
-            // Starting, stopped or failed: the words, then what the run reported, which stays.
-            <div className="agent-run-pane">
-              <p className="session-words" data-kind={screen.kind} role="status">
-                {screen.words}
-              </p>
-              <AgentRunReport run={run} />
-            </div>
-          ) : (
-            <p className="session-words" data-kind={screen.kind} role="status">
-              {screen.words}
-            </p>
-          )}
+          <SessionConversation
+            session={session}
+            access={access}
+            renewPass={renewPass}
+            onRetry={readNow}
+          />
         </>
       )}
     </div>

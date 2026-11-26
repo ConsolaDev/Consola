@@ -1869,7 +1869,7 @@ describe('agent teams', () => {
     });
   });
 
-  it('start an agent run on an opened pull request, which every member sees failed when no runner is connected', async () => {
+  it('start an agent run on an opened pull request, which every member sees in Runs, failed when no runner is connected', async () => {
     await acmeWithMembers();
     const [first] = (await teamsSeenBy(owner)).teams;
     const factory = await makeFactory('Reviews', first?.id ?? '');
@@ -1888,20 +1888,40 @@ describe('agent teams', () => {
       body: { recorded: true },
     });
 
-    const listed = await ask(listCloudSessions, '/api/cloud-sessions', member);
-    expect(listed).toEqual({
+    // The run is in Runs, a request whose conversation is its session; no one's Sessions list
+    // holds it.
+    const listed = await ask(listRuns, '/api/runs', member);
+    expect(listed.status).toBe(200);
+    const runs = (listed.body as { runs: Array<{ id: string }> }).runs;
+    expect(runs).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        status: 'failed',
+        trigger: 'event',
+        title: 'Price the catalog in euros',
+        error: 'No runner was connected for this workspace, so nothing ran.',
+        factory: expect.objectContaining({ id: factory.id }),
+      }),
+    ]);
+    const id = runs[0]?.id ?? '';
+    const read = await ask(getRun, `/api/runs/${id}`, member);
+    expect(read).toMatchObject({ status: 200, body: { conversation: { sessionId: id } } });
+    expect(await ask(listCloudSessions, '/api/cloud-sessions', member)).toEqual({
       status: 200,
-      body: [
-        expect.objectContaining({
-          personId: null,
-          runnerId: null,
-          status: 'failed',
-          errorCode: 'runner_unavailable',
-          title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
-          origin: expect.objectContaining({ factoryId: factory.id, agent: 'foreman' }),
-          agentRun: null,
-        }),
-      ],
+      body: [],
+    });
+    const session = await ask(getCloudSession, `/api/cloud-sessions/${id}`, member);
+    expect(session).toEqual({
+      status: 200,
+      body: expect.objectContaining({
+        personId: null,
+        runnerId: null,
+        status: 'failed',
+        errorCode: 'runner_unavailable',
+        title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
+        origin: expect.objectContaining({ factoryId: factory.id, agent: 'foreman' }),
+        agentRun: null,
+      }),
     });
   });
 });
@@ -2235,6 +2255,7 @@ const cronRun = (id: string, factoryId: string, overrides: Partial<RunWrite> = {
   runner: 'cloud',
   steps: [runStep('build')],
   request: null,
+  conversation: null,
   summary: 'Built.',
   error: null,
   costUsd: 0.1,

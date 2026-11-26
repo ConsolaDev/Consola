@@ -271,6 +271,8 @@ export const runs = pgTable(
     steps: jsonb('steps').$type<StepRecord[]>().notNull(),
     request: jsonb('request').$type<RequestFacts>(),
     requestText: text('request_text'),
+    /** The cloud session holding a request's conversation with its orchestrator. */
+    conversationSessionId: text('conversation_session_id'),
     summary: text('summary'),
     error: text('error'),
     costUsd: doublePrecision('cost_usd'),
@@ -320,6 +322,10 @@ export const runs = pgTable(
     check(
       'run_parent_check',
       sql`(${table.parentRunId} is null) = (${table.parentMove} is null) and (${table.parentRunId} is null or ${table.kind} = 'automation')`,
+    ),
+    check(
+      'run_conversation_check',
+      sql`${table.conversationSessionId} is null or ${table.kind} = 'request'`,
     ),
   ],
 );

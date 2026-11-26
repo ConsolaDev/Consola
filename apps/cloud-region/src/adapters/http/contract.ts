@@ -1050,7 +1050,7 @@ export const RunDetail = z
     }),
     conversation: z.strictObject({ sessionId: z.string() }).nullable().openapi({
       description:
-        "The cloud session holding the orchestrator's conversation, once there is one. Always null for now.",
+        "The cloud session holding a request's conversation with its orchestrator, once there is one: an agent run's. Null for an automation run.",
     }),
     source: z.union([RunSource, z.null()]),
     approval: z.union([RunApproval, z.null()]),
@@ -1421,7 +1421,7 @@ export const postCloudSession = createRoute({
 export const listCloudSessions = createRoute({
   method: 'get',
   path: '/api/cloud-sessions',
-  summary: "The caller's own cloud sessions and their workspace's agent runs, newest first",
+  summary: "The caller's own cloud sessions, newest first (an agent run is listed with the runs)",
   description:
     "A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.",
   responses: {

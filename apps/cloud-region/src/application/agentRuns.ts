@@ -9,14 +9,17 @@ import type { AgentTeam, PullRequestEvent, TeamAutomation } from '@consola/facto
 import {
   agentRunHarness,
   agentRunOrigin,
+  agentRunRecord,
   agentRunStart,
   agentRunTitle,
 } from '../domain/agentRun.js';
+import type { AgentRunFacts } from '../domain/agentRun.js';
 import { CELL_FAILURE_CODES } from '../domain/cloudSession.js';
 import type { CellFailureCode, CloudSession } from '../domain/cloudSession.js';
 import type { Factory } from '../domain/factory.js';
 import { handToRunner } from './cloudSessions.js';
-import type { AgentRunPorts } from './ports.js';
+import type { AgentRunPorts, Clock, CloudSessionStore, RunStore } from './ports.js';
+import { recordRun } from './runs.js';
 
 /*
  * Agent runs: Warp's software-factory model, beside the steps design. A GitHub `pull_request`
@@ -24,6 +27,11 @@ import type { AgentRunPorts } from './ports.js';
  * and each starts an agent run: a cloud session no person started or types into, whose first
  * agent is the automation's. The cell records it, hands its start to the workspace's runner, and
  * keeps what the runner reports (`applyRunnerUpdate`).
+ *
+ * Each agent run is also a run of the Runs pages: a request whose orchestrator is its first agent
+ * and whose conversation is its session (`agentRunRecord`). The cell records that run itself, as
+ * it starts the session, and again after every change to the session (`keepingRunsInStep`):
+ * in this experiment the cell, not a runner, decides that a run starts, so it is the run's writer.
  */
 
 /** The event's name GitHub gives a pull request's webhook. */
@@ -135,6 +143,91 @@ export async function startAgentRun(ports: AgentRunPorts, firing: Firing): Promi
     agentRun: null,
   };
   await ports.sessions.insert(session);
+  await recordAgentRun(ports, session, {
+    factoryVersion: factory.latestVersion,
+    text: start.ok ? start.value.prompt : automation.prompt,
+    createdAt: new Date(now * 1000).toISOString(),
+  });
   if (code !== null || !offer || !start.ok) return session;
   return handToRunner(ports, session, offer.runnerId, { agentRun: start.value });
+}
+
+/** What keeping an agent run's run needs: the runs, the clock, and the log. */
+type RunKeeping = { runs: RunStore; clock: Clock; report: (line: string) => void };
+
+/**
+ * Records an agent run's run as its session stands now (`agentRunRecord`). A run the cell cannot
+ * record (`recordRun`'s refusal, or a store that fails) is logged, with its id and why, and never
+ * stops the session: the session is what runs, and the run only says so.
+ */
+async function recordAgentRun(
+  ports: RunKeeping,
+  session: CloudSession,
+  facts: AgentRunFacts,
+): Promise<void> {
+  const record = agentRunRecord(
+    session,
+    facts,
+    new Date(ports.clock.nowSeconds() * 1000).toISOString(),
+  );
+  if (record === null) return;
+  try {
+    const answer = await recordRun(ports.runs, session.workspaceId, record);
+    if (answer.kind === 'invalid') {
+      const fields = answer.problems.map((problem) => problem.field).join(', ');
+      ports.report(`The run of agent run ${session.id} was not recorded: ${fields}.`);
+    } else if (answer.kind !== 'recorded' && answer.kind !== 'stale') {
+      ports.report(`The run of agent run ${session.id} was not recorded: ${answer.kind}.`);
+    }
+  } catch (error) {
+    const why = error instanceof Error ? error.message.split('\n')[0] : 'an unexpected error';
+    ports.report(`The run of agent run ${session.id} was not recorded: ${why}`);
+  }
+}
+
+/**
+ * The cloud session store, with each agent run's run kept in step with its session: after every
+ * change that lands (`update`'s compare-and-set won), the session is read again and, for an agent
+ * run, its run recorded again from what the run already holds (its factory version, its text and
+ * when it was made) and the session as it is now. Every writer of a session goes through it (a
+ * runner's update, its `hello`, a person's stop, a start handed over), so none can move a session
+ * without its run. A run the cell holds no record of is left alone and logged: the record made as
+ * the session started is the only one that may create it.
+ */
+export function keepingRunsInStep(
+  sessions: CloudSessionStore,
+  ports: RunKeeping,
+): CloudSessionStore {
+  return {
+    ...sessions,
+    async update(sessionId, expected, changes) {
+      const won = await sessions.update(sessionId, expected, changes);
+      if (won) await followSession(sessions, ports, sessionId);
+      return won;
+    },
+  };
+}
+
+async function followSession(
+  sessions: CloudSessionStore,
+  ports: RunKeeping,
+  sessionId: string,
+): Promise<void> {
+  try {
+    const session = await sessions.find(sessionId);
+    if (session === null || session.origin === null) return;
+    const found = await ports.runs.get(session.workspaceId, session.id);
+    if (found === null || found.request === null) {
+      ports.report(`Agent run ${session.id} changed, but the cell holds no run of it to follow.`);
+      return;
+    }
+    await recordAgentRun(ports, session, {
+      factoryVersion: found.run.factory.version,
+      text: found.request.text,
+      createdAt: found.run.createdAt,
+    });
+  } catch (error) {
+    const why = error instanceof Error ? error.message.split('\n')[0] : 'an unexpected error';
+    ports.report(`The run of agent run ${sessionId} was not followed: ${why}`);
+  }
 }

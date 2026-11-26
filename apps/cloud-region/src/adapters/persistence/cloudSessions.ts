@@ -35,7 +35,10 @@ function toChanges(changes: CloudSessionChanges): Partial<Insert> {
   return agentRun === undefined ? rest : { ...rest, agentRun: writeJson(agentRun) };
 }
 
-/** What a person sees in a workspace: their own sessions, and its agent runs (`isSeenBy`). */
+/**
+ * What a person may open in a workspace (`isSeenBy`): their own sessions, and its agent runs, each
+ * the conversation of one of its runs.
+ */
 const seenBy = (workspaceId: string, personId: string) =>
   and(
     eq(cloudSessions.workspaceId, workspaceId),
@@ -59,11 +62,13 @@ export function createCloudSessionStore(db: Database): CloudSessionStore {
         .where(and(eq(cloudSessions.id, sessionId), seenBy(workspaceId, personId)));
       return row ? toSession(row) : null;
     },
-    async listSeen(workspaceId, personId) {
+    async listOwn(workspaceId, personId) {
       const rows = await db
         .select()
         .from(cloudSessions)
-        .where(seenBy(workspaceId, personId))
+        .where(
+          and(eq(cloudSessions.workspaceId, workspaceId), eq(cloudSessions.personId, personId)),
+        )
         .orderBy(desc(cloudSessions.createdAt), desc(cloudSessions.id));
       return rows.map(toSession);
     },

@@ -8,13 +8,14 @@ import {
 } from '@consola/factory-spec';
 import { AGENT_RUN_FACTORY_DIR, SESSION_REPOSITORY_DIR } from '@consola/runner-protocol';
 import type { AgentRun } from '@consola/runner-protocol';
+import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import type { Caller } from '../domain/caller.js';
 import type { FactoryFile } from '../domain/factory.js';
-import { startAgentRunsFor } from './agentRuns.js';
+import { keepingRunsInStep, startAgentRunsFor } from './agentRuns.js';
 import { applyRunnerUpdate, getSession, listSessions, stopSession } from './cloudSessions.js';
 import type {
   AgentRunPorts,
@@ -28,6 +29,7 @@ import type {
   WorkspaceCopies,
 } from './ports.js';
 import { receiveGitHubEvent } from './receiveGitHubEvent.js';
+import { readRun } from './runs.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -105,14 +107,20 @@ function portsFor(connected: Offer | null = offer) {
   const { channel, starts } = channelFor(connected);
   const lines: string[] = [];
   let next = 0;
+  const clock = { nowSeconds: () => 1000 };
+  const report = (line: string) => {
+    lines.push(line);
+  };
   const ports: AgentRunPorts & CloudSessionPorts = {
-    sessions: stores.cloudSessions,
+    // As `compose.ts` wires it: every change to a session moves its run.
+    sessions: keepingRunsInStep(stores.cloudSessions, { runs: stores.runs, clock, report }),
     runners: channel,
     ids: { newId: () => `run-${++next}` },
-    clock: { nowSeconds: () => 1000 },
+    clock,
     passes: null,
     factories,
-    report: (line) => lines.push(line),
+    runs: stores.runs,
+    report,
   };
   return { ports, channel, starts, lines };
 }
@@ -166,6 +174,21 @@ async function factoryWith(files: readonly FactoryFile[], name = 'Reviews') {
 const caller = (personId: string): Caller =>
   ({ personId, workspaceId: 'acme', role: 'member', region: 'eu' }) as Caller;
 
+/** The agent runs the tests' ids name, as the cell holds them. */
+async function agentRunSessions() {
+  const found = await Promise.all(
+    ['run-1', 'run-2', 'run-3'].map((id) => stores.cloudSessions.find(id)),
+  );
+  return found.filter((session) => session !== null);
+}
+
+/** An agent run's run, as the Runs pages read it for Fay, a member of the factory's team. */
+async function runOf(id: string) {
+  const read = await readRun(teams, factories, stores.runs, caller('person-fay'), id);
+  if (read.kind !== 'found') throw new Error(`no run ${id}: ${read.kind}`);
+  return read;
+}
+
 describe('an event starts agent runs', () => {
   it("starts one foreman run for an opened pull request, with the plan's prompt and the head to check out", async () => {
     await holdAcme();
@@ -174,7 +197,7 @@ describe('an event starts agent runs', () => {
 
     expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
 
-    const [run, ...others] = await stores.cloudSessions.listSeen('acme', 'person-fay');
+    const [run, ...others] = await agentRunSessions();
     expect(others).toEqual([]);
     expect(run).toEqual({
       id: 'run-1',
@@ -244,7 +267,7 @@ describe('an event starts agent runs', () => {
     await deliver(ports, event);
     expect(await deliver(ports, event)).toMatchObject({ kind: 'recorded', now: false });
     expect(starts).toHaveLength(1);
-    expect(await stores.cloudSessions.listSeen('acme', 'person-fay')).toHaveLength(1);
+    expect(await agentRunSessions()).toHaveLength(1);
   });
 
   it('still starts on a draft: the prompt handles drafts', async () => {
@@ -273,7 +296,7 @@ describe('an event starts agent runs', () => {
     await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, channel } = portsFor(connected as Offer | null);
     expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
-    expect(await stores.cloudSessions.listSeen('acme', 'person-fay')).toMatchObject([
+    expect(await agentRunSessions()).toMatchObject([
       {
         status: 'failed',
         errorCode: code,
@@ -298,7 +321,7 @@ describe('an event starts agent runs', () => {
     const { ports, starts, lines } = portsFor();
     expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
     expect(starts).toEqual([]);
-    expect(await stores.cloudSessions.listSeen('acme', 'person-fay')).toEqual([]);
+    expect(await agentRunSessions()).toEqual([]);
     expect(lines.join('\n')).toContain('problem(s) in its files, so it starts nothing');
   });
 
@@ -381,7 +404,7 @@ describe("an agent run's life", () => {
     expect((await ports.sessions.find('run-1'))?.agentRun).toBeNull();
   });
 
-  it("is every member's to see and stop, while a person's own session stays theirs", async () => {
+  it("is every member's to open and stop, listed with the runs, while a person's own session stays theirs", async () => {
     const { ports, channel } = await started();
     // Dana's own session, which Fay must not see.
     await ports.sessions.insert({
@@ -402,9 +425,9 @@ describe("an agent run's life", () => {
       agentRun: null,
     });
 
-    expect((await listSessions(ports, caller('person-fay'))).map((s) => s.id)).toEqual(['run-1']);
+    // The Sessions list is a person's own: an agent run is a run, listed with the runs.
+    expect(await listSessions(ports, caller('person-fay'))).toEqual([]);
     expect((await listSessions(ports, caller('person-dana'))).map((s) => s.id)).toEqual([
-      'run-1',
       'dana-own',
     ]);
     expect(await getSession(ports, caller('person-fay'), 'dana-own')).toEqual({
@@ -421,5 +444,141 @@ describe("an agent run's life", () => {
     expect(await stopSession(ports, caller('person-fay'), 'dana-own')).toEqual({
       kind: 'not_found',
     });
+  });
+});
+
+describe("an agent run's run", () => {
+  const RUNNER = { workspaceId: 'acme', runnerId: 'runner-1' };
+
+  async function started(connected: Offer | null = offer) {
+    await holdAcme();
+    const factory = await factoryWith(CODE_REVIEW_TEAM_FILES);
+    const fake = portsFor(connected);
+    await deliver(fake.ports, eventOf());
+    return { ...fake, factory };
+  }
+
+  it('is a request of the Runs pages: the foreman its one step, the pull request its item, the session its conversation', async () => {
+    const { factory, starts } = await started();
+    const read = await runOf('run-1');
+    expect(read.run).toMatchObject({
+      id: 'run-1',
+      kind: 'request',
+      title: 'Price the catalog in euros',
+      status: 'queued',
+      phase: 'active',
+      factory: { id: factory.id, name: 'Reviews', version: 2 },
+      automation: null,
+      parentId: null,
+      trigger: 'event',
+      triggerDetail: 'pull_request',
+      startedBy: null,
+      item: {
+        url: 'https://github.com/sprocket/catalog-portal/pull/7',
+        title: 'Price the catalog in euros',
+        kind: 'pr',
+        repo: 'sprocket/catalog-portal',
+        number: 7,
+      },
+      runner: 'cloud',
+      startedAt: null,
+      finishedAt: null,
+    });
+    expect(read.steps).toMatchObject([
+      { id: 'orchestrator', kind: 'orchestrator', status: 'queued', agent: 'foreman' },
+    ]);
+    // Its text is what the foreman is sent, and its conversation the session it works in.
+    expect(read.request?.text).toBe(starts[0]?.[1].agentRun?.prompt);
+    expect(read.conversation).toBe('run-1');
+    expect(read.children).toEqual([]);
+  });
+
+  it('follows its session: at work, waiting on a question, then done with the foreman’s first line', async () => {
+    const { ports } = await started();
+    const update = (over: Record<string, unknown>) =>
+      applyRunnerUpdate(ports, RUNNER, { type: 'session.update', sessionId: 'run-1', ...over });
+
+    await update({ status: 'running', agentRun: { state: 'working' } });
+    expect((await runOf('run-1')).run).toMatchObject({
+      status: 'running',
+      phase: 'active',
+      startedAt: new Date(1_000_000).toISOString(),
+    });
+
+    await update({ agentRun: { state: 'waiting' } });
+    expect((await runOf('run-1')).run).toMatchObject({
+      status: 'waiting',
+      waitingOn: 'person',
+      phase: 'needs-you',
+    });
+
+    await update({
+      agentRun: { state: 'done', summary: '\nPosted a comment review on #7.\nTwo findings.' },
+    });
+    const done = await runOf('run-1');
+    expect(done.run).toMatchObject({
+      status: 'completed',
+      phase: 'completed',
+      summary: 'Posted a comment review on #7.',
+      finishedAt: null,
+    });
+    expect(done.steps).toMatchObject([{ status: 'completed' }]);
+
+    // The host stops once nobody is connected: the run stays done, and says when it ended.
+    await update({ status: 'stopped' });
+    expect((await runOf('run-1')).run).toMatchObject({
+      status: 'completed',
+      finishedAt: new Date(1_000_000).toISOString(),
+    });
+  });
+
+  it('is cancelled when a person stops it before it is done', async () => {
+    const { ports } = await started();
+    await applyRunnerUpdate(ports, RUNNER, {
+      type: 'session.update',
+      sessionId: 'run-1',
+      status: 'running',
+      agentRun: { state: 'working' },
+    });
+    await stopSession(ports, caller('person-fay'), 'run-1');
+    expect((await runOf('run-1')).run).toMatchObject({ status: 'cancelled', phase: 'stopped' });
+  });
+
+  it("fails with the runner's message, or the cell's sentence for its own code", async () => {
+    const { ports } = await started();
+    await applyRunnerUpdate(ports, RUNNER, {
+      type: 'session.update',
+      sessionId: 'run-1',
+      status: 'failed',
+      error: 'The sandbox was not made within 60 s.',
+    });
+    const read = await runOf('run-1');
+    expect(read.run).toMatchObject({
+      status: 'failed',
+      error: 'The sandbox was not made within 60 s.',
+    });
+    expect(read.steps).toMatchObject([
+      { status: 'failed', error: 'The sandbox was not made within 60 s.' },
+    ]);
+  });
+
+  it('is recorded failed when nothing ran, saying why', async () => {
+    await started(null);
+    expect((await runOf('run-1')).run).toMatchObject({
+      status: 'failed',
+      error: 'No runner was connected for this workspace, so nothing ran.',
+    });
+  });
+
+  it('leaves a session it holds no run of alone, and says so', async () => {
+    const { ports, lines } = await started();
+    await db.execute(sql`delete from run where run_id = 'run-1'`);
+    await applyRunnerUpdate(ports, RUNNER, {
+      type: 'session.update',
+      sessionId: 'run-1',
+      status: 'running',
+    });
+    expect((await ports.sessions.find('run-1'))?.status).toBe('running');
+    expect(lines.join('\n')).toContain('the cell holds no run of it to follow');
   });
 });

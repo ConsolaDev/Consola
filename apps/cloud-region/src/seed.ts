@@ -3,7 +3,8 @@
 // refuses any database but a PGlite folder (`seedRefusal`), and refuses to run while a cell
 // answers on this configuration's port, since PGlite takes one process per folder. It is never
 // reachable over HTTP. Seeding again refreshes the same runs (`seedDemoRuns`). It also installs
-// the code review team template in each workspace's first team (`seedCodeReviewTeam`).
+// the code review team template in each workspace's first team (`seedCodeReviewTeam`), with a
+// finished agent run of it (`seedDemoAgentRun`).
 
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -12,7 +13,7 @@ import { migrateDatabase, openDatabase } from './adapters/persistence/database.j
 import { createDrizzleStores } from './adapters/persistence/stores.js';
 import { workspaces } from './adapters/persistence/tables.js';
 import { seedDemoRuns } from './application/seedDemoRuns.js';
-import { seedCodeReviewTeam } from './application/seedTemplates.js';
+import { seedCodeReviewTeam, seedDemoAgentRun } from './application/seedTemplates.js';
 import { ConfigError, loadConfig, seedRefusal } from './config.js';
 import { CODE_REVIEW_TEAM_TEMPLATE } from './domain/factoryTemplates.js';
 
@@ -81,6 +82,16 @@ try {
       team.kind === 'taken'
         ? `${id}: ${name} is a factory of another team than the first; left alone.`
         : `${id}: ${name} ${team.kind === 'unchanged' ? 'already holds the template' : team.kind}, at version ${team.version}.`,
+    );
+    if (team.kind === 'taken') continue;
+    const run = await seedDemoAgentRun(
+      { sessions: stores.cloudSessions, runs: stores.runs },
+      id,
+      { id: team.factoryId, name: CODE_REVIEW_TEAM_TEMPLATE.name, version: team.version },
+      now,
+    );
+    console.log(
+      `${id}: the demo agent run ${run === 'created' ? 'recorded' : 'was already there'}, in Runs.`,
     );
   }
 } finally {

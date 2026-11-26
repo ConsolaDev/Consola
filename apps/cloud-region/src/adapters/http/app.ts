@@ -104,7 +104,7 @@ export function createApp(deps: {
   app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
   // An event recorded for the first time starts the agent runs it fires, on the cloud sessions'
   // ports and the workspace's factories.
-  const agentRuns = { ...cloudSessions, factories, report };
+  const agentRuns = { ...cloudSessions, factories, runs, report };
   app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report, agentRuns }));
 
   // No token either: a runner is no person, and presents its secret instead.

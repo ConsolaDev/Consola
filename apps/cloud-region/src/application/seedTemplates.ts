@@ -1,7 +1,10 @@
+import { agentRunRecord } from '../domain/agentRun.js';
+import type { CloudSession } from '../domain/cloudSession.js';
 import { checkFactoryFiles } from '../domain/factory.js';
 import type { FactoryFile } from '../domain/factory.js';
 import { CODE_REVIEW_TEAM_TEMPLATE } from '../domain/factoryTemplates.js';
-import type { FactoryStore, TeamStore } from './ports.js';
+import type { CloudSessionStore, FactoryStore, RunStore, TeamStore } from './ports.js';
+import { recordRun } from './runs.js';
 
 /** What seeding the code review team did in one workspace. */
 export type TemplateSeed =
@@ -74,4 +77,88 @@ export async function seedCodeReviewTeam(
     };
   }
   return { kind, factoryId: factory.id, version: factory.latestVersion };
+}
+
+/** The demo agent run's foreman sent its review and finished: what its report says. */
+const DEMO_AGENT_RUN_REPORT = {
+  state: 'done',
+  summary:
+    'Posted a comment review on sprocket/catalog-portal#7 with two findings.\n\nThe review agent found a rounding error in the euro totals and a missing test for an empty basket. Both are in the review for the author to address.',
+  agents: [
+    {
+      id: 'demo-review-thread',
+      agent: 'review',
+      status: 'done',
+      summary:
+        'Two findings: totals round each line before summing (off by a cent on large baskets), and no test covers an empty basket.',
+    },
+  ],
+} as const;
+
+/**
+ * A finished agent run of the code review team, for the demo seed, so a run's page shows one
+ * before any runner has run one: a cloud session that ended after its foreman reported, and its run
+ * (`agentRunRecord`), a request in Runs whose conversation is that session. Its ids are fixed per
+ * workspace (`demo-agent-run-<workspace>`), so seeding again changes nothing; a session already
+ * there is left as it is.
+ */
+export async function seedDemoAgentRun(
+  ports: { sessions: CloudSessionStore; runs: RunStore },
+  workspaceId: string,
+  factory: { id: string; name: string; version: number },
+  nowMs: number,
+): Promise<'created' | 'unchanged'> {
+  const id = `demo-agent-run-${workspaceId}`;
+  if (await ports.sessions.find(id)) return 'unchanged';
+  const startedAt = Math.floor(nowMs / 1000) - 26 * 60;
+  const session: CloudSession = {
+    id,
+    workspaceId,
+    personId: null,
+    repository: 'sprocket/catalog-portal',
+    harness: 'claude',
+    status: 'stopped',
+    title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
+    hostUrl: null,
+    error: null,
+    errorCode: null,
+    runnerId: 'demo-runner',
+    createdAt: startedAt,
+    endedAt: startedAt + 14 * 60,
+    origin: {
+      kind: 'automation',
+      factoryId: factory.id,
+      factoryName: factory.name,
+      automation: 'review-pull-requests',
+      agent: 'foreman',
+      item: {
+        kind: 'pull_request',
+        repository: 'sprocket/catalog-portal',
+        number: 7,
+        url: 'https://github.com/sprocket/catalog-portal/pull/7',
+        title: 'Price the catalog in euros',
+        headSha: 'a'.repeat(40),
+      },
+    },
+    agentRun: {
+      ...DEMO_AGENT_RUN_REPORT,
+      agents: DEMO_AGENT_RUN_REPORT.agents.map((agent) => ({ ...agent })),
+    },
+  };
+  await ports.sessions.insert(session);
+  const record = agentRunRecord(
+    session,
+    {
+      factoryVersion: factory.version,
+      text: 'A pull request needs a review: sprocket/catalog-portal#7, "Price the catalog in euros", opened by octocat. Enter your procedure at the review step.',
+      createdAt: new Date(startedAt * 1000).toISOString(),
+    },
+    new Date(nowMs).toISOString(),
+  );
+  if (record === null) throw new Error('The demo agent run has no origin.');
+  const answer = await recordRun(ports.runs, workspaceId, record);
+  if (answer.kind !== 'recorded') {
+    throw new Error(`The demo agent run's run was not recorded: ${JSON.stringify(answer)}`);
+  }
+  return 'created';
 }

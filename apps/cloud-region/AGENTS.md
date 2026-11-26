@@ -381,8 +381,9 @@ changed; every other run is a top-level automation run. The rules are in
   it can store, and no NUL or lone surrogate anywhere (`jsonb` refuses
   `\u0000` too). A record older than the one held (`updated_at`) changes
   nothing (`stale`, a compare-and-set in the upsert), and a run's factory,
-  kind and parent never change (`identity-changed`). Today the tests and the
-  seed call it; the runner's connection (CON-94) will.
+  kind and parent never change (`identity-changed`). Today the tests, the
+  seed and the cell's own agent runs call it (below, "Agent runs": the one
+  run the cell writes itself); the runner's connection (CON-94) will.
 - **Title and phase are stored**, so the list searches, filters and counts
   by them. The title (`titleOf`) is a request's item's title, else its
   text's first line; an automation run's item's title, else its
@@ -414,7 +415,9 @@ changed; every other run is a top-level automation run. The rules are in
   `limit`; `facets` are what the caller sees, whatever the filters. A run's
   page (`GET /api/runs/{runId}`) adds its steps, a request's facts and text
   and its runs in the order it started them, and a run's request.
-  `conversation` is null until cloud sessions (CON-91).
+  `conversation` names the cloud session holding a request's conversation
+  with its orchestrator (`conversation_session_id`, only on a request): an
+  agent run's session (below, "Agent runs"), else null.
 - **A step says what it was asked, did and produced**, as the desktop's
   trace does. What it did is what its runner records: the engine's
   `StepRun` fields (outputs, artifacts, turn, command, earlier attempts,
@@ -468,8 +471,11 @@ changed; every other run is a top-level automation run. The rules are in
   code review team (`seedCodeReviewTeam`, `application/seedTemplates.ts`): a
   factory `Code review team` on each workspace's first team whose latest
   files are exactly `CODE_REVIEW_TEAM_FILES`, made when missing and saved
-  again only when they differ, after `checkFactoryFiles`. It refuses any
-  database but a PGlite folder (`seedRefusal`, in `config.ts`), and refuses
+  again only when they differ, after `checkFactoryFiles`, with a finished
+  agent run of it (`seedDemoAgentRun`: a stopped session holding the
+  foreman's report, and its run, once per workspace,
+  `demo-agent-run-<workspace>`). It refuses any database but a PGlite
+  folder (`seedRefusal`, in `config.ts`), and refuses
   while anything answers on the configuration's `PORT`, since PGlite takes
   one process per folder: stop the cell first. It is never reachable over
   HTTP.
@@ -649,7 +655,8 @@ runner through the `RunnerChannel` port.
   `requireCaller`): `GET /api/cloud-sessions/options`
   (`getCloudSessionOptions`), `POST /api/cloud-sessions` (`postCloudSession`,
   201), `GET /api/cloud-sessions` (`listCloudSessions`, an array: the
-  caller's own sessions and the workspace's agent runs, newest first),
+  caller's own sessions, newest first; an agent run is a run, listed with
+  the runs, below "Agent runs"),
   `GET /api/cloud-sessions/{sessionId}` (`getCloudSession`),
   `POST /api/cloud-sessions/{sessionId}/stop` (`postCloudSessionStop`, 202)
   and `POST /api/cloud-sessions/{sessionId}/pass` (`postCloudSessionPass`,
@@ -662,8 +669,9 @@ runner through the `RunnerChannel` port.
   registered before the session by id, so `options` is never read as an id.
 - **Whose.** A person's session is visible only to the person who started
   it, in the workspace of their token; an agent run, to every member of its
-  workspace (`isSeenBy`; the store's `findSeen` and `listSeen`). Another
-  person's session, or another workspace's, is `not_found`, never 403.
+  workspace, by its id (`isSeenBy`, the store's `findSeen`), though the list
+  holds a person's own alone (`listOwn`). Another person's session, or
+  another workspace's, is `not_found`, never 403.
 - **No runner, nothing recorded.** A person's start is checked against the
   runner's offer before any row is written, and before anything is sent. With
   no runner configured, or none connected, every start is 503. An agent run is
@@ -731,8 +739,27 @@ rules are in `domain/agentRun.ts`, the use cases in `application/agentRuns.ts`.
   (`{ kind: 'automation', factoryId, factoryName, automation, agent, item:
   { kind: 'pull_request', repository, number, url, title, headSha } }`) and
   `agent_run`, the runner's last `AgentRunReport` (null until one), both JSON
-  as text. Every member of the workspace lists, reads, gets a pass for and
-  stops it; a person's own sessions stay theirs.
+  as text. Every member of the workspace reads, gets a pass for and stops
+  it by its id; a person's own sessions stay theirs, and the Sessions list
+  holds those alone.
+- **It is a run.** Each agent run is a **request** of the Runs pages
+  (`agentRunRecord`, "Runs" above), since its automation hands its event to
+  an agent instead of running steps: its one step is that agent
+  (`orchestrator`, the agent's name on it), its trigger `event`
+  (`pull_request`), its item the pull request, its text what the agent was
+  sent, its conversation the session, and its id the session's. Where it
+  stands follows the session and the runner's last report: `starting` is
+  `queued`; running, the report's `working`, `waiting` (on a person, so
+  `needs-you`), `done` (`completed`, its summary the foreman's first line)
+  or `failed`; stopped, `completed` or `failed` by the report, else
+  `cancelled`; failed, `failed`, with the runner's message or the cell's
+  sentence for its own code. The cell writes this run itself, the one run
+  no runner records, since here the cell decides that a run starts:
+  `startAgentRun` records it with the session, and `keepingRunsInStep`, the
+  session store every writer of a session gets (`compose.ts`), records it
+  again after every change to the session that lands, from what the run
+  holds (its version, its text, when it was made). A run that cannot be
+  recorded is logged and never stops the session.
 - **The title** is the cell's, `<automation> · <owner/name>#<number> <title>`
   on one line, at most `AGENT_RUN_TITLE_MAX` (200) characters
   (`agentRunTitle`); a runner's `title` never replaces it. A report is kept
@@ -880,9 +907,10 @@ which give the workspaces already held their first team
 `0002_factories` adds the factories' tables, all generated,
 `0003_github_event` GitHub's events, `0004_runs` the runs,
 `0005_run_approval` the answers to runs waiting for approval,
-`0006_cloud_session` the cloud sessions, and `0007_agent_runs` what an agent
+`0006_cloud_session` the cloud sessions, `0007_agent_runs` what an agent
 run adds to them (`person_id` and `runner_id` nullable, `origin`,
-`agent_run`, and an index by workspace). `cloud_session` has no foreign key
+`agent_run`, and an index by workspace), and `0008_run_conversation` a
+request's `conversation_session_id`. `cloud_session` has no foreign key
 to `workspace`, so a session does not wait for the outbox.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.

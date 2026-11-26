@@ -107,9 +107,12 @@ export async function handToRunner(
   return session;
 }
 
-/** What the caller sees: their own sessions and the workspace's agent runs, newest first. */
+/**
+ * The caller's own sessions, newest first. The workspace's agent runs are runs, listed with the
+ * runs (`GET /api/runs`), whose page opens each one's session as its conversation.
+ */
 export function listSessions(ports: CloudSessionPorts, caller: Caller): Promise<CloudSession[]> {
-  return ports.sessions.listSeen(caller.workspaceId, caller.personId);
+  return ports.sessions.listOwn(caller.workspaceId, caller.personId);
 }
 
 export type SessionAnswer = { kind: 'ok'; session: CloudSession } | { kind: 'not_found' };

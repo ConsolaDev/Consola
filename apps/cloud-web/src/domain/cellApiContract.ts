@@ -2296,7 +2296,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The caller's own cloud sessions and their workspace's agent runs, newest first
+         * The caller's own cloud sessions, newest first (an agent run is listed with the runs)
          * @description A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.
          */
         get: {
@@ -3103,7 +3103,7 @@ export interface components {
             } | null;
             /** @description The automation runs a request started, in the order it started them. */
             children: components["schemas"]["RunSummary"][];
-            /** @description The cloud session holding the orchestrator's conversation, once there is one. Always null for now. */
+            /** @description The cloud session holding a request's conversation with its orchestrator, once there is one: an agent run's. Null for an automation run. */
             conversation: {
                 sessionId: string;
             } | null;

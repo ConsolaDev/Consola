@@ -339,7 +339,8 @@ export type RunRecordAnswer =
 
 /**
  * Records a run a runner reports for a workspace, if `checkRun` finds nothing wrong with it. No
- * person calls it: the seed and the tests do now, and a runner's connection will.
+ * person calls it: the seed, the tests and the cell's agent runs (`agentRuns.ts`) do now, and a
+ * runner's connection will.
  */
 export async function recordRun(
   runs: RunStore,

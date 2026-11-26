@@ -4,7 +4,7 @@ import { migrateDatabase, openDatabase } from '../adapters/persistence/database.
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import type { FactoryStore, TeamStore, WorkspaceCopies } from './ports.js';
-import { seedCodeReviewTeam } from './seedTemplates.js';
+import { seedCodeReviewTeam, seedDemoAgentRun } from './seedTemplates.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -73,5 +73,39 @@ describe('seedCodeReviewTeam', () => {
 
   it('does nothing for a workspace the cell does not hold', async () => {
     expect(await seedCodeReviewTeam({ teams, factories }, 'globex')).toBe('workspace-pending');
+  });
+});
+
+describe('seedDemoAgentRun', () => {
+  it('records a finished agent run in Runs, its session its conversation, once', async () => {
+    await holdAcme();
+    const stores = createDrizzleStores(db);
+    const team = await seedCodeReviewTeam({ teams, factories }, 'acme');
+    if (team === 'workspace-pending' || team.kind === 'taken') throw new Error('no team');
+    const factory = { id: team.factoryId, name: 'Code review team', version: team.version };
+    const seed = () =>
+      seedDemoAgentRun(
+        { sessions: stores.cloudSessions, runs: stores.runs },
+        'acme',
+        factory,
+        Date.UTC(2026, 10, 26, 12),
+      );
+
+    expect(await seed()).toBe('created');
+    const found = await stores.runs.get('acme', 'demo-agent-run-acme');
+    expect(found).toMatchObject({
+      run: {
+        kind: 'request',
+        status: 'completed',
+        trigger: 'event',
+        summary: 'Posted a comment review on sprocket/catalog-portal#7 with two findings.',
+      },
+      conversation: 'demo-agent-run-acme',
+    });
+    expect(await stores.cloudSessions.find('demo-agent-run-acme')).toMatchObject({
+      status: 'stopped',
+      agentRun: { state: 'done' },
+    });
+    expect(await seed()).toBe('unchanged');
   });
 });

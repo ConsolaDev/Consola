@@ -97,9 +97,11 @@ The app is built in layers, and imports point inward only.
   of sections `sections.tsx` with each section's page, such as
   `OverviewPage.tsx` with `RegionMap` and `CopySlug`, `RunsSection.tsx`
   with the list and a run's page (see "Runs"), and `SessionsSection.tsx` with
-  `SessionsList`, `NewSessionPage` and `SessionPage`, whose chat,
-  `SessionChat`, loads only for a running session, and whose agent run shows
-  `AgentRunReport` (see "Sessions"), and its
+  `SessionsList`, `NewSessionPage` and `SessionPage`, which holds its session
+  through `useCloudSession` and shows it with `SessionConversation`, whose
+  chat, `SessionChat`, loads only for a running session, and whose agent run
+  shows `AgentRunReport` (see "Sessions"; a run's Conversation tab holds an
+  agent run's session the same way), and its
   Factories group
   `FactoriesNav.tsx` with `FactoryTile`, `useFactories`, `NewFactoryDialog`
   and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage` (its
@@ -511,13 +513,19 @@ the factory's orchestrator; the automations it starts are its children.
   Conversation, first and shown unless the address says otherwise, and
   Automations with their count. Choosing one, or opening an automation,
   replaces the address's entry (`showRunPlace`).
-- **The conversation comes later.** The Conversation tab is where `AgentChat`
-  (`@consola/agent-ui`) will mount once requests run in cloud sessions, as a
-  cloud session's page mounts it already (see "Sessions"). Until then
-  (`conversation === null`) it shows the request as the person gave it and
-  says what will join it. An
-  open question's words are not in the cell, so the page says when it was
-  asked and its deadline.
+- **A request's conversation is its cloud session's, once it has one.** An
+  agent run is a request whose `conversation` names its session (see
+  "Sessions", "Agent runs"): its Conversation tab holds that session as the
+  session's page does (`useCloudSession` and `SessionConversation`, shared by
+  both), the chat, `AgentChat` (`@consola/agent-ui`), in a frame of its own
+  while the session runs (`.run-session[data-running]`), the chat holding the
+  request as its first message, and the runner's report of the agents it
+  dispatched above it; once the session has ended, the request as it was
+  sent, the session's words and that report. A request no person started
+  says who handed it over by its trigger ("Event"). Any other request
+  (`conversation === null`) shows the request as the person gave it and says
+  what will join it. An open question's words are not in the cell, so the
+  page says when it was asked and its deadline.
 - **The automations a request started** (`ui/RequestAutomations.tsx`, the
   Automations tab): `RunDetail.children` in the order the orchestrator
   started them, numbered so, each a row of its status, its automation, where
@@ -552,13 +560,13 @@ cell's database.
 ## Sessions
 
 The Sessions section (`#/sessions`, `ui/SessionsSection.tsx`, a `wide` entry
-of `SECTIONS` after Runs) shows the person's cloud sessions and the
-workspace's agent runs: each a sandbox the workspace's runner runs, with an
-agent CLI working in one of the runner's repositories
-(`apps/cloud-region/AGENTS.md`, "Cloud sessions"). It reaches the cell through
-`cloudSessionsService` (`services/cloudSessions.ts`) on the page's cell
-session, as Runs does, and the cell decides everything: a person sees their
-own sessions and every agent run, and every status is the cell's.
+of `SECTIONS` after Runs) shows the person's own cloud sessions: each a
+sandbox the workspace's runner runs, with an agent CLI working in one of the
+runner's repositories (`apps/cloud-region/AGENTS.md`, "Cloud sessions"). It
+reaches the cell through `cloudSessionsService` (`services/cloudSessions.ts`)
+on the page's cell session, as Runs does, and the cell decides everything: the
+list holds a person's own sessions, every member opens an agent run's by its
+id, and every status is the cell's.
 
 - **The address holds the place** (`sessionsRoute.ts`): the list is
   `#/sessions`, the form `#/sessions/new`, a session `#/sessions/<id>` (the
@@ -568,8 +576,7 @@ own sessions and every agent run, and every status is the cell's.
   its status (a dot, hollow while it starts, the accent while it runs, quiet
   once stopped, red once failed, and its word), its name (`sessionLabel`: the
   title, or "Session" and the id's first eight characters), its repository and
-  harness as tags, and when it started; an agent run's row is its own (see
-  "Agent runs"). It reads again as often as its
+  harness as tags, and when it started. It reads again as often as its
   liveliest session asks (`listPollIntervalMs`), every 30 s once none can
   change, never while the tab is hidden; a refresh that fails while the cell
   or `cloud-global` is out keeps the rows.
@@ -620,24 +627,23 @@ own sessions and every agent run, and every status is the cell's.
 An agent run is a cloud session an automation of a factory's agent team
 started on a pull request (`origin` set), which nobody types into: its first
 agent (the foreman) dispatches others and posts on the pull request. Every
-member sees, opens and may stop one.
+member opens and may stop one.
 
-- **In the list** it is one row among the sessions, newest first: the
-  automation's name (the row's link, stretched over it), its pull request as
-  `owner/name#12 Title` linking GitHub in a new tab (only an `https:` address,
-  `pullRequestUrl`), an "Agent run" tag, where it stands in words
-  (`agentRunPhase`: working, waiting on a question, finished, failed, stopped
-  before it finished) and its status.
-- **Its page** is the session's: the facts say what it is (the automation in
-  its factory, linking the factory's definition; the pull request; the head
-  commit's first seven characters) and the header adds its phase beside the
-  status. `AgentRunReport` shows the runner's last report: the foreman's
-  result (`agentRun.summary`, as text with its line breaks kept: no Markdown
-  renderer) and each dispatched agent, folded, opening on its report. While
-  it runs that sits above the chat (at most two fifths of the page) and the
-  page reads it every 5 s (`sessionPollIntervalMs`); once ended it stays,
-  alone, since it is on the row. A run the cell could not hand to a runner
-  is failed with a code each worded (`runner_unavailable`, …).
+- **It is in Runs, not in Sessions.** The cell lists each agent run as a run,
+  a request whose `conversation` is its session
+  (`apps/cloud-region/AGENTS.md`, "Agent runs"), so it shows in the Runs list
+  with every other run, and its run's Conversation tab holds the session (see
+  "Runs"). The Sessions list never holds one.
+- **Its session** is shown as a person's is (`useCloudSession`,
+  `SessionConversation`): `AgentRunReport` shows the runner's last report,
+  the foreman's result (`agentRun.summary`, as text with its line breaks
+  kept: no Markdown renderer) and each dispatched agent, folded, opening on
+  its report. While it runs that sits above the chat (at most two fifths of
+  its frame) and it is read every 5 s (`sessionPollIntervalMs`); once ended
+  it stays, alone. Opened by its own address (`#/sessions/<id>`), its session
+  page also says what it is (the automation in its factory, linking the
+  factory's definition; the pull request; the head commit's first seven
+  characters) and its phase beside its status.
 - The service reads `origin` strictly (the page links what it names) and the
   report leniently: one it cannot read is none, and the session still shows.
 - **The chat's notices ship with the build.** Vite bundles agent-ui's built

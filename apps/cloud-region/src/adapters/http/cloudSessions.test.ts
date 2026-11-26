@@ -283,14 +283,34 @@ describe('agent runs', () => {
     );
   }
 
-  it("are listed for every member beside their own sessions, in the contract's shape", async () => {
+  it("are no one's sessions: the list holds a person's own, in the contract's shape", async () => {
     const { app, ports, as } = build();
     await post(app, '/api/cloud-sessions', valid);
     await anAgentRun(ports);
     as('person-2');
     const listed = await app.request('/api/cloud-sessions');
     expect(listed.status).toBe(200);
-    expect(await answerOf(listCloudSessions, listed)).toEqual([
+    // An agent run is a run of the Runs pages, whose page opens its session as its conversation.
+    expect(await answerOf(listCloudSessions, listed)).toEqual([]);
+    as('person-1');
+    const own = (await answerOf(
+      listCloudSessions,
+      await app.request('/api/cloud-sessions'),
+    )) as Array<{
+      id: string;
+      origin: unknown;
+      agentRun: unknown;
+    }>;
+    expect(own.map((s) => s.id)).toEqual(['session-1']);
+    expect(own[0]).toMatchObject({ origin: null, agentRun: null });
+  });
+
+  it("are read by any member in the contract's shape, the runner's report included", async () => {
+    const { app, ports, as } = build();
+    await anAgentRun(ports);
+    as('person-2');
+    const read = await app.request('/api/cloud-sessions/run-1');
+    expect(await answerOf(getCloudSession, read)).toEqual(
       expect.objectContaining({
         id: 'run-1',
         personId: null,
@@ -302,18 +322,7 @@ describe('agent runs', () => {
           agents: [{ id: 'c-1', agent: 'review', status: 'working' }],
         },
       }),
-    ]);
-    as('person-1');
-    const own = (await answerOf(
-      listCloudSessions,
-      await app.request('/api/cloud-sessions'),
-    )) as Array<{
-      id: string;
-      origin: unknown;
-      agentRun: unknown;
-    }>;
-    expect(own.map((s) => s.id)).toEqual(['run-1', 'session-1']);
-    expect(own[1]).toMatchObject({ origin: null, agentRun: null });
+    );
   });
 
   it('are read and stopped by any member, and never by another workspace', async () => {

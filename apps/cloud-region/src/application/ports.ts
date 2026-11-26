@@ -237,6 +237,8 @@ export type RunFound = {
   request: (RequestFacts & { text: string }) | null;
   /** A request's runs, in the order it started them. */
   children: RunSummary[];
+  /** The cloud session holding a request's conversation with its orchestrator, by id. */
+  conversation: string | null;
 };
 
 /**
@@ -327,8 +329,11 @@ export type CloudSessionStore = {
    * workspace's agent runs. Else null.
    */
   findSeen(workspaceId: string, personId: string, sessionId: string): Promise<CloudSession | null>;
-  /** What the person sees in the workspace: their own sessions and its agent runs, newest first. */
-  listSeen(workspaceId: string, personId: string): Promise<CloudSession[]>;
+  /**
+   * The person's own sessions in the workspace, newest first. An agent run is not one: it is a
+   * run's conversation, listed with the runs (`agentRunRecord`), though `findSeen` finds it.
+   */
+  listOwn(workspaceId: string, personId: string): Promise<CloudSession[]>;
   /** The runner's sessions in its workspace that have not ended: `starting` or `running`. */
   listLive(runner: RunnerIdentity): Promise<CloudSession[]>;
   /**
@@ -376,5 +381,7 @@ export type RunnerUpdatePorts = Pick<CloudSessionPorts, 'sessions' | 'clock'>;
  */
 export type AgentRunPorts = Pick<CloudSessionPorts, 'sessions' | 'runners' | 'ids' | 'clock'> & {
   factories: FactoryStore;
+  /** Where each agent run's run is recorded, as a request of the Runs pages. */
+  runs: RunStore;
   report: (line: string) => void;
 };

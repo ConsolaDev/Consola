@@ -213,6 +213,7 @@ function rowOf(workspaceId: string, run: CheckedRun, phase: Phase) {
         ? null
         : { budget: run.request.budget, spent: run.request.spent, question: run.request.question },
     requestText: run.request?.text ?? null,
+    conversationSessionId: run.conversation,
     summary: run.summary,
     error: run.error,
     costUsd: run.costUsd,
@@ -405,12 +406,13 @@ export function createRunStore(db: Database): RunStore {
           ...SUMMARY,
           request: runs.request,
           requestText: runs.requestText,
+          conversation: runs.conversationSessionId,
         })
         .from(runs)
         .innerJoin(factories, ofFactory)
         .where(and(eq(runs.workspaceId, workspaceId), eq(runs.runId, runId)));
       if (!row) return null;
-      const { request, requestText, ...summaryRow } = row;
+      const { request, requestText, conversation, ...summaryRow } = row;
 
       let parent: RunFound['parent'] = null;
       if (summaryRow.parentId !== null) {
@@ -443,6 +445,7 @@ export function createRunStore(db: Database): RunStore {
         request:
           request !== null && requestText !== null ? { ...request, text: requestText } : null,
         children,
+        conversation,
       };
     },
   };

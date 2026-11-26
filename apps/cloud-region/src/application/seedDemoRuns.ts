@@ -521,6 +521,7 @@ function runOf(
               : null,
           }
         : null,
+    conversation: null,
     summary: plan.summary ?? null,
     error: plan.error ?? null,
     costUsd: isRequest ? spent.usd : stepCost > 0 ? Math.round(stepCost * 100) / 100 : null,
