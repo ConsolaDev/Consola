@@ -70,8 +70,10 @@ describe('isWorkspaceProblem', () => {
     for (const problem of ['name_missing', 'name_too_long', 'slug_invalid']) {
       expect(isWorkspaceProblem(problem)).toBe(true);
     }
-    for (const value of ['slug_taken', 'region_unknown', '', null, 3])
+    // A region is the deployment's now, so the API names no problem with one.
+    for (const value of ['slug_taken', 'region_unknown', '', null, 3]) {
       expect(isWorkspaceProblem(value)).toBe(false);
+    }
   });
 });
 
