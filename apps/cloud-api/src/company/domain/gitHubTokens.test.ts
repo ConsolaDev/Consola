@@ -1,6 +1,12 @@
-import { GITHUB_TOKEN_PURPOSES } from '@consola/cloud-contract';
 import { describe, expect, it } from 'vitest';
-import { grantedAsAsked, scopeFor, TOKEN_PURPOSES, uncoveredRepositories } from './gitHubTokens.js';
+import {
+  GITHUB_TOKEN_PURPOSES,
+  grantedAsAsked,
+  isGitHubTokenPurpose,
+  scopeFor,
+  TOKEN_PURPOSES,
+  uncoveredRepositories,
+} from './gitHubTokens.js';
 import type { TokenScope } from './gitHubTokens.js';
 
 const ask = (purpose: (typeof GITHUB_TOKEN_PURPOSES)[number], repositoryIds: number[]) => ({
@@ -9,8 +15,18 @@ const ask = (purpose: (typeof GITHUB_TOKEN_PURPOSES)[number], repositoryIds: num
   repositoryIds,
 });
 
+describe('isGitHubTokenPurpose', () => {
+  it.each(GITHUB_TOKEN_PURPOSES)('takes %s', (purpose) => {
+    expect(isGitHubTokenPurpose(purpose)).toBe(true);
+  });
+
+  it.each(['admin', 'review-run ', '', null, 3])('refuses %j', (value) => {
+    expect(isGitHubTokenPurpose(value)).toBe(false);
+  });
+});
+
 describe('TOKEN_PURPOSES', () => {
-  it('gives each purpose the contract names a fixed scope', () => {
+  it('gives each purpose a fixed scope', () => {
     expect(Object.keys(TOKEN_PURPOSES).sort()).toEqual([...GITHUB_TOKEN_PURPOSES].sort());
   });
 

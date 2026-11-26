@@ -1,4 +1,4 @@
-import { GITHUB_TOKEN_PURPOSES } from '@consola/cloud-contract';
+import { GITHUB_TOKEN_PURPOSES } from '../../domain/gitHubTokens.js';
 import { sql } from 'drizzle-orm';
 import { bigint, check, index, jsonb, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 

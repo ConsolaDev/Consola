@@ -1,4 +1,4 @@
-import { GITHUB_PAYLOAD_MAX_BYTES } from '@consola/cloud-contract';
+import { GITHUB_PAYLOAD_MAX_BYTES } from '../../domain/webhooks.js';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
 import type {

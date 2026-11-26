@@ -8,8 +8,8 @@ import type {
   GitHubRepository,
   InstallerFacts,
 } from '../../domain/connections.js';
-import { ConfigError } from '../../config.js';
-import type { GitHubAppConfig } from '../../config.js';
+import { ConfigError } from '../../../config.js';
+import type { GitHubAppConfig } from '../../../config.js';
 
 const WEB = 'https://github.com';
 const API = 'https://api.github.com';

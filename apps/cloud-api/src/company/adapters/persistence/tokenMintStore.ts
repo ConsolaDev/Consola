@@ -1,4 +1,4 @@
-import { isGitHubTokenPurpose } from '@consola/cloud-contract';
+import { isGitHubTokenPurpose } from '../../domain/gitHubTokens.js';
 import { and, asc, eq } from 'drizzle-orm';
 import type { TokenMintStore } from '../../application/ports.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
