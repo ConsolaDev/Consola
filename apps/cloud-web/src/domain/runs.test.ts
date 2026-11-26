@@ -1,5 +1,5 @@
 import { describe, expect, expectTypeOf, it } from 'vitest';
-import type { components } from './cellApiContract';
+import type { components } from './apiContract';
 import {
   BACKGROUND_TRIGGERS,
   isLive,
@@ -21,7 +21,7 @@ import type { Phase, RUN_TRIGGERS, RunSummary, RunTrigger } from './runs';
 
 type Schemas = components['schemas'];
 
-/** A run as the cell answers one, with what a test changes. */
+/** A run as the API answers one, with what a test changes. */
 function aRun(overrides: Partial<RunSummary> = {}): RunSummary {
   return {
     id: 'run-1',
@@ -61,7 +61,7 @@ const ada = {
 };
 
 describe('the page’s copies of the contract', () => {
-  it('names every phase the cell counts, and only those', () => {
+  it('names every phase the API counts, and only those', () => {
     expectTypeOf<(typeof PHASES)[number]>().toEqualTypeOf<Phase>();
     expectTypeOf<keyof Schemas['PhaseCounts']>().toEqualTypeOf<Phase>();
     expect([...PHASES].sort()).toEqual(['active', 'completed', 'failed', 'needs-you', 'stopped']);
@@ -80,7 +80,7 @@ describe('isLive', () => {
 });
 
 describe('stepHasEnded', () => {
-  it('reads the status as the cell counts progress, not the finish time', () => {
+  it('reads the status as the API counts progress, not the finish time', () => {
     const statuses: Array<Schemas['StepStatus']> = [
       'pending',
       'queued',
@@ -103,7 +103,7 @@ describe('stepHasEnded', () => {
 });
 
 describe('refreshLimit', () => {
-  it('reads every row shown again, a page at least, up to the cell’s most', () => {
+  it('reads every row shown again, a page at least, up to the API’s most', () => {
     expect(refreshLimit(0)).toBe(50);
     expect(refreshLimit(50)).toBe(50);
     expect(refreshLimit(73)).toBe(73);
@@ -137,7 +137,7 @@ describe('mergeRefresh', () => {
     });
   });
 
-  it('orders runs made in the same instant by id, as the cell does', () => {
+  it('orders runs made in the same instant by id, as the API does', () => {
     const shown = { runs: [run('b', 1), run('a', 1)], nextCursor: 'after-a' };
     const fresh = { runs: [run('c', 1), run('b', 1)], nextCursor: 'after-b' };
     expect(mergeRefresh(shown, fresh).runs.map((r) => r.id)).toEqual(['c', 'b', 'a']);

@@ -74,7 +74,7 @@ describe('filtersOfQuery and queryOfFilters', () => {
     expect(filtersOfQuery('mine=1&trigger=manual').triggers).toEqual(['manual']);
   });
 
-  it('ignores blank values and cuts a search to what the cell takes', () => {
+  it('ignores blank values and cuts a search to what the API takes', () => {
     expect(filtersOfQuery('factory=&team=%20&automation=')).toEqual(NO_FILTERS);
     expect(filtersOfQuery(`q=${'x'.repeat(SEARCH_MAX + 5)}`).q).toHaveLength(SEARCH_MAX);
   });

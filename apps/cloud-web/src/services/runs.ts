@@ -1,26 +1,25 @@
-import type { CellRefusal } from '../domain/cell';
-import type { paths } from '../domain/cellApiContract';
+import type { paths } from '../domain/apiContract';
 import type { ApprovalDecision, ApproveAnswer } from '../domain/runApproval';
 import type { RunFilters } from '../domain/runFilters';
 import type { MembersAnswer, RunAnswer, RunsAnswer } from '../domain/runs';
 import type { WorkspaceMember } from '../domain/teams';
-import { codeOf, createCellSession, pageCellSession } from './cell';
-import type { CellDeps, CellSession } from './cell';
+import type { ApiOptions } from './api';
+import { codeOf, UNAVAILABLE, workspaceCalls } from './workspaceCalls';
+import type { Refusal } from './workspaceCalls';
 
 /*
- * A workspace's runs, from its regional cell, reached through `cell.ts` as Teams reaches its
- * teams: the cell's address on the page's own origin, and a cell token for the workspace the page
- * shows with every call. The names of the people who started runs are `cloud-global`'s.
+ * A workspace's runs, from the API, reached through `workspaceCalls.ts` as Teams reaches its
+ * teams: the workspace the page shows named with every call. The names of the people who started
+ * runs are the workspace's members, from the API's accounts.
  *
- * Every call answers in domain types and never throws. Only a 401 from `cloud-global` means
- * signed out; anything the calls do not expect, a cell that does not answer included, is
- * `unavailable`. An answer is read defensively, as the contract's types check nothing that
- * arrives.
+ * Every call answers in domain types and never throws. Only a 401 means signed out; anything the
+ * calls do not expect, an API that does not answer included, is `unavailable`. An answer is read
+ * defensively, as the contract's types check nothing that arrives.
  */
 
 type RunsQuery = NonNullable<paths['/api/runs']['get']['parameters']['query']>;
 
-/** The cell's query for `filters`, at `cursor` (the page before's `nextCursor`), `limit` runs long. */
+/** The API's query for `filters`, at `cursor` (the page before's `nextCursor`), `limit` runs long. */
 export function queryOf(
   filters: RunFilters,
   page: { cursor?: string | null; limit?: number } = {},
@@ -38,9 +37,6 @@ export function queryOf(
   if (page.limit !== undefined) query.limit = page.limit;
   return query;
 }
-
-const UNAVAILABLE = { kind: 'unavailable' } as const;
-const PENDING = { kind: 'pending' } as const;
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -81,18 +77,12 @@ function isApproval(body: unknown): boolean {
   );
 }
 
-/** The cell's 409s to an answer, by their code. */
+/** The API's 409s to an answer, by their code. */
 const ANSWER_CONFLICTS: Record<string, ApproveAnswer> = {
   not_waiting: { kind: 'not-waiting' },
   already_answered: { kind: 'already-answered' },
   version_moved: { kind: 'version-moved' },
-  workspace_pending: { kind: 'pending' },
 };
-
-/** The workspace's cell said it does not hold the workspace yet. */
-function pendingOr(status: number, error: unknown): CellRefusal {
-  return status === 409 && codeOf(error) === 'workspace_pending' ? PENDING : UNAVAILABLE;
-}
 
 export type RunsService = {
   /** A page of the top-level runs the person sees in `workspace`, narrowed by `filters`. */
@@ -106,7 +96,7 @@ export type RunsService = {
   /** The workspace's members, to name who started each run. */
   loadMembers(workspace: { id: string }): Promise<MembersAnswer>;
   /**
-   * Answers a run that waits for approval, for the version it asks about: the cell records the
+   * Answers a run that waits for approval, for the version it asks about: the API records the
    * first answer for that version, and the run's runner acts on it.
    */
   approveRun(
@@ -117,28 +107,26 @@ export type RunsService = {
 };
 
 /**
- * The runs service, holding the token it last minted. The page uses `runsService`; a test builds
- * its own with `cloud-global`'s client and the cell's `fetch` stood in for, as Teams' does.
+ * The runs service. The page uses `runsService`; a test builds its own with the API's `fetch`
+ * stood in for, as Teams' does.
  */
-export function createRunsService(deps: CellDeps & { session?: CellSession } = {}): RunsService {
-  const session = deps.session ?? createCellSession(deps);
-  const { onCell, api } = session;
+export function createRunsService(options: ApiOptions = {}): RunsService {
+  const onWorkspace = workspaceCalls(options);
 
-  /** The workspace's members from `cloud-global`, or why they could not be had. */
-  async function membersOf(): Promise<WorkspaceMember[] | CellRefusal> {
-    const { data, error, response } = await api.GET('/api/me/workspace/members');
-    if (response.status === 401) return { kind: 'signed-out' };
+  /** The workspace's members, or why they could not be had. */
+  async function membersOf(workspaceId: string): Promise<WorkspaceMember[] | Refusal> {
+    const answer = await onWorkspace(workspaceId, (api) => api.GET('/api/me/workspace/members'));
+    if ('kind' in answer) return answer;
+    const { data, response } = answer;
     if (response.status === 200 && Array.isArray(data?.members)) return data.members;
-    const code = codeOf(error);
-    if (code === 'no_active_workspace' || code === 'not_a_member') return { kind: 'switched' };
     return UNAVAILABLE;
   }
 
   return {
     async loadRuns(workspace, filters, page = {}) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.GET('/api/runs', { params: { query: queryOf(filters, page) } }),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.GET('/api/runs', { params: { query: queryOf(filters, page) } }),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -148,7 +136,7 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
         if (response.status === 400 && codeOf(error) === 'invalid_request') {
           return { kind: 'invalid' };
         }
-        return pendingOr(response.status, error);
+        return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;
       }
@@ -156,8 +144,8 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
 
     async loadRun(workspace, runId) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.GET('/api/runs/{runId}', { params: { path: { runId } } }),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.GET('/api/runs/{runId}', { params: { path: { runId } } }),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -167,7 +155,7 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
         if (response.status === 404 && codeOf(error) === 'run_not_found') {
           return { kind: 'not-found' };
         }
-        return pendingOr(response.status, error);
+        return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;
       }
@@ -175,8 +163,8 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
 
     async approveRun(workspace, runId, { decision, version }) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.POST('/api/runs/{runId}/approval', {
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.POST('/api/runs/{runId}/approval', {
             params: { path: { runId } },
             body: { decision, version },
           }),
@@ -203,9 +191,9 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
       }
     },
 
-    async loadMembers() {
+    async loadMembers(workspace) {
       try {
-        const members = await membersOf();
+        const members = await membersOf(workspace.id);
         return 'kind' in members ? members : { kind: 'listed', members };
       } catch {
         return UNAVAILABLE;
@@ -215,4 +203,4 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
 }
 
 /** The page's runs service. */
-export const runsService = createRunsService({ session: pageCellSession });
+export const runsService = createRunsService();

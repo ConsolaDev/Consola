@@ -2,7 +2,7 @@ import { readGitHubResult } from '../domain/connections';
 import type { GitHubResult } from '../domain/connections';
 
 /**
- * How the last Connect ended, as `cloud-global`'s callback named it in `?github=`, read once. It
+ * How the last Connect ended, as the API's GitHub callback named it in `?github=`, read once. It
  * removes `github` from the address and keeps the rest, the page's `#/settings/connections` included,
  * so a reload does not say it again.
  */

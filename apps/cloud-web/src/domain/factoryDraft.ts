@@ -571,7 +571,7 @@ export function afterSave(current: FactoryDraft, sent: FactoryDraft, saved: Vers
       files: entry.files.filter((file) => !sentAway.has(file.id)).map(fromSaved),
     }))
     .filter((entry) => entry.files.length > 0);
-  // A path the save stored that no file names (never so, as the cell stores what was sent).
+  // A path the save stored that no file names (never so, as the API stores what was sent).
   let nextId = current.nextId;
   const claimed = new Set(
     [...files, ...removed.flatMap((entry) => entry.files)].map((f) => f.from),

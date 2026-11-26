@@ -1,4 +1,4 @@
-import { messageForCellRefusal } from './cell';
+import { messageForRefusal } from './refusal';
 import type {
   AgentRunPhase,
   CellFailureCode,
@@ -13,11 +13,9 @@ import type {
 } from './cloudSession';
 import { clockTime } from './runWords';
 
-/** What the Sessions pages say: the cell answers in codes, and the page words each. */
+/** What the Sessions pages say: the API answers in codes, and the page words each. */
 
-type Workspace = { name: string; region: string };
-
-/** What the page calls each harness: a harness the cell gains fails the typecheck until named. */
+/** What the page calls each harness: a harness the API gains fails the typecheck until named. */
 export const HARNESS_NAMES: Readonly<Record<Harness, string>> = {
   claude: 'Claude Code',
   codex: 'Codex',
@@ -31,7 +29,7 @@ export const SESSION_STATUS_WORDS: Readonly<Record<CloudSessionStatus, string>> 
   failed: 'Failed',
 };
 
-/** The cell's `no_runner`: no runner is configured or connected for the workspace. */
+/** The API's `no_runner`: no runner is configured or connected for the workspace. */
 export const NO_RUNNER_WORDS = 'No runner is connected for this workspace.';
 
 /** A runner connected, with no repository or no harness to offer. */
@@ -59,7 +57,7 @@ export const CHAT_NOT_LOADED_WORDS = 'The chat couldn’t be loaded. Reload the 
 type Failed = Pick<CloudSession, 'error' | 'errorCode' | 'repository' | 'harness'>;
 
 /**
- * A failure the cell decided itself, by its code. The last four are an agent run's that the cell
+ * A failure the API decided itself, by its code. The last four are an agent run's that the API
  * could not hand to a runner when the pull request's event arrived: it was recorded failed, and
  * nothing ran.
  */
@@ -74,12 +72,12 @@ const FAILURE_CODE_WORDS: Readonly<Record<CellFailureCode, (session: Failed) => 
   harness_not_offered: ({ harness }) =>
     `The connected runner has no API key for ${HARNESS_NAMES[harness] ?? harness}, so this run never started.`,
   agent_run_invalid: () =>
-    'The region couldn’t put this run together from the factory’s files, so it never started.',
+    'Consola Cloud couldn’t put this run together from the factory’s files, so it never started.',
 };
 
 /**
- * Why a session failed: the runner's message as it came, or the sentence for the cell's code. A
- * code this page does not know (a newer cell's) is never shown as text.
+ * Why a session failed: the runner's message as it came, or the sentence for the API's code. A
+ * code this page does not know (a newer API's) is never shown as text.
  */
 export function failedWords(session: Failed): string {
   if (session.error) return `This session failed: ${session.error}`;
@@ -137,7 +135,7 @@ export function dispatchedCount(count: number): string {
 }
 
 /**
- * A session that is not the person’s, or not there: the cell says the same of both. (An agent
+ * A session that is not the person’s, or not there: the API says the same of both. (An agent
  * run is every member’s, so for one this is a run that is gone or a wrong link.)
  */
 const NOT_HERE = 'This session isn’t here. It may be someone else’s, or the link may be wrong.';
@@ -146,9 +144,8 @@ const NOT_HERE = 'This session isn’t here. It may be someone else’s, or the 
 export function messageForStartAnswer(
   answer: Exclude<StartAnswer, { kind: 'started' }>,
   asked: { repository: string; harness: Harness },
-  workspace: Workspace,
 ): string {
-  if (answer.kind !== 'refused') return messageForCellRefusal(answer, workspace);
+  if (answer.kind !== 'refused') return messageForRefusal(answer);
   switch (answer.code) {
     case 'no_runner':
       return NO_RUNNER_WORDS;
@@ -157,34 +154,25 @@ export function messageForStartAnswer(
     case 'harness_not_offered':
       return `This runner has no API key for ${HARNESS_NAMES[asked.harness]}.`;
     case 'invalid_request':
-      return 'The region couldn’t read this repository or harness. Pick them again.';
+      return 'Consola Cloud couldn’t read this repository or harness. Pick them again.';
   }
 }
 
 /** Why a session could not be read. */
-export function messageForSessionAnswer(
-  answer: Exclude<SessionAnswer, { kind: 'found' }>,
-  workspace: Workspace,
-): string {
-  return answer.kind === 'not-found' ? NOT_HERE : messageForCellRefusal(answer, workspace);
+export function messageForSessionAnswer(answer: Exclude<SessionAnswer, { kind: 'found' }>): string {
+  return answer.kind === 'not-found' ? NOT_HERE : messageForRefusal(answer);
 }
 
 /** Why a session could not be stopped. */
-export function messageForStopAnswer(
-  answer: Exclude<StopAnswer, { kind: 'stopped' }>,
-  workspace: Workspace,
-): string {
-  return answer.kind === 'not-found' ? NOT_HERE : messageForCellRefusal(answer, workspace);
+export function messageForStopAnswer(answer: Exclude<StopAnswer, { kind: 'stopped' }>): string {
+  return answer.kind === 'not-found' ? NOT_HERE : messageForRefusal(answer);
 }
 
 /** Why there is no pass to the session's host. */
-export function messageForPassAnswer(
-  answer: Exclude<PassAnswer, { kind: 'issued' }>,
-  workspace: Workspace,
-): string {
+export function messageForPassAnswer(answer: Exclude<PassAnswer, { kind: 'issued' }>): string {
   if (answer.kind === 'not-found') return 'This session isn’t running any more.';
   if (answer.kind === 'no-runner') return NO_RUNNER_WORDS;
-  return messageForCellRefusal(answer, workspace);
+  return messageForRefusal(answer);
 }
 
 /** No session yet. */

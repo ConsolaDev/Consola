@@ -36,7 +36,7 @@ export const NO_FILTERS: RunFilters = {
   q: '',
 };
 
-/** The longest search the cell takes, in characters. */
+/** The longest search the API takes, in characters. */
 export const SEARCH_MAX = 200;
 
 /** `values` in `order`'s order, each once, keeping only what `order` holds. */

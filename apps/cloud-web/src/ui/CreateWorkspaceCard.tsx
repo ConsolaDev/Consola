@@ -3,11 +3,10 @@ import type { FormEvent } from 'react';
 import {
   messagesForCreateRefusal,
   messagesForWorkspaceProblems,
-  REGION_HINT,
   SLUG_HINT,
 } from '../domain/messages';
 import type { WorkspaceFormMessages } from '../domain/messages';
-import { checkNewWorkspace, NEW_DRAFT, REGIONS, withName, withSlug } from '../domain/workspace';
+import { checkNewWorkspace, NEW_DRAFT, withName, withSlug } from '../domain/workspace';
 import type { WorkspaceDraft, WorkspaceProblem } from '../domain/workspace';
 import { createWorkspace } from '../services/api';
 
@@ -20,7 +19,8 @@ function problemsOf(draft: WorkspaceDraft): WorkspaceProblem[] {
  * The form that makes a workspace. Nothing is said about a field until the person first tries
  * to create it; from then on the page's own check follows their typing, and what the server
  * answers is shown where it belongs. Once it is made, the page loads again (`onCreated`), now
- * in the new workspace. `onCancel` is offered only to someone who has a workspace to go back to.
+ * in the new workspace. It takes the deployment's region, which the page does not ask for.
+ * `onCancel` is offered only to someone who has a workspace to go back to.
  */
 export function CreateWorkspaceCard({
   first,
@@ -38,7 +38,6 @@ export function CreateWorkspaceCard({
   const [pending, setPending] = useState(false);
   const nameInput = useRef<HTMLInputElement>(null);
   const slugInput = useRef<HTMLInputElement>(null);
-  const firstRegion = useRef<HTMLInputElement>(null);
 
   function change(next: WorkspaceDraft) {
     setDraft(next);
@@ -48,7 +47,7 @@ export function CreateWorkspaceCard({
   /** Shows what is wrong, and takes the person to the first field it is about. */
   function refuse(next: WorkspaceFormMessages) {
     setMessages(next);
-    const field = next.name ? nameInput : next.slug ? slugInput : next.region ? firstRegion : null;
+    const field = next.name ? nameInput : next.slug ? slugInput : null;
     field?.current?.focus();
   }
 
@@ -128,42 +127,6 @@ export function CreateWorkspaceCard({
             </p>
           )}
         </div>
-
-        <fieldset
-          className="field regions"
-          aria-describedby={described(
-            `${id}-region-hint`,
-            !!messages.region && `${id}-region-error`,
-          )}
-        >
-          <legend className="label">Region</legend>
-          <div className="region-options">
-            {REGIONS.map((region, index) => (
-              <label key={region.id} className="region-option">
-                <input
-                  ref={index === 0 ? firstRegion : undefined}
-                  type="radio"
-                  name={`${id}-region`}
-                  value={region.id}
-                  checked={draft.region === region.id}
-                  onChange={() => change({ ...draft, region: region.id })}
-                />
-                <span className="region-text">
-                  <span className="region-name">{region.name}</span>
-                  <span className="muted">{region.place}</span>
-                </span>
-              </label>
-            ))}
-          </div>
-          <p id={`${id}-region-hint`} className="hint">
-            {REGION_HINT}
-          </p>
-          {messages.region && (
-            <p id={`${id}-region-error`} className="error">
-              {messages.region}
-            </p>
-          )}
-        </fieldset>
 
         {messages.form && (
           <p className="error" role="alert">

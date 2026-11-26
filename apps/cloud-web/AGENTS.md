@@ -3,7 +3,11 @@
 This file guides coding agents working in `apps/cloud-web`, Consola Cloud's web
 app. `CLAUDE.md` imports it with `@AGENTS.md`, so Claude Code reads it too. The
 repository's guide is the root `AGENTS.md`, and setup is in
-`apps/cloud-global/README.md`. Paths below are relative to `apps/cloud-web`.
+`apps/cloud-api/README.md`. Paths below are relative to `apps/cloud-web`.
+
+The page talks to one API, `cloud-api` (`@consola/cloud-api`, on port 3100),
+through one generated, typed client. Every call about what a workspace holds
+names the workspace the page shows (see "What a workspace holds").
 
 ## The layers
 
@@ -22,8 +26,8 @@ The app is built in layers, and imports point inward only.
   slug, a failed switch, an icon not set and the create form's hints;
   connections (`connections.ts`: the answers of `/api/connections`, a
   Connect's results, the services that come later) and their sentences
-  (`connectionMessages.ts`); why a cell could not be read, and its sentence
-  (`cell.ts`: `CellRefusal`, `messageForCellRefusal`); teams (`teams.ts`:
+  (`connectionMessages.ts`); why what a workspace holds could not be read,
+  and its sentence (`refusal.ts`: `Refusal`, `messageForRefusal`); teams (`teams.ts`:
   `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`, `addableTo`,
   `TeamsState`, `TeamChange`) and their sentences (`teamMessages.ts`);
   factories (`factories.ts`: `Factory`, `checkFactoryName`, `checkNewFactory`,
@@ -64,17 +68,16 @@ The app is built in layers, and imports point inward only.
   and a settings page
   (`settings.ts`: `settingsPageIdOfHash`, `hashOfSettingsPage`). It is plain
   TypeScript, with no browser I/O and no package but `@consola/factory-spec`
-  (`factoryCheck.ts` alone). `apiContract.ts` and
-  `cellApiContract.ts` hold the APIs' types, generated from
-  `apps/cloud-global/openapi.json` and `apps/cloud-region/openapi.json` (see
-  "The API's contract").
+  (`factoryCheck.ts` alone). `apiContract.ts` holds the API's types,
+  generated from `apps/cloud-api/openapi.json` (see "The API's contract").
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
   `switchWorkspace`, `setWorkspaceIcon`, `loadConnections`,
   `startGitHubConnect`, `disconnectGitHub`, through `createApi`, an
-  `openapi-fetch` client typed by the contract), the workspace's cell
-  (`cell.ts`: `createCellSession`, the token and the address every service
-  of the cell shares, on `createCellApi`; `teams.ts`: `teamsService`;
+  `openapi-fetch` client typed by the contract), what a workspace holds
+  (`workspaceCalls.ts`: `workspaceCalls`, the way every service of a
+  workspace's calls the API, naming the workspace and reading the caller's
+  refusals; `teams.ts`: `teamsService`;
   `factories.ts`: `factoriesService`, a factory's files saved included; `runs.ts`: `runsService`;
   `cloudSessions.ts`: `cloudSessionsService`), Better
   Auth's client (`authClient.ts`: `signInWithGoogle`, `signOut`), the
@@ -124,7 +127,7 @@ The app is built in layers, and imports point inward only.
 
 - `domain` imports only `domain` and `@consola/factory-spec`, the factory
   files' schema and parser (MIT, no I/O, no Node builtin), so the page checks
-  files with the rules the cell saves them by. It imports no other package and
+  files with the rules the API saves them by. It imports no other package and
   refers to no browser global: `window`, `document`, `fetch`, `history`, `location`,
   `localStorage`, `sessionStorage`, `navigator`, `XMLHttpRequest`,
   `WebSocket`, `globalThis` or `self`.
@@ -167,11 +170,15 @@ the same is in that layer's `allows`.
 
 ## The API's contract
 
-`src/domain/apiContract.ts` is `cloud-global`'s API as types, generated from
+`src/domain/apiContract.ts` is `cloud-api`'s API as types, generated from
 its `openapi.json`, which the app reads as a file and never imports
 (`pnpm --filter @consola/cloud-web api:generate`; `apiContract.test.ts` fails
 while it is stale). It is types only, with no import and no I/O, so it sits in
-`domain`; Biome leaves it alone, since it is compared byte for byte.
+`domain`; Biome leaves it alone, since it is compared byte for byte. It is the
+one contract: accounts, workspaces, connections and everything a workspace
+holds are routes of the one API. Until `cloud-api` generates its own
+`openapi.json`, the file is merged from the two apps it replaces by
+`scripts/provisional-openapi.mjs`, which goes once it does.
 
 - **A type the API answers in comes from the contract**, never written by
   hand: `Me`, `MyWorkspace`. Services call the API through `createApi`, so a
@@ -185,21 +192,50 @@ while it is stale). It is types only, with no import and no I/O, so it sits in
   defensively, so a service keeps its checks of the status and the body's
   shape.
 
-The regional cell has a contract of its own: `src/domain/cellApiContract.ts`
-holds its types, generated the same way from `apps/cloud-region/openapi.json`
-(`cellApiContract.test.ts`). `api:generate` rewrites both. Every region's cell
-runs the same code, so one contract serves them all.
-
-CI checks this app with every change to `cloud-global` or `cloud-region`
+CI checks this app with every change to `cloud-api`
 (`.github/scripts/ci-scope.mjs`), since the package graph cannot see a file
 read across apps.
+
+## What a workspace holds
+
+A workspace's teams, factories, runs, cloud sessions and connections are the
+API's company routes. The API takes the person and the workspace from the
+session's cookie, never from the request; the page shows one workspace, and
+another tab can switch the session's to another one.
+
+- **Every call names the workspace the page shows**, in the header
+  `x-consola-workspace` (`WORKSPACE_HEADER`). `createApi({ workspaceId })`
+  sets it on every request of its client, and `workspaceCalls`
+  (`services/workspaceCalls.ts`) builds such a client for each call of the
+  teams, factories, runs and cloud sessions services; the connections calls
+  in `api.ts` build their own. A service is given the workspace and never
+  reads it from anywhere else. The header is a guard: a call whose workspace
+  is not the session's active one is refused (409 `workspace_switched`), and
+  nothing is read or written for it. The page holds no token and no second
+  address.
+- **The caller's refusals mean the same on every route**, so
+  `workspaceCalls` reads them once, before a service reads the rest
+  (`callerRefusalOf`): a 401 (`signed_out`) is `signed-out`; a 409
+  `workspace_switched` or `no_active_workspace`, or a 403 `not_a_member`, is
+  `switched` (another tab switched the session's workspace, or the person
+  left it, so the page can no longer vouch for what it shows). Anything
+  else a service does not expect, a 400 `invalid_request` (the header
+  missing) or a proxy's error page included, and a call that never arrives,
+  is `unavailable`. These are `domain/refusal.ts`'s `Refusal`, said by
+  `messageForRefusal`, which every page of a workspace's uses.
+- **A workspace is whole from the moment it is made.** The API makes its
+  first team with it, so no page waits for a workspace being set up, and no
+  answer means "not yet".
+- **The page reaches the API through its own origin.** The dev server
+  proxies `/api` to `cloud-api` on 3100 (`vite.config.ts`), so the cookie is
+  first-party and the API needs no CORS.
 
 ## Teams
 
 Settings → Teams (`#/settings/teams`, an entry of `SETTINGS_PAGES` after
 Connections: `ui/TeamsPage.tsx`, a card per team in `ui/TeamCard.tsx`) shows
-the workspace's teams, which live in its regional cell
-(`apps/cloud-region/AGENTS.md`, "Teams"). The cell is the authority on every
+the workspace's teams, which live in the API (`apps/cloud-api/AGENTS.md`,
+"Teams"). The API is the authority on every
 rule; `domain/teams.ts` keeps a copy of the name rule (`checkTeamName`) to
 check a name before sending it, and `domain/teamMessages.ts` says every
 answer. The page is built from Settings' shared classes (the title,
@@ -209,58 +245,45 @@ in `ui/TeamsPage.css`.
 - **A team's menus open inside Settings' dialog** (`useSettingsMenuHost`;
   see "Settings"), or they would take no click.
 
-- **The page reaches a cell through its own origin**: `/cell/<region>/…`,
-  which the dev server proxies to that region's cell (`vite.config.ts`, from
-  `CELL_URL_EU` and `CELL_URL_US`, defaulting to 3101 and 3102). So the cell
-  needs no CORS, and the page holds no cell address.
-- **Every call to a cell carries a cell token**, as `Authorization: Bearer`,
-  never a cookie. `services/cell.ts` mints it from `cloud-global`
-  (`POST /api/cell-token`), keeps it until 30 seconds before it expires, and
-  mints it again once when the cell refuses it (401). Calls made at once
-  share one mint, and the page's services of the cell (teams, factories)
-  share one token (`pageCellSession`). The answer names the
-  token's workspace and region: a token for another workspace than the page
-  shows (another tab switched the session's) is never sent (`switched`), and
-  the region picks the cell.
-- **A team names its members by global id.** Their names come from
-  `cloud-global` (`GET /api/me/workspace/members`), loaded beside the teams;
-  an id it no longer lists shows as someone who left (`memberOf`).
-- **Controls follow the cell's answer**: `canManage` shows New team, the ⋯
+- **Every call names the workspace the page shows** (`teamsService`, through
+  `workspaceCalls`; see "What a workspace holds"), so a page another tab has
+  switched away from is `switched`, and changes nothing.
+- **A team names its members by id.** Their names come from the API's
+  accounts (`GET /api/me/workspace/members`), loaded beside the teams; an id
+  it no longer lists shows as someone who left (`memberOf`).
+- **Controls follow the API's answer**: `canManage` shows New team, the ⋯
   menu (Rename, and Delete for any team but the first), Add member and each
   member's ×. A member sees the teams they are in and no control.
 - **Every change loads the teams again** (`onChanged`), so the page shows what
-  the cell holds, whoever else changed it. A change refused because the team
+  the API holds, whoever else changed it. A change refused because the team
   is gone, the person may no longer manage teams, or someone left the
   workspace reloads too, and says why.
-- **States the cell answers**: `pending` (the cell does not hold the workspace
-  yet: `cloud-global`'s outbox has not delivered it, so check `CELL_URL_EU` and
-  that the cell runs), `unavailable` (the cell or `cloud-global` does not
-  answer), `switched` and `signed-out`, each with its sentence and, where it
-  can help, Try again.
+- **States the API answers** (`messageForRefusal`): `unavailable` (the API
+  does not answer), `switched` and `signed-out`, each with its sentence and,
+  where it can help, Try again.
 
-The section needs the workspace's cell running (`pnpm dev:cloud-region`) and
-`cloud-global` delivering its outbox there (`CELL_URL_EU` in its `.env`).
+The section needs the API running (`pnpm dev:cloud`).
 
 ## Factories
 
-The workspace's factories live in its regional cell with their files
-(`apps/cloud-region/AGENTS.md`, "Factories"), and the dashboard reaches them
-as Teams does (above: the token, `/cell/<region>`, the states a cell
-answers). They are no section: the sidebar lists them in a group of their
-own, each with its pages under it, as Warp lists its factories, drawn as the
-desktop app draws its sidebar.
+The workspace's factories live in the API with their files
+(`apps/cloud-api/AGENTS.md`, "Factories"), and the dashboard reaches them
+as Teams does (above, and "What a workspace holds": the workspace named on
+every call, the states the API answers). They are no section: the sidebar
+lists them in a group of their own, each with its pages under it, as Warp
+lists its factories, drawn as the desktop app draws its sidebar.
 
 - **Read once, for the sidebar and the page alike.** `useFactories`
   (`Dashboard`) reads `GET /api/factories` and `GET /api/teams` together, so
   the sidebar's names and the factory page open always agree, and reads them
   again after any create, rename or move.
-- **The cell decides who sees which factory**: owners and admins every
+- **The API decides who sees which factory**: owners and admins every
   factory, a member the factories of the teams they are in. The page shows
   the list exactly as it comes and never filters it; nothing on the page
   reads the person's role.
-- **The teams beside it are the cell's list for the person.** They name
+- **The teams beside it are the API's list for the person.** They name
   each factory's team, and they are the only teams offered to own one, when
-  it is made and when it moves: exactly the teams the cell lets the person
+  it is made and when it moves: exactly the teams the API lets the person
   make a factory for, or move one to. A team the list does not hold (read
   between a change and the next load) is "Another team", never an id.
 - **The sidebar's group** (`FactoriesNav`): the heading Factories, with +
@@ -272,8 +295,8 @@ desktop app draws its sidebar.
   address) unfolds it; folded, the factory open marks its own row. Which
   factories are unfolded is kept per workspace in the browser's storage
   (`foldStore.ts`), read defensively and only a convenience. What could not
-  be listed is one quiet line under the heading (loading, still being set
-  up, the region not answering, another workspace open, signed out), with
+  be listed is one quiet line under the heading (loading, Consola Cloud
+  not answering, another workspace open, signed out), with
   Try again where it helps; no factory is "No factories yet", with + still
   there.
 - **A factory has two pages, and only those**, at
@@ -340,9 +363,9 @@ desktop app draws its sidebar.
     package brings HTML, CSS and JavaScript along), shaded in the run page's
     colours; its look is an `EditorView.theme` on the app's tokens.
   - **Problems as the person types.** `factoryCheck.ts` runs factory-spec's
-    `parseFactory` over the set as the cell reads it (`storedFactoryFiles`),
+    `parseFactory` over the set as the API reads it (`storedFactoryFiles`),
     shortly after typing stops. A set holding an agent team (`hasAgentTeam`)
-    is checked as the cell's `checkFactoryFiles` checks it, a rule kept in
+    is checked as the API's `checkFactoryFiles` checks it, a rule kept in
     step by hand: the team's trees (`agents/<n>/…`, `automations/<n>/…`) are
     left out of that parse, and `parseAgentTeam`'s issues, each on its file,
     join the problems. It is loaded with `import()` once the page
@@ -356,8 +379,8 @@ desktop app draws its sidebar.
     stands; ⌘S then lights the panel's head and says why.
   - **Save** sends every file as the next version, from the version they
     were read from (`POST /api/factories/{factoryId}/versions`), adds,
-    renames and removals being only a different set: no service, cell or
-    contract knows of them. The cell checks again and is the authority:
+    renames and removals being only a different set: no service, route or
+    contract knows of them. The API checks again and is the authority:
     what it finds that the page did not (its limits on the set) shows in the
     same panel, "nothing was saved". Someone else's save in between
     (`version_moved`, or a newer version the sidebar's list read) is said in
@@ -394,21 +417,21 @@ desktop app draws its sidebar.
   `PATCH /api/factories/{factoryId}` with its one field. There is no delete.
 - **New factory** is a dialog over the dashboard (`NewFactoryDialog`, a
   native modal `<dialog>` drawn as the desktop's dialogs): a name
-  (`checkFactoryName`, the cell's rule), the team that owns it (chosen for
+  (`checkFactoryName`, the API's rule), the team that owns it (chosen for
   the person when they are in one only) and where its files come from:
   stored by Consola, with a GitHub repository shown as coming later and never
   chosen. Every problem is said under its field (`messagesForFactoryChange`).
-  Someone the cell lists in no team is told to ask an owner or admin to add
+  Someone the API lists in no team is told to ask an owner or admin to add
   them to one. Once made, it closes, the list is read again, and the new
   factory's definition opens.
 
 ## Runs
 
 The Runs section (`#/runs`, `ui/RunsSection.tsx`, a `wide` entry of
-`SECTIONS` after Overview) shows the workspace's runs, which live in its
-regional cell (`apps/cloud-region/AGENTS.md`, "Runs"), through `runsService`
-(`services/runs.ts`) on the page's cell session (`pageCellSession`), as Teams and
-Factories are. The cell decides
+`SECTIONS` after Overview) shows the workspace's runs, which live in the API
+(`apps/cloud-api/AGENTS.md`, "Runs"), through `runsService`
+(`services/runs.ts`), naming the workspace on every call as Teams and
+Factories do. The API decides
 everything: which runs a person sees (a member, those of their teams'
 factories), each run's phase (a request rolls up to `needs-you` while one of
 its automations does), the chips' counts and what the menus offer
@@ -428,13 +451,13 @@ the factory's orchestrator; the automations it starts are its children.
   `replaceState` fires no `hashchange`). The run's page leads back to the
   list as the section last showed it.
 - **Filters**: the factory picker (every factory, a team's, or one, under
-  their teams: `factoriesByTeam`), My runs, a chip per phase with the cell's
+  their teams: `factoriesByTeam`), My runs, a chip per phase with the API's
   count (Running, Complete, Failed, Blocked for `needs-you`, Cancelled for
   `stopped`; several at once are any of them), Background runs, the Filter
   menu (an automation, how runs were started) and search, which the list
   follows once typing settles (`/` puts the keyboard there). My runs and
   Background runs exclude each other; an automation is sent with its factory,
-  since the cell matches its name in every factory otherwise.
+  since the API matches its name in every factory otherwise.
 - **The list reads itself again** (`usePoll`): every 5 s while a run shown,
   the opened requests' automations included, can change, every 30 s once none
   can, never while the tab is hidden (`pageVisibility.ts`), and at once when
@@ -482,7 +505,7 @@ the factory's orchestrator; the automations it starts are its children.
   redraws its line). Nothing opens a session or an artifact's content yet,
   and an agent step says its conversation comes later.
 - **The file behind a run** (`ui/RunFileView.tsx`, the design mock's File
-  view, with no lines drawn between steps): when the cell holds it
+  view, with no lines drawn between steps): when the API holds it
   (`RunDetail.source`), Steps and File are a tablist at the trace's head.
   File shows the automation's file at the version the run executed, shaded
   (`yamlTokens`), numbered, with its path, `v<n> · latest` or `latest is
@@ -496,17 +519,17 @@ the factory's orchestrator; the automations it starts are its children.
   the file (a link to File), the version against the latest, the trigger,
   the mode and what it applies to (`runFile.ts`).
 - **Approving a run** (`ui/ApprovalCard.tsx`, at the top of either pane while
-  `RunDetail.approval` is set): the cell's reason, what approving lets run
+  `RunDetail.approval` is set): the API's reason, what approving lets run
   (each command, each agent with its prompt's first line; a request has
   none), and "Anyone on <team> can approve this." Anyone on the factory's
-  owning team (the cell's `mayAnswer`) gets Approve and Dismiss, which asks
+  owning team (the API's `mayAnswer`) gets Approve and Dismiss, which asks
   once, in place; everyone else reads the card alone. `approveRun` sends
-  `POST /api/runs/{runId}/approval` for the version asked about; the cell
+  `POST /api/runs/{runId}/approval` for the version asked about; the API
   records the first answer for that version and the run's runner acts on
   it, so the card becomes a one-line receipt ("Approved by you · 2m ago. It
   starts when its runner picks it up.") and the page reads the run again.
   Every refusal (not on the team, the run gone, not waiting, answered first,
-  the version moved, the cell's own states) has its own sentence
+  the version moved, the API's own states) has its own sentence
   (`messageForApproveAnswer`) and reads the run again. This is the one thing
   on the pages that writes.
 - **A request's pane is two tabs** (`RequestPane`, under the approval card):
@@ -524,7 +547,7 @@ the factory's orchestrator; the automations it starts are its children.
   sent, the session's words and that report. A request no person started
   says who handed it over by its trigger ("Event"). Any other request
   (`conversation === null`) shows the request as the person gave it and says
-  what will join it. An open question's words are not in the cell, so the
+  what will join it. An open question's words are not in the API, so the
   page says when it was asked and its deadline.
 - **The automations a request started** (`ui/RequestAutomations.tsx`, the
   Automations tab): `RunDetail.children` in the order the orchestrator
@@ -541,59 +564,59 @@ the factory's orchestrator; the automations it starts are its children.
   is drawn from one automation to another: no flow graph, by decision.
 - **Text a run carries is untrusted** (a request may be a pasted ticket): it
   is shown as text, never markup, and an item's address is a link only on
-  `https:` (`safeItemUrl`), which the cell also holds it to.
+  `https:` (`safeItemUrl`), which the API also holds it to.
 - **Type is the scale's** (`--font-size-xs` to `--font-size-xl`, the weights
   and line heights in `styles.css`), never pixels: 14px for titles, names,
   fields, buttons and chips, 12px for what supports them (meta lines, the
   info panel's rows), 11px only for tags, the steps' model and a status's
   count badge.
-- **States** are the cell's, as Teams has them (`messageForCellRefusal`),
-  with `invalid` (filters the cell could not read: Clear filters) and a run
-  not found (none, or one of another team's factories: the cell says the
+- **States** are the API's, as Teams has them (`messageForRefusal`),
+  with `invalid` (filters the API could not read: Clear filters) and a run
+  not found (none, or one of another team's factories: the API says the
   same of both). An empty list says what fills it; one empty for its filters
   offers to clear them.
 
-The section needs the workspace's cell running (`pnpm dev:cloud-region`);
-`pnpm --filter @consola/cloud-region db:seed` writes demo runs into a local
-cell's database.
+The section needs the API running (`pnpm dev:cloud`);
+`pnpm --filter @consola/cloud-api db:seed` writes demo runs into a local
+database.
 
 ## Sessions
 
 The Sessions section (`#/sessions`, `ui/SessionsSection.tsx`, a `wide` entry
 of `SECTIONS` after Runs) shows the person's own cloud sessions: each a
 sandbox the workspace's runner runs, with an agent CLI working in one of the
-runner's repositories (`apps/cloud-region/AGENTS.md`, "Cloud sessions"). It
-reaches the cell through `cloudSessionsService` (`services/cloudSessions.ts`)
-on the page's cell session, as Runs does, and the cell decides everything: the
+runner's repositories (`apps/cloud-api/AGENTS.md`, "Cloud sessions"). It
+reaches the API through `cloudSessionsService` (`services/cloudSessions.ts`),
+naming the workspace as Runs does, and the API decides everything: the
 list holds a person's own sessions, every member opens an agent run's by its
-id, and every status is the cell's.
+id, and every status is the API's.
 
 - **The address holds the place** (`sessionsRoute.ts`): the list is
   `#/sessions`, the form `#/sessions/new`, a session `#/sessions/<id>` (the
-  cell's UUID, never `new`). A session started takes the form's entry in the
+  API's UUID, never `new`). A session started takes the form's entry in the
   history (`replaceHash`), so back leads to the list.
-- **The list** (`SessionsList`), newest first as the cell answers: each row
+- **The list** (`SessionsList`), newest first as the API answers: each row
   its status (a dot, hollow while it starts, the accent while it runs, quiet
   once stopped, red once failed, and its word), its name (`sessionLabel`: the
   title, or "Session" and the id's first eight characters), its repository and
   harness as tags, and when it started. It reads again as often as its
   liveliest session asks (`listPollIntervalMs`), every 30 s once none can
-  change, never while the tab is hidden; a refresh that fails while the cell
-  or `cloud-global` is out keeps the rows.
+  change, never while the tab is hidden; a refresh that fails while the API
+  is out keeps the rows.
 - **New session** (`NewSessionPage`): a repository and a harness, each from
   what the runner offers (`GET /api/cloud-sessions/options`; a harness this
   build cannot name is left out), and `START_NOTE` above Start, since a
   session runs the repository's own settings and hooks. With no runner
   connected (`no_runner`), its sentence stands in the form's place, as it does
   when a start comes back with it. A repository or harness the runner does not
-  offer, or a body the cell could not read, is said under the form.
+  offer, or a body the API could not read, is said under the form.
 - **A session** (`SessionPage`): the run page's header (Sessions / name, a
   status chip, and Stop while it starts or runs, which asks first, in place),
   a line of its facts, then what `sessionScreen` says. Starting: its words,
   read again every 2 s. Running: the chat under the warning that changes not
   pushed to a branch are lost, read again every 10 s. Stopped or failed: the
   words, with no chat and so no composer, and no more reads. A failure says
-  the runner's message as it came, or the sentence for the cell's code
+  the runner's message as it came, or the sentence for the API's code
   (`runner_restarted`, `runner_unreachable`, `runner_failed`, and an agent
   run's four: see "Agent runs"), never a code.
 - **The chat** (`ui/SessionChat.tsx`) is `AgentChat` with its stylesheet,
@@ -604,23 +627,23 @@ id, and every status is the cell's.
   in this page's elements and CSS (`ui/Sessions.css` too). It is most
   of the app's weight, so `SessionPage` loads it only for a running session
   (`React.lazy`), and a chunk that cannot load says so in its place. The page
-  asks the cell for a pass (`POST /api/cloud-sessions/{sessionId}/pass`) once
+  asks the API for a pass (`POST /api/cloud-sessions/{sessionId}/pass`) once
   it reads the session running, and the chat connects straight to the host
   the pass names (an `http(s)` origin, or the pass is not used). Its
-  `onPassExpired` asks the cell again only while the session runs
+  `onPassExpired` asks the API again only while the session runs
   (`shouldRenewPass`); a 404 rejects it, and the page reads the session at once.
 - **A session that ends while its page is open**: the read that finds it
   stopped or failed unmounts the chat (`chatMounted`), which drops its
   connection and its pass; no pass is asked for again, and nothing reconnects.
 - **A read that fails keeps the page only for a while** (`keepsShownOn`):
-  while the cell or `cloud-global` is out (`unavailable`, `pending`) the list
-  and a session stay as last read, saying when. Signed out, with another
+  while the API is out (`unavailable`) the list and a session stay as last
+  read, saying when. Signed out, with another
   workspace open, or with the session gone, the page says so instead, and a
   running chat unmounts: nobody goes on using a session the page can no
   longer vouch for. Runs keeps its read-only page through all of these; a
   session's page holds a chat with an agent that has a shell.
-- **States** are the cell's (`messageForCellRefusal`), with a session not found
-  (none, or another person's: the cell says the same of both) and `no_runner`.
+- **States** are the API's (`messageForRefusal`), with a session not found
+  (none, or another person's: the API says the same of both) and `no_runner`.
 
 ### Agent runs
 
@@ -629,9 +652,9 @@ started on a pull request (`origin` set), which nobody types into: its first
 agent (the orchestrator) dispatches others and posts on the pull request. Every
 member opens and may stop one.
 
-- **It is in Runs, not in Sessions.** The cell lists each agent run as a run,
+- **It is in Runs, not in Sessions.** The API lists each agent run as a run,
   a request whose `conversation` is its session
-  (`apps/cloud-region/AGENTS.md`, "Agent runs"), so it shows in the Runs list
+  (`apps/cloud-api/AGENTS.md`, "Agent runs"), so it shows in the Runs list
   with every other run, and its run's Conversation tab holds the session (see
   "Runs"). The Sessions list never holds one.
 - **Its session** is shown as a person's is (`useCloudSession`,
@@ -651,16 +674,15 @@ member opens and may stop one.
   and `vite.config.ts` writes its `THIRD-PARTY-NOTICES` and `LICENSE` to
   `agent-ui/` in this app's `dist/`, as that package asks of an embedder.
 
-The section needs the workspace's cell running with a runner connected
-(`pnpm dev:cloud-region`, and `apps/cloud-region/AGENTS.md`, "The runner's
-socket").
+The section needs the API running with a runner connected (`pnpm dev:cloud`,
+and `apps/cloud-api/AGENTS.md`, "The runner's socket").
 
 ## Workspaces
 
-The API is `cloud-global`'s (its `AGENTS.md`, "Workspaces"), and it is the
+The API is `cloud-api` (its `AGENTS.md`, "Workspaces"), and it is the
 authority on every rule. The web app imports none of its code, so
-`workspace.ts` keeps its own copy of the name, slug and region rules: to
-check a request before sending it and to suggest a slug. Whatever the server
+`workspace.ts` keeps its own copy of the name and slug rules: to check a
+request before sending it and to suggest a slug. Whatever the server
 answers is what the page shows, so a copy that drifts costs a round trip,
 never a wrong workspace. Keep both in step: the contract's types catch a
 region or a problem out of step, but not a rule such as a length.
@@ -673,9 +695,11 @@ region or a problem out of step, but not a rule such as a length.
   shown.
 - A person with no workspace open sees the create form under their profile.
   One with a workspace reaches the switcher, and the form, from the sidebar.
-- No region is picked for the person: it can never change, and the form says
-  so (`REGION_HINT`). The slug follows the name until the person types their
-  own.
+- No region is asked for. Every new workspace takes the deployment's region
+  (the API's `REGION`), which can never change, so the form has a name and a
+  slug alone, and `POST /api/workspaces` sends no region. A workspace's
+  region still shows where it is named (the Overview, Settings → General,
+  the switcher). The slug follows the name until the person types their own.
 
 ## The dashboard
 
@@ -709,7 +733,7 @@ under a topbar of their own.
   and a factory's page `#/factories/<id>/<page>`, so a reload, a shared link
   and the browser's back and forward land where they point. The nav is plain
   links, and `Dashboard` follows the hash (`onHashChange`). An id never
-  changes once a link may hold it: cloud-global sends a person back to
+  changes once a link may hold it: the API's GitHub callback sends a person back to
   `#/settings/connections`. Whatever follows an id in the hash (`/…` or
   `?…`) is the section's own, and an id this build does not list opens the
   first section (`chooseSection`).
@@ -805,7 +829,7 @@ descriptions 12px); colours are this app's Radix tokens.
   (`#/settings`), as does the workspace menu's Workspace settings…
   (`#/settings/general`, through `openSettingsPage`), and `Dashboard` shows
   it over the section that was open, or the first section when the address
-  opened Settings directly (cloud-global's GitHub callback). Escape and its
+  opened Settings directly (the API's GitHub callback). Escape and its
   close button go back to that section. It is
   a native modal `<dialog>`, so the dashboard behind it is inert, and the
   keyboard starts on the open page's entry in the list.
@@ -841,23 +865,28 @@ takes the icon off). A pick is set at once (`setWorkspaceIcon`), then the page
 loads again (`onWorkspaceChanged`); anyone else sees the tile and no picker,
 and the server refuses them whatever the page shows. An uploaded image, which
 the desktop also offers, is not offered: it would put a person's file in
-`cloud-global`.
+the API's accounts.
 
 ### Connections
 
 Settings' Connections page (`ui/ConnectionsPage.tsx`, with its own
 `ConnectionsPage.css`, at `#/settings/connections`) shows what the active
 workspace is connected to: GitHub, and the services that come later
-(`LATER_SERVICES`), listed as not connected. The API is `cloud-global`'s (its
+(`LATER_SERVICES`), listed as not connected. The API is `cloud-api` (its
 `AGENTS.md`, "Connections"), and it decides everything: the page shows Connect
 and Disconnect only when the server says `canManage`, and the server refuses
 anyone else whatever the page shows.
 
+- **Every call names the workspace the page shows** (`loadConnections`,
+  `startGitHubConnect` and `disconnectGitHub` take it), as every call about
+  what a workspace holds does (see "What a workspace holds"). A load refused
+  for another workspace, none, or one the person left is `switched`; a
+  Connect or Disconnect refused so is `unavailable`, and changes nothing.
 - **Connect** asks the server for the install address and sends the person
   there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
-  them back through `cloud-global`'s callback to
+  them back through the API's callback to
   `/?github=<result>#/settings/connections`, an address the two keep in step
-  (`CONNECTIONS_PAGE` in `cloud-global`). The page reads the result once as it
+  (`CONNECTIONS_PAGE` in `cloud-api`). The page reads the result once as it
   mounts (`takeGitHubResult`), clears it from the address and says it
   (`messageForGitHubResult`). A result it does not know is `unknown`, never
   shown raw.
@@ -894,7 +923,10 @@ anyone else whatever the page shows.
    `createApi`'s client, never `fetch`. A route the API has just gained
    reaches the client once `pnpm --filter @consola/cloud-web api:generate`
    rewrites `domain/apiContract.ts`; a type it answers in is taken from
-   there, never written by hand. Another API (a cell's, say) gets its own
+   there, never written by hand. A call about what a workspace holds goes
+   through `workspaceCalls`, which names the workspace the page shows and reads
+   the caller's refusals (see "What a workspace holds"); the service is given
+   the workspace, and never finds it itself. Another API would get its own
    generated file and its own client the same way.
 3. A new screen is a component in `ui`, mounted from `ui/App.tsx`; a new page
    of the workspace is a section (`ui/sections.tsx`, above). It calls the
@@ -908,6 +940,9 @@ anyone else whatever the page shows.
 A test sits beside its module and is named after it (`api.ts`, `api.test.ts`).
 They run in Node, so no test touches a DOM: a service takes the API's client
 as an argument (`loadMe(createApi({ fetch, baseUrl }))`, with an absolute
-`baseUrl`, since Node has no page to resolve `/api` against), and
-`signInRedirect.test.ts` stands in for `window` just for the test. Screens are
-checked by running the app (`pnpm dev:cloud`).
+`baseUrl`, since Node has no page to resolve `/api` against), or, when it
+names the workspace, where to send from (`createTeamsService({ fetch,
+baseUrl })`, `loadConnections(workspace, { fetch, baseUrl })`), so the test
+sees the header it sends. One stand-in `fetch` answers every route the
+service calls. `signInRedirect.test.ts` stands in for `window` just for the
+test. Screens are checked by running the app (`pnpm dev:cloud`).

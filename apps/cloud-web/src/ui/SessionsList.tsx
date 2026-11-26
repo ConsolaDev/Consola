@@ -1,6 +1,6 @@
 import { Bot, FolderGit2, MessagesSquare, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
-import { messageForCellRefusal } from '../domain/cell';
+import { messageForRefusal } from '../domain/refusal';
 import { keepsShownOn, listPollIntervalMs, sessionLabel, startedAt } from '../domain/cloudSession';
 import type { CloudSession, SessionsAnswer } from '../domain/cloudSession';
 import {
@@ -22,7 +22,7 @@ type ListView =
   | { kind: 'refused'; answer: Exclude<SessionsAnswer, { kind: 'listed' }> };
 
 /**
- * The person's own cloud sessions, newest first as the cell lists them: each a row of its status,
+ * The person's own cloud sessions, newest first as the API lists them: each a row of its status,
  * its name, its repository and harness, and when it started, linking to its page. The workspace's
  * agent runs are not here: each is a run, in Runs, whose page holds its session as its
  * conversation. It reads them again while the page shows, as often as the liveliest session asks,
@@ -79,8 +79,8 @@ export function SessionsList({ workspace }: { workspace: MyWorkspace }) {
 
       {view.kind === 'refused' && (
         <div className="sessions-notice" role="alert">
-          <p>{messageForCellRefusal(view.answer, workspace)}</p>
-          {(view.answer.kind === 'pending' || view.answer.kind === 'unavailable') && (
+          <p>{messageForRefusal(view.answer)}</p>
+          {view.answer.kind === 'unavailable' && (
             <button type="button" className="button" onClick={readNow}>
               Try again
             </button>

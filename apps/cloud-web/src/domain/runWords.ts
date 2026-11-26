@@ -12,8 +12,8 @@ import type {
 
 /**
  * How the Runs pages say a run: its phase on a chip, its status in words and as a look (which
- * icon and colour), how it was started, its item, its times, its cost. The cell's words are its
- * own; these are the page's, and a word a newer cell sends that this build does not know is still
+ * icon and colour), how it was started, its item, its times, its cost. The API's words are its
+ * own; these are the page's, and a word a newer API sends that this build does not know is still
  * said, never dropped.
  */
 
@@ -47,7 +47,7 @@ const STATUS_WORDS: Record<RunStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-/** A word the page does not know, said as the cell sent it, capitalised. */
+/** A word the page does not know, said as the API sent it, capitalised. */
 function asSent(word: string): string {
   const spaced = word.replaceAll(/[-_]+/g, ' ').trim();
   return spaced === '' ? 'Unknown' : spaced[0].toUpperCase() + spaced.slice(1);
@@ -191,7 +191,7 @@ export function itemNoun(item: Pick<RunItem, 'kind'>): string {
   return 'item';
 }
 
-/** Where a run ran, in words: the cloud by its name, any other runner as the cell names it. */
+/** Where a run ran, in words: the cloud by its name, any other runner as the API names it. */
 export function runnerWords(runner: string): string {
   return runner === 'cloud' ? 'Consola Cloud' : asSent(runner);
 }
@@ -305,7 +305,7 @@ export function shareOf(spent: number, budget: number): number {
   return Math.min(1, Math.max(0, spent / budget));
 }
 
-/** A request's open question: the cell holds when it was asked and its deadline, not its words. */
+/** A request's open question: the API holds when it was asked and its deadline, not its words. */
 export function questionWords(
   question: NonNullable<NonNullable<RunDetail['request']>['question']>,
   now: number,

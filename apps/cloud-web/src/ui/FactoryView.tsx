@@ -55,8 +55,8 @@ export function FactoryView({
     return (
       <Frame>
         <div className="factory-notice">
-          <p role="alert">{messageForFactoriesState(state, workspace)}</p>
-          {(state.kind === 'pending' || state.kind === 'unavailable') && (
+          <p role="alert">{messageForFactoriesState(state)}</p>
+          {state.kind === 'unavailable' && (
             <button type="button" className="button" onClick={() => void onChanged()}>
               Try again
             </button>

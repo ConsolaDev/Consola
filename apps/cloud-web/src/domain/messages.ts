@@ -33,11 +33,10 @@ export function messageForSignInError(code: string | null): string | null {
 export type WorkspaceFormMessages = {
   name?: string;
   slug?: string;
-  region?: string;
   form?: string;
 };
 
-const FOR_PROBLEM: Record<WorkspaceProblem, { field: 'name' | 'slug' | 'region'; text: string }> = {
+const FOR_PROBLEM: Record<WorkspaceProblem, { field: 'name' | 'slug'; text: string }> = {
   name_missing: { field: 'name', text: 'Give the workspace a name.' },
   name_too_long: {
     field: 'name',
@@ -47,7 +46,6 @@ const FOR_PROBLEM: Record<WorkspaceProblem, { field: 'name' | 'slug' | 'region';
     field: 'slug',
     text: `Use lowercase letters, digits and single dashes, up to ${WORKSPACE_SLUG_MAX} characters.`,
   },
-  region_unknown: { field: 'region', text: 'Pick a region.' },
 };
 
 /** The sentences for what the page's check, or the server, found wrong with the form. */
@@ -90,10 +88,6 @@ export const WORKSPACES_UNAVAILABLE = 'Your workspaces couldn’t be loaded.';
 
 /** What the create form says under the slug, before anything is wrong with it. */
 export const SLUG_HINT = 'Lowercase letters, digits and dashes. No two workspaces share one.';
-
-/** What the create form says under the regions: the one choice that is final. */
-export const REGION_HINT =
-  'Pick the one nearest your team. A workspace’s region can’t be changed once it’s created.';
 
 /** What the icon picker says when the icon could not be set. */
 export function messageForIconFailure(

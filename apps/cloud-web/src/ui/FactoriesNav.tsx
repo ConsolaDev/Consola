@@ -25,7 +25,7 @@ const PAGE_ICONS: Record<FactoryPageId, LucideIcon> = {
 
 /**
  * The sidebar's Factories group: its heading, with + for a new factory, over every factory the
- * cell lists for the person, exactly as it lists them. A factory is a row (its tile and name)
+ * API lists for the person, exactly as it lists them. A factory is a row (its tile and name)
  * that opens its first page and unfolds it, and a chevron that folds or unfolds it, the open one
  * included; under it, its pages. Arriving at a factory, by its row, a link or the address,
  * unfolds it. Which factories are unfolded is kept per workspace (`foldStore`), so mount this
@@ -95,8 +95,8 @@ export function FactoriesNav({
 
       {state && state.kind !== 'listed' && (
         <p className="sidebar-note" role="alert">
-          {sidebarLineForFactoriesState(state, workspace)}{' '}
-          {(state.kind === 'pending' || state.kind === 'unavailable') && (
+          {sidebarLineForFactoriesState(state)}{' '}
+          {state.kind === 'unavailable' && (
             <button type="button" className="sidebar-note-action" onClick={onRetry}>
               Try again
             </button>

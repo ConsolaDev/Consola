@@ -33,7 +33,7 @@ type Stopping =
 /**
  * One cloud session, laid out as a run's page: its header (the way back, its name, its status and
  * Stop), a line of its facts, then what its status shows (`SessionConversation`): while it runs,
- * the chat, connected straight to the session's host with a pass from the cell, under the warning
+ * the chat, connected straight to the session's host with a pass from the API, under the warning
  * that unpushed changes are lost when it stops. The session is read and its chat's pass kept as
  * `useCloudSession` says.
  *
@@ -57,7 +57,7 @@ export function SessionPage({
     setStopping({ kind: 'stopping' });
     const answer = await cloudSessionsService.stopSession(workspace, sessionId);
     if (answer.kind !== 'stopped') {
-      setStopping({ kind: 'failed', message: messageForStopAnswer(answer, workspace) });
+      setStopping({ kind: 'failed', message: messageForStopAnswer(answer) });
       return;
     }
     setStopping({ kind: 'idle' });
@@ -143,9 +143,9 @@ export function SessionPage({
       {view.kind === 'refused' && (
         <div className="sessions sessions-narrow">
           <div className="sessions-notice" role="alert">
-            <p>{messageForSessionAnswer(view.answer, workspace)}</p>
+            <p>{messageForSessionAnswer(view.answer)}</p>
             <div className="sessions-actions">
-              {(view.answer.kind === 'pending' || view.answer.kind === 'unavailable') && (
+              {view.answer.kind === 'unavailable' && (
                 <button type="button" className="button" onClick={readNow}>
                   Try again
                 </button>

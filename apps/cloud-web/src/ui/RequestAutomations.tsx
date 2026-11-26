@@ -225,8 +225,8 @@ function ChildTrace({
       {view.kind === 'loading' && <p className="automation-quiet">Reading its steps…</p>}
       {view.kind === 'refused' && (
         <div className="automation-quiet" role="alert">
-          <p>{messageForRunAnswer(view.answer, workspace)}</p>
-          {(view.answer.kind === 'pending' || view.answer.kind === 'unavailable') && (
+          <p>{messageForRunAnswer(view.answer)}</p>
+          {view.answer.kind === 'unavailable' && (
             <button type="button" className="automation-retry" onClick={readNow}>
               Try again
             </button>

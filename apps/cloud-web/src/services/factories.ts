@@ -10,16 +10,18 @@ import type {
   TemplatesAnswer,
 } from '../domain/factories';
 import type { FactoryIssue } from '../domain/factoryProblems';
-import { codeOf, createCellSession, PENDING, pageCellSession, UNAVAILABLE } from './cell';
-import type { CellApi, CellDeps, CellRefusal, CellSession } from './cell';
+import type { Api, ApiOptions } from './api';
+import { codeOf, UNAVAILABLE, workspaceCalls } from './workspaceCalls';
+import type { Refusal } from './workspaceCalls';
 
 /*
- * A workspace's factories, from its regional cell (`cell.ts`: the token, the address, the states
- * a cell answers). The cell decides who sees which factory, so the list is shown exactly as it
- * comes, and the teams beside it are the cell's list for the person too: they name each
- * factory's team, and they are the teams a factory may be made for or moved to.
+ * A workspace's factories, from the API, for the workspace the page shows (`workspaceCalls.ts`:
+ * the header, and the caller's refusals every route shares). The API decides who sees which
+ * factory, so the list is shown exactly as it comes, and the teams beside it are the API's list
+ * for the person too: they name each factory's team, and they are the teams a factory may be
+ * made for or moved to.
  *
- * Every call answers in domain types. Anything a call does not expect, a cell that does not
+ * Every call answers in domain types. Anything a call does not expect, an API that does not
  * answer included, is `unavailable`.
  */
 
@@ -86,7 +88,7 @@ function isTemplate(value: unknown): value is FactoryTemplate {
 }
 
 export type FactoriesService = {
-  /** The factories the person sees in `workspace`, and the teams the cell lists for them. */
+  /** The factories the person sees in `workspace`, and the teams the API lists for them. */
   loadFactories(workspace: { id: string }): Promise<FactoriesState>;
   /** One factory the person sees, with its latest version's files. */
   loadFactory(workspace: { id: string }, factoryId: string): Promise<FactoryRead>;
@@ -100,7 +102,7 @@ export type FactoriesService = {
   moveFactory(workspace: { id: string }, factoryId: string, teamId: string): Promise<FactoryChange>;
   /**
    * Saves `files`, every file of the factory, as its next version, made from `baseVersion`: the
-   * cell stores it only while that is still the latest, and only if the files keep the schema.
+   * API stores it only while that is still the latest, and only if the files keep the schema.
    */
   saveFactory(
     workspace: { id: string },
@@ -113,7 +115,7 @@ export type FactoriesService = {
 
 /** What a change's answer comes to, for the statuses every change shares. */
 function changeOf(
-  answer: { data?: unknown; error?: unknown; response: Response } | CellRefusal,
+  answer: { data?: unknown; error?: unknown; response: Response } | Refusal,
 ): FactoryChange {
   if ('kind' in answer) return answer;
   const { status } = answer.response;
@@ -131,27 +133,23 @@ function changeOf(
   if (status === 404 && code === 'team_not_found') return { kind: 'team-not-found' };
   if (status === 404 && code === 'factory_not_found') return { kind: 'factory-not-found' };
   if (status === 409 && code === 'name_taken') return { kind: 'name-taken' };
-  if (status === 409 && code === 'workspace_pending') return PENDING;
   return UNAVAILABLE;
 }
 
 /**
- * The factories service. The page uses `factoriesService`, on the page's way to its cell; a test
- * builds its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin
- * to resolve the cell's address against.
+ * The factories service. The page uses `factoriesService`; a test builds its own with the API's
+ * `fetch` stood in for, and an origin to resolve its address against.
  */
-export function createFactoriesService(
-  deps: CellDeps & { session?: CellSession } = {},
-): FactoriesService {
-  const { onCell } = deps.session ?? createCellSession(deps);
+export function createFactoriesService(options: ApiOptions = {}): FactoriesService {
+  const onWorkspace = workspaceCalls(options);
 
-  /** Runs a change on the cell, answering how it went, and never throwing. */
+  /** Runs a change for the workspace, answering how it went, and never throwing. */
   async function change(
     workspaceId: string,
-    call: (cell: CellApi) => Promise<{ data?: unknown; error?: unknown; response: Response }>,
+    call: (api: Api) => Promise<{ data?: unknown; error?: unknown; response: Response }>,
   ): Promise<FactoryChange> {
     try {
-      return changeOf(await onCell(workspaceId, call));
+      return changeOf(await onWorkspace(workspaceId, call));
     } catch {
       return UNAVAILABLE;
     }
@@ -161,16 +159,11 @@ export function createFactoriesService(
     async loadFactories(workspace) {
       try {
         const [factories, teams] = await Promise.all([
-          onCell(workspace.id, (cell) => cell.GET('/api/factories')),
-          onCell(workspace.id, (cell) => cell.GET('/api/teams')),
+          onWorkspace(workspace.id, (api) => api.GET('/api/factories')),
+          onWorkspace(workspace.id, (api) => api.GET('/api/teams')),
         ]);
         if ('kind' in factories) return factories;
         if ('kind' in teams) return teams;
-        for (const answer of [factories, teams]) {
-          if (answer.response.status === 409 && codeOf(answer.error) === 'workspace_pending') {
-            return PENDING;
-          }
-        }
         const listed = factories.data?.factories;
         const seenTeams = teams.data?.teams;
         if (
@@ -190,8 +183,8 @@ export function createFactoriesService(
 
     async loadFactory(workspace, factoryId) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.GET('/api/factories/{factoryId}', { params: { path: { factoryId } } }),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.GET('/api/factories/{factoryId}', { params: { path: { factoryId } } }),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -200,7 +193,6 @@ export function createFactoriesService(
         }
         const code = codeOf(error);
         if (response.status === 404 && code === 'factory_not_found') return { kind: 'not-found' };
-        if (response.status === 409 && code === 'workspace_pending') return PENDING;
         return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;
@@ -208,12 +200,12 @@ export function createFactoriesService(
     },
 
     createFactory(workspace, factory) {
-      return change(workspace.id, (cell) => cell.POST('/api/factories', { body: factory }));
+      return change(workspace.id, (api) => api.POST('/api/factories', { body: factory }));
     },
 
     renameFactory(workspace, factoryId, name) {
-      return change(workspace.id, (cell) =>
-        cell.PATCH('/api/factories/{factoryId}', {
+      return change(workspace.id, (api) =>
+        api.PATCH('/api/factories/{factoryId}', {
           params: { path: { factoryId } },
           body: { name },
         }),
@@ -221,8 +213,8 @@ export function createFactoriesService(
     },
 
     moveFactory(workspace, factoryId, teamId) {
-      return change(workspace.id, (cell) =>
-        cell.PATCH('/api/factories/{factoryId}', {
+      return change(workspace.id, (api) =>
+        api.PATCH('/api/factories/{factoryId}', {
           params: { path: { factoryId } },
           body: { teamId },
         }),
@@ -231,8 +223,8 @@ export function createFactoriesService(
 
     async saveFactory(workspace, factoryId, { baseVersion, files }) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.POST('/api/factories/{factoryId}/versions', {
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.POST('/api/factories/{factoryId}/versions', {
             params: { path: { factoryId } },
             body: { baseVersion, files: files.map(({ path, content }) => ({ path, content })) },
           }),
@@ -252,7 +244,6 @@ export function createFactoriesService(
           const latestVersion = (error as { latestVersion?: unknown }).latestVersion;
           if (typeof latestVersion === 'number') return { kind: 'version-moved', latestVersion };
         }
-        if (status === 409 && code === 'workspace_pending') return PENDING;
         if (status === 404 && code === 'factory_not_found') return { kind: 'not-found' };
         if (status === 413) return { kind: 'too-large' };
         return UNAVAILABLE;
@@ -263,7 +254,7 @@ export function createFactoriesService(
 
     async loadTemplates(workspace) {
       try {
-        const answer = await onCell(workspace.id, (cell) => cell.GET('/api/factory-templates'));
+        const answer = await onWorkspace(workspace.id, (api) => api.GET('/api/factory-templates'));
         if ('kind' in answer) return answer;
         const { data, response } = answer;
         if (response.status === 200 && Array.isArray(data) && data.every(isTemplate)) {
@@ -278,4 +269,4 @@ export function createFactoriesService(
 }
 
 /** The page's factories service. */
-export const factoriesService = createFactoriesService({ session: pageCellSession });
+export const factoriesService = createFactoriesService();

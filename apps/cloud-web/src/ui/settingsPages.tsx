@@ -19,7 +19,7 @@ export type SettingsPage = {
  * page (the workspace's details, its members, billing) is one entry here. Each is shown with
  * the dashboard's `SectionProps`. The first is the one `#/settings` opens.
  *
- * An id never changes once a link may hold it: cloud-global sends a person back to
+ * An id never changes once a link may hold it: the API sends a person back to
  * `#/settings/connections` after a GitHub Connect. The icons are the desktop app's, from the
  * same set (`lucide-react`).
  */

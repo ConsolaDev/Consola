@@ -63,7 +63,7 @@ export function TeamCard({
     setFailure(null);
     const answer = await send();
     setPending(false);
-    setFailure(messageForTeamChange(answer, workspace));
+    setFailure(messageForTeamChange(answer));
     if (['changed', 'not-found', 'not-allowed', 'not-a-member'].includes(answer.kind)) {
       await onChanged();
     }
@@ -84,7 +84,7 @@ export function TeamCard({
               onCancel={() => setMode('view')}
               onSubmit={async (name) => {
                 const answer = await teamsService.renameTeam(ws, team.id, name);
-                const sentence = messageForTeamChange(answer, workspace);
+                const sentence = messageForTeamChange(answer);
                 if (sentence === null) {
                   setMode('view');
                   await onChanged();

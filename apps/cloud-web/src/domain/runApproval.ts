@@ -1,5 +1,5 @@
-import { messageForCellRefusal } from './cell';
-import type { CellRefusal } from './cell';
+import { messageForRefusal } from './refusal';
+import type { Refusal } from './refusal';
 import type { RunApproval } from './runs';
 import { agoInWords } from './runWords';
 import type { WorkspaceMember } from './teams';
@@ -7,7 +7,7 @@ import type { WorkspaceMember } from './teams';
 /**
  * Approving a run from the web: what its card says, and what every answer to an approval comes
  * to. Anyone on the factory's owning team may approve or dismiss a run that waits for it; the
- * cell decides who that is (`mayAnswer`) and records the first answer for the version. It does
+ * API decides who that is (`mayAnswer`) and records the first answer for the version. It does
  * not start or stop the run: its runner does, once it picks the answer up.
  */
 
@@ -16,9 +16,9 @@ export type ApprovalDecision = 'approve' | 'dismiss';
 
 /** What sending an answer came to. */
 export type ApproveAnswer =
-  /** The cell recorded it; the approval as it holds it now. */
+  /** The API recorded it; the approval as it holds it now. */
   | { kind: 'answered'; approval: RunApproval }
-  /** The cell could not read the answer. */
+  /** The API could not read the answer. */
   | { kind: 'invalid' }
   /** The person is not on the factory's owning team (any more). */
   | { kind: 'not-allowed' }
@@ -30,7 +30,7 @@ export type ApproveAnswer =
   | { kind: 'already-answered' }
   /** The run asks about another version of its factory than the one answered. */
   | { kind: 'version-moved' }
-  | CellRefusal;
+  | Refusal;
 
 export const APPROVAL_TITLE = 'This run waits for approval';
 
@@ -71,15 +71,14 @@ export function receiptWords(
     : `Dismissed by ${who} · ${when}. Its runner won’t start it.`;
 }
 
-/** Why an answer did not go through, for the run's approval and its workspace. */
+/** Why an answer did not go through, for the run's approval. */
 export function messageForApproveAnswer(
   answer: Exclude<ApproveAnswer, { kind: 'answered' }>,
   approval: Pick<RunApproval, 'team'>,
-  workspace: { name: string; region: string },
 ): string {
   switch (answer.kind) {
     case 'invalid':
-      return 'The region couldn’t read that answer. Reload the page and try again.';
+      return 'Consola Cloud couldn’t read that answer. Reload the page and try again.';
     case 'not-allowed':
       return `Only people on ${approval.team.name} can answer this run, and you’re not on it now.`;
     case 'not-found':
@@ -91,7 +90,7 @@ export function messageForApproveAnswer(
     case 'version-moved':
       return 'This run now asks about another version of its factory. Read what it will run, then answer again.';
     default:
-      return messageForCellRefusal(answer, workspace);
+      return messageForRefusal(answer);
   }
 }
 

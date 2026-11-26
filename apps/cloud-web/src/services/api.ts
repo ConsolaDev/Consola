@@ -30,24 +30,46 @@ import type {
  * a newer API than this page was built against.
  */
 
-/** A client of cloud-global's API, typed by its contract: every path, body and answer. */
+/** A client of the API, typed by its contract: every path, body and answer. */
 export type Api = Client<paths>;
 
 /** What the client sends its requests with: the browser's `fetch`, unless a test passes its own. */
-type Send = (request: Request) => Promise<Response>;
+export type Send = (request: Request) => Promise<Response>;
+
+/**
+ * The header that names the workspace the page shows, on every call about what a workspace
+ * holds. The API reads the workspace from the session, never from this: it is a guard, so a page
+ * another tab has switched away from never reads or changes the session's new workspace under
+ * the old one's name (409 `workspace_switched`).
+ */
+export const WORKSPACE_HEADER = 'x-consola-workspace';
+
+/** Where a client sends from: a test passes its own `fetch` and an absolute `baseUrl`. */
+export type ApiOptions = { fetch?: Send; baseUrl?: string };
 
 /**
  * The API's client, and the only way a service reaches the API: no service calls `fetch` itself
  * (`boundary.test.ts`). The page and the API share one origin, through the dev server's /api
  * proxy, so its paths are relative. A test passes its own `fetch` and an absolute `baseUrl`,
- * since Node has no page to resolve a relative address against.
+ * since Node has no page to resolve a relative address against. Given `workspaceId`, every
+ * request names that workspace (`WORKSPACE_HEADER`).
  */
-export function createApi(options: { fetch?: Send; baseUrl?: string } = {}): Api {
-  return createClient<paths>({
+export function createApi(options: ApiOptions & { workspaceId?: string } = {}): Api {
+  const client = createClient<paths>({
     baseUrl: options.baseUrl ?? '',
     fetch: options.fetch,
     credentials: 'same-origin',
   });
+  const { workspaceId } = options;
+  if (workspaceId !== undefined) {
+    client.use({
+      onRequest({ request }) {
+        request.headers.set(WORKSPACE_HEADER, workspaceId);
+        return request;
+      },
+    });
+  }
+  return client;
 }
 
 const api = createApi();
@@ -88,9 +110,9 @@ export async function createWorkspace(
   client: Api = api,
 ): Promise<CreateWorkspaceAnswer> {
   try {
-    const { name, slug, region } = workspace;
+    const { name, slug } = workspace;
     const { data, error, response } = await client.POST('/api/workspaces', {
-      body: { name, slug, region },
+      body: { name, slug },
     });
     if (response.status === 401) return { kind: 'signed-out' };
     if (response.status === 201 && data) return { kind: 'created', workspace: data };
@@ -151,16 +173,27 @@ export async function setWorkspaceIcon(
 
 /*
  * Connections (14.1): what the workspace is connected to, and connecting or disconnecting
- * GitHub. Kept together at the end of the file.
+ * GitHub. Kept together at the end of the file. They are the workspace's, so every call names
+ * the workspace the page shows (`WORKSPACE_HEADER`), and the API refuses one the session no
+ * longer has open.
  */
 
-/** What the session's active workspace is connected to. */
-export async function loadConnections(client: Api = api): Promise<ConnectionsState> {
+/** What `workspace`, the session's active one, is connected to. */
+export async function loadConnections(
+  workspace: { id: string },
+  options: ApiOptions = {},
+): Promise<ConnectionsState> {
   try {
+    const client = createApi({ ...options, workspaceId: workspace.id });
     const { data, error, response } = await client.GET('/api/connections');
     if (response.status === 401) return { kind: 'signed-out' };
-    if (response.status === 409 && error?.error === 'no_active_workspace') {
-      return { kind: 'no-workspace' };
+    const code = error?.error;
+    if (
+      (response.status === 409 &&
+        (code === 'no_active_workspace' || code === 'workspace_switched')) ||
+      (response.status === 403 && code === 'not_a_member')
+    ) {
+      return { kind: 'switched' };
     }
     if (response.status !== 200 || !isConnections(data)) return UNAVAILABLE;
     return { kind: 'loaded', connections: data };
@@ -178,9 +211,16 @@ function isConnections(body: unknown): body is Connections {
   return typeof configured === 'boolean' && Array.isArray(installations);
 }
 
-/** Starts connecting GitHub: the address on GitHub to send the person to. */
-export async function startGitHubConnect(client: Api = api): Promise<ConnectAnswer> {
+/**
+ * Starts connecting GitHub to `workspace`: the address on GitHub to send the person to. A
+ * workspace the session no longer has open is `unavailable`, as the page cannot act for it.
+ */
+export async function startGitHubConnect(
+  workspace: { id: string },
+  options: ApiOptions = {},
+): Promise<ConnectAnswer> {
   try {
+    const client = createApi({ ...options, workspaceId: workspace.id });
     const { data, error, response } = await client.POST('/api/connections/github/install');
     if (response.status === 401) return { kind: 'signed-out' };
     if (response.status === 403 && error?.error === 'not_allowed') return { kind: 'not-allowed' };
@@ -207,12 +247,14 @@ function isGitHubAddress(value: string): boolean {
   }
 }
 
-/** Disconnects a GitHub installation from the session's active workspace. */
+/** Disconnects a GitHub installation from `workspace`, the session's active one. */
 export async function disconnectGitHub(
+  workspace: { id: string },
   installationId: number,
-  client: Api = api,
+  options: ApiOptions = {},
 ): Promise<DisconnectAnswer> {
   try {
+    const client = createApi({ ...options, workspaceId: workspace.id });
     const { error, response } = await client.DELETE(
       '/api/connections/github/installations/{installationId}',
       { params: { path: { installationId: String(installationId) } } },

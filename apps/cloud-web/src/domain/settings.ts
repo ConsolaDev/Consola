@@ -2,7 +2,7 @@
  * Settings' pages, as the address names them: `#/settings/<page>`, a page id being lowercase
  * letters, digits and single dashes, like a section's. Whatever follows the page id, after a `/`
  * or a `?`, is the page's own. `#/settings` alone, or a page this build does not have, opens the
- * first page. An id never changes once a link may hold it: cloud-global sends a person back to
+ * first page. An id never changes once a link may hold it: the API sends a person back to
  * `#/settings/connections` after a GitHub Connect.
  */
 

@@ -1,11 +1,12 @@
 import type { components } from './apiContract';
 
 /**
- * Workspaces as the web app sees them. `cloud-global` is the authority on every rule here: the
+ * Workspaces as the web app sees them. The API is the authority on every rule here: the
  * web app imports no package, so it keeps its own copy, to check a request before sending it
  * and to suggest a slug. When the server disagrees, its answer is what the page shows. The
  * copies are checked against the API's contract (`apiContract.ts`) as the app typechecks, so the
- * API cannot gain a region, a role or a problem the page does not name.
+ * API cannot gain a region, a role or a problem the page does not name. A new workspace takes
+ * the deployment's region: the person never picks one.
  */
 
 /** The regions a workspace can be in, with the names the page gives them. */
@@ -15,10 +16,6 @@ export const REGIONS = [
 ] as const;
 
 export type Region = (typeof REGIONS)[number]['id'];
-
-export function isRegion(value: unknown): value is Region {
-  return REGIONS.some((region) => region.id === value);
-}
 
 /** What the page calls a region; one it does not list is shown as the server sent it. */
 export function regionName(region: string): string {
@@ -46,7 +43,7 @@ export function roleName(role: string): string {
 }
 
 /** What a person asks for when they make a workspace, once `checkNewWorkspace` accepts it. */
-export type NewWorkspace = { name: string; slug: string; region: Region };
+export type NewWorkspace = { name: string; slug: string };
 
 export const WORKSPACE_NAME_MAX = 64;
 export const WORKSPACE_SLUG_MAX = 48;
@@ -54,12 +51,7 @@ export const WORKSPACE_SLUG_MAX = 48;
 /** Lowercase letters and digits, with single dashes between them. */
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
-const WORKSPACE_PROBLEMS = [
-  'name_missing',
-  'name_too_long',
-  'slug_invalid',
-  'region_unknown',
-] as const;
+const WORKSPACE_PROBLEMS = ['name_missing', 'name_too_long', 'slug_invalid'] as const;
 
 /** Why the server, or the page's own check, refuses a request for a new workspace. */
 export type WorkspaceProblem = (typeof WORKSPACE_PROBLEMS)[number];
@@ -71,13 +63,12 @@ export function isWorkspaceProblem(value: unknown): value is WorkspaceProblem {
 /**
  * Whether a request for a new workspace can be sent: a name (trimmed, at most
  * `WORKSPACE_NAME_MAX` characters), a slug of lowercase letters and digits with single dashes
- * between (at most `WORKSPACE_SLUG_MAX`), and one of `REGIONS`. Every problem is named at once,
- * in that order. Whether the slug is free only the server can say.
+ * between (at most `WORKSPACE_SLUG_MAX`). Every problem is named at once, in that order. Whether
+ * the slug is free only the server can say.
  */
 export function checkNewWorkspace(input: {
   name?: unknown;
   slug?: unknown;
-  region?: unknown;
 }): { ok: true; workspace: NewWorkspace } | { ok: false; problems: WorkspaceProblem[] } {
   const problems: WorkspaceProblem[] = [];
 
@@ -88,11 +79,8 @@ export function checkNewWorkspace(input: {
   const slug = typeof input.slug === 'string' ? input.slug : '';
   if (slug.length > WORKSPACE_SLUG_MAX || !SLUG.test(slug)) problems.push('slug_invalid');
 
-  const region = isRegion(input.region) ? input.region : null;
-  if (region === null) problems.push('region_unknown');
-
-  if (region === null || problems.length > 0) return { ok: false, problems };
-  return { ok: true, workspace: { name, slug, region } };
+  if (problems.length > 0) return { ok: false, problems };
+  return { ok: true, workspace: { name, slug } };
 }
 
 /** Letters an accent cannot be taken off, spelled the way a slug can hold them. */
@@ -136,17 +124,15 @@ export function suggestSlug(name: string): string {
 
 /**
  * The create form as the person fills it in. The slug follows the name (`suggestSlug`) until
- * the person types one of their own (`slugEdited`), and no region is picked for them, since it
- * can never be changed.
+ * the person types one of their own (`slugEdited`).
  */
 export type WorkspaceDraft = {
   name: string;
   slug: string;
-  region: Region | null;
   slugEdited: boolean;
 };
 
-export const NEW_DRAFT: WorkspaceDraft = { name: '', slug: '', region: null, slugEdited: false };
+export const NEW_DRAFT: WorkspaceDraft = { name: '', slug: '', slugEdited: false };
 
 /** The draft with a new name; the slug follows it unless the person typed their own. */
 export function withName(draft: WorkspaceDraft, name: string): WorkspaceDraft {

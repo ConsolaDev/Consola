@@ -39,7 +39,7 @@ const LAYERS: Layer[] = [
   {
     // `@consola/factory-spec` is allowed here: the factory files' schema and parser (MIT, no
     // I/O), so the page checks a factory's files as they are edited with the very rules the
-    // cell checks them with when they are saved.
+    // API checks them with when they are saved.
     at: 'domain',
     reaches: ['domain'],
     refuses: [ANY_PACKAGE],
@@ -386,7 +386,7 @@ describe('the dependency rule', () => {
     ['main.tsx', './ui/App', true],
     ['main.tsx', '@radix-ui/themes', true],
     ['main.tsx', '@consola/factory-spec', false],
-    // `domain` checks a factory's files with `@consola/factory-spec`, the rules the cell checks
+    // `domain` checks a factory's files with `@consola/factory-spec`, the rules the API checks
     // them with; no other layer imports it, and no test.
     ['domain/x.ts', '@consola/factory-spec', true],
     ['services/x.ts', '@consola/factory-spec', false],

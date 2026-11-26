@@ -1,5 +1,5 @@
-import type { CellRefusal } from './cell';
-import type { components, paths } from './cellApiContract';
+import type { Refusal } from './refusal';
+import type { components, paths } from './apiContract';
 import {
   AGENT_RUN_PHASE_WORDS,
   failedWords,
@@ -17,10 +17,10 @@ import { safeItemUrl } from './runs';
  * the New session form, and only they see it; an agent run is started by an automation of a
  * factory's agent team, when a pull request opens, and every member of the workspace sees it
  * (`origin` names what started it, `agentRun` is the runner's last report of it). They live in
- * the workspace's regional cell (`apps/cloud-region/AGENTS.md`, "Cloud sessions"), which decides
+ * the API (`apps/cloud-api/AGENTS.md`, "Cloud sessions"), which decides
  * every status: `starting` goes to `running` or `failed`, and `running` to `stopped` or
  * `failed`, the two ends. A running session's chat connects straight to its sandbox's host, with
- * a short-lived pass the cell signs.
+ * a short-lived pass the API signs.
  */
 
 type Schemas = components['schemas'];
@@ -30,7 +30,7 @@ export type CloudSessionOptions = Schemas['CloudSessionOptions'];
 export type CloudSessionPass = Schemas['CloudSessionPass'];
 export type CloudSessionStatus = CloudSession['status'];
 export type Harness = CloudSession['harness'];
-/** A failure the cell decided itself, which the page words (never shows as a code). */
+/** A failure the API decided itself, which the page words (never shows as a code). */
 export type CellFailureCode = NonNullable<CloudSession['errorCode']>;
 
 /** What started an agent run: an automation of a factory's agent team, on a pull request. */
@@ -84,7 +84,7 @@ export function pullRequestLabel(item: CloudSessionOrigin['item']): string {
   return `${item.repository}#${item.number}${title ? ` ${title}` : ''}`;
 }
 
-/** The pull request's address, only when it is an `https:` one: the cell passes GitHub's on. */
+/** The pull request's address, only when it is an `https:` one: the API passes GitHub's on. */
 export function pullRequestUrl(item: CloudSessionOrigin['item']): string | null {
   return safeItemUrl(item.url);
 }
@@ -109,7 +109,7 @@ type StartError<Status extends 400 | 503> =
   paths['/api/cloud-sessions']['post']['responses'][Status]['content']['application/json']['error'];
 
 /**
- * Why the cell refused to start a session, by its code: no runner connected, a repository or a
+ * Why the API refused to start a session, by its code: no runner connected, a repository or a
  * harness the runner does not offer, or a body it could not read. Nothing was recorded for any.
  */
 export type StartRefusalCode = Exclude<
@@ -136,7 +136,7 @@ export function sessionLabel(session: Pick<CloudSession, 'id' | 'title'>): strin
   return title ? title : `Session ${session.id.slice(0, 8)}`;
 }
 
-/** When a session started, as an ISO time (the cell counts epoch seconds). */
+/** When a session started, as an ISO time (the API counts epoch seconds). */
 export function startedAt(session: Pick<CloudSession, 'createdAt'>): string {
   return new Date(session.createdAt * 1000).toISOString();
 }
@@ -190,7 +190,7 @@ export function chatMounted(status: CloudSessionStatus): boolean {
 }
 
 /**
- * Whether the chat may ask the cell for a new pass when its own expires: only while the session
+ * Whether the chat may ask the API for a new pass when its own expires: only while the session
  * runs. A session starting has no host yet, and one ended never will, so no pass is asked for and
  * the chat does not loop reconnecting.
  */
@@ -200,13 +200,13 @@ export function shouldRenewPass(status: CloudSessionStatus): boolean {
 
 /**
  * Whether a read that came to nothing keeps what the page shows (a session, with its chat; the
- * list), saying when it was read: only while the cell or `cloud-global` is out for a while
- * (`unavailable`, `pending`), since the next read may work. Signed out, or with another workspace
- * open, the page says so instead and a running chat unmounts, so no one goes on using a session
- * the page can no longer vouch for; and a session the cell no longer has is gone.
+ * list), saying when it was read: only while the API is out for a while (`unavailable`), since
+ * the next read may work. Signed out, or with another workspace open, the page says so instead
+ * and a running chat unmounts, so no one goes on using a session the page can no longer vouch
+ * for; and a session the API no longer has is gone.
  */
-export function keepsShownOn(answer: { kind: CellRefusal['kind'] | 'not-found' }): boolean {
-  return answer.kind === 'unavailable' || answer.kind === 'pending';
+export function keepsShownOn(answer: { kind: Refusal['kind'] | 'not-found' }): boolean {
+  return answer.kind === 'unavailable';
 }
 
 /** What a session's page shows for it. */
@@ -235,38 +235,38 @@ export function sessionScreen(
 }
 
 /** What reading the person's sessions came to. */
-export type SessionsAnswer = { kind: 'listed'; sessions: CloudSession[] } | CellRefusal;
+export type SessionsAnswer = { kind: 'listed'; sessions: CloudSession[] } | Refusal;
 
 /** What reading one session came to. */
 export type SessionAnswer =
   | { kind: 'found'; session: CloudSession }
-  /** None, or someone else's: the cell says the same of both. */
+  /** None, or someone else's: the API says the same of both. */
   | { kind: 'not-found' }
-  | CellRefusal;
+  | Refusal;
 
 /** What asking what a new session can be came to. */
 export type OptionsAnswer =
   | { kind: 'offered'; options: CloudSessionOptions }
   | { kind: 'no-runner' }
-  | CellRefusal;
+  | Refusal;
 
 /** What starting a session came to. */
 export type StartAnswer =
   | { kind: 'started'; session: CloudSession }
   | { kind: 'refused'; code: StartRefusalCode }
-  | CellRefusal;
+  | Refusal;
 
 /** What stopping a session came to: once stopped, the session, ended. */
 export type StopAnswer =
   | { kind: 'stopped'; session: CloudSession }
   | { kind: 'not-found' }
-  | CellRefusal;
+  | Refusal;
 
 /** What asking for a pass to a session's host came to. */
 export type PassAnswer =
   | { kind: 'issued'; pass: CloudSessionPass }
   /** The session is not running, or its host has no address yet. */
   | { kind: 'not-found' }
-  /** The cell has no pass key, and so no runner. */
+  /** The API has no pass key, and so no runner. */
   | { kind: 'no-runner' }
-  | CellRefusal;
+  | Refusal;

@@ -29,7 +29,7 @@ import {
 const NOW = Date.parse('2026-11-23T12:00:00.000Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 
-/** A step as the cell answers one, with what a test changes. */
+/** A step as the API answers one, with what a test changes. */
 function aStep(overrides: Partial<StepSummary> = {}): StepSummary {
   return {
     id: 'review',

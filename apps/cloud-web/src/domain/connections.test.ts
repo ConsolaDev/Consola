@@ -47,7 +47,7 @@ describe("a Connect's result", () => {
     }
   });
 
-  it("names every result cloud-global's callback can send, as its contract lists them", () => {
+  it("names every result the API's callback can send, as its contract lists them", () => {
     // A result the API gains fails the typecheck here until the page names it.
     expectTypeOf<GitHubResult>().toEqualTypeOf<components['schemas']['GitHubCallbackResult']>();
     expect(new Set(GITHUB_RESULTS).size).toBe(GITHUB_RESULTS.length);

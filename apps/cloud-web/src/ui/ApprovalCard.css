@@ -1,5 +1,5 @@
 /* A run that waits for approval (the design mock's approval card): a card edged in the one
-   yellow, since it waits for a person; its title and the cell's reason beside a shield; what it
+   yellow, since it waits for a person; its title and the API's reason beside a shield; what it
    will run, each command in the monospace and each agent with its prompt's first line; then who
    may answer and, for them, Approve and Dismiss on a quiet foot. Answered, it is one line: a check
    that draws itself, once, as the person's own answer lands, or a slash for a dismissal. */

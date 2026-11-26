@@ -24,7 +24,7 @@ describe('checkTeamName', () => {
     expect(checkTeamName('  Platform ')).toEqual({ ok: true, name: 'Platform' });
   });
 
-  it("names every problem the cell would, as the cell's rule does", () => {
+  it("names every problem the API would, as the API's rule does", () => {
     expect(checkTeamName(' ')).toEqual({ ok: false, problems: ['name_missing'] });
     expect(checkTeamName('🚀'.repeat(TEAM_NAME_MAX)).ok).toBe(true);
     // A tab at the end is trimmed away; one inside the name is not.
@@ -36,7 +36,7 @@ describe('checkTeamName', () => {
 });
 
 describe('isTeamProblem', () => {
-  it('is true only for the problems the cell names', () => {
+  it('is true only for the problems the API names', () => {
     expect(isTeamProblem('name_missing')).toBe(true);
     expect(isTeamProblem('toString')).toBe(false);
     expect(isTeamProblem(7)).toBe(false);
@@ -58,20 +58,19 @@ describe('addableTo', () => {
 });
 
 describe('the sentences', () => {
-  const acme = { name: 'Acme', region: 'eu' };
-
   it('say every problem at once', () => {
     expect(
-      messageForTeamChange({ kind: 'invalid', problems: ['name_too_long', 'name_invalid'] }, acme),
+      messageForTeamChange({ kind: 'invalid', problems: ['name_too_long', 'name_invalid'] }),
     ).toBe(`${messageForTeamProblem('name_too_long')} ${messageForTeamProblem('name_invalid')}`);
   });
 
   it('say nothing for a change that went through', () => {
-    expect(messageForTeamChange({ kind: 'changed' }, acme)).toBeNull();
+    expect(messageForTeamChange({ kind: 'changed' })).toBeNull();
   });
 
-  it("name the workspace and its region when they can't be reached", () => {
-    expect(messageForTeamsState({ kind: 'pending' }, acme)).toContain('Acme');
-    expect(messageForTeamsState({ kind: 'unavailable' }, acme)).toContain('EU region');
+  it("say Consola Cloud isn't answering when it can't be reached", () => {
+    expect(messageForTeamsState({ kind: 'unavailable' })).toBe(
+      'Consola Cloud isn’t answering. Start it with pnpm dev:cloud and try again.',
+    );
   });
 });
