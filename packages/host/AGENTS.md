@@ -1601,32 +1601,24 @@ Then, from the repository root:
    `connected to the cell: …`.
 7. **The factory.** In the web app, Factories, make one (New factory) on your
    team: it is made blank, version 1, with no files. Its Definition page
-   (`#/factories/<id>/definition`) edits the files a version holds, and cannot
-   add a file yet, so add the two through the cell's API from that page, as
-   its Save does. Print the body from the repository root:
-
-   ```bash
-   node -e 'const fs=require("fs");const d="packages/factory-spec/src/fixtures/review-pull-requests/";console.log(JSON.stringify({baseVersion:1,files:["automations/review-pr.yaml","agents/reviewer.md"].map((path)=>({path,content:fs.readFileSync(d+path,"utf8")}))}))' | pbcopy
-   ```
-
-   then, in the browser's console on the web app's page (`<factory id>` from
-   the page's address):
-
-   ```js
-   const body = /* paste */;
-   const { token, region } = await (await fetch('/api/cell-token', { method: 'POST' })).json();
-   const saved = await fetch(`/cell/${region}/api/factories/<factory id>/versions`, {
-     method: 'POST',
-     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-     body: JSON.stringify(body),
-   });
-   console.log(saved.status, await saved.json()); // 201, version 2
-   ```
+   (`#/factories/<id>/definition`) says "No files yet." and adds the two files
+   of `packages/factory-spec/src/fixtures/review-pull-requests/`:
+   - New file (in the empty editor, or beside the filter), type `review-pr`,
+     press Automation (the path becomes `automations/review-pr.yaml`), then
+     Enter: the empty file opens in the editor. Paste the fixture's
+     `automations/review-pr.yaml` into it.
+   - New file again, type `reviewer`, press Agent (`agents/reviewer.md`),
+     Enter, and paste the fixture's `agents/reviewer.md`.
+   - Save. It stays off while the Problems panel lists any (until the agent's
+     file is there, the step's `agent: reviewer` names no agent), then says
+     "Saved version 2."
 
    The automation's file must be `automations/<name>.yaml` (`.yaml`, not
    `.yml`); `factory.yml` is optional. Reload: the Definition page shows
    version 2 with `agents/reviewer.md` and `automations/review-pr.yaml`, and
-   no problems.
+   no problems. Adding files is held by the web app's tests (Linear CON-136);
+   on the real stack the page has edited and saved an existing file, and has
+   not yet been used to add one.
 8. **The event.** Open a pull request on the test repository. The API logs
    `Passed GitHub delivery <id> (pull_request) on to workspace <id>'s cell
    (eu).`; the runner logs `event <id> (pull_request.opened): 1 run recorded`.
