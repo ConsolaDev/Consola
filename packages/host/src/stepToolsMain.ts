@@ -33,7 +33,7 @@ export const stepToolsMain = async (argv: readonly string[]): Promise<void> => {
   }
   if (folder === undefined || folder === '') return fail('--folder is required.');
   const dir = resolve(folder);
-  let isFolder = false;
+  let isFolder: boolean;
   try {
     isFolder = statSync(dir).isDirectory();
   } catch {

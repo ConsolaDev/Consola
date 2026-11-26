@@ -435,12 +435,12 @@ export function createRunnerSocket(deps: {
       case 'github.event.ack':
         return acknowledge(message, settings);
       case 'factories.request':
-        void factories(connection, message, settings).catch((error) =>
+        void factories(connection, message, settings).catch((error: unknown) =>
           report(`The cell could not answer a runner's factories request: ${describe(error)}`),
         );
         return;
       case 'github.token.request':
-        void token(connection, message, settings).catch((error) =>
+        void token(connection, message, settings).catch((error: unknown) =>
           report(`The cell could not answer a runner's token request: ${describe(error)}`),
         );
         return;

@@ -281,8 +281,10 @@ function makeProvider({ SandboxError, scratch, claudeDir, origin }) {
         kill: async () => {
           killed = true;
           try {
-            process.kill(-child.pid, 'SIGTERM');
-          } catch {}
+            if (child.pid !== undefined) process.kill(-child.pid, 'SIGTERM');
+          } catch {
+            // The command's group has already ended.
+          }
           await ended;
         },
       };
@@ -312,13 +314,17 @@ function makeProvider({ SandboxError, scratch, claudeDir, origin }) {
       for (const group of this.record.groups) {
         try {
           process.kill(-group, 'SIGTERM');
-        } catch {}
+        } catch {
+          // The group has already ended.
+        }
       }
       await new Promise((resolve) => setTimeout(resolve, 3000));
       for (const group of this.record.groups) {
         try {
           process.kill(-group, 'SIGKILL');
-        } catch {}
+        } catch {
+          // The group ended on SIGTERM.
+        }
       }
     }
   }

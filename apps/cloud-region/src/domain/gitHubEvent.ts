@@ -174,7 +174,7 @@ export function pullRequestFactsOf(payload: Record<string, unknown>): Read<PullR
     fork: headRepo === null || headRepo.id !== repository.id,
   };
   // Parse, never assert: what goes out is what the runner's own reader takes.
-  const read = readGitHubEventFacts(JSON.parse(JSON.stringify(facts)));
+  const read = readGitHubEventFacts(structuredClone(facts));
   return read.ok && read.value.name === 'pull_request'
     ? { ok: true, value: read.value }
     : refused(read.ok ? 'the facts are not a pull request' : read.reason);
