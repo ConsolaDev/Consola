@@ -145,9 +145,9 @@ describe('loadWorkspaces', () => {
 });
 
 describe('createWorkspace', () => {
-  const asked = { name: 'Acme', slug: 'acme', region: 'eu' } as const;
+  const asked = { name: 'Acme', slug: 'acme' } as const;
 
-  it('posts the workspace as JSON with the person’s cookie', async () => {
+  it('posts the workspace as JSON with the person’s cookie, and no region: the server gives it', async () => {
     const api = reply(201, acme);
     await createWorkspace(asked, api);
     expect(api.calls).toEqual([
@@ -170,9 +170,9 @@ describe('createWorkspace', () => {
 
   it('is invalid with the problems the server named, keeping only those it knows', async () => {
     const invalid = (problems: unknown) => reply(400, { error: 'invalid_workspace', problems });
-    expect(await createWorkspace(asked, invalid(['slug_invalid', 'region_unknown']))).toEqual({
+    expect(await createWorkspace(asked, invalid(['name_too_long', 'slug_invalid']))).toEqual({
       kind: 'invalid',
-      problems: ['slug_invalid', 'region_unknown'],
+      problems: ['name_too_long', 'slug_invalid'],
     });
     expect(await createWorkspace(asked, invalid(['name_missing', 'name_rude']))).toEqual({
       kind: 'invalid',

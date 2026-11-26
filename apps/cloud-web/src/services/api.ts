@@ -110,9 +110,9 @@ export async function createWorkspace(
   client: Api = api,
 ): Promise<CreateWorkspaceAnswer> {
   try {
-    const { name, slug, region } = workspace;
+    const { name, slug } = workspace;
     const { data, error, response } = await client.POST('/api/workspaces', {
-      body: { name, slug, region },
+      body: { name, slug },
     });
     if (response.status === 401) return { kind: 'signed-out' };
     if (response.status === 201 && data) return { kind: 'created', workspace: data };

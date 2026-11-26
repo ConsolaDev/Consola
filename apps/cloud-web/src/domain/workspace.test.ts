@@ -2,7 +2,6 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { components } from './apiContract';
 import {
   checkNewWorkspace,
-  isRegion,
   isWorkspaceProblem,
   NEW_DRAFT,
   REGIONS,
@@ -17,7 +16,7 @@ import {
 } from './workspace';
 import type { NewWorkspace, Region, WorkspaceProblem } from './workspace';
 
-const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
+const acme = { name: 'Acme', slug: 'acme' };
 
 type Schemas = components['schemas'];
 
@@ -26,7 +25,6 @@ type Schemas = components['schemas'];
 describe("the API's contract", () => {
   it('has the regions the page lists', () => {
     expectTypeOf<Region>().toEqualTypeOf<Schemas['MyWorkspace']['region']>();
-    expectTypeOf<Region>().toEqualTypeOf<Schemas['NewWorkspace']['region']>();
   });
 
   it('has the problems the page knows', () => {
@@ -35,7 +33,7 @@ describe("the API's contract", () => {
     >();
   });
 
-  it('takes the new workspace the page sends', () => {
+  it('takes the new workspace the page sends, with no region: the deployment gives it', () => {
     expectTypeOf<NewWorkspace>().toEqualTypeOf<Schemas['NewWorkspace']>();
   });
 });
@@ -43,12 +41,6 @@ describe("the API's contract", () => {
 describe('the regions', () => {
   it('are the EU and the US, in that order', () => {
     expect(REGIONS.map((region) => region.id)).toEqual(['eu', 'us']);
-  });
-
-  it('isRegion accepts only a listed region', () => {
-    expect(isRegion('eu')).toBe(true);
-    expect(isRegion('us')).toBe(true);
-    for (const value of ['EU', 'ap', '', null, undefined, 7]) expect(isRegion(value)).toBe(false);
   });
 
   it('regionName names a listed region, and shows any other as the server sent it', () => {
@@ -75,23 +67,24 @@ describe('roleName', () => {
 
 describe('isWorkspaceProblem', () => {
   it('accepts only a problem the server names', () => {
-    for (const problem of ['name_missing', 'name_too_long', 'slug_invalid', 'region_unknown']) {
+    for (const problem of ['name_missing', 'name_too_long', 'slug_invalid']) {
       expect(isWorkspaceProblem(problem)).toBe(true);
     }
-    for (const value of ['slug_taken', '', null, 3]) expect(isWorkspaceProblem(value)).toBe(false);
+    for (const value of ['slug_taken', 'region_unknown', '', null, 3])
+      expect(isWorkspaceProblem(value)).toBe(false);
   });
 });
 
 // The same cases as the API's own checkNewWorkspace, which stays the authority.
 describe('checkNewWorkspace', () => {
-  it('takes a name, a slug and a listed region', () => {
+  it('takes a name and a slug', () => {
     expect(checkNewWorkspace(acme)).toEqual({
       ok: true,
-      workspace: { name: 'Acme', slug: 'acme', region: 'eu' },
+      workspace: { name: 'Acme', slug: 'acme' },
     });
-    expect(checkNewWorkspace({ name: 'Sprocket', slug: 'sprocket', region: 'us' })).toEqual({
+    expect(checkNewWorkspace({ name: 'Sprocket', slug: 'sprocket' })).toEqual({
       ok: true,
-      workspace: { name: 'Sprocket', slug: 'sprocket', region: 'us' },
+      workspace: { name: 'Sprocket', slug: 'sprocket' },
     });
   });
 
@@ -146,19 +139,10 @@ describe('checkNewWorkspace', () => {
     }
   });
 
-  it('refuses a region that is not listed, or none', () => {
-    for (const region of ['ap', 'EU', '', undefined, null]) {
-      expect(checkNewWorkspace({ ...acme, region })).toEqual({
-        ok: false,
-        problems: ['region_unknown'],
-      });
-    }
-  });
-
   it('names every problem at once', () => {
     expect(checkNewWorkspace({})).toEqual({
       ok: false,
-      problems: ['name_missing', 'slug_invalid', 'region_unknown'],
+      problems: ['name_missing', 'slug_invalid'],
     });
   });
 });
@@ -197,14 +181,14 @@ describe('suggestSlug', () => {
 
   it('always suggests a slug the check accepts, or none', () => {
     for (const name of ['Acme', 'Sprocket Labs', 'Café Ñandú', 'x'.repeat(60), '-a-', 'Acme 2']) {
-      expect(checkNewWorkspace({ name, slug: suggestSlug(name), region: 'eu' }).ok).toBe(true);
+      expect(checkNewWorkspace({ name, slug: suggestSlug(name) }).ok).toBe(true);
     }
   });
 });
 
 describe('a draft workspace', () => {
-  it('starts empty, with no region picked', () => {
-    expect(NEW_DRAFT).toEqual({ name: '', slug: '', region: null, slugEdited: false });
+  it('starts empty', () => {
+    expect(NEW_DRAFT).toEqual({ name: '', slug: '', slugEdited: false });
   });
 
   it('suggests the slug from the name while the person has not typed one', () => {
