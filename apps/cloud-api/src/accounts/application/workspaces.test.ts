@@ -92,6 +92,21 @@ describe('createWorkspace', () => {
     expect(await activeOf('s-lee')).toBeNull();
     expect(await listMyWorkspaces(stores.memberships, lee)).toEqual([]);
   });
+
+  it('rejects, as for any database failure, when opening the workspace fails part-way', async () => {
+    const failing = createDrizzleStores(db, {
+      onCreated: async () => {
+        throw new Error('the first team could not be made');
+      },
+    });
+    const session = await signedIn(dana, 's-dana');
+    await expect(createWorkspace(failing, session, acme)).rejects.toThrow(
+      'the first team could not be made',
+    );
+    expect(await db.select().from(schema.organization)).toEqual([]);
+    expect(await db.select().from(schema.member)).toEqual([]);
+    expect(await activeOf('s-dana')).toBeNull();
+  });
 });
 
 describe('listMyWorkspaces', () => {

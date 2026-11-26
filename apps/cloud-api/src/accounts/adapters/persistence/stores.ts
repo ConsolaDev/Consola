@@ -11,9 +11,16 @@ import { createMembershipStore } from './membershipStore.js';
 import { createPeopleStore } from './peopleStore.js';
 import { createSessionStore } from './sessionStore.js';
 import { createWorkspaceStore } from './workspaceStore.js';
+import type { WorkspaceStoreHooks } from './workspaceStore.js';
 
-/** Every port accounts' use cases need, on one Drizzle database. */
-export function createDrizzleStores(db: Database): {
+/**
+ * Every port accounts' use cases need, on one Drizzle database. `onCreated` runs inside the
+ * transaction that makes a workspace (`createWorkspaceStore`).
+ */
+export function createDrizzleStores(
+  db: Database,
+  hooks: WorkspaceStoreHooks = {},
+): {
   workspaces: WorkspaceStore;
   memberships: MembershipStore;
   sessions: SessionStore;
@@ -21,7 +28,7 @@ export function createDrizzleStores(db: Database): {
   health: HealthProbe;
 } {
   return {
-    workspaces: createWorkspaceStore(db),
+    workspaces: createWorkspaceStore(db, hooks),
     memberships: createMembershipStore(db),
     sessions: createSessionStore(db),
     people: createPeopleStore(db),

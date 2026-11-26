@@ -1,15 +1,15 @@
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceStore } from '../../application/ports.js';
-import { openTestDatabase } from './testDatabase.js';
-import type { Database } from './database.js';
+import type { Database, Transaction } from './database.js';
 import { schema } from './schema.js';
+import { openTestDatabase } from './testDatabase.js';
 import { createWorkspaceStore } from './workspaceStore.js';
+import type { OpenedWorkspace } from './workspaceStore.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let workspaces: WorkspaceStore;
-let wakes: number;
 
 beforeEach(async () => {
   ({ db, close } = await openTestDatabase());
@@ -17,23 +17,8 @@ beforeEach(async () => {
     { id: 'dana', name: 'Dana', email: 'dana@acme.test', emailVerified: true },
     { id: 'lee', name: 'Lee', email: 'lee@sprocket.test', emailVerified: true },
   ]);
-  wakes = 0;
-  workspaces = createWorkspaceStore(db, { messageWritten: () => (wakes += 1) });
+  workspaces = createWorkspaceStore(db);
 });
-
-/** The outbox as stored, in the order its cell hears it. */
-const outbox = () =>
-  db
-    .select({
-      workspaceId: schema.outboxMessage.organizationId,
-      sequence: schema.outboxMessage.sequence,
-      region: schema.outboxMessage.region,
-      changeType: schema.outboxMessage.changeType,
-      personId: schema.outboxMessage.personId,
-      role: schema.outboxMessage.role,
-    })
-    .from(schema.outboxMessage)
-    .orderBy(asc(schema.outboxMessage.organizationId), asc(schema.outboxMessage.sequence));
 
 afterEach(async () => {
   await close();
@@ -41,6 +26,15 @@ afterEach(async () => {
 
 const acme = { name: 'Acme', slug: 'acme', region: 'eu' as const };
 const dana = { userId: 'dana', role: 'owner' as const };
+
+/** A row only a hook writes, in a table of accounts', to see whether its writes commit. */
+const hookRow = (on: Transaction, workspaceId: string) =>
+  on.insert(schema.verification).values({
+    id: `opened-${workspaceId}`,
+    identifier: workspaceId,
+    value: 'opened',
+    expiresAt: new Date('2027-01-01'),
+  });
 
 describe('the workspace store', () => {
   it('makes the workspace in the region asked for, with its first member', async () => {
@@ -59,33 +53,7 @@ describe('the workspace store', () => {
     ]);
   });
 
-  it("writes the cell's messages with them: the workspace at 1, its owner at 2", async () => {
-    const made = await workspaces.create(acme, dana);
-    if (made.kind !== 'created') throw new Error('not created');
-    const id = made.workspace.id;
-
-    expect(await outbox()).toEqual([
-      {
-        workspaceId: id,
-        sequence: 1,
-        region: 'eu',
-        changeType: 'workspace.created',
-        personId: null,
-        role: null,
-      },
-      {
-        workspaceId: id,
-        sequence: 2,
-        region: 'eu',
-        changeType: 'member.added',
-        personId: 'dana',
-        role: 'owner',
-      },
-    ]);
-    expect(wakes).toBe(1);
-  });
-
-  it('refuses a slug that is taken, in any region, and writes nothing', async () => {
+  it('refuses a slug that is taken, and writes nothing', async () => {
     await workspaces.create(acme, dana);
     expect(
       await workspaces.create(
@@ -98,15 +66,12 @@ describe('the workspace store', () => {
     expect(await db.select().from(schema.member).where(eq(schema.member.userId, 'lee'))).toEqual(
       [],
     );
-    expect(await outbox()).toHaveLength(2);
-    expect(wakes).toBe(1);
   });
 
-  it('writes no workspace, and no message, when its first member cannot be written', async () => {
+  it('writes no workspace when its first member cannot be written', async () => {
     await expect(workspaces.create(acme, { userId: 'nobody', role: 'owner' })).rejects.toThrow();
     expect(await db.select().from(schema.organization)).toEqual([]);
-    expect(await outbox()).toEqual([]);
-    expect(wakes).toBe(0);
+    expect(await db.select().from(schema.member)).toEqual([]);
   });
 
   it('gives each workspace an id of its own', async () => {
@@ -114,5 +79,76 @@ describe('the workspace store', () => {
     const second = await workspaces.create({ ...acme, slug: 'acme-2' }, dana);
     if (first.kind !== 'created' || second.kind !== 'created') throw new Error('not created');
     expect(first.workspace.id).not.toBe(second.workspace.id);
+  });
+});
+
+describe("the workspace store's onCreated", () => {
+  it('is handed the new ids, inside the transaction that holds both rows', async () => {
+    const heard: Array<{ opened: OpenedWorkspace; organizations: number; members: unknown[] }> =
+      [];
+    const store = createWorkspaceStore(db, {
+      onCreated: async (tx, opened) => {
+        // Uncommitted, the rows are seen only through the transaction the hook is handed.
+        const organizations = await tx
+          .select()
+          .from(schema.organization)
+          .where(eq(schema.organization.id, opened.workspaceId));
+        const members = await tx
+          .select({ userId: schema.member.userId, role: schema.member.role })
+          .from(schema.member)
+          .where(eq(schema.member.organizationId, opened.workspaceId));
+        heard.push({ opened, organizations: organizations.length, members });
+      },
+    });
+
+    const made = await store.create(acme, dana);
+    if (made.kind !== 'created') throw new Error('not created');
+    expect(heard).toEqual([
+      {
+        opened: { workspaceId: made.workspace.id, ownerId: 'dana' },
+        organizations: 1,
+        members: [{ userId: 'dana', role: 'owner' }],
+      },
+    ]);
+  });
+
+  it('commits what it writes with the workspace', async () => {
+    const store = createWorkspaceStore(db, {
+      onCreated: async (tx, { workspaceId }) => {
+        await hookRow(tx, workspaceId);
+      },
+    });
+    const made = await store.create(acme, dana);
+    if (made.kind !== 'created') throw new Error('not created');
+    expect(await db.select({ identifier: schema.verification.identifier }).from(schema.verification))
+      .toEqual([{ identifier: made.workspace.id }]);
+  });
+
+  it('that throws leaves no organization, no member and nothing it wrote, and rejects', async () => {
+    const store = createWorkspaceStore(db, {
+      onCreated: async (tx, { workspaceId }) => {
+        await hookRow(tx, workspaceId);
+        throw new Error('the first team could not be made');
+      },
+    });
+
+    await expect(store.create(acme, dana)).rejects.toThrow('the first team could not be made');
+    expect(await db.select().from(schema.organization)).toEqual([]);
+    expect(await db.select().from(schema.member)).toEqual([]);
+    expect(await db.select().from(schema.verification)).toEqual([]);
+  });
+
+  it('is not called for a slug that is taken', async () => {
+    await workspaces.create(acme, dana);
+    const heard: OpenedWorkspace[] = [];
+    const store = createWorkspaceStore(db, {
+      onCreated: async (_tx, opened) => {
+        heard.push(opened);
+      },
+    });
+    expect(await store.create(acme, { userId: 'lee', role: 'owner' })).toEqual({
+      kind: 'slug-taken',
+    });
+    expect(heard).toEqual([]);
   });
 });
