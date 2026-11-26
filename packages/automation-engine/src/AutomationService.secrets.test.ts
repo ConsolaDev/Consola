@@ -902,7 +902,6 @@ describe("a check's secrets", () => {
       .update(
         stableStringify({
           trigger,
-          filter: automation.filter,
           account: { id: 'github', login: 'JaviDev', org: undefined },
         }),
       )
@@ -926,7 +925,6 @@ describe("a check's secrets", () => {
         .update(
           stableStringify({
             trigger,
-            filter: automation.filter,
             account: { id: 'github', login: 'JaviDev', org: undefined },
           }),
         )

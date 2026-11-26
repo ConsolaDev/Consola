@@ -738,7 +738,7 @@ function factoryWith(automation: string): FactoryFile[] {
   ];
 }
 
-const FLOW = `on: { github: pull_request.opened }
+const FLOW = `on: { github: { events: [pull_request.opened] } }
 steps:
   - id: triage
     agent: reviewer
@@ -809,7 +809,7 @@ describe('the engine’s routing', () => {
   });
 
   it('runs a loop’s rounds until its `until` holds, each round a new attempt, as the engine does', async () => {
-    const files = factoryWith(`on: { github: pull_request.opened }
+    const files = factoryWith(`on: { github: { events: [pull_request.opened] } }
 steps:
   - id: polish
     repeat: { max: 3, until: steps.look.findings == 0 }
@@ -860,8 +860,8 @@ steps:
   it('fails at the boundary once the run spent its budget, as the engine does', async () => {
     const files = factoryWith(
       FLOW.replace(
-        'on: { github: pull_request.opened }\n',
-        'on: { github: pull_request.opened }\nbudget: { usd: 0.5 }\n',
+        'on: { github: { events: [pull_request.opened] } }\n',
+        'on: { github: { events: [pull_request.opened] } }\nbudget: { usd: 0.5 }\n',
       ),
     );
     const stored = await recordedRun(files);
@@ -887,7 +887,7 @@ steps:
   });
 
   it('parks at a gate, waiting on a person, saying the web cannot answer it yet', async () => {
-    const files = factoryWith(`on: { github: pull_request.opened }
+    const files = factoryWith(`on: { github: { events: [pull_request.opened] } }
 steps:
   - id: triage
     agent: reviewer

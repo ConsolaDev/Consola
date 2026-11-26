@@ -1142,9 +1142,28 @@ compile (below); Open shows only the folder's own files, as text. Canary rows
 
 ### Which Runner Fires an Event Is the Runner's
 
-factory-spec reads `on: { <connection>: <event> | [<event>, …] }` by its
-grammar alone, so the cell stores any well-formed event for whatever runner
-will run it. Which events exist, and which runner fires each, is the runner's
+factory-spec reads a connection's trigger, its one form a mapping under its
+name with `events:` (a list) and `filter:` (when it needs one), by its
+grammar alone, so the cell stores any well-formed event, and any filter,
+for whatever runner will run it:
+
+```yaml
+on:
+  github:
+    events:
+      - pull_request.opened
+      - pull_request.synchronize
+    filter:
+      repos:
+        - sprocket/catalog-portal
+      authors_not:
+        - dependabot[bot]
+```
+
+`on:` holds exactly one key, the trigger's name (`cron`, `poll`, `manual` or
+a connection's id). Any other spelling of a trigger (an event as a bare name
+or list, a key beside the trigger, a `filter:` on the entry) is a problem
+whose message shows this form; there is no other spelling to fall back on. Which events exist, and which runner fires each, is the runner's
 registry: the engine's connections (`connections.ts`). Its GitHub connection
 fires what the Inbox's poll can show (`pull_request.review_requested`,
 `pull_request.assigned`, each an `entered(view)` rule), and names

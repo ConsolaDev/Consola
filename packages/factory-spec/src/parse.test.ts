@@ -247,7 +247,7 @@ automations:
     const result = parseFactorySpec(`version: 1
 automations:
   - name: investigate
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - prompt: Read it.
       - agent: investigator
@@ -338,7 +338,7 @@ describe('parseFactoryYml', () => {
     const result = parseFactoryYml(`version: 1
 automations:
   - name: investigate
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - agent: investigator
   - name: bad

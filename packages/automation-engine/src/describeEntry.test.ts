@@ -187,7 +187,7 @@ describe('describeSteps', () => {
 /** One parsed entry on review requests whose steps are the given lines. */
 function looped(...lines: string[]): Automation {
   const result = parseFactorySpec(
-    `version: 1\nautomations:\n  - name: a\n    on: { github: pull_request.review_requested }\n    steps:\n${lines
+    `version: 1\nautomations:\n  - name: a\n    on: { github: { events: [pull_request.review_requested] } }\n    steps:\n${lines
       .map((line) => `      ${line.replace(/\n/g, '\n      ')}`)
       .join('\n')}\n`,
   );
@@ -308,7 +308,7 @@ const SECTION_41 = parsedEntry(`- name: ui-bug-to-pr
 
 /** The gated review's shape (Task 20 ships its template): a gate, no loop, no retry, no budget. */
 const GATED_REVIEW = parsedEntry(`- name: review-gated
-  on: { github: [pull_request.review_requested] }
+  on: { github: { events: [pull_request.review_requested] } }
   checkout: { pr: item }
   mode: auto
   steps:
@@ -527,7 +527,7 @@ describe('describeWrites: what the approval card says a write agent can change, 
 repos: [sprocket/catalog-portal]
 automations:
   - name: ui-bug-to-pr
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }
     steps:
       - id: triage
@@ -691,7 +691,7 @@ automations:
 repos: [sprocket/catalog-portal]
 automations:
   - name: one
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.number}}", from: release }
     steps:
       - id: change
@@ -765,7 +765,7 @@ automations:
 repos: [sprocket/catalog-portal]
 automations:
   - name: closed
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }
     steps:
       - id: change
@@ -796,7 +796,7 @@ automations:
 repos: [sprocket/catalog-portal]
 automations:
   - name: tested
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     checkout: { repo: sprocket/catalog-portal, branch: "fix/{{item.key}}" }
     steps:
       - id: lint
@@ -833,7 +833,7 @@ automations:
     const yml = `version: 1
 automations:
   - name: read
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     checkout: { pr: item }
     steps:
       - id: review

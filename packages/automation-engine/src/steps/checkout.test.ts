@@ -25,10 +25,15 @@ function entry(head: string): Automation {
 
 describe('entryCheckoutKind and entryReadsItems', () => {
   const rows: Array<[string, string, 'item' | 'scope', boolean]> = [
-    ['an event entry', '  on: { github: pull_request.review_requested }\n', 'item', true],
+    [
+      'an event entry',
+      '  on: { github: { events: [pull_request.review_requested] } }\n',
+      'item',
+      true,
+    ],
     [
       'an event entry with scope:',
-      '  on: { github: pull_request.review_requested }\n  scope: notes\n',
+      '  on: { github: { events: [pull_request.review_requested] } }\n  scope: notes\n',
       'scope',
       true,
     ],
@@ -60,7 +65,9 @@ describe('entryCheckoutKind and entryReadsItems', () => {
 
 describe('runCheckoutKind', () => {
   const scheduled = entry('  on: { cron: "0 9 * * 1-5" }\n  scope: api\n') as StepsAutomation;
-  const onItems = entry('  on: { github: pull_request.review_requested }\n') as StepsAutomation;
+  const onItems = entry(
+    '  on: { github: { events: [pull_request.review_requested] } }\n',
+  ) as StepsAutomation;
   const definition = (automation: StepsAutomation, checkout?: 'item' | 'scope'): RunDefinition => ({
     automation,
     version: 'v',
@@ -128,7 +135,7 @@ describe('runCheckoutKind', () => {
 
 describe('prCheckoutProblem (slice 3, Call 15)', () => {
   const PR_CHECKOUT = '  checkout: { pr: item }\n';
-  const REVIEW = '  on: { github: pull_request.review_requested }\n';
+  const REVIEW = '  on: { github: { events: [pull_request.review_requested] } }\n';
 
   it('says nothing of an entry that does not name the checkout', () => {
     expect(prCheckoutProblem(entry(REVIEW), { itemTypes: ['issue'] })).toBeNull();
@@ -165,7 +172,7 @@ describe('prCheckoutProblem (slice 3, Call 15)', () => {
 describe('a checkout the run owns (slice 3-B)', () => {
   const OWNED = '  checkout: { repo: sprocket/catalog-portal, branch: "fix/{{run.id}}" }\n';
   it.each([
-    ['an event', '  on: { github: pull_request.review_requested }\n'],
+    ['an event', '  on: { github: { events: [pull_request.review_requested] } }\n'],
     [
       'a poll with item:',
       '  on:\n    poll: { every: 30m, run: ./list-prs, item: { github: .url } }\n',
@@ -179,9 +186,11 @@ describe('a checkout the run owns (slice 3-B)', () => {
   });
 
   const owned = entry(
-    `  on: { github: pull_request.review_requested }\n${OWNED}`,
+    `  on: { github: { events: [pull_request.review_requested] } }\n${OWNED}`,
   ) as StepsAutomation;
-  const onItems = entry('  on: { github: pull_request.review_requested }\n') as StepsAutomation;
+  const onItems = entry(
+    '  on: { github: { events: [pull_request.review_requested] } }\n',
+  ) as StepsAutomation;
   const definition = (
     automation: StepsAutomation,
     checkout?: 'item' | 'scope' | 'run-owned',

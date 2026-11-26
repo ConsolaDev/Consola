@@ -194,7 +194,7 @@ describe('a step that names an agent', () => {
         [CATALOG_REVIEW_FILE]: CATALOG_REVIEW,
         [REVIEWER_FILE]: REVIEWER,
         'automations/on-review.yaml':
-          'on: { github: pull_request.review_requested }\nmode: confirm\nsteps:\n  - id: look\n    agent: reviewer\n',
+          'on: { github: { events: [pull_request.review_requested] } }\nmode: confirm\nsteps:\n  - id: look\n    agent: reviewer\n',
       },
     });
     const kinds = new Set(h.world.harnessQueries.map((query) => query?.checkout));
@@ -259,7 +259,7 @@ describe('a step that names an agent', () => {
       files: {
         [CATALOG_REVIEW_FILE]: CATALOG_REVIEW.replace(
           'on: { cron: "0 7 * * 1-5" }\nscope: catalog-portal\n',
-          'on: { github: pull_request.review_requested }\n',
+          'on: { github: { events: [pull_request.review_requested] } }\n',
         ),
         [REVIEWER_FILE]: REVIEWER,
       },
@@ -695,7 +695,7 @@ describe("an entry's agents, with their servers and skills (2-C, Task 13)", () =
     );
     expect(cron.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.readsItems).toBe(false);
     const event = await investigating(
-      `on: { github: pull_request.review_requested }\nmode: confirm\n${steps}`,
+      `on: { github: { events: [pull_request.review_requested] } }\nmode: confirm\n${steps}`,
     );
     expect(event.service.list(WORKSPACE_ID)[0].problem).toBeUndefined();
     expect(event.service.entryAgents(WORKSPACE_ID, 'investigate-alerts')?.readsItems).toBe(true);

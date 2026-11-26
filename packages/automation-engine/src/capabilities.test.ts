@@ -235,7 +235,7 @@ describe('what an agent writing an entry is told', () => {
     );
     const withEnv = (name: string) =>
       parseAutomationEntry(
-        `- name: probe\n  on: { github: pull_request.review_requested }\n  steps:\n    - run: echo hi\n      env: { ${name}: x }`,
+        `- name: probe\n  on: { github: { events: [pull_request.review_requested] } }\n  steps:\n    - run: echo hi\n      env: { ${name}: x }`,
       ).ok;
     for (const name of REFUSED_ENV_NAMES) {
       expect(line, name).toContain(name);
@@ -264,7 +264,7 @@ describe('what an agent writing an entry is told', () => {
     const fields = ['key', 'url', 'repo', 'number', 'type', 'title', 'author'];
     for (const field of fields) {
       const yaml =
-        'version: 1\nautomations:\n  - name: probe\n    on: { github: pull_request.review_requested }\n' +
+        'version: 1\nautomations:\n  - name: probe\n    on: { github: { events: [pull_request.review_requested] } }\n' +
         `    steps:\n      - prompt: "Look at {{item.${field}}}."\n`;
       const trusted = parseAutomationEntry(yaml.split('automations:\n')[1]).ok;
       expect(trusted, field).toBe(TRUSTED_ITEM_FIELDS.includes(field));
@@ -273,7 +273,7 @@ describe('what an agent writing an entry is told', () => {
 
   it('the enum and reserved-name limits in the prose match the validator', () => {
     const entry = (outputs: string, id = 'a') =>
-      `- name: probe\n  on: { github: pull_request.review_requested }\n  steps:\n    - id: ${id}\n      prompt: Look.\n      outputs: ${outputs}`;
+      `- name: probe\n  on: { github: { events: [pull_request.review_requested] } }\n  steps:\n    - id: ${id}\n      prompt: Look.\n      outputs: ${outputs}`;
     const enumOf = (values: string[]) =>
       `{ v: { enum: [${values.map((v) => JSON.stringify(v)).join(', ')}] } }`;
     const twenty = Array.from({ length: 20 }, (_, i) => `v${i}`);

@@ -90,10 +90,10 @@ steps:
     permissions: { pull_requests: write }
 `;
     for (const on of [
-      '{ github: pull_request.opened }',
-      '{ github: pull_request.synchronize }',
-      '{ github: pull_request.reopened }',
-      '{ github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }',
+      '{ github: { events: [pull_request.opened] } }',
+      '{ github: { events: [pull_request.synchronize] } }',
+      '{ github: { events: [pull_request.reopened] } }',
+      '{ github: { events: [pull_request.opened, pull_request.synchronize, pull_request.reopened] } }',
     ]) {
       expect([
         on,

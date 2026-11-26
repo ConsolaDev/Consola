@@ -17,7 +17,7 @@ import {
   type UsesStep,
 } from './uses';
 
-const HEAD = 'name: a\non: { github: pull_request.review_requested }\nsteps:\n';
+const HEAD = 'name: a\non: { github: { events: [pull_request.review_requested] } }\nsteps:\n';
 /** An entry whose steps are the given YAML items, each written at column 0 (`- id: …`). */
 const entry = (...items: string[]) =>
   parseAutomationEntry(
@@ -362,7 +362,11 @@ const TRIAGE = `- id: triage
     note: string`;
 const BRIEF = '- id: brief\n  prompt: Brief it.';
 /** An entry on `on`, whose `post` call takes `withYaml` (one line, a flow mapping) after `triage` and `brief`. */
-function callEntry(withYaml: string, on = '{ github: pull_request.review_requested }', extra = '') {
+function callEntry(
+  withYaml: string,
+  on = '{ github: { events: [pull_request.review_requested] } }',
+  extra = '',
+) {
   return parseAutomationEntry(
     `name: a\non: ${on}\n${extra}steps:\n${[
       TRIAGE,
@@ -604,7 +608,7 @@ describe('interpretedNotice', () => {
     const result = parseAutomationEntry(
       [
         'name: a',
-        'on: { github: pull_request.review_requested }',
+        'on: { github: { events: [pull_request.review_requested] } }',
         'steps:',
         '  - id: brief',
         '    prompt: Brief it.',

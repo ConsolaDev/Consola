@@ -976,10 +976,11 @@ function bound(sessions: SessionView[] = [], prompt = REVIEW_BODY): WorkspaceVie
   };
 }
 
-const review = (fields = '    mode: auto\n') => `version: 1
+/** `filter`: the trigger's, as one flow mapping, when it has one. */
+const review = (fields = '    mode: auto\n', filter?: string) => `version: 1
 automations:
   - name: review-requests
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested]${filter ? `, filter: ${filter}` : ''} } }
     run: { action: Review }
 ${fields}`;
 
@@ -1090,14 +1091,14 @@ describe('event runs', () => {
     const t = reviewing();
     await t.start();
     await t.poll([pr(1)]);
-    await t.edit(review('    filter: { repos: ["acme/*"] }\n    mode: auto\n'));
+    await t.edit(review('    mode: auto\n', '{ repos: ["acme/*"] }'));
     await t.poll([pr(1), pr(2)]);
     expect(t.world.launches).toEqual([]);
   });
 
   it('fires only for items its filter keeps', async () => {
     const t = reviewing({
-      yaml: review('    filter: { authors_not: ["dependabot[bot]"] }\n    mode: auto\n'),
+      yaml: review('    mode: auto\n', '{ authors_not: ["dependabot[bot]"] }'),
     });
     await t.start();
     await t.poll([]);
@@ -1554,7 +1555,7 @@ describe('reviews of assigned pull requests', () => {
   const either = (fields = '    mode: auto\n') => `version: 1
 automations:
   - name: review-requests
-    on: { github: [pull_request.review_requested, pull_request.assigned] }
+    on: { github: { events: [pull_request.review_requested, pull_request.assigned] } }
     run: { action: Review }
 ${fields}`;
   const both: Parameters<typeof inboxItem>[0] = { roles: ['review-requested-direct', 'assignee'] };
@@ -1763,8 +1764,7 @@ describe('automatic reviews, offered by the banner', () => {
     const oneStep = `version: 1
 automations:
   - name: review-assigned-prs
-    on: { github: [pull_request.review_requested, pull_request.assigned] }
-    filter: { authors_not: ["dependabot[bot]"] }
+    on: { github: { events: [pull_request.review_requested, pull_request.assigned], filter: { authors_not: ["dependabot[bot]"] } } }
     run: { action: Review }
     mode: auto
 `;
@@ -1896,32 +1896,32 @@ describe('agent run problems', () => {
     const unbound = { ...bound(), provider: undefined } as unknown as WorkspaceView;
     const cases: Array<[string, WorkspaceView, RegExp]> = [
       [
-        '    on: { github: pull_request.review_requested }\n    run: { action: Triage }\n',
+        '    on: { github: { events: [pull_request.review_requested] } }\n    run: { action: Triage }\n',
         bound(),
         /^no action named Triage in this workspace$/,
       ],
       [
-        '    on: { github: pull_request.review_requested }\n    run: { action: Implement }\n',
+        '    on: { github: { events: [pull_request.review_requested] } }\n    run: { action: Implement }\n',
         bound(),
         /does not apply to pull requests/,
       ],
       [
-        '    on: { github: pull_request.review_requested }\n    run: { action: Review }\n',
+        '    on: { github: { events: [pull_request.review_requested] } }\n    run: { action: Review }\n',
         unbound,
         /no github account bound/,
       ],
       [
-        '    on: { github: pull_request.review_requested }\n    run: { tool: consola#sweep }\n',
+        '    on: { github: { events: [pull_request.review_requested] } }\n    run: { tool: consola#sweep }\n',
         bound(),
         /tools run on a schedule/,
       ],
       [
-        '    on: { github: pull_request.review_requested }\n    run: { action: Review }\n    scope: api\n',
+        '    on: { github: { events: [pull_request.review_requested] } }\n    run: { action: Review }\n    scope: api\n',
         bound(),
         /takes no scope/,
       ],
       [
-        '    on: { jira: issue.assigned }\n    run: { action: Review }\n',
+        '    on: { jira: { events: [issue.assigned] } }\n    run: { action: Review }\n',
         bound(),
         /no connection named "jira"/,
       ],
@@ -2335,11 +2335,11 @@ describe('saving an entry', () => {
         /no Consola tool named "nope"/,
       ],
       [
-        '- name: a\n  on: { github: pull_request.closed }\n  run: { action: Review }\n',
+        '- name: a\n  on: { github: { events: [pull_request.closed] } }\n  run: { action: Review }\n',
         /github has no event "pull_request\.closed"/,
       ],
       [
-        '- name: a\n  on: { github: pull_request.opened }\n  run: { action: Review }\n',
+        '- name: a\n  on: { github: { events: [pull_request.opened] } }\n  run: { action: Review }\n',
         /`pull_request\.opened` comes only from GitHub's webhooks, which a cloud runner receives/,
       ],
       [
@@ -2351,7 +2351,7 @@ describe('saving an entry', () => {
         /consola#zap cannot be run by an automation/,
       ],
       [
-        '- name: a\n  on: { github: pull_request.review_requested }\n  run: { action: Triage }\n',
+        '- name: a\n  on: { github: { events: [pull_request.review_requested] } }\n  run: { action: Triage }\n',
         /no action named Triage in this workspace/,
       ],
       // Not one entry (Review Focus 3): each with a reason the agent can act on.
@@ -2709,7 +2709,7 @@ describe('stepIO', () => {
       const [automation] = parseFactorySpec(`version: 1
 automations:
   - name: review-assigned-prs
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - id: review
         prompt: Review it.

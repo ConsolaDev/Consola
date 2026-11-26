@@ -766,8 +766,14 @@ export function installMock() {
   };
   // The entry desktop's Templates tab previews for review-assigned-prs, as it ships (factoryTemplates.ts).
   const REVIEW_ASSIGNED_PRS_ENTRY = String.raw`- name: review-assigned-prs
-  on: { github: [pull_request.review_requested, pull_request.assigned] }
-  filter: { authors_not: ["dependabot[bot]"] }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
+        - pull_request.assigned
+      filter:
+        authors_not:
+          - dependabot[bot]
   mode: auto
   steps:
     - id: fresh

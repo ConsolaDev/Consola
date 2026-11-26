@@ -12,7 +12,7 @@ const T0 = '2026-11-22T09:00:00.000Z';
 /** The steps of a one-entry factory on review requests, parsed as the engine gets them. */
 function stepsOf(...steps: string[]): StepEntry[] {
   const items = steps.map((step) => `      ${step.replace(/\n/g, '\n      ')}`).join('\n');
-  const yaml = `version: 1\nautomations:\n  - name: gated\n    on: { github: pull_request.review_requested }\n    steps:\n${items}\n`;
+  const yaml = `version: 1\nautomations:\n  - name: gated\n    on: { github: { events: [pull_request.review_requested] } }\n    steps:\n${items}\n`;
   const parsed = parseFactorySpec(yaml);
   expect(parsed.issues).toEqual([]);
   const [automation] = parsed.automations;

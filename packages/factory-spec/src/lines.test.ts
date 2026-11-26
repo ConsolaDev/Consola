@@ -27,7 +27,7 @@ automations:
 `;
 
 const REVIEW = `# Reviews every pull request.
-on: { github: pull_request.opened }
+on: { github: { events: [pull_request.opened] } }
 steps:
   - id: review
     prompt: Review it.

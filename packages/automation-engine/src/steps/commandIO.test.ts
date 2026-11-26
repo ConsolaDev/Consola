@@ -480,7 +480,7 @@ describe('prepareCommand reading previous', () => {
   const FACTORY = `version: 1
 automations:
   - name: review-assigned-prs
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - id: review
         prompt: Review what changed since your last review.

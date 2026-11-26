@@ -804,8 +804,8 @@ function scheduleKey(entry: Resolved): string {
 }
 
 /**
- * Which list an event or poll automation watches: its trigger and filter,
- * and whose Inbox it is — the account and org the workspace is bound to
+ * Which list an event or poll automation watches: its trigger (an event's
+ * filter included), and whose Inbox it is — the account and org the workspace is bound to
  * decide what the searches return, and a check runs as that account.
  * Changing any of them re-baselines, so binding another org never reads as
  * every request in it arriving at once. A poll's interval is when it looks,
@@ -816,14 +816,13 @@ export function listDefinition(
   provider: WorkspaceView['provider'],
   fingerprints?: Readonly<Record<string, string>>,
 ): string {
-  const { filter } = entry.automation;
   const trigger = withoutInterval(entry.automation.trigger);
   const account = provider
     ? { id: provider.id, login: provider.accountLogin, org: provider.org }
     : null;
   // A check command's secrets' bindings decide what it sees too (Call 16); absent, dropped, so no record moves.
   return createHash('sha256')
-    .update(stableStringify({ trigger, filter, account, fingerprints }))
+    .update(stableStringify({ trigger, account, fingerprints }))
     .digest('hex')
     .slice(0, 16);
 }
@@ -6765,7 +6764,7 @@ export class AutomationService {
     let event: EventSource | undefined;
     let source: ItemSource | undefined;
     if (trigger.kind === 'event') {
-      const resolution = resolveEventSource(trigger, automation.filter);
+      const resolution = resolveEventSource(trigger);
       if (!resolution.ok) return unable(resolution.problem);
       event = resolution.source;
       source = event;

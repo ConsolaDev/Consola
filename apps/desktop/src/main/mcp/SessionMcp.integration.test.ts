@@ -174,7 +174,7 @@ const workspaces = () => [
 const STEPS_FACTORY = `version: 1
 automations:
   - name: review-assigned-prs
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - id: review
         prompt: Review it.

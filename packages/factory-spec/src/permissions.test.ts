@@ -106,7 +106,7 @@ describe('parsePermissions', () => {
 /** One entry on a pull request event, its steps the given YAML list items. */
 const steps = (...items: string[]) =>
   parseFactorySpec(
-    `version: 1\nautomations:\n  - name: a\n    on: { github: pull_request.opened }\n    steps:\n${items
+    `version: 1\nautomations:\n  - name: a\n    on: { github: { events: [pull_request.opened] } }\n    steps:\n${items
       .map((item) => `      ${item.replace(/\n/g, '\n      ')}`)
       .join('\n')}\n`,
   );
@@ -183,7 +183,7 @@ describe('permissions: on a step', () => {
 
   it('is refused on an entry', () => {
     const result = parseFactorySpec(
-      'version: 1\nautomations:\n  - name: a\n    on: { github: pull_request.opened }\n    permissions: { pull_requests: write }\n    steps:\n      - run: echo hi\n',
+      'version: 1\nautomations:\n  - name: a\n    on: { github: { events: [pull_request.opened] } }\n    permissions: { pull_requests: write }\n    steps:\n      - run: echo hi\n',
     );
     const issue = only(result);
     expect(issue.path).toBe('automations[0].permissions');

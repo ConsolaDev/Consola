@@ -156,8 +156,13 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
   {
     title: 'An action, on an event',
     entry: `- name: review-requested-prs
-  on: { github: pull_request.review_requested }
-  filter: { authors_not: ["dependabot[bot]"] }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
+      filter:
+        authors_not:
+          - dependabot[bot]
   run: { action: Review }
   mode: auto`,
   },
@@ -191,7 +196,10 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{
   {
     title: 'A review loop with a gate, on an event',
     entry: `- name: review-loop-gated
-  on: { github: pull_request.review_requested }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
   checkout: { pr: item }
   budget: { usd: 2 }
   mode: auto
@@ -468,10 +476,9 @@ ${AGENT_FILE_EXAMPLES}`;
 const GRAMMAR_PROSE = `Each automation is one item in the \`automations:\` list of factory.yml, or a file of its own (see The factory folder):
 
 - name: <lowercase letters, digits and dashes; unique in the folder>
-  on: <a trigger: { cron: "<five fields>" } or { <connection>: <event> } or { <connection>: [<event>, …] } or { poll: { … } } or manual>
+  on: <exactly one trigger: cron, poll, manual or a connection; see Triggers>
   run: <one target: { tool: consola#<tool>, with: { <arguments> } } or { action: <action name> } or { prompt: "<instructions>" }>
   steps: <instead of run: 1 to 20 steps, in file order; see Steps>
-  filter: <event triggers only: the connection's filter fields>
   applies_to: <on: manual only: [pr], [issue] or [pr, issue]; which items a run on demand takes>
   scope: <a prompt or steps on a schedule only: one of the workspace's scopes, by name>
   mode: auto | confirm | notify   # confirm when left out
@@ -482,6 +489,24 @@ Rules:
 - An action is a verb on an item, so it runs on an event, never on a schedule, and must apply to the event's items.
 - A prompt on a schedule names a scope. A pull request or issue runs in a worktree of its own repository, so an event takes no scope.
 - An event trigger needs its connection bound to this workspace (Workspace settings).
+
+Triggers. on: holds exactly one key, the trigger's name. A schedule, an event and a run on demand:
+
+on:
+  cron: "0 9 * * 1-5"
+
+on:
+  github:
+    events:
+      - pull_request.review_requested
+      - pull_request.assigned
+    filter:
+      authors_not:
+        - dependabot[bot]
+
+on: manual
+
+A connection (one of triggers.connections, by its id) takes events:, a list of its events, at least one and each once, a list even when it names one; and filter:, only when it needs one, a mapping of the filter fields triggers.connections lists for it, which says which items fire. Nothing else goes under it, nothing goes beside it in on:, and an entry has no filter: of its own: it goes under its connection. A schedule, a poll and a run on demand take no filter.
 
 Poll. on: { poll: { every: 30m, run: |
 <command>, item: { github: .url }, changed: .head } } runs a command on a timer, as the person, and fires for each item it prints. It is how to trigger on anything a CLI can answer, including what Consola's own events do not cover. Keys:

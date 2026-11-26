@@ -1,7 +1,12 @@
 # When a pull request opens, gets new commits or reopens, a read-only agent
 # reviews it, and a command posts the review on GitHub, on the commit the run
 # read. Nothing approves unattended: an approving review is posted as a comment.
-on: { github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }
+on:
+  github:
+    events:
+      - pull_request.opened
+      - pull_request.synchronize
+      - pull_request.reopened
 mode: auto
 steps:
   - id: review

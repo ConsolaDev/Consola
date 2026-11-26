@@ -29,7 +29,8 @@ function entry(name: string, head: string, ...steps: string[]): string {
 const file = (...entries: string[]) => `version: 1\nautomations:\n${entries.join('')}`;
 
 const MANUAL = (mode = 'auto') => `    on: manual\n    scope: catalog-portal\n    mode: ${mode}\n`;
-const ON_REVIEW = '    on: { github: pull_request.review_requested }\n    mode: auto\n';
+const ON_REVIEW =
+  '    on: { github: { events: [pull_request.review_requested] } }\n    mode: auto\n';
 const ASK = 'The reviewer would approve this pull request. Post the review as an approval?';
 
 const FRESH = '- id: fresh\n  run: git fetch --prune\n  dry_run: run';

@@ -485,7 +485,7 @@ describe('machine checks', () => {
 
 describe('an event only a cloud runner fires', () => {
   const REVIEW_PR_FILE = 'automations/review-pr.yaml';
-  const REVIEW_PR = `on: { github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }
+  const REVIEW_PR = `on: { github: { events: [pull_request.opened, pull_request.synchronize, pull_request.reopened] } }
 mode: auto
 steps:
   - id: review

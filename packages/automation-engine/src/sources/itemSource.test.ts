@@ -30,7 +30,7 @@ const GITHUB_HEADER =
 describe('runItemSource', () => {
   it("gives an event definition its connection's source", () => {
     const source = runItemSource(
-      definition('    on: { github: pull_request.review_requested }\n'),
+      definition('    on: { github: { events: [pull_request.review_requested] } }\n'),
       parsesNothing,
     );
     expect(source).toMatchObject({

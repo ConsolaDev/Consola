@@ -1238,9 +1238,9 @@ precursor of the engine's whole `AutomationService` on a runner (slices 7 and
   `storedFactoryFiles`, as the cell does) and reads each entry's trigger with
   the engine's `resolveWebhookTrigger`: an entry fires on a GitHub event it
   lists that only webhooks say (`pull_request.opened`, `.synchronize`,
-  `.reopened`), its `filter:` by the Inbox's rules. A factory with problems, an
-  entry the engine refuses for a webhook (an Inbox event beside it, parameters,
-  a bad filter), a `run:` entry and a checkout of its own (`checkout: { repo,
+  `.reopened`), its trigger's `filter:` by the Inbox's rules. A factory with
+  problems, an entry the engine refuses for a webhook (an Inbox event beside
+  it, a bad filter), a `run:` entry and a checkout of its own (`checkout: { repo,
   branch }`) match nothing and say why in a log line, never a run. `ring.ts`
   walks with the engine's `advanceSteps` and its record changes (`withUpdate`,
   `withRound`, `withGateAsked`, `withAttemptStarted`, `withCommandIntent`,
@@ -1632,7 +1632,7 @@ Then, from the repository root:
    `Passed GitHub delivery <id> (pull_request) on to workspace <id>'s cell
    (eu).`; the runner logs `event <id> (pull_request.opened): 1 run recorded`.
    A draft pull request records nothing: the GitHub connection's filter skips
-   drafts unless the entry's `filter:` says `drafts: true`.
+   drafts unless the trigger's `filter:` (under `on.github`) says `drafts: true`.
 9. **The run.** Runs (`http://localhost:5175/#/runs`) lists it, Needs approval,
    titled with the pull request's title; its page (`#/runs/<id>`) shows the
    two steps, `review` (agent `reviewer`) and `post`, both pending, and the

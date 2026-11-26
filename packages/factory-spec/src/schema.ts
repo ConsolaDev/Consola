@@ -53,17 +53,17 @@ export interface CronTrigger {
 }
 
 /**
- * `on: { <connection>: <event> | [<event>, ...], ...params }`. The spec fixes
- * the grammar; which connections and events exist — and which parameters an
- * event takes — is the runner's business, exactly as tool namespaces are.
+ * `on: { <connection>: { events: [<event>, …], filter: { … } } }`. The spec
+ * fixes the grammar; which connections and events exist, and which fields a
+ * filter takes, is the runner's business, exactly as tool namespaces are.
  */
 export interface EventTrigger {
   kind: 'event';
   connection: string;
   /** One or more of the connection's events; an item in any of them fires. */
   events: string[];
-  /** The event's own parameters: every key of `on` after the first. */
-  params: Record<string, unknown>;
+  /** Which items fire: the connection's own fields, checked by the runner. Present only when written. */
+  filter?: Record<string, unknown>;
 }
 
 export type Trigger = CronTrigger | EventTrigger | PollTrigger | ManualTrigger;
@@ -71,8 +71,6 @@ export type Trigger = CronTrigger | EventTrigger | PollTrigger | ManualTrigger;
 interface AutomationCommon {
   name: string;
   trigger: Trigger;
-  /** Which items fire an event trigger; fields are the connection's, validated by the runner. */
-  filter?: Record<string, unknown>;
   /** One of the workspace's scopes, by name: where an agent runs when there is no item repo to run in. */
   scope?: string;
   /** `on: manual` only: which items a run on demand takes. */
@@ -113,11 +111,18 @@ export function isStepsEntry(automation: Automation): automation is StepsAutomat
   return automation.steps !== undefined;
 }
 
+/** One line each, as a problem's sentence holds them; the files Consola writes lay a trigger out in block style. */
 const TRIGGER_EXAMPLE =
-  'e.g. `on: { cron: "0 9 * * *" }`, `on: { poll: { every: 30m, run: …, key: .id } }`, `on: manual` or `on: { github: pull_request.review_requested }`';
+  'e.g. `on: { cron: "0 9 * * *" }`, `on: { poll: { every: 30m, run: …, key: .id } }`, `on: manual` or `on: { github: { events: [pull_request.review_requested] } }`';
 
 const NOT_A_CONNECTION = (id: string) =>
-  `"${id}" is not a trigger. The first key of \`on\` is \`cron\`, \`poll\`, \`manual\` or a lowercase connection id, ${TRIGGER_EXAMPLE}.`;
+  `"${id}" is not a trigger. The key of \`on\` is \`cron\`, \`poll\`, \`manual\` or a lowercase connection id, ${TRIGGER_EXAMPLE}.`;
+
+/** What a connection's trigger holds under its name: the events that fire it, and the filter its connection reads. */
+const CONNECTION_KEYS = ['events', 'filter'];
+
+/** Consola's own triggers: every other key of `on` names a connection. */
+const OWN_TRIGGERS = ['cron', 'poll', 'manual'];
 
 /** Triggers a later slice brings, refused with what they arrive with. */
 const LATER_TRIGGERS: Record<string, string> = {
@@ -130,70 +135,163 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Exactly one trigger: the first key names it — `cron`, or a connection whose
- * value is the event — and any further keys are that event's parameters
- * (Jira's `to:`, Slack's `channel:`). Key order is what tells the two apart:
- * a parameter can look exactly like a connection id.
+ * A connection's trigger as one line, built from what is written: its events
+ * (a bare name or list, as a refused spelling writes them, or `events:`) and
+ * its filter, in the one form the grammar takes. What a problem with a
+ * refused spelling says to write instead.
+ */
+function connectionTriggerLine(connection: string, events: unknown, filter?: unknown): string {
+  const listed = (Array.isArray(events) ? events : [events]).filter(
+    (event): event is string => typeof event === 'string' && event.trim() !== '',
+  );
+  const body = {
+    events: listed.length > 0 ? listed.map((event) => event.trim()) : ['pull_request.opened'],
+    ...(isRecord(filter) && Object.keys(filter).length > 0 ? { filter } : {}),
+  };
+  return `on: ${stringify({ [connection]: body }, { collectionStyle: 'flow', lineWidth: 0 }).trim()}`;
+}
+
+/** The events written under a connection's name, for `connectionTriggerLine`: a bare name or list, or `events:`. */
+function writtenEvents(value: unknown): unknown {
+  return isRecord(value) ? value.events : value;
+}
+
+/** Why `key` cannot sit beside the trigger `kind` in `on`, in words that say where it goes. */
+function besideTrigger(kind: string, key: string, on: Record<string, unknown>): string {
+  if (OWN_TRIGGERS.includes(kind) || !CONNECTION_ID_PATTERN.test(kind))
+    return `\`on\` holds one trigger, \`${kind}\`; remove \`${key}\`.`;
+  const filter = isRecord(on[kind]) ? (on[kind] as Record<string, unknown>).filter : undefined;
+  if (key === 'filter')
+    return `\`filter:\` goes under \`${kind}:\`, beside \`events:\`: write \`${connectionTriggerLine(kind, writtenEvents(on[kind]), on.filter)}\`.`;
+  return `\`on\` holds one trigger, \`${kind}\`, and \`${key}\` cannot sit beside it: a connection takes \`events:\` and \`filter:\`, under its name, e.g. \`${connectionTriggerLine(kind, writtenEvents(on[kind]), filter)}\`.`;
+}
+
+/**
+ * A connection's trigger, `<connection>: { events: [<event>, …], filter: { … } }`:
+ * at least one event, each once, and the filter its connection reads, which
+ * the spec takes as written. Issues land at `[<connection>, …]`.
+ */
+function parseConnectionTrigger(
+  connection: string,
+  written: unknown,
+  fail: Fail,
+): EventTrigger | undefined {
+  if (typeof written === 'string' || Array.isArray(written)) {
+    fail(
+      `A connection's events are a list under \`events:\`: write \`${connectionTriggerLine(connection, written)}\`.`,
+      [connection],
+    );
+    return undefined;
+  }
+  if (!isRecord(written)) {
+    fail(
+      `Expected \`${connection}:\` to hold \`events:\`, a list, and \`filter:\` if it needs one, e.g. \`${connectionTriggerLine(connection, undefined)}\`.`,
+      [connection],
+    );
+    return undefined;
+  }
+  let ok = true;
+  const bad: Fail = (message, path = []) => {
+    ok = false;
+    fail(message, [connection, ...path]);
+  };
+  for (const key of Object.keys(written)) {
+    if (!CONNECTION_KEYS.includes(key))
+      bad(
+        `Unrecognized key in \`${connection}\`: ${key}. A connection takes \`events\` and \`filter\`.`,
+        [key],
+      );
+  }
+
+  const events: string[] = [];
+  const given = written.events;
+  if (given === undefined) {
+    bad(
+      `Say which events fire it, as a list under \`events:\`, e.g. \`${connectionTriggerLine(connection, undefined, written.filter)}\`.`,
+    );
+  } else if (typeof given === 'string') {
+    bad(`\`events\` is a list, even of one event: write \`events: [${given.trim()}]\`.`, [
+      'events',
+    ]);
+  } else if (!Array.isArray(given)) {
+    bad('Expected `events` to be a list of event names, e.g. `events: [pull_request.opened]`.', [
+      'events',
+    ]);
+  } else if (given.length === 0) {
+    bad('List at least one event under `events:`.', ['events']);
+  } else {
+    given.forEach((event: unknown, index) => {
+      if (typeof event !== 'string' || !EVENT_NAME_PATTERN.test(event.trim())) {
+        bad('Expected an event name, lowercase and dotted, e.g. pull_request.review_requested.', [
+          'events',
+          index,
+        ]);
+      } else if (events.includes(event.trim())) {
+        bad(`\`${event.trim()}\` is listed twice.`, ['events', index]);
+      } else events.push(event.trim());
+    });
+  }
+
+  let filter: Record<string, unknown> | undefined;
+  if ('filter' in written) {
+    if (!isRecord(written.filter)) {
+      bad(
+        "Expected `filter` to be a mapping of the connection's fields, e.g. `filter: { repos: [sprocket/catalog-portal] }`.",
+        ['filter'],
+      );
+    } else if (Object.keys(written.filter).length === 0) {
+      bad('A filter names at least one field; leave `filter:` out to let every item fire.', [
+        'filter',
+      ]);
+    } else filter = written.filter;
+  }
+
+  if (!ok) return undefined;
+  return { kind: 'event', connection, events, ...(filter ? { filter } : {}) };
+}
+
+/**
+ * Exactly one trigger, named by the one key of `on`: `cron`, `poll`,
+ * `manual`, or a connection, whose value says which events fire it and,
+ * when it needs one, the filter its connection reads.
  */
 const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
-  const fail = (message: string, path: string[] = []): never => {
+  let reported = false;
+  const report: Fail = (message, path = []) => {
+    reported = true;
     ctx.addIssue({ code: 'custom', message, path });
+  };
+  const fail = (message: string, path: string[] = []): never => {
+    report(message, path);
     return z.NEVER;
   };
   if (on === 'manual') return { kind: 'manual' };
   if (!isRecord(on)) return fail(`Expected a trigger, ${TRIGGER_EXAMPLE}.`);
   const [kind, ...rest] = Object.keys(on);
   if (!kind) return fail(`Expected a trigger, ${TRIGGER_EXAMPLE}.`);
+  // Every key past the first is reported, and the trigger is still read, so each problem shows at once.
+  for (const key of rest) report(besideTrigger(kind, key, on), [key]);
 
+  let parsed: Trigger | null | undefined;
   if (kind === 'cron') {
-    if (rest.length > 0) {
-      return fail(
-        `A cron trigger takes no parameters; remove ${rest.map((key) => `\`${key}\``).join(', ')}.`,
-        [rest[0]],
-      );
-    }
     if (typeof on.cron !== 'string')
       return fail('Expected a quoted cron expression, e.g. "0 9 * * *".', ['cron']);
     const problem = cronError(on.cron);
     if (problem) return fail(problem, ['cron']);
-    return { kind: 'cron', cron: on.cron.trim() };
-  }
-
-  if (kind === 'poll' || kind === 'manual') {
-    let reported = false;
-    const report = (message: string, path: Array<string | number> = []) => {
-      reported = true;
-      ctx.addIssue({ code: 'custom', message, path });
-    };
-    const parsed =
-      kind === 'poll'
-        ? parsePollTrigger(on.poll, rest, report, NOT_A_CONNECTION, CONNECTION_ID_PATTERN)
-        : parseManualTrigger(on.manual, rest, report);
-    return parsed && !reported ? parsed : z.NEVER;
-  }
-  // Own keys only: `in` would take `constructor` or `toString` for a later trigger.
-  if (Object.prototype.hasOwnProperty.call(LATER_TRIGGERS, kind))
+    parsed = { kind: 'cron', cron: on.cron.trim() };
+  } else if (kind === 'poll') {
+    parsed = parsePollTrigger(on.poll, report, NOT_A_CONNECTION, CONNECTION_ID_PATTERN);
+  } else if (kind === 'manual') {
+    parsed = parseManualTrigger(on.manual, report);
+  } else if (Object.prototype.hasOwnProperty.call(LATER_TRIGGERS, kind)) {
+    // Own keys only: `in` would take `constructor` or `toString` for a later trigger.
     return fail(LATER_TRIGGERS[kind], [kind]);
-
-  if (!CONNECTION_ID_PATTERN.test(kind)) return fail(NOT_A_CONNECTION(kind), [kind]);
-  const written = on[kind];
-  const listed = Array.isArray(written) ? written : [written];
-  if (listed.length === 0) return fail(`List at least one event after \`${kind}:\`.`, [kind]);
-  const events: string[] = [];
-  for (const event of listed) {
-    if (typeof event !== 'string' || !EVENT_NAME_PATTERN.test(event.trim())) {
-      return fail(
-        `Expected an event name after \`${kind}:\`, lowercase and dotted, e.g. pull_request.review_requested.`,
-        [kind],
-      );
-    }
-    const name = event.trim();
-    if (events.includes(name)) return fail(`\`${name}\` is listed twice.`, [kind]);
-    events.push(name);
+  } else if (!CONNECTION_ID_PATTERN.test(kind)) {
+    return fail(NOT_A_CONNECTION(kind), [kind]);
+  } else {
+    parsed = parseConnectionTrigger(kind, on[kind], report);
   }
-  const params: Record<string, unknown> = {};
-  for (const key of rest) params[key] = on[key];
-  return { kind: 'event', connection: kind, events, params };
+  return parsed && !reported ? parsed : z.NEVER;
 });
 
 const RUN_KEYS = ['action', 'prompt', 'tool'] as const;
@@ -371,13 +469,39 @@ function requireOneOf(entry: unknown, ctx: z.RefinementCtx): unknown {
   return entry;
 }
 
+/**
+ * A `filter:` on the entry, refused in words that fit its trigger: a
+ * connection's filter goes under its name in `on:`, and a schedule, a poll
+ * and a run on demand take none. Checked before the object is parsed, as
+ * `requireOneOf` is, and taken out, so the entry's own issues still show.
+ */
+function refuseEntryFilter(entry: unknown, ctx: z.RefinementCtx): unknown {
+  if (!isRecord(entry) || !Object.prototype.hasOwnProperty.call(entry, 'filter')) return entry;
+  const { filter, ...rest } = entry;
+  const on = entry.on;
+  const kind = on === 'manual' ? 'manual' : isRecord(on) ? Object.keys(on)[0] : undefined;
+  let message: string;
+  if (kind === 'poll') message = 'Filter in the command, for example with `--jq`.';
+  else if (kind === 'cron')
+    message = '`filter` narrows which items fire an event; a schedule has no items.';
+  else if (kind === 'manual')
+    message = '`filter` narrows which items fire an event; a run on demand has no event.';
+  else if (kind !== undefined && CONNECTION_ID_PATTERN.test(kind) && isRecord(on))
+    message = `\`filter:\` goes under \`${kind}:\` in \`on:\`, beside \`events:\`: write \`${connectionTriggerLine(kind, writtenEvents(on[kind]), filter)}\`.`;
+  else
+    message =
+      '`filter:` goes under the connection in `on:`, beside `events:`, e.g. `on: { github: { events: [pull_request.opened], filter: { repos: [sprocket/catalog-portal] } } }`.';
+  ctx.addIssue({ code: 'custom', path: ['filter'], message });
+  return rest;
+}
+
 export function automationSchema() {
   const entrySchema = automationEntrySchema();
   // Not `z.preprocess`: zod 4 stops a pipe at the first issue, which would
   // hide the entry's own issues behind the one-of issue. The entry is parsed
   // whatever that check found, and both are reported, one-of first.
   return z.unknown().transform((raw, ctx): Automation => {
-    const entry = requireOneOf(foldStringRun(raw), ctx);
+    const entry = refuseEntryFilter(requireOneOf(foldStringRun(raw), ctx), ctx);
     const parsed = entrySchema.safeParse(entry);
     if (!parsed.success) {
       for (const issue of parsed.error.issues) ctx.addIssue({ ...issue });
@@ -399,7 +523,6 @@ function automationEntrySchema() {
       on: triggerSchema,
       run: runSchema.optional(),
       steps: stepsSchema().optional(),
-      filter: z.record(z.string(), z.unknown()).optional(),
       scope: z.string().trim().min(1, 'Name one of the workspace’s scopes.').optional(),
       applies_to: appliesToSchema.optional(),
       mode: z.enum(AUTOMATION_MODES).default('confirm'),
@@ -458,16 +581,6 @@ function automationEntrySchema() {
         if (!entry.scope)
           issue('scope', `Say where this runs: \`scope: <one of the workspace’s scopes>\`. ${why}`);
       };
-      if (trigger.kind === 'cron' && entry.filter) {
-        issue('filter', '`filter` narrows which items fire an event; a schedule has no items.');
-      }
-      if (poll && entry.filter) issue('filter', 'Filter in the command, for example with `--jq`.');
-      if (trigger.kind === 'manual' && entry.filter) {
-        issue(
-          'filter',
-          '`filter` narrows which items fire an event; a run on demand has no event.',
-        );
-      }
       if (trigger.kind === 'manual' && entry.applies_to && entry.scope && run?.kind !== 'tool') {
         issue(
           'scope',
@@ -546,7 +659,6 @@ function automationEntrySchema() {
       const common = {
         name: entry.name,
         trigger: entry.on,
-        ...(entry.filter ? { filter: entry.filter } : {}),
         ...(entry.scope ? { scope: entry.scope } : {}),
         ...(entry.applies_to ? { appliesTo: entry.applies_to } : {}),
         mode: entry.mode,

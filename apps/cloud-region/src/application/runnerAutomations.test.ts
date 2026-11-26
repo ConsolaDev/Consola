@@ -56,7 +56,7 @@ const HEAD = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
 /** A stand-in for an installation token, never a real one. */
 const TOKEN = 'ghs_sprocketStandInToken0123456789abcdef';
 
-const REVIEW = `on: { github: pull_request.opened }
+const REVIEW = `on: { github: { events: [pull_request.opened] } }
 steps:
   - id: review
     prompt: Review it.

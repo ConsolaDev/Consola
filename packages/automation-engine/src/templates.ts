@@ -237,7 +237,10 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
     entry: () =>
       [
         '- name: brief-review-requests',
-        '  on: { github: pull_request.review_requested }',
+        '  on:',
+        '    github:',
+        '      events:',
+        '        - pull_request.review_requested',
         ...promptBlock(BRIEF_PROMPT),
         '  mode: auto',
       ].join('\n'),
@@ -315,7 +318,7 @@ export function previewOf(entry: string, now: Date): TemplatePreview | null {
   const { automation } = parsed;
   const { trigger } = automation;
   const cron = trigger.kind === 'cron' ? trigger.cron : undefined;
-  const event = trigger.kind === 'event' ? resolveEventSource(trigger, automation.filter) : null;
+  const event = trigger.kind === 'event' ? resolveEventSource(trigger) : null;
   const next = cron ? nextCronOccurrence(cron, now) : null;
   return {
     trigger: event?.ok

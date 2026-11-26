@@ -23,7 +23,7 @@ automations:
       - id: build
         run: pnpm build
   - name: reviews
-    on: { github: [pull_request.opened, pull_request.reopened] }
+    on: { github: { events: [pull_request.opened, pull_request.reopened] } }
     steps:
       - id: review
         prompt: Review it.

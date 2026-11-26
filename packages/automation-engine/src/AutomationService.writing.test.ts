@@ -47,7 +47,7 @@ const POLL_OWNED = file(
 );
 /** An event on pull requests, its own checkout. */
 const EVENT_OWNED = file(
-  `  - name: on-pr\n    on: { github: pull_request.review_requested }\n    mode: auto\n${owned('fix/pr-{{item.number}}')}${steps('- id: check\n  run: "true"')}`,
+  `  - name: on-pr\n    on: { github: { events: [pull_request.review_requested] } }\n    mode: auto\n${owned('fix/pr-{{item.number}}')}${steps('- id: check\n  run: "true"')}`,
 );
 
 /** Accept every entry in `yaml` at its version, as a person approving each once would, and allow its checks. */
@@ -305,7 +305,7 @@ describe('a run that owns its checkout makes it before its first step (Task 12)'
 
   it('an item run records kind item, a scope run kind scope', async () => {
     const h = await stepsHarness({
-      yaml: `version: 1\nautomations:\n  - name: on-pr\n    on: { github: pull_request.review_requested }\n    mode: auto\n${steps('- id: check\n  run: "true"')}  - name: daily\n    on: manual\n    scope: api\n    mode: auto\n${steps('- id: check\n  run: "true"')}`,
+      yaml: `version: 1\nautomations:\n  - name: on-pr\n    on: { github: { events: [pull_request.review_requested] } }\n    mode: auto\n${steps('- id: check\n  run: "true"')}  - name: daily\n    on: manual\n    scope: api\n    mode: auto\n${steps('- id: check\n  run: "true"')}`,
     });
     acceptEvery(h, h.texts().get('factory.yml')!);
     await h.poll([]);
@@ -1041,7 +1041,7 @@ describe("a person's session in a run's checkout holds the run, and what it leav
   );
   /** A pull request's event: `fix` writes in the run's own checkout. */
   const PR_WRITE = file(
-    `  - name: pr-write\n    on: { github: pull_request.review_requested }\n    mode: auto\n${owned('fix/pr-{{item.number}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: pr\n  run: "true"')}`,
+    `  - name: pr-write\n    on: { github: { events: [pull_request.review_requested] } }\n    mode: auto\n${owned('fix/pr-{{item.number}}')}${steps('- id: fix\n  agent: fixer\n  prompt: Fix it.', '- id: pr\n  run: "true"')}`,
   );
 
   /** `write` run now, `fix`'s turn ended while `HOLDER` is open in the checkout. */

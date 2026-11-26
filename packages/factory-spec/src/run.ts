@@ -319,8 +319,8 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  * `auto` entry is trusted to run unasked only at the version a person
  * approved.
  *
- * Covers the target and its arguments or body, the mode, the filter and
- * scope (which items, and where), an event trigger (what fires it), a poll's
+ * Covers the target and its arguments or body, the mode, the scope (where),
+ * an event trigger (what fires it, and its filter: which items), a poll's
  * check command, identity and `changed:` value and its timeout, and
  * `applies_to`. Not a cron schedule or a poll's `every`, which say when
  * rather than what, and not the workspace, which is where the file lives rather than something it says.
@@ -341,9 +341,7 @@ export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed
  */
 export function automationVersion(
   automation: Pick<Automation, 'run' | 'steps' | 'mode' | 'trigger'> &
-    Partial<
-      Pick<Automation, 'filter' | 'scope' | 'appliesTo' | 'checkout' | 'budget' | 'onFailure'>
-    >,
+    Partial<Pick<Automation, 'scope' | 'appliesTo' | 'checkout' | 'budget' | 'onFailure'>>,
   resolvedBody?: string,
 ): string {
   const { trigger } = automation;
@@ -352,11 +350,10 @@ export function automationVersion(
     // Absent on a legacy entry, and stableStringify drops undefined, so its hash does not move.
     steps: automation.steps,
     mode: automation.mode,
-    filter: automation.filter,
     scope: automation.scope,
     event:
       trigger.kind === 'event'
-        ? { connection: trigger.connection, events: trigger.events, params: trigger.params }
+        ? { connection: trigger.connection, events: trigger.events, filter: trigger.filter }
         : undefined,
     // A poll's check is what Consola runs as the person, so it is what they approved.
     // `every` is not here: it says when, like a cron schedule.

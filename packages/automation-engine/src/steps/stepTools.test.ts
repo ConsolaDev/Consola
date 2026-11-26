@@ -18,7 +18,7 @@ import { StepIO, stepToolSpecs } from './stepTools';
 const FACTORY = `version: 1
 automations:
   - name: review-assigned-prs
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - id: research
         prompt: Read the change and what it touches.

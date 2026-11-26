@@ -18,9 +18,11 @@ import type { WorkspaceView } from './views';
  * (spec *The version › Proof*): every example an agent is taught and every
  * template a person can add must hash exactly as they did before. These pins
  * were taken when phase 2-B started, before any factory-spec change; a task
- * that moves one has changed what an existing file means (contract 14).
- * "Steps, on an event" and `review-assigned-prs` hash to `run.test.ts`'s
- * steps-template pin.
+ * that moves one has changed what an existing file means (contract 14). The
+ * pins of the entries on an event moved once, by decision, when a
+ * connection's trigger took its one form (`events:`, with the filter under
+ * it); the others are 2-B's. "Steps, on an event" and `review-assigned-prs`
+ * hash to `run.test.ts`'s steps-template pin.
  */
 
 /** The workspace `templates.test.ts` builds, copied so these pins never move with that file. */
@@ -62,7 +64,7 @@ function versionOf(entry: string): string {
 }
 
 describe('versions before agents as files', () => {
-  it('every example and template hashes as it did when 2-B started', () => {
+  it('every example and template hashes as pinned', () => {
     expect(
       GRAMMAR_EXAMPLES.map((example) => [example.title, versionOf(example.entry)]),
     ).toMatchInlineSnapshot(`
@@ -73,7 +75,7 @@ describe('versions before agents as files', () => {
         ],
         [
           "An action, on an event",
-          "fb44316799ab00f5",
+          "121a47d3c78dcd16",
         ],
         [
           "A prompt, on a schedule",
@@ -81,7 +83,7 @@ describe('versions before agents as files', () => {
         ],
         [
           "Steps, on an event",
-          "6dfd57fa0f97c2ff",
+          "1c68c1393bd9628e",
         ],
         [
           "Steps, on a poll",
@@ -93,7 +95,7 @@ describe('versions before agents as files', () => {
         ],
         [
           "A review loop with a gate, on an event",
-          "c1616b18265e1061",
+          "3ab7dedc4111932a",
         ],
         [
           "A Jira bug to a pull request, in a sandbox",
@@ -107,7 +109,7 @@ describe('versions before agents as files', () => {
       [
         [
           "review-assigned-prs",
-          "6dfd57fa0f97c2ff",
+          "1c68c1393bd9628e",
         ],
         [
           "re-review-on-new-commits",
@@ -123,11 +125,11 @@ describe('versions before agents as files', () => {
         ],
         [
           "brief-review-requests",
-          "fb5d5b162f96759e",
+          "bee95bb156c27865",
         ],
         [
           "review-assigned-prs-gated",
-          "d6c6eabaac1e1c69",
+          "d2104377fef76a3f",
         ],
       ]
     `);
@@ -146,11 +148,11 @@ describe('versions with secrets', () => {
     const steps = GRAMMAR_EXAMPLES.find((example) => example.title === 'Steps, on an event')!.entry;
     // The twins are the pins above.
     expect(versionOf(poll)).toBe('9387227e150d8b94');
-    expect(versionOf(steps)).toBe('6dfd57fa0f97c2ff');
+    expect(versionOf(steps)).toBe('1c68c1393bd9628e');
     const pollWith = withLine(poll, '      changed: .head\n', '      secrets: [TRACKER_TOKEN]\n');
     const stepsWith = withLine(steps, '      dry_run: run\n', '      secrets: [PAGER_TOKEN]\n');
     expect(versionOf(pollWith)).not.toBe('9387227e150d8b94');
-    expect(versionOf(stepsWith)).not.toBe('6dfd57fa0f97c2ff');
+    expect(versionOf(stepsWith)).not.toBe('1c68c1393bd9628e');
     expect(versionOf(pollWith)).not.toBe(versionOf(stepsWith));
   });
 });

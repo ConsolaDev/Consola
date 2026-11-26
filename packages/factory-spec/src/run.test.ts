@@ -32,10 +32,9 @@ const review: Automation = {
     kind: 'event',
     connection: 'github',
     events: ['pull_request.review_requested'],
-    params: {},
+    filter: { repos: ['acme/*'] },
   },
   run: { kind: 'action', ref: 'Review', name: 'Review' },
-  filter: { repos: ['acme/*'] },
   mode: 'auto',
 };
 
@@ -45,12 +44,19 @@ const withArgs = (args: Record<string, unknown>): Automation => ({
 });
 
 /**
- * review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), pasted here because
- * factory-spec imports nothing from the engine. Its version is pinned at 6dfd57fa0f97c2ff.
+ * review-assigned-prs as PR A ships it (the engine's factoryTemplates.ts), its trigger in the one
+ * form a connection's trigger has, pasted here because factory-spec imports nothing from the
+ * engine. Its version is pinned at 1c68c1393bd9628e.
  */
 const PR_A_REVIEW_YAML = String.raw`- name: review-assigned-prs
-  on: { github: [pull_request.review_requested, pull_request.assigned] }
-  filter: { authors_not: ["dependabot[bot]"] }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
+        - pull_request.assigned
+      filter:
+        authors_not:
+          - dependabot[bot]
   mode: auto
   steps:
     - id: fresh
@@ -125,7 +131,13 @@ describe('automationVersion', () => {
     expect(automationVersion(review, 'Review the changes.')).toBe(version);
     expect(automationVersion(review, 'Review the changes, then approve.')).not.toBe(version);
     expect(
-      automationVersion({ ...review, filter: { repos: ['*'] } }, 'Review the changes.'),
+      automationVersion(
+        {
+          ...review,
+          trigger: { ...review.trigger, filter: { repos: ['*'] } } as Automation['trigger'],
+        },
+        'Review the changes.',
+      ),
     ).not.toBe(version);
     expect(automationVersion({ ...review, scope: 'api' }, 'Review the changes.')).not.toBe(version);
     expect(
@@ -136,7 +148,7 @@ describe('automationVersion', () => {
             kind: 'event',
             connection: 'github',
             events: ['pull_request.opened'],
-            params: {},
+            filter: { repos: ['acme/*'] },
           },
         },
         'Review the changes.',
@@ -147,21 +159,22 @@ describe('automationVersion', () => {
   it('changes when the listed events change', () => {
     const on = (events: string[]): Automation => ({
       ...review,
-      trigger: { kind: 'event', connection: 'github', events, params: {} },
+      trigger: { kind: 'event', connection: 'github', events },
     });
     expect(automationVersion(on(['a.b']))).toBe(automationVersion(on(['a.b'])));
     expect(automationVersion(on(['a.b']))).not.toBe(automationVersion(on(['a.b', 'c.d'])));
   });
 
-  it('keeps the steps template hash taken at PR A', () => {
+  it('keeps the steps template hash pinned for PR A', () => {
     const parsed = parseAutomationEntry(PR_A_REVIEW_YAML);
     if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
-    expect(automationVersion(parsed.automation)).toBe('6dfd57fa0f97c2ff');
+    expect(automationVersion(parsed.automation)).toBe('1c68c1393bd9628e');
   });
 
-  it('keeps every hash taken before steps existed', () => {
+  it('keeps every hash pinned for an entry with no steps', () => {
     expect(automationVersion(tool)).toBe('9c2fbd9ab4277088');
-    expect(automationVersion(review, 'Review the changes.')).toBe('95ff957e059f7860');
+    // A schedule's and a tool's are the ones taken before steps existed; an event's moved once, when its filter moved under its connection.
+    expect(automationVersion(review, 'Review the changes.')).toBe('2bd4687055649b0c');
     const digest: Automation = {
       name: 'digest',
       trigger: { kind: 'cron', cron: '30 8 * * 1-5' },
@@ -171,11 +184,11 @@ describe('automationVersion', () => {
     };
     expect(automationVersion(digest)).toBe('d86952669c9b0419');
 
-    // And the same through the parser, so a change to how a legacy entry parses cannot hide.
+    // And the same through the parser, so a change to how an entry with no steps parses cannot hide.
     const hashOf = (yaml: string, body?: string) => {
       const parsed = parseAutomationEntry(yaml);
       if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
-      // A legacy entry carries no `steps` key at all, not even an undefined one.
+      // An entry with no steps carries no `steps` key at all, not even an undefined one.
       expect('steps' in parsed.automation).toBe(false);
       return automationVersion(parsed.automation, body);
     };
@@ -183,14 +196,13 @@ describe('automationVersion', () => {
       hashOf(
         [
           '- name: review-assigned-prs',
-          '  on: { github: [pull_request.review_requested, pull_request.assigned] }',
-          '  filter: { authors_not: ["dependabot[bot]"] }',
+          '  on: { github: { events: [pull_request.review_requested, pull_request.assigned], filter: { authors_not: ["dependabot[bot]"] } } }',
           '  run: { action: Review }',
           '  mode: auto',
         ].join('\n'),
         'Review the changes.',
       ),
-    ).toBe('4436964dc0db9065');
+    ).toBe('dba4b20f3cedb0b9');
     expect(
       hashOf(
         '- name: digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: "Summarise my Inbox." }\n  scope: api\n  mode: auto',
@@ -237,7 +249,7 @@ describe('automationVersion', () => {
   describe('with steps', () => {
     const ENTRY = [
       '- name: review-assigned-prs',
-      '  on: { github: [pull_request.review_requested] }',
+      '  on: { github: { events: [pull_request.review_requested] } }',
       '  mode: auto',
       '  steps:',
       '    - id: fresh',
@@ -303,7 +315,7 @@ describe('automationVersion', () => {
 
     it('a cron-only change to a steps entry does not', () => {
       const cron = ENTRY.replace(
-        'on: { github: [pull_request.review_requested] }',
+        'on: { github: { events: [pull_request.review_requested] } }',
         'on: { cron: "0 9 * * *" }',
       ).replace('  steps:', '  scope: api\n  steps:');
       const later = cron.replace('0 9 * * *', '30 10 * * 1');
@@ -315,7 +327,7 @@ describe('automationVersion', () => {
     // That an entry naming no action hashes no body is the service's to show ("hashes no body when no step names an action").
     it('an action body changes it for an entry whose step names that action', () => {
       const named =
-        '- name: r\n  on: { github: [pull_request.opened] }\n  mode: auto\n  steps:\n    - id: review\n      action: Review';
+        '- name: r\n  on: { github: { events: [pull_request.opened] } }\n  mode: auto\n  steps:\n    - id: review\n      action: Review';
       const body = (text: string) => stableStringify({ review: text });
       expect(versionOf(named, body('A'))).toBe(versionOf(named, body('A')));
       expect(versionOf(named, body('A'))).not.toBe(versionOf(named, body('B')));
@@ -416,7 +428,9 @@ describe('automationVersion', () => {
       const poll = versionOf(
         `- name: w\n  on: { poll: { every: 30m, run: x, item: { github: .url } } }\n${steps}`,
       );
-      const event = versionOf(`- name: w\n  on: { github: [pull_request.opened] }\n${steps}`);
+      const event = versionOf(
+        `- name: w\n  on: { github: { events: [pull_request.opened] } }\n${steps}`,
+      );
       expect(poll).not.toBe(event);
     });
   });
@@ -705,7 +719,7 @@ describe('the version of what slice 3 adds (Task 5)', () => {
   };
   const LOOP_YAML = [
     '- name: polished',
-    '  on: { github: pull_request.review_requested }',
+    '  on: { github: { events: [pull_request.review_requested] } }',
     '  mode: auto',
     '  steps:',
     '    - id: polish',
@@ -720,13 +734,13 @@ describe('the version of what slice 3 adds (Task 5)', () => {
 
   it('hashes checkout, budget and on_failure only when written', () => {
     const base = parsedEntry(PR_A_REVIEW_YAML);
-    expect(automationVersion(base)).toBe('6dfd57fa0f97c2ff');
+    expect(automationVersion(base)).toBe('1c68c1393bd9628e');
     for (const extra of [
       { checkout: { pr: 'item' as const } },
       { budget: { usd: 5 } },
       { onFailure: { retry: 1 } },
     ])
-      expect(automationVersion({ ...base, ...extra })).not.toBe('6dfd57fa0f97c2ff');
+      expect(automationVersion({ ...base, ...extra })).not.toBe('1c68c1393bd9628e');
     expect(automationVersion({ ...base, budget: { usd: 5 } })).not.toBe(
       automationVersion({ ...base, budget: { usd: 6 } }),
     );

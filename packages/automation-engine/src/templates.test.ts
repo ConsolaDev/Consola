@@ -116,7 +116,7 @@ describe('templates', () => {
 
   it("a steps template's preview lists its steps", () => {
     const entry = `- name: review-and-fetch
-  on: { github: pull_request.review_requested }
+  on: { github: { events: [pull_request.review_requested] } }
   mode: confirm
   steps:
     - id: review
@@ -178,7 +178,7 @@ automations:
     on: { cron: "0 7 * * *" }
     run: { tool: consola#cleanup_stale_sessions }
   - name: reviews
-    on: { github: pull_request.assigned }
+    on: { github: { events: [pull_request.assigned] } }
     run: { action: Review }
 `;
     expect(view(workspace(), 'clean-up-stale-sessions', file).addedAs).toBe('tidy');
@@ -229,8 +229,14 @@ automations:
     const oneStep = `version: 1
 automations:
   - name: review-assigned-prs
-    on: { github: [pull_request.review_requested, pull_request.assigned] }
-    filter: { authors_not: ["dependabot[bot]"] }
+    on:
+      github:
+        events:
+          - pull_request.review_requested
+          - pull_request.assigned
+        filter:
+          authors_not:
+            - dependabot[bot]
     run: { action: Review }
     mode: auto
 `;
@@ -259,7 +265,7 @@ automations:
   });
 
   it('a review request’s prompt and its action are different templates', () => {
-    const on = '    on: { github: pull_request.review_requested }\n';
+    const on = '    on: { github: { events: [pull_request.review_requested] } }\n';
     const briefs = `version: 1\nautomations:\n  - name: pr-briefs\n${on}    run: { prompt: "Brief me with work_item_context." }\n`;
     expect(view(workspace(), 'brief-review-requests', briefs).addedAs).toBe('pr-briefs');
     expect(view(workspace(), 'review-assigned-prs', briefs)).not.toHaveProperty('addedAs');

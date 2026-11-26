@@ -1183,7 +1183,7 @@ const LOOK = `steps:
 `;
 const READ_NIGHTLY = `on: { cron: ${NEVER} }\nscope: catalog-portal\nmode: confirm\n${LOOK}`;
 const READ_PRS = `on: manual\napplies_to: [pr]\nmode: confirm\n${LOOK}`;
-const REVIEW_PRS = `on: { github: pull_request.review_requested }\nmode: confirm\n${LOOK}`;
+const REVIEW_PRS = `on: { github: { events: [pull_request.review_requested] } }\nmode: confirm\n${LOOK}`;
 
 test("a step on someone else's pull request is offered connectors only", async () => {
   test.setTimeout(360_000);

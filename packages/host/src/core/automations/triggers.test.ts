@@ -84,7 +84,7 @@ describe('matchEvent', () => {
   it('holds a pull request to the entry’s filter, by the engine’s rules: a draft never fires unasked', () => {
     expect(matchEvent([factory(REVIEW_FILES)], pullRequest({ draft: true })).matches).toEqual([]);
     const filtered = withEntry(
-      `on: { github: pull_request.opened }\nfilter: { repos: ['sprocket/*'], authors_not: ['dependabot[bot]'], drafts: true }\n${STEPS}`,
+      `on: { github: { events: [pull_request.opened], filter: { repos: ['sprocket/*'], authors_not: ['dependabot[bot]'], drafts: true } } }\n${STEPS}`,
     );
     expect(matchEvent([filtered], pullRequest({ draft: true })).matches).toHaveLength(1);
     expect(matchEvent([filtered], pullRequest({ repository: 'acme/api' })).matches).toEqual([]);
@@ -102,7 +102,10 @@ describe('matchEvent', () => {
   it('runs nothing of a factory with problems, and says so in a note', () => {
     const broken = factory([
       ...REVIEW_FILES,
-      { path: 'automations/broken.yaml', content: 'on: { github: pull_request.opened }\n' },
+      {
+        path: 'automations/broken.yaml',
+        content: 'on: { github: { events: [pull_request.opened] } }\n',
+      },
     ]);
     const { matches, notes } = matchEvent([broken], pullRequest());
     expect(matches).toEqual([]);
@@ -113,11 +116,13 @@ describe('matchEvent', () => {
 
   it('refuses, in a note and never loosely, an entry it cannot honour exactly', () => {
     const inbox = withEntry(
-      `on: { github: [pull_request.opened, pull_request.review_requested] }\n${STEPS}`,
+      `on: { github: { events: [pull_request.opened, pull_request.review_requested] } }\n${STEPS}`,
     );
-    const legacy = withEntry('on: { github: pull_request.opened }\nrun: { prompt: Review it. }\n');
+    const legacy = withEntry(
+      'on: { github: { events: [pull_request.opened] } }\nrun: { prompt: Review it. }\n',
+    );
     const owned = withEntry(
-      `on: { github: pull_request.opened }\ncheckout: { repo: sprocket/catalog-portal, branch: consola/fix }\n${STEPS}`,
+      `on: { github: { events: [pull_request.opened] } }\ncheckout: { repo: sprocket/catalog-portal, branch: consola/fix }\n${STEPS}`,
     );
     for (const snapshot of [inbox, legacy, owned]) {
       const { matches, notes } = matchEvent([snapshot], pullRequest());
@@ -135,7 +140,9 @@ describe('matchEvent', () => {
 
   it('ignores entries that do not name the event, whatever is wrong with them', () => {
     const schedule = withEntry(`on: { cron: "0 9 * * 1" }\nscope: catalog-portal\n${STEPS}`);
-    const other = withEntry(`on: { github: pull_request.review_requested }\n${STEPS}`);
+    const other = withEntry(
+      `on: { github: { events: [pull_request.review_requested] } }\n${STEPS}`,
+    );
     expect(matchEvent([schedule, other], pullRequest())).toEqual({ matches: [], notes: [] });
   });
 });

@@ -39,7 +39,12 @@ import { recordRun } from './runs.js';
 export const REVIEW_PR_YAML = String.raw`# When a pull request opens, gets new commits or reopens, a read-only agent
 # reviews it, and a command posts the review on GitHub, on the commit the run
 # read. Nothing approves unattended: an approving review is posted as a comment.
-on: { github: [pull_request.opened, pull_request.synchronize, pull_request.reopened] }
+on:
+  github:
+    events:
+      - pull_request.opened
+      - pull_request.synchronize
+      - pull_request.reopened
 mode: auto
 steps:
   - id: review
@@ -118,7 +123,10 @@ steps:
   { path: 'automations/review-pr.yaml', content: REVIEW_PR_YAML },
   {
     path: 'automations/triage-issues.yaml',
-    content: `on: { github: issues.opened }
+    content: `on:
+  github:
+    events:
+      - issues.opened
 steps:
   - id: triage
     agent: reviewer

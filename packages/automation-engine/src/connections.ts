@@ -253,7 +253,7 @@ const CONNECTIONS: Record<
   },
 };
 
-/** One connection as an agent writing an `on:` and a `filter:` needs to know it. */
+/** One connection as an agent writing its trigger, its events and its `filter:`, needs to know it. */
 export interface ConnectionCatalogEntry {
   id: string;
   events: Array<{
@@ -461,14 +461,11 @@ const GITHUB_ITEMS = {
 } satisfies Partial<ItemSource>;
 
 /**
- * An automation's event trigger and filter, resolved — or the reason they
- * cannot be, naming every event that does not exist and the ones that do,
- * for the entry's `problem`.
+ * An automation's event trigger and its filter, resolved — or the reason
+ * they cannot be, naming every event that does not exist and the ones that
+ * do, for the entry's `problem`.
  */
-export function resolveEventSource(
-  trigger: EventTrigger,
-  filter?: Record<string, unknown>,
-): EventSourceResolution {
+export function resolveEventSource(trigger: EventTrigger): EventSourceResolution {
   // Own keys only, as `workItemSource` reads them: `constructor` is no connection.
   const connection = own(CONNECTIONS, trigger.connection)
     ? CONNECTIONS[trigger.connection]
@@ -503,18 +500,10 @@ export function resolveEventSource(
         `Run this automation on a cloud runner, or use what fires here: ${local.join(', ')}`,
     };
   }
-  const params = Object.keys(trigger.params);
-  if (params.length > 0) {
-    const verb = trigger.events.length === 1 ? 'takes' : 'take';
-    return {
-      ok: false,
-      problem: `${trigger.events.join(' and ')} ${verb} no parameters; remove ${params.map((key) => `\`${key}\``).join(', ')} from \`on\``,
-    };
-  }
   return connection.resolve(
     trigger,
     trigger.events.map((event) => connection.events[event]),
-    filter,
+    trigger.filter,
   );
 }
 
@@ -525,11 +514,10 @@ export function resolveEventSource(
  * filter over a webhook's item, by the rules an Inbox item is held to. An entry this runner
  * cannot honour exactly is a problem, never a looser match: a connection that does not exist, an
  * event that is not one only webhooks say (an Inbox event's meaning, a request of the person
- * whose file it is, is not a webhook's), parameters, or a filter that does not parse.
+ * whose file it is, is not a webhook's), or a filter that does not parse.
  */
 export function resolveWebhookTrigger(
   trigger: EventTrigger,
-  filter?: Record<string, unknown>,
 ):
   | { ok: true; events: string[]; source: ItemSource; passes(item: FilterFacts): boolean }
   | { ok: false; problem: string } {
@@ -552,15 +540,7 @@ export function resolveWebhookTrigger(
         `it fires ${joinNames(connection.webhookEvents)}`,
     };
   }
-  const params = Object.keys(trigger.params);
-  if (params.length > 0) {
-    const verb = trigger.events.length === 1 ? 'takes' : 'take';
-    return {
-      ok: false,
-      problem: `${trigger.events.join(' and ')} ${verb} no parameters; remove ${params.map((key) => `\`${key}\``).join(', ')} from \`on\``,
-    };
-  }
-  const matcher = connection.webhookFilter(filter);
+  const matcher = connection.webhookFilter(trigger.filter);
   if (!matcher.ok) return matcher;
   return {
     ok: true,

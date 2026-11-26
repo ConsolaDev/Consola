@@ -234,7 +234,7 @@ ${PROMPT}`;
 
   it("says what each entry's runs take, absent when they take no item", async () => {
     const event = `- name: on-review
-  on: { github: pull_request.review_requested }
+  on: { github: { events: [pull_request.review_requested] } }
 ${PROMPT}`;
     const daily = `- name: daily
   on: { cron: "0 9 * * 1-5" }
@@ -286,10 +286,10 @@ ${PROMPT}`;
     ).not.toBe(listDefinition({ automation: at('30m') }, account));
   });
 
-  it("an event's definition hashes as it did before polls existed", () => {
+  it("an event's definition is its trigger, the filter inside it, and the account", () => {
     const [automation] = parseFactorySpec(
       factoryWith(
-        `- name: on-review\n  on: { github: pull_request.review_requested }\n  filter: { authors_not: [bob] }\n${PROMPT}`,
+        `- name: on-review\n  on: { github: { events: [pull_request.review_requested], filter: { authors_not: [bob] } } }\n${PROMPT}`,
       ),
     ).automations;
     const provider = { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' };
@@ -297,7 +297,6 @@ ${PROMPT}`;
       .update(
         stableStringify({
           trigger: automation.trigger,
-          filter: automation.filter,
           account: { id: 'github', login: 'JaviDev', org: 'sprocket' },
         }),
       )
@@ -1766,7 +1765,7 @@ describe('firing', () => {
     const EVENT_NAME = 'on-review';
     const EVENT_KEY = `${WORKSPACE_ID} ${EVENT_NAME}`;
     const onReview = (mode: string) =>
-      `- name: ${EVENT_NAME}\n  on: { github: pull_request.review_requested }\n  mode: ${mode}\n  run: { action: Review }\n`;
+      `- name: ${EVENT_NAME}\n  on: { github: { events: [pull_request.review_requested] } }\n  mode: ${mode}\n  run: { action: Review }\n`;
     const PR51 = inboxItem({ repo: 'sprocket/catalog-portal', number: 51 });
     const PR52 = inboxItem({
       repo: 'sprocket/catalog-portal',
@@ -1833,8 +1832,8 @@ describe('firing', () => {
           await h.setYaml(
             factoryWith(
               onReview('auto').replace(
-                '  mode: auto\n',
-                '  mode: auto\n  filter: { authors_not: [bob] }\n',
+                'events: [pull_request.review_requested] }',
+                'events: [pull_request.review_requested], filter: { authors_not: [bob] } }',
               ),
             ),
           );
@@ -1929,7 +1928,7 @@ describe('on a chosen item', () => {
   const EVENT_KEY = `${WORKSPACE_ID} ${EVENT_NAME}`;
   /** Review requests reviewed with the Review action, in `mode`, with any other keys as given (each line at the entry's indent). */
   const onReview = (mode: string, extra = '') =>
-    `- name: ${EVENT_NAME}\n  on: { github: pull_request.review_requested }\n  mode: ${mode}\n${extra}  run: { action: Review }\n`;
+    `- name: ${EVENT_NAME}\n  on: { github: { events: [pull_request.review_requested] } }\n  mode: ${mode}\n${extra}  run: { action: Review }\n`;
   /** A poll with `key:`, on tickets its command prints, asking a person for each run. */
   const TICKETS = `- name: tickets
   on:
@@ -2244,7 +2243,13 @@ describe('on a chosen item', () => {
   });
 
   it('the filter is not applied', async () => {
-    const h = await approvedEvent(onReview('auto', '  filter: { authors_not: [alice] }\n'), []);
+    const h = await approvedEvent(
+      onReview('auto').replace(
+        'events: [pull_request.review_requested] }',
+        'events: [pull_request.review_requested], filter: { authors_not: [alice] } }',
+      ),
+      [],
+    );
     await h.poll([PR51]);
     expect(h.store.runs()).toEqual([]);
     const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
@@ -2717,7 +2722,7 @@ describe('on a chosen item', () => {
     });
 
     /** Review requests reviewed by steps whose first agent step is the Review action. */
-    const onReviewSteps = `- name: ${EVENT_NAME}\n  on: { github: pull_request.review_requested }\n  mode: auto\n${ACTION_STEP('Review')}`;
+    const onReviewSteps = `- name: ${EVENT_NAME}\n  on: { github: { events: [pull_request.review_requested] } }\n  mode: auto\n${ACTION_STEP('Review')}`;
     /** A Review of #51 the person starts by hand now: after any run made before it. */
     const reviewOf51ByHand = (h: SourcesHarness) =>
       h.world.workspace.sessions.push({

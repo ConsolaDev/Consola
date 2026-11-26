@@ -52,11 +52,18 @@ const TOGGLES = [
 
 /**
  * The entry as the spec writes it (*Acceptance*, `### PR A:
- * review-assigned-prs`), byte for byte: the template ships it verbatim.
+ * review-assigned-prs`), with its trigger in the one form a connection's
+ * trigger has, laid out in block style: the template ships it verbatim.
  */
 const SPEC_ENTRY = String.raw`- name: review-assigned-prs
-  on: { github: [pull_request.review_requested, pull_request.assigned] }
-  filter: { authors_not: ["dependabot[bot]"] }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
+        - pull_request.assigned
+      filter:
+        authors_not:
+          - dependabot[bot]
   mode: auto
   steps:
     - id: fresh
@@ -107,8 +114,8 @@ describe('assignedReviewsEntry', () => {
         kind: 'event',
         connection: 'github',
         events: ['pull_request.review_requested', 'pull_request.assigned'],
+        filter: { authors_not: ['dependabot[bot]'] },
       },
-      filter: { authors_not: ['dependabot[bot]'] },
     });
     if (!isStepsEntry(automation)) throw new Error('review-assigned-prs is a steps entry');
     expect(automation.steps.map((step) => [step.id, step.kind])).toEqual([

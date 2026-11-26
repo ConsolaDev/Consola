@@ -33,8 +33,14 @@ export function assignedReviewsEntry(): string {
 }
 
 const ASSIGNED_REVIEWS_ENTRY = String.raw`- name: review-assigned-prs
-  on: { github: [pull_request.review_requested, pull_request.assigned] }
-  filter: { authors_not: ["dependabot[bot]"] }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
+        - pull_request.assigned
+      filter:
+        authors_not:
+          - dependabot[bot]
   mode: auto
   steps:
     - id: fresh
@@ -89,7 +95,10 @@ export function assignedReviewsGatedEntry(): string {
 }
 
 const ASSIGNED_REVIEWS_GATED_ENTRY = String.raw`- name: review-assigned-prs-gated
-  on: { github: [pull_request.review_requested] }
+  on:
+    github:
+      events:
+        - pull_request.review_requested
   checkout: { pr: item }
   mode: auto
   steps:

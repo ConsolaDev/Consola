@@ -12,7 +12,6 @@ const resolved = resolveEventSource({
   kind: 'event',
   connection: 'github',
   events: ['pull_request.review_requested'],
-  params: {},
 });
 if (!resolved.ok) throw new Error(resolved.problem);
 const github = resolved.source;

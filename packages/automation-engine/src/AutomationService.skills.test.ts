@@ -247,7 +247,7 @@ describe("a run's own copy of its skills", () => {
 describe("a run's checkout kind", () => {
   it("an event entry's run works in the item's checkout and reads text other people wrote", async () => {
     const yaml = factoryWith(`- name: look-at-reviews
-  on: { github: pull_request.review_requested }
+  on: { github: { events: [pull_request.review_requested] } }
   mode: confirm
   steps:
     - id: look

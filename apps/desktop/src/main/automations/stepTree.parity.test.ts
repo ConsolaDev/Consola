@@ -23,7 +23,7 @@ const LOOP = [
 
 function stepsOf(...lines: string[]) {
   const result = parseFactorySpec(
-    `version: 1\nautomations:\n  - name: a\n    on: { github: pull_request.review_requested }\n    steps:\n${lines
+    `version: 1\nautomations:\n  - name: a\n    on: { github: { events: [pull_request.review_requested] } }\n    steps:\n${lines
       .map((line) => `      ${line.replace(/\n/g, '\n      ')}`)
       .join('\n')}\n`,
   );

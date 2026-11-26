@@ -29,8 +29,14 @@ automations:
 
 const STEPS_ENTRY = [
   '- name: review-assigned-prs',
-  '  on: { github: [pull_request.review_requested, pull_request.assigned] }',
-  '  filter: { authors_not: ["dependabot[bot]"] }',
+  '  on:',
+  '    github:',
+  '      events:',
+  '        - pull_request.review_requested',
+  '        - pull_request.assigned',
+  '      filter:',
+  '        authors_not:',
+  '          - dependabot[bot]',
   '  mode: auto',
   '  steps:',
   '    - id: fresh',

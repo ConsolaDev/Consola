@@ -343,7 +343,7 @@ describe('agentStepLaunch on a poll', () => {
 
 describe('agentStepLaunch reading previous', () => {
   const rereview = stepsDefinition(`  - name: review-assigned-prs
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - id: research
         prompt: Read the change and what it touches.
@@ -456,7 +456,7 @@ describe('agentStepLaunch reading previous', () => {
   it('a prompt never fills a previous path from this run', () => {
     // Validation refuses `previous` in a prompt; were one to reach a launch, this run's step of that name is not the earlier run's.
     const parsed = stepsDefinition(`  - name: review-assigned-prs
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - id: research
         prompt: Read the change.

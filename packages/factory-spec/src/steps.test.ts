@@ -22,7 +22,7 @@ import {
 const one = (fields: string) =>
   parseFactorySpec(`version: 1\nautomations:\n  - name: a\n${fields}`);
 
-const REVIEW = '    on: { github: pull_request.review_requested }\n';
+const REVIEW = '    on: { github: { events: [pull_request.review_requested] } }\n';
 const DAILY = '    on: { cron: "0 9 * * 1-5" }\n';
 
 /** An entry whose steps are the given YAML lines, each already indented as a list item under `steps:`. */

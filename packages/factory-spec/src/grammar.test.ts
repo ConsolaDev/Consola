@@ -6,7 +6,7 @@ import { parseFactorySpec } from './parse';
 const one = (fields: string) =>
   parseFactorySpec(`version: 1\nautomations:\n  - name: a\n${fields}`);
 
-const REVIEW = '    on: { github: pull_request.review_requested }\n';
+const REVIEW = '    on: { github: { events: [pull_request.review_requested] } }\n';
 const DAILY = '    on: { cron: "0 9 * * 1-5" }\n';
 
 describe('run:', () => {
@@ -18,7 +18,6 @@ describe('run:', () => {
         kind: 'event',
         connection: 'github',
         events: ['pull_request.review_requested'],
-        params: {},
       },
       run: { kind: 'action', ref: 'Review', name: 'Review' },
       mode: 'auto',
@@ -114,129 +113,234 @@ describe('run:', () => {
 });
 
 describe('on:', () => {
-  it('keeps an event’s parameters, every key after the first', () => {
-    const result = one(
-      '    on: { jira: issue.transitioned, to: "Ready for dev" }\n    run: { action: Plan }\n',
-    );
-    expect(result.issues).toEqual([]);
-    expect(result.automations[0].trigger).toEqual({
-      kind: 'event',
-      connection: 'jira',
-      events: ['issue.transitioned'],
-      params: { to: 'Ready for dev' },
-    });
-    // An undotted event name is still an event name.
-    expect(
-      one('    on: { slack: mention, channel: "#bugs" }\n    run: { prompt: hi }\n    scope: api\n')
-        .issues,
-    ).toEqual([]);
-  });
+  /** One entry triggered by `on`, written as given, running a prompt. */
+  const on = (trigger: string, rest = '') =>
+    one(`    on: ${trigger}\n    run: { action: Review }\n${rest}`);
+  const issues = (result: ReturnType<typeof one>) =>
+    result.issues.map((issue) => [issue.path, issue.message]);
 
-  it('takes no parameters on a cron trigger', () => {
-    const result = one('    on: { cron: "0 9 * * *", tz: UTC }\n    run: { tool: consola#x }\n');
-    expect(result.issues[0]).toMatchObject({ path: 'automations[0].on.tz' });
-  });
-
-  it('rejects names that are not a connection id or an event name', () => {
+  it('reads a connection as its events and its filter, the filter present only when written', () => {
     expect(
-      one('    on: { GitHub: pull_request.review_requested }\n    run: { action: Review }\n')
-        .issues[0].message,
-    ).toMatch(/not a trigger/);
-    expect(
-      one('    on: { github: Pull Request }\n    run: { action: Review }\n').issues[0],
-    ).toMatchObject({
-      path: 'automations[0].on.github',
-    });
-    expect(one('    on: {}\n    run: { action: Review }\n').issues[0].message).toMatch(
-      /Expected a trigger/,
-    );
-  });
-
-  it('takes one event or a list of them', () => {
-    expect(
-      one('    on: { github: pull_request.review_requested }\n    run: { action: Review }\n')
-        .automations[0].trigger,
+      on('{ github: { events: [pull_request.review_requested] } }').automations[0].trigger,
     ).toEqual({
       kind: 'event',
       connection: 'github',
       events: ['pull_request.review_requested'],
-      params: {},
     });
+    const filtered = on(
+      '{ github: { events: [pull_request.review_requested, pull_request.assigned], filter: { repos: ["acme/*"], authors_not: ["dependabot[bot]"] } } }',
+    );
+    expect(filtered.issues).toEqual([]);
+    expect(filtered.automations[0].trigger).toEqual({
+      kind: 'event',
+      connection: 'github',
+      events: ['pull_request.review_requested', 'pull_request.assigned'],
+      filter: { repos: ['acme/*'], authors_not: ['dependabot[bot]'] },
+    });
+    // An undotted event name is still an event name, and any connection's filter is the runner's to read.
     expect(
       one(
-        '    on: { github: [pull_request.review_requested, pull_request.assigned] }\n    run: { action: Review }\n',
-      ).automations[0].trigger,
-    ).toMatchObject({ events: ['pull_request.review_requested', 'pull_request.assigned'] });
+        '    on: { slack: { events: [mention], filter: { channel: "#bugs" } } }\n    run: { prompt: hi }\n    scope: api\n',
+      ).issues,
+    ).toEqual([]);
+  });
+
+  it('reads the block layout the files Consola writes use', () => {
+    const result = one(
+      [
+        '    on:',
+        '      github:',
+        '        events:',
+        '          - pull_request.opened',
+        '          - pull_request.synchronize',
+        '        filter:',
+        '          repos:',
+        '            - sprocket/catalog-portal',
+        '          authors_not:',
+        '            - dependabot[bot]',
+        '          drafts: false',
+        '    run: { action: Review }',
+        '',
+      ].join('\n'),
+    );
+    expect(result.issues).toEqual([]);
+    expect(result.automations[0].trigger).toEqual({
+      kind: 'event',
+      connection: 'github',
+      events: ['pull_request.opened', 'pull_request.synchronize'],
+      filter: {
+        repos: ['sprocket/catalog-portal'],
+        authors_not: ['dependabot[bot]'],
+        drafts: false,
+      },
+    });
+  });
+
+  it('refuses events written as one name or a bare list, showing the one form', () => {
+    expect(issues(on('{ github: pull_request.review_requested }'))).toEqual([
+      [
+        'automations[0].on.github',
+        "A connection's events are a list under `events:`: write `on: { github: { events: [ pull_request.review_requested ] } }`.",
+      ],
+    ]);
+    expect(
+      issues(on('{ github: [pull_request.review_requested, pull_request.assigned] }')),
+    ).toEqual([
+      [
+        'automations[0].on.github',
+        "A connection's events are a list under `events:`: write `on: { github: { events: [ pull_request.review_requested, pull_request.assigned ] } }`.",
+      ],
+    ]);
+    expect(issues(on('{ github: { events: pull_request.assigned } }'))).toEqual([
+      [
+        'automations[0].on.github.events',
+        '`events` is a list, even of one event: write `events: [pull_request.assigned]`.',
+      ],
+    ]);
+  });
+
+  it('holds exactly one trigger: a key beside it is refused, saying where a filter goes', () => {
+    expect(
+      issues(on('{ github: pull_request.review_requested, filter: { authors_not: [bob] } }')),
+    ).toEqual([
+      [
+        'automations[0].on.filter',
+        '`filter:` goes under `github:`, beside `events:`: write `on: { github: { events: [ pull_request.review_requested ], filter: { authors_not: [ bob ] } } }`.',
+      ],
+      [
+        'automations[0].on.github',
+        "A connection's events are a list under `events:`: write `on: { github: { events: [ pull_request.review_requested ] } }`.",
+      ],
+    ]);
+    // What was an event's parameter: a key beside the trigger, whatever it looks like.
+    expect(issues(on('{ jira: { events: [issue.transitioned] }, to: "Ready for dev" }'))).toEqual([
+      [
+        'automations[0].on.to',
+        '`on` holds one trigger, `jira`, and `to` cannot sit beside it: a connection takes `events:` and `filter:`, under its name, e.g. `on: { jira: { events: [ issue.transitioned ] } }`.',
+      ],
+    ]);
+    expect(
+      issues(one('    on: { cron: "0 9 * * *", tz: UTC }\n    run: { tool: consola#x }\n')),
+    ).toEqual([['automations[0].on.tz', '`on` holds one trigger, `cron`; remove `tz`.']]);
+  });
+
+  it('takes only events and filter under a connection', () => {
+    expect(issues(on('{ github: { events: [pull_request.opened], to: main } }'))).toEqual([
+      [
+        'automations[0].on.github.to',
+        'Unrecognized key in `github`: to. A connection takes `events` and `filter`.',
+      ],
+    ]);
+    expect(issues(on('{ github: { filter: { repos: [acme/api] } } }'))).toEqual([
+      [
+        'automations[0].on.github',
+        'Say which events fire it, as a list under `events:`, e.g. `on: { github: { events: [ pull_request.opened ], filter: { repos: [ acme/api ] } } }`.',
+      ],
+    ]);
+    expect(issues(on('{ github: }'))).toEqual([
+      [
+        'automations[0].on.github',
+        'Expected `github:` to hold `events:`, a list, and `filter:` if it needs one, e.g. `on: { github: { events: [ pull_request.opened ] } }`.',
+      ],
+    ]);
+  });
+
+  it('refuses a filter that is not a mapping of fields, or names none', () => {
+    expect(issues(on('{ github: { events: [pull_request.opened], filter: [acme/api] } }'))).toEqual(
+      [
+        [
+          'automations[0].on.github.filter',
+          "Expected `filter` to be a mapping of the connection's fields, e.g. `filter: { repos: [sprocket/catalog-portal] }`.",
+        ],
+      ],
+    );
+    expect(issues(on('{ github: { events: [pull_request.opened], filter: {} } }'))).toEqual([
+      [
+        'automations[0].on.github.filter',
+        'A filter names at least one field; leave `filter:` out to let every item fire.',
+      ],
+    ]);
+  });
+
+  it('rejects names that are not a connection id or an event name', () => {
+    expect(on('{ GitHub: { events: [pull_request.review_requested] } }').issues[0].message).toMatch(
+      /not a trigger/,
+    );
+    expect(on('{ github: { events: [Pull Request] } }').issues[0]).toMatchObject({
+      path: 'automations[0].on.github.events[0]',
+      message: 'Expected an event name, lowercase and dotted, e.g. pull_request.review_requested.',
+    });
+    expect(on('{}').issues[0].message).toMatch(/Expected a trigger/);
   });
 
   it("takes a pull request's webhook events, one or all three, as any event: which runner fires one is the runner's", () => {
     const events = ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'];
-    const fileOn = (on: string) =>
+    const fileOn = (written: string) =>
       parseFactory(
         storedFactoryFiles([
           { path: 'factory.yml', content: 'version: 1\n' },
           {
             path: 'automations/review.yaml',
-            content: `on: ${on}\nsteps:\n  - prompt: Review it.\n`,
+            content: `on: ${written}\nsteps:\n  - prompt: Review it.\n`,
           },
         ]),
       );
     for (const event of events) {
-      const read = fileOn(`{ github: ${event} }`);
+      const read = fileOn(`{ github: { events: [${event}] } }`);
       expect([event, read.issues, read.notices]).toEqual([event, [], []]);
       expect(read.automations[0].trigger).toEqual({
         kind: 'event',
         connection: 'github',
         events: [event],
-        params: {},
       });
     }
-    const all = fileOn(`{ github: [${events.join(', ')}] }`);
+    const all = fileOn(`{ github: { events: [${events.join(', ')}] } }`);
     expect(all.issues).toEqual([]);
-    expect(all.automations[0].trigger).toEqual({
-      kind: 'event',
-      connection: 'github',
-      events,
-      params: {},
-    });
+    expect(all.automations[0].trigger).toEqual({ kind: 'event', connection: 'github', events });
   });
 
-  it('rejects an empty or repeating list', () => {
-    expect(one('    on: { github: [] }\n    run: { action: Review }\n').issues[0].message).toBe(
-      'List at least one event after `github:`.',
-    );
+  it('rejects an empty or repeating list, each at its place', () => {
+    expect(issues(on('{ github: { events: [] } }'))).toEqual([
+      ['automations[0].on.github.events', 'List at least one event under `events:`.'],
+    ]);
     expect(
-      one(
-        '    on: { github: [pull_request.assigned, pull_request.assigned] }\n    run: { action: Review }\n',
-      ).issues[0].message,
-    ).toBe('`pull_request.assigned` is listed twice.');
-  });
-
-  it('names a bad entry in the list', () => {
-    expect(
-      one('    on: { github: [pull_request.assigned, Bad Name] }\n    run: { action: Review }\n')
-        .issues[0].path,
-    ).toBe('automations[0].on.github');
+      issues(on('{ github: { events: [pull_request.assigned, pull_request.assigned] } }')),
+    ).toEqual([['automations[0].on.github.events[1]', '`pull_request.assigned` is listed twice.']]);
   });
 });
 
 describe('filter and scope', () => {
-  it('keeps a filter on an event trigger; the connection validates its fields', () => {
-    const result = one(
-      `${REVIEW}    filter: { repos: ["acme/*"], authors_not: ["dependabot[bot]"] }\n    run: { action: Review }\n`,
+  it('refuses a filter on the entry, showing where it goes under its connection', () => {
+    const old = one(
+      '    on: { github: [pull_request.review_requested, pull_request.assigned] }\n    filter: { authors_not: ["dependabot[bot]"] }\n    run: { action: Review }\n',
     );
-    expect(result.issues).toEqual([]);
-    expect(result.automations[0].filter).toEqual({
-      repos: ['acme/*'],
-      authors_not: ['dependabot[bot]'],
-    });
+    expect(old.automations).toEqual([]);
+    expect(old.issues.map((issue) => [issue.path, issue.message])).toContainEqual([
+      'automations[0].filter',
+      '`filter:` goes under `github:` in `on:`, beside `events:`: write `on: { github: { events: [ pull_request.review_requested, pull_request.assigned ], filter: { authors_not: [ "dependabot[bot]" ] } } }`.',
+    ]);
+    // Beside a trigger already in its one form, the line keeps its events.
+    expect(
+      one(`${REVIEW}    filter: { repos: ["acme/*"] }\n    run: { action: Review }\n`).issues,
+    ).toEqual([
+      expect.objectContaining({
+        path: 'automations[0].filter',
+        message:
+          '`filter:` goes under `github:` in `on:`, beside `events:`: write `on: { github: { events: [ pull_request.review_requested ], filter: { repos: [ acme/* ] } } }`.',
+      }),
+    ]);
   });
 
   it('rejects a filter on a schedule', () => {
     const result = one(
       `${DAILY}    filter: { repos: ["acme/*"] }\n    run: { prompt: hi }\n    scope: api\n`,
     );
-    expect(result.issues.map((issue) => issue.path)).toEqual(['automations[0].filter']);
+    expect(result.issues.map((issue) => [issue.path, issue.message])).toEqual([
+      [
+        'automations[0].filter',
+        '`filter` narrows which items fire an event; a schedule has no items.',
+      ],
+    ]);
   });
 
   it('requires a scope for a scheduled prompt, and refuses an action on a schedule', () => {

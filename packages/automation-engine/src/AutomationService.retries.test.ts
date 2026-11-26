@@ -24,7 +24,8 @@ function entry(name: string, head: string, ...steps: string[]): string {
 const file = (...entries: string[]) => `version: 1\nautomations:\n${entries.join('')}`;
 
 const MANUAL = '    on: manual\n    scope: catalog-portal\n    mode: auto\n';
-const ON_REVIEW = '    on: { github: pull_request.review_requested }\n    mode: auto\n';
+const ON_REVIEW =
+  '    on: { github: { events: [pull_request.review_requested] } }\n    mode: auto\n';
 const ENTRY_RETRY = (n = 1) => `    on_failure: { retry: ${n} }\n`;
 const LOOK = (retry?: number) =>
   `- id: look\n  prompt: Look for what is left to fix.${retry === undefined ? '' : `\n  on_failure: { retry: ${retry} }`}`;

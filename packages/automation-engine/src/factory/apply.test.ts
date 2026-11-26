@@ -264,7 +264,7 @@ describe('agentIssues', () => {
       'automations/investigate.yaml':
         'on: { cron: "0 7 * * 1-5" }\nscope: api\nsteps:\n  - id: look\n    agent: investigator\n',
       'automations/on-review.yaml':
-        'on: { github: pull_request.review_requested }\nsteps:\n  - id: look\n    agent: investigator\n',
+        'on: { github: { events: [pull_request.review_requested] } }\nsteps:\n  - id: look\n    agent: investigator\n',
     });
     const investigate = entry(servers, 'investigate');
     const at = (path: string, line: number) => ({

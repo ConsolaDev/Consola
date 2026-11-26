@@ -123,7 +123,7 @@ describe('on: poll', () => {
     expect(bad.issues[0].message).toContain('"Git" is not a trigger.');
   });
 
-  it('refuses unknown keys and parameters beside poll', () => {
+  it('refuses unknown keys, and a key beside poll', () => {
     expect(issues(poll('every: 30m, run: x, key: .id, filter: y'))).toEqual([
       [
         'automations[0].on.poll.filter',
@@ -132,7 +132,7 @@ describe('on: poll', () => {
     ]);
     expect(
       issues(one(`    on: { poll: { ${POLL_BASE} }, extra: 1 }\n${RUN}    scope: api\n`)),
-    ).toEqual([['automations[0].on.extra', 'A poll trigger takes no parameters; remove `extra`.']]);
+    ).toEqual([['automations[0].on.extra', '`on` holds one trigger, `poll`; remove `extra`.']]);
   });
 
   it('names the secrets its check command needs', () => {
@@ -231,11 +231,9 @@ describe('on: manual', () => {
 
   it('reads a name every object inherits as any other name, never as a later trigger', () => {
     // A lowercase id, so a connection's name, as `gitlab` is: the runner says there is no such connection.
-    expect(one(`    on: { constructor: x }\n${RUN}`)).toMatchObject({
+    expect(one(`    on: { constructor: { events: [x] } }\n${RUN}`)).toMatchObject({
       issues: [],
-      automations: [
-        { trigger: { kind: 'event', connection: 'constructor', events: ['x'], params: {} } },
-      ],
+      automations: [{ trigger: { kind: 'event', connection: 'constructor', events: ['x'] } }],
     });
     // Not an id: refused with the sentence any such word gets.
     expect(issues(one(`    on: { toString: x }\n${RUN}`))).toEqual([
@@ -259,7 +257,7 @@ describe('applies_to:', () => {
     const message = '`applies_to` is for `on: manual`: it says which items a run on demand takes.';
     for (const on of [
       '{ cron: "0 9 * * *" }',
-      '{ github: pull_request.review_requested }',
+      '{ github: { events: [pull_request.review_requested] } }',
       `{ poll: { ${POLL_BASE} } }`,
     ]) {
       const result = one(

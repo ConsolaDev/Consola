@@ -352,7 +352,7 @@ test('a review request starts a read-only session in its worktree; one already w
       `version: 1
 automations:
   - name: review-requests
-    on: { github: [pull_request.review_requested, pull_request.assigned] }
+    on: { github: { events: [pull_request.review_requested, pull_request.assigned] } }
     run: { action: Review }
     mode: auto
 `,

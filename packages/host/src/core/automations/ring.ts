@@ -608,10 +608,10 @@ export function createAutomationsRing(
     }
     const rebuilt = rebuildRunState(run, parsed, ports.now());
     if (!rebuilt.ok) return refuse(run, rebuilt.error);
-    const { trigger, filter } = rebuilt.state.automation;
+    const { trigger } = rebuilt.state.automation;
     const resolved =
       trigger.kind === 'event'
-        ? resolveWebhookTrigger(trigger, filter)
+        ? resolveWebhookTrigger(trigger)
         : ({ ok: false, problem: 'its trigger is no event' } as const);
     if (!resolved.ok) return refuse(run, `It cannot run here: ${resolved.problem}.`);
     log(`run ${run.id}: approved by ${answer.personId}`);

@@ -14,12 +14,12 @@ import type { FactorySnapshot, PullRequestFacts } from '@consola/runner-protocol
  * Which automations a GitHub event starts: each factory the cell sent, parsed by factory-spec as
  * the cell and the desktop parse it, and each entry whose trigger is GitHub's and lists the
  * event (`pull_request.<action>`), read by the engine's `resolveWebhookTrigger`: the events only
- * GitHub's webhooks say, the entry's `filter:` by the Inbox's rules. Pure.
+ * GitHub's webhooks say, the trigger's `filter:` by the Inbox's rules. Pure.
  *
  * Anything this runner cannot honour exactly matches nothing and says why in a note for the
  * runner's log, never in a run: a factory with problems (all of it, as a folder that does not
  * apply cleanly runs nothing new on the desktop), an entry the engine refuses for a webhook (an
- * Inbox event beside this one, parameters, a filter it cannot read), a `run:` entry, and a
+ * Inbox event beside this one, a filter it cannot read), a `run:` entry, and a
  * checkout of the run's own (`checkout: { repo, branch }`).
  */
 
@@ -76,7 +76,7 @@ export function matchEvent(
       const { trigger } = automation;
       if (trigger.kind !== 'event' || trigger.connection !== 'github') continue;
       if (!trigger.events.includes(name)) continue;
-      const resolved = resolveWebhookTrigger(trigger, automation.filter);
+      const resolved = resolveWebhookTrigger(trigger);
       if (!resolved.ok) {
         notes.push(`${where}: ${automation.name} does not run for ${name}: ${resolved.problem}`);
         continue;

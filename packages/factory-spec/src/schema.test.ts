@@ -30,7 +30,11 @@ describe('a run-owned checkout on an entry', () => {
   );
 
   it.each([
-    ['an event', 'on: { github: pull_request.review_requested }', 'ui/pr-{{item.number}}'],
+    [
+      'an event',
+      'on: { github: { events: [pull_request.review_requested] } }',
+      'ui/pr-{{item.number}}',
+    ],
     ['a keyed poll', 'on: { poll: { every: 10m, run: "echo []", key: .key } }', 'fix/{{item.key}}'],
     ['a run on demand on items', 'on: manual\n    applies_to: [pr]', 'fix/{{item.number}}'],
     [

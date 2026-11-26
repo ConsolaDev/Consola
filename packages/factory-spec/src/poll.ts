@@ -7,7 +7,7 @@ export const MAX_POLL_EVERY_MS = 86_400_000;
 export const DEFAULT_CHECK_TIMEOUT_MS = 60_000;
 export const MAX_CHECK_TIMEOUT_MS = 300_000;
 
-/** Names no connection can take: the first key of `on:` means these. */
+/** Names no connection can take: as the key of `on:` they mean these. */
 export const RESERVED_TRIGGER_NAMES = ['cron', 'poll', 'manual', 'webhook', 'consola'] as const;
 
 /**
@@ -45,12 +45,9 @@ const TIMEOUT_FORMAT = 'Write the timeout as `<n>s`, `<n>m` or `<n>h`, e.g. `10m
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const quoted = (keys: string[]) => keys.map((key) => `\`${key}\``).join(', ');
-
-/** `value` is what stands after `poll:`; `rest` the keys of `on` after it. Returns null once anything was reported. */
+/** `value` is what stands after `poll:`. Returns null once anything was reported. */
 export function parsePollTrigger(
   value: unknown,
-  rest: string[],
   fail: Fail,
   notAConnection: (id: string) => string,
   connectionIdPattern: RegExp,
@@ -60,10 +57,6 @@ export function parsePollTrigger(
     ok = false;
     fail(message, ['poll', ...path]);
   };
-  if (rest.length > 0) {
-    ok = false;
-    fail(`A poll trigger takes no parameters; remove ${quoted(rest)}.`, [rest[0]]);
-  }
   if (!isRecord(value)) {
     bad(
       'Expected `poll:` to be a mapping with `run` and `every`, e.g. `poll: { every: 30m, run: …, key: .id }`.',
@@ -174,15 +167,7 @@ export function parsePollTrigger(
 }
 
 /** `on: manual`, or `on: { manual: {} }` / `{ manual: null }`. */
-export function parseManualTrigger(
-  value: unknown,
-  rest: string[],
-  fail: Fail,
-): ManualTrigger | null {
-  if (rest.length > 0) {
-    fail(`A manual trigger takes no parameters; remove ${quoted(rest)}.`, [rest[0]]);
-    return null;
-  }
+export function parseManualTrigger(value: unknown, fail: Fail): ManualTrigger | null {
   if (
     value !== undefined &&
     value !== null &&

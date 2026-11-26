@@ -673,7 +673,7 @@ describe('the runner socket', () => {
 
   describe('automations', () => {
     const HEAD = 'c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00';
-    const REVIEW = `on: { github: pull_request.opened }
+    const REVIEW = `on: { github: { events: [pull_request.opened] } }
 steps:
   - id: review
     prompt: Review it.

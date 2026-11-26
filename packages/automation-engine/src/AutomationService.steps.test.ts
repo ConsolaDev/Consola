@@ -40,7 +40,7 @@ const file = (...entries: string[]) => `version: 1\nautomations:\n${entries.join
 function factory(head: string, ...steps: string[]): string {
   return file(entry(NAME, head, ...steps));
 }
-const ON_REVIEW = '    on: { github: pull_request.review_requested }\n';
+const ON_REVIEW = '    on: { github: { events: [pull_request.review_requested] } }\n';
 const DAILY_IN_API = '    on: { cron: "0 9 * * 1-5" }\n    scope: api\n';
 
 const PUBLISH =

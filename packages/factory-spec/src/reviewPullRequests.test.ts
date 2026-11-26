@@ -66,7 +66,6 @@ describe('the Review pull requests files', () => {
       kind: 'event',
       connection: 'github',
       events: ['pull_request.opened', 'pull_request.synchronize', 'pull_request.reopened'],
-      params: {},
     });
     expect(automation.mode).toBe('auto');
     expect(automation.steps.map((step) => [step.id, step.kind])).toEqual([

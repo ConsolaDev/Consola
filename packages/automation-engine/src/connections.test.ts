@@ -13,7 +13,6 @@ const reviewRequested: EventTrigger = {
   kind: 'event',
   connection: 'github',
   events: ['pull_request.review_requested'],
-  params: {},
 };
 const assigned: EventTrigger = { ...reviewRequested, events: ['pull_request.assigned'] };
 const either: EventTrigger = {
@@ -22,7 +21,7 @@ const either: EventTrigger = {
 };
 
 function source(filter?: Record<string, unknown>, trigger: EventTrigger = reviewRequested) {
-  const resolved = resolveEventSource(trigger, filter);
+  const resolved = resolveEventSource(filter ? { ...trigger, filter } : trigger);
   if (!resolved.ok) throw new Error(resolved.problem);
   return resolved.source;
 }
@@ -208,16 +207,12 @@ describe('resolveEventSource', () => {
     });
   });
 
-  it('refuses parameters an event does not take, and unknown filter fields', () => {
-    expect(resolveEventSource({ ...reviewRequested, params: { to: 'me' } })).toMatchObject({
-      ok: false,
-      problem: expect.stringMatching(/takes no parameters.*`to`/),
-    });
-    expect(resolveEventSource(reviewRequested, { labels: ['bug'] })).toMatchObject({
+  it('refuses unknown filter fields, and fields of the wrong kind', () => {
+    expect(resolveEventSource({ ...reviewRequested, filter: { labels: ['bug'] } })).toMatchObject({
       ok: false,
       problem: expect.stringMatching(/^filter: .*labels/),
     });
-    expect(resolveEventSource(reviewRequested, { repos: 'acme/*' })).toMatchObject({
+    expect(resolveEventSource({ ...reviewRequested, filter: { repos: 'acme/*' } })).toMatchObject({
       ok: false,
       problem: expect.stringMatching(/^filter: repos/),
     });
@@ -260,9 +255,9 @@ describe('connectionCatalog', () => {
     for (const { means } of connectionCatalog()[0].filter) expect(means.length).toBeGreaterThan(10);
     // Each event it lists resolves.
     for (const { name } of connectionCatalog()[0].events) {
-      expect(
-        resolveEventSource({ kind: 'event', connection: 'github', events: [name], params: {} }).ok,
-      ).toBe(true);
+      expect(resolveEventSource({ kind: 'event', connection: 'github', events: [name] }).ok).toBe(
+        true,
+      );
     }
   });
 });
@@ -505,10 +500,9 @@ describe('resolveWebhookTrigger: an event entry on a runner that receives webhoo
   });
 
   it('holds a webhook’s item to the filter by the Inbox’s rules', () => {
-    const resolved = resolveWebhookTrigger(opened, {
-      repos: ['sprocket/*'],
-      authors_not: ['dependabot[bot]'],
-      drafts: true,
+    const resolved = resolveWebhookTrigger({
+      ...opened,
+      filter: { repos: ['sprocket/*'], authors_not: ['dependabot[bot]'], drafts: true },
     });
     if (!resolved.ok) throw new Error(resolved.problem);
     expect(resolved.passes({ ...facts, draft: true })).toBe(true);
@@ -517,8 +511,8 @@ describe('resolveWebhookTrigger: an event entry on a runner that receives webhoo
   });
 
   it('refuses what it cannot honour exactly, never matching loosely', () => {
-    const refused = (trigger: EventTrigger, filter?: Record<string, unknown>) => {
-      const resolved = resolveWebhookTrigger(trigger, filter);
+    const refused = (trigger: EventTrigger) => {
+      const resolved = resolveWebhookTrigger(trigger);
       return resolved.ok ? null : resolved.problem;
     };
     // An Inbox event is a request of the file's person, which a webhook does not say.
@@ -531,9 +525,6 @@ describe('resolveWebhookTrigger: an event entry on a runner that receives webhoo
     expect(refused({ ...opened, connection: 'jira' })).toMatch(
       /^there is no connection named "jira"/,
     );
-    expect(refused({ ...opened, params: { to: 'main' } })).toBe(
-      'pull_request.opened takes no parameters; remove `to` from `on`',
-    );
-    expect(refused(opened, { labels: ['bug'] })).toMatch(/^filter: /);
+    expect(refused({ ...opened, filter: { labels: ['bug'] } })).toMatch(/^filter: /);
   });
 });

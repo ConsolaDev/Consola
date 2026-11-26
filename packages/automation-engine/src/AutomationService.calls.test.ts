@@ -467,7 +467,7 @@ describe("a call's server's secrets are the entry's (5a-2 Task 6)", () => {
         SLACK,
         BRIEF.replace(
           'on: { cron: "0 9 * * 1-5" }',
-          'on: { github: pull_request.review_requested }',
+          'on: { github: { events: [pull_request.review_requested] } }',
         ),
       ),
     });

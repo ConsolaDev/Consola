@@ -112,10 +112,10 @@ export function runItemSource(
   definition: RunDefinition,
   workItems: Pick<WorkItemPort, 'canParseUrls'>,
 ): ItemSource | undefined {
-  const { trigger, filter, appliesTo } = definition.automation;
+  const { trigger, appliesTo } = definition.automation;
   switch (trigger.kind) {
     case 'event': {
-      const resolution = resolveEventSource(trigger, filter);
+      const resolution = resolveEventSource(trigger);
       return resolution.ok ? resolution.source : undefined;
     }
     case 'poll': {

@@ -148,7 +148,7 @@ automations:
     scope: api
     mode: auto
   - name: review
-    on: { github: pull_request.review_requested }
+    on: { github: { events: [pull_request.review_requested] } }
     steps:
       - prompt: Review this pull request.
         outputs: { verdict: { enum: [approve, comment] } }
@@ -1193,7 +1193,7 @@ describe('write agents across the folder (slice 3-B)', () => {
         agents: { fixer: WRITE_AGENT.replace('tools: write', 'tools: edit') },
         environments: { sandboxed: 'isolation: sandbox\n' },
         factoryYml:
-          'version: 1\nautomations:\n  - name: fix\n    on: { github: pull_request.opened }\n    checkout: { pr: item }\n    steps:\n      - id: polish\n        repeat: { max: 2, until: steps.fix.done }\n        steps:\n          - id: fix\n            agent: fixer\n            prompt: Fix.\n            outputs: { done: boolean }\n',
+          'version: 1\nautomations:\n  - name: fix\n    on: { github: { events: [pull_request.opened] } }\n    checkout: { pr: item }\n    steps:\n      - id: polish\n        repeat: { max: 2, until: steps.fix.done }\n        steps:\n          - id: fix\n            agent: fixer\n            prompt: Fix.\n            outputs: { done: boolean }\n',
       }),
     );
     expect(names(parsed)).toEqual([]);

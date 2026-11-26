@@ -501,7 +501,7 @@ describe('tailOf', () => {
 });
 
 describe('stepDefinitionOf', () => {
-  const REVIEW = `on: { github: pull_request.opened }
+  const REVIEW = `on: { github: { events: [pull_request.opened] } }
 steps:
   - id: review
     agent: reviewer
