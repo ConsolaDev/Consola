@@ -1,3 +1,5 @@
+import { OpenAPIHono } from '@hono/zod-openapi';
+import { HTTPException } from 'hono/http-exception';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { applyRunnerUpdate } from '../../application/cloudSessions.js';
@@ -7,11 +9,13 @@ import type {
   PassSigner,
   RunnerChannel,
 } from '../../application/ports.js';
-import type { Caller } from '../../domain/caller.js';
-import { migrateDatabase, openDatabase } from '../persistence/database.js';
+import { fakeMembership } from '../../application/testMembership.js';
+import type { SignedInPerson } from '../../domain/caller.js';
 import type { Database } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
-import { createRouter } from './app.js';
+import { openTestDatabase } from '../persistence/testDatabase.js';
+import type { COMPANY_ROUTES } from './app.js';
+import { requireCaller, WORKSPACE_HEADER } from './caller.js';
 import { cloudSessionRoutes } from './cloudSessions.js';
 import {
   getCloudSession,
@@ -21,24 +25,22 @@ import {
   postCloudSessionPass,
   postCloudSessionStop,
 } from './contract.js';
-import type { ROUTES } from './contract.js';
 
 let db: Database;
 let close: () => Promise<void>;
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
 });
 afterEach(async () => {
   await close();
 });
 
-type ContractRoute = (typeof ROUTES)[number];
+type ContractRoute = (typeof COMPANY_ROUTES)[number];
 type DeclaredAnswer = { content?: Record<string, { schema: ZodType }> };
 
 /**
  * The body of `response`, read with the schema `route` declares for its status, as the HTTP suite
- * reads every answer (`app.test.ts`): a status the contract does not name, or a body with a field
+ * reads every answer: a status the contract does not name, or a body with a field
  * its strict schema does not, fails the test.
  */
 async function answerOf(route: ContractRoute, response: Response): Promise<unknown> {
@@ -61,7 +63,30 @@ const offer: Offer = {
 /** Signs nothing: the pass is a stand-in the test can find in what the route answers. */
 const passes: PassSigner = { sign: async (claims) => `pass-for-${claims.sid}-until-${claims.exp}` };
 
-type App = ReturnType<typeof createRouter>;
+/**
+ * An app as the composition builds one around company's routes: a body of the wrong shape is
+ * 400 `invalid_request`, one that is not JSON 400 too, and one without a JSON content type 415,
+ * as the front door answers them.
+ */
+function frontDoor(): OpenAPIHono {
+  const app = new OpenAPIHono({
+    defaultHook: (result, c) =>
+      result.success ? undefined : c.json({ error: 'invalid_request' } as const, 400),
+  });
+  app.onError((error, c) => {
+    if (error instanceof HTTPException && error.status === 400) {
+      return c.json({ error: 'invalid_request' }, 400);
+    }
+    if (error instanceof HTTPException && error.status === 415) {
+      return c.json({ error: 'unsupported_media_type' }, 415);
+    }
+    throw error;
+  });
+  return app;
+}
+
+/** The app, asked as the page that shows the asking person's workspace asks it. */
+type App = { request(path: string, init?: RequestInit): Promise<Response> };
 
 function build(connected: Offer | null = offer, passSigner: PassSigner | null = passes) {
   let next = 0;
@@ -77,20 +102,36 @@ function build(connected: Offer | null = offer, passSigner: PassSigner | null = 
     clock: { nowSeconds: () => 1000 },
     passes: passSigner,
   };
-  // The routes on the cell's own router, so a body is answered as the cell answers it; the caller
-  // is whoever the test says, standing in for `requireCaller`.
-  const app = createRouter();
-  let who = { personId: 'person-1', workspaceId: 'acme' };
-  app.use('*', async (c, next) => {
-    c.set('caller', { ...who, role: 'member', region: 'eu' } as Caller);
-    await next();
-  });
-  cloudSessionRoutes(app, ports);
+  // The routes behind the real caller check: who is signed in, with which workspace active, is
+  // whoever the test says, a member there, and every request names that workspace as shown.
+  const membership = fakeMembership();
+  let who: SignedInPerson | null = { personId: 'person-1', activeWorkspaceId: 'acme' };
+  const as = (personId: string, workspaceId = 'acme') => {
+    membership.put(workspaceId, personId, 'member');
+    who = { personId, activeWorkspaceId: workspaceId };
+  };
+  as('person-1');
+  const router = frontDoor();
+  const caller = requireCaller({ whoIsAsking: async () => who, membership });
+  cloudSessionRoutes(router, { caller, ports });
+  const app: App = {
+    async request(path, init = {}) {
+      const headers = new Headers(init.headers);
+      if (!headers.has(WORKSPACE_HEADER))
+        headers.set(WORKSPACE_HEADER, who?.activeWorkspaceId ?? '');
+      return router.request(path, { ...init, headers });
+    },
+  };
   return {
     app,
+    router,
     ports,
     channel,
-    as: (personId: string, workspaceId = 'acme') => (who = { personId, workspaceId }),
+    membership,
+    as,
+    signOut: () => {
+      who = null;
+    },
   };
 }
 
@@ -102,6 +143,55 @@ const post = (app: App, path: string, body?: unknown) =>
   });
 
 const valid = { repository: 'sprocket/catalog-portal', harness: 'claude' };
+
+describe('the caller check', () => {
+  it("answers requireCaller's refusals before any route runs, starting nothing", async () => {
+    const { app, router, membership, as, signOut, channel } = build();
+    const start = { method: 'POST', headers: { 'content-type': 'application/json' } };
+    const ask = (headers: Record<string, string>) =>
+      router.request('/api/cloud-sessions', {
+        ...start,
+        headers: { ...start.headers, ...headers },
+        body: JSON.stringify(valid),
+      });
+
+    // No workspace shown: the page does not say which it shows.
+    let response = await ask({});
+    expect([response.status, await answerOf(postCloudSession, response)]).toEqual([
+      400,
+      { error: 'invalid_request' },
+    ]);
+    // Another tab switched the session's workspace.
+    response = await ask({ [WORKSPACE_HEADER]: 'sprocket' });
+    expect([response.status, await answerOf(postCloudSession, response)]).toEqual([
+      409,
+      { error: 'workspace_switched' },
+    ]);
+    // No longer a member of the workspace the session has active.
+    membership.remove('acme', 'person-1');
+    response = await app.request('/api/cloud-sessions', {
+      ...start,
+      body: JSON.stringify(valid),
+    });
+    expect([response.status, await answerOf(postCloudSession, response)]).toEqual([
+      403,
+      { error: 'not_a_member' },
+    ]);
+    as('person-1');
+    signOut();
+    response = await ask({ [WORKSPACE_HEADER]: 'acme' });
+    expect([response.status, await answerOf(postCloudSession, response)]).toEqual([
+      401,
+      { error: 'signed_out' },
+    ]);
+    expect(channel.startSession).not.toHaveBeenCalled();
+  });
+
+  it('serves no path but its routes', async () => {
+    const { app } = build();
+    expect((await app.request('/api/cloud-sessions/session-1/nothing')).status).toBe(404);
+  });
+});
 
 describe('GET /api/cloud-sessions/options', () => {
   it('answers what the runner offers', async () => {
@@ -168,7 +258,7 @@ describe('POST /api/cloud-sessions', () => {
     ['a repository named for a dot folder', '{"repository":"sprocket/.git","harness":"claude"}'],
     [
       'carrying a workspace id',
-      '{"repository":"sprocket/catalog-portal","harness":"claude","workspaceId":"globex"}',
+      '{"repository":"sprocket/catalog-portal","harness":"claude","workspaceId":"sprocket"}',
     ],
   ])('is 400 invalid_request for %s, sending nothing', async (_name, body) => {
     const { app, channel } = build();
@@ -220,7 +310,7 @@ describe('listing and reading', () => {
     expect(await answerOf(getCloudSession, own)).toMatchObject({ id: 'session-1' });
     for (const [person, workspace] of [
       ['person-2', 'acme'],
-      ['person-1', 'globex'],
+      ['person-1', 'sprocket'],
     ] as const) {
       as(person, workspace);
       const response = await app.request('/api/cloud-sessions/session-1');
@@ -339,7 +429,7 @@ describe('agent runs', () => {
     expect(stopped.status).toBe(202);
     expect(await answerOf(postCloudSessionStop, stopped)).toMatchObject({ status: 'stopped' });
     expect(channel.stopSession).toHaveBeenCalledWith('runner-1', 'run-1');
-    as('person-2', 'globex');
+    as('person-2', 'sprocket');
     const elsewhere = await app.request('/api/cloud-sessions/run-1');
     expect(elsewhere.status).toBe(404);
     expect(await answerOf(getCloudSession, elsewhere)).toEqual({ error: 'not_found' });
@@ -416,7 +506,8 @@ describe('POST /api/cloud-sessions/:id/pass', () => {
     expect(starting.headers.get('cache-control')).toBe('no-store');
     expect(await answerOf(postCloudSessionPass, starting)).toEqual({ error: 'not_found' });
 
-    const { app, as } = await running(build());
+    // The same app: its runner moves session-1 on (and a second session starts, unused).
+    const { app, as } = await running(built);
     as('person-2');
     const others = await post(app, '/api/cloud-sessions/session-1/pass');
     expect(others.status).toBe(404);

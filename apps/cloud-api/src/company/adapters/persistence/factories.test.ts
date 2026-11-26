@@ -2,25 +2,19 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { FactoryStore, TeamStore } from '../../application/ports.js';
 import type { Factory } from '../../domain/factory.js';
 import type { Team } from '../../domain/team.js';
-import { migrateDatabase, openDatabase } from './database.js';
 import type { Database } from './database.js';
 import { createFactoryStore } from './factories.js';
-import { createTeamStore } from './teams.js';
-import { createWorkspaceCopies } from './workspaceCopies.js';
+import { createTeamStore, openWorkspace } from './teams.js';
+import { openTestDatabase } from './testDatabase.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let factories: FactoryStore;
 let teams: TeamStore;
 
-/** Opens `workspaceId` in the copy, the way the outbox does, and answers its first team. */
+/** Opens `workspaceId` as making it does, and answers its first team. */
 async function workspace(workspaceId: string): Promise<Team> {
-  await createWorkspaceCopies(db).applyAfter({
-    workspaceId,
-    sequence: 1,
-    after: null,
-    change: { kind: 'open-workspace' },
-  });
+  await db.transaction((tx) => openWorkspace(tx, { workspaceId, ownerId: 'person-dana' }));
   const [first] = await teams.list(workspaceId);
   if (!first) throw new Error(`${workspaceId} has no first team`);
   return first;
@@ -34,8 +28,7 @@ async function made(workspaceId: string, name: string, teamId: string): Promise<
 }
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   factories = createFactoryStore(db);
   teams = createTeamStore(db);
 });

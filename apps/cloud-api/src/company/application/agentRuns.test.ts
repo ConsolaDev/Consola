@@ -1,4 +1,3 @@
-import type { GitHubEventMessage } from '@consola/cloud-contract';
 import {
   CODE_REVIEW_TEAM_FILES,
   matchPullRequestAutomations,
@@ -10,39 +9,39 @@ import { AGENT_RUN_FACTORY_DIR, SESSION_REPOSITORY_DIR } from '@consola/runner-p
 import type { AgentRun } from '@consola/runner-protocol';
 import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
+import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Caller } from '../domain/caller.js';
 import type { FactoryFile } from '../domain/factory.js';
 import { keepingRunsInStep, startAgentRunsFor } from './agentRuns.js';
+import type { GitHubEvent } from './agentRuns.js';
 import { applyRunnerUpdate, getSession, listSessions, stopSession } from './cloudSessions.js';
 import type {
   AgentRunPorts,
   CloudSessionPorts,
-  DeliveryVerifier,
   FactoryStore,
   Offer,
   RunnerChannel,
   SessionStartRequest,
   TeamStore,
-  WorkspaceCopies,
 } from './ports.js';
-import { receiveGitHubEvent } from './receiveGitHubEvent.js';
 import { readRun } from './runs.js';
+import { callerAs, fakeMembership } from './testMembership.js';
+import type { FakeMembership } from './testMembership.js';
 
 let db: Database;
 let close: () => Promise<void>;
-let workspaceCopies: WorkspaceCopies;
 let teams: TeamStore;
 let factories: FactoryStore;
 let stores: ReturnType<typeof createDrizzleStores>;
+let membership: FakeMembership;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   stores = createDrizzleStores(db);
-  ({ workspaceCopies, teams, factories } = stores);
+  ({ teams, factories } = stores);
+  membership = fakeMembership();
 });
 afterEach(async () => {
   vi.restoreAllMocks();
@@ -71,12 +70,12 @@ const pullRequestPayload = (over: { action?: string; draft?: boolean; login?: st
 });
 
 let deliveries = 0;
+/** A pull request's event, as the webhook hands on one it recorded for the first time. */
 const eventOf = (
   payload: Record<string, unknown> = pullRequestPayload(),
-  over: Partial<GitHubEventMessage> = {},
-): GitHubEventMessage => ({
+  over: Partial<GitHubEvent> = {},
+): GitHubEvent => ({
   workspaceId: 'acme',
-  region: 'eu',
   deliveryId: `delivery-${++deliveries}`,
   event: 'pull_request',
   installationId: 41,
@@ -125,35 +124,12 @@ function portsFor(connected: Offer | null = offer) {
   return { ports, channel, starts, lines };
 }
 
-/** A verifier that takes every delivery as signed, its body being its payload. */
-const signedAsSent: DeliveryVerifier = {
-  async verify(delivery) {
-    return { kind: 'verified', payload: new TextEncoder().encode(delivery) };
-  },
-};
-
-const deliver = (ports: AgentRunPorts, event: GitHubEventMessage) =>
-  receiveGitHubEvent(
-    { events: signedAsSent, gitHubEvents: stores.gitHubEvents, agentRuns: ports },
-    'eu',
-    JSON.stringify(event),
-  );
-
-/** The cell holds Acme, with Dana (owner) and Fay (member) in its first team. */
+/** Acme, made whole, with Dana (owner) and Fay (member) in its first team. */
 async function holdAcme() {
-  const changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']> = [
-    { kind: 'open-workspace' },
-    { kind: 'put-member', personId: 'person-dana', role: 'owner' },
-    { kind: 'put-member', personId: 'person-fay', role: 'member' },
-  ];
-  for (const [index, change] of changes.entries()) {
-    await workspaceCopies.applyAfter({
-      workspaceId: 'acme',
-      sequence: index + 1,
-      after: index === 0 ? null : index,
-      change,
-    });
-  }
+  await makeTestWorkspace(db, membership, 'acme', [
+    ['person-dana', 'owner'],
+    ['person-fay', 'member'],
+  ]);
 }
 
 /** A factory of Acme's first team holding `files` as its latest version. */
@@ -171,8 +147,7 @@ async function factoryWith(files: readonly FactoryFile[], name = 'Reviews') {
   return made;
 }
 
-const caller = (personId: string): Caller =>
-  ({ personId, workspaceId: 'acme', role: 'member', region: 'eu' }) as Caller;
+const caller = (personId: string): Caller => callerAs(personId, 'member');
 
 /** The agent runs the tests' ids name, as the cell holds them. */
 async function agentRunSessions() {
@@ -195,7 +170,7 @@ describe('an event starts agent runs', () => {
     const factory = await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, starts } = portsFor();
 
-    expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
+    expect(await startAgentRunsFor(ports, eventOf())).toHaveLength(1);
 
     const [run, ...others] = await agentRunSessions();
     expect(others).toEqual([]);
@@ -259,22 +234,11 @@ describe('an event starts agent runs', () => {
     expect(agentRun.files.map((file) => file.path)).toEqual(plan.files.map((file) => file.path));
   });
 
-  it('starts nothing for an event recorded before', async () => {
-    await holdAcme();
-    await factoryWith(CODE_REVIEW_TEAM_FILES);
-    const { ports, starts } = portsFor();
-    const event = eventOf();
-    await deliver(ports, event);
-    expect(await deliver(ports, event)).toMatchObject({ kind: 'recorded', now: false });
-    expect(starts).toHaveLength(1);
-    expect(await agentRunSessions()).toHaveLength(1);
-  });
-
   it('still starts on a draft: the prompt handles drafts', async () => {
     await holdAcme();
     await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, starts } = portsFor();
-    await deliver(ports, eventOf(pullRequestPayload({ draft: true })));
+    await startAgentRunsFor(ports, eventOf(pullRequestPayload({ draft: true })));
     expect(starts).toHaveLength(1);
     expect(starts[0]?.[1].agentRun?.prompt).toContain('draft: true');
   });
@@ -295,7 +259,7 @@ describe('an event starts agent runs', () => {
     await holdAcme();
     await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, channel } = portsFor(connected as Offer | null);
-    expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
+    expect(await startAgentRunsFor(ports, eventOf())).toHaveLength(1);
     expect(await agentRunSessions()).toMatchObject([
       {
         status: 'failed',
@@ -319,7 +283,7 @@ describe('an event starts agent runs', () => {
     // Stored around the check, as a version saved before the rules changed would be.
     await factoryWith(broken);
     const { ports, starts, lines } = portsFor();
-    expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
+    expect(await startAgentRunsFor(ports, eventOf())).toEqual([]);
     expect(starts).toEqual([]);
     expect(await agentRunSessions()).toEqual([]);
     expect(lines.join('\n')).toContain('problem(s) in its files, so it starts nothing');
@@ -329,19 +293,18 @@ describe('an event starts agent runs', () => {
     await holdAcme();
     await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, starts } = portsFor();
-    await deliver(ports, eventOf(pullRequestPayload({ action: 'edited' })));
-    await deliver(ports, eventOf(pullRequestPayload(), { event: 'issues' }));
-    await deliver(ports, eventOf(pullRequestPayload({ login: 'renovate[bot]' })));
+    await startAgentRunsFor(ports, eventOf(pullRequestPayload({ action: 'edited' })));
+    await startAgentRunsFor(ports, eventOf(pullRequestPayload(), { event: 'issues' }));
+    await startAgentRunsFor(ports, eventOf(pullRequestPayload({ login: 'renovate[bot]' })));
     expect(starts).toEqual([]);
   });
 
-  it('records the event whatever goes wrong starting runs, logging no payload', async () => {
+  it('throws only when the factories cannot be read, for the webhook to log, and logs no payload', async () => {
     await holdAcme();
     await factoryWith(CODE_REVIEW_TEAM_FILES);
     const { ports, lines } = portsFor();
     vi.spyOn(factories, 'list').mockRejectedValue(new Error('the database went away'));
-    expect(await deliver(ports, eventOf())).toMatchObject({ kind: 'recorded', now: true });
-    expect(lines.join('\n')).toContain('started no agent run: the database went away');
+    await expect(startAgentRunsFor(ports, eventOf())).rejects.toThrow('the database went away');
     expect(lines.join('\n')).not.toContain('Lyon');
   });
 
@@ -362,7 +325,7 @@ describe("an agent run's life", () => {
     await holdAcme();
     await factoryWith(CODE_REVIEW_TEAM_FILES);
     const fake = portsFor();
-    await deliver(fake.ports, eventOf());
+    await startAgentRunsFor(fake.ports, eventOf());
     return fake;
   }
   const RUNNER = { workspaceId: 'acme', runnerId: 'runner-1' };
@@ -435,8 +398,8 @@ describe("an agent run's life", () => {
     });
     expect(await getSession(ports, caller('person-fay'), 'run-1')).toMatchObject({ kind: 'ok' });
     // Another workspace sees neither.
-    const globex = { ...caller('person-fay'), workspaceId: 'globex' } as Caller;
-    expect(await getSession(ports, globex, 'run-1')).toEqual({ kind: 'not_found' });
+    const inSprocket = callerAs('person-fay', 'member', 'sprocket');
+    expect(await getSession(ports, inSprocket, 'run-1')).toEqual({ kind: 'not_found' });
 
     const stopped = await stopSession(ports, caller('person-fay'), 'run-1');
     expect(stopped).toMatchObject({ kind: 'ok', session: { status: 'stopped' } });
@@ -454,7 +417,7 @@ describe("an agent run's run", () => {
     await holdAcme();
     const factory = await factoryWith(CODE_REVIEW_TEAM_FILES);
     const fake = portsFor(connected);
-    await deliver(fake.ports, eventOf());
+    await startAgentRunsFor(fake.ports, eventOf());
     return { ...fake, factory };
   }
 

@@ -1,10 +1,7 @@
-import { cellTokenClaims } from '@consola/cloud-contract';
-import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { admitClaims } from '../domain/caller.js';
+import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Caller } from '../domain/caller.js';
 import type { Factory, FactoryFile } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
@@ -16,66 +13,42 @@ import {
   readFactoryVersion,
   saveFactoryFiles,
 } from './factories.js';
-import type { FactoryStore, TeamStore, WorkspaceCopies } from './ports.js';
+import type { FactoryStore, TeamStore } from './ports.js';
+import { callerAs as caller, fakeMembership } from './testMembership.js';
+import type { FakeMembership } from './testMembership.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let teams: TeamStore;
 let factories: FactoryStore;
-let workspaceCopies: WorkspaceCopies;
+let membership: FakeMembership;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  ({ teams, factories, workspaceCopies } = createDrizzleStores(db));
+  ({ db, close } = await openTestDatabase());
+  ({ teams, factories } = createDrizzleStores(db));
+  membership = fakeMembership();
 });
 
 afterEach(async () => {
   await close();
 });
 
-/** Who a checked cell token names: only `admitClaims` makes a caller. */
-function caller(personId: string, role: WorkspaceRole, workspaceId = 'acme'): Caller {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = cellTokenClaims({ personId, workspaceId, role, region: 'eu', issuedAt: now });
-  const admitted = admitClaims(claims, now, 'eu');
-  if (admitted.kind !== 'accepted') throw new Error('the token was not accepted');
-  return admitted.caller;
-}
-
 const dana = () => caller('person-dana', 'owner');
 const eli = () => caller('person-eli', 'admin');
 const fay = () => caller('person-fay', 'member');
 const gus = () => caller('person-gus', 'member');
 
-let sequence = 0;
-
-/** Applies `change` to Acme's copy, the way the outbox does. */
-async function apply(change: Parameters<WorkspaceCopies['applyAfter']>[0]['change']) {
-  sequence += 1;
-  await workspaceCopies.applyAfter({
-    workspaceId: 'acme',
-    sequence,
-    after: sequence === 1 ? null : sequence - 1,
-    change,
-  });
-}
-
 /**
- * Acme, opened in the copy with Dana (owner), Eli (admin), Fay and Gus (members), and a Platform
- * team only Fay is in. Everyone is in the first team, General.
+ * Acme, made whole with Dana (owner), Eli (admin), Fay and Gus (members), and a Platform team only
+ * Fay is in. Everyone is in the first team, General.
  */
 async function acme(): Promise<{ general: Team; platform: Team }> {
-  sequence = 0;
-  await apply({ kind: 'open-workspace' });
-  for (const [personId, role] of [
+  await makeTestWorkspace(db, membership, 'acme', [
     ['person-dana', 'owner'],
     ['person-eli', 'admin'],
     ['person-fay', 'member'],
     ['person-gus', 'member'],
-  ] as const) {
-    await apply({ kind: 'put-member', personId, role });
-  }
+  ]);
   const platform = await teams.create('acme', 'Platform');
   if (platform === 'name-taken') throw new Error('Platform was taken');
   const withFay = await teams.addMember('acme', platform.id, 'person-fay');
@@ -143,12 +116,6 @@ describe('createFactory', () => {
     expect(
       await createFactory(teams, factories, eli(), { name: 'deploys', teamId: general.id }),
     ).toEqual({ kind: 'name-taken' });
-  });
-
-  it('is pending while the cell does not hold the workspace', async () => {
-    expect(
-      await createFactory(teams, factories, dana(), { name: 'Deploys', teamId: 'general' }),
-    ).toEqual({ kind: 'workspace-pending' });
   });
 });
 
@@ -249,16 +216,17 @@ describe('changeFactory', () => {
     ).toMatchObject({ kind: 'changed', factory: { teamId: general.id } });
   });
 
-  it('follows the copy: an admin demoted since their token was minted moves as a member', async () => {
+  it('moves as a member once an admin is demoted: the role is the one read for the request', async () => {
     const { general, platform } = await acme();
     const deploys = await made(dana(), 'Deploys', general.id);
-    await apply({ kind: 'put-member', personId: 'person-eli', role: 'member' });
-    // The same token, still saying admin; Eli is in General alone.
+    membership.put('acme', 'person-eli', 'member');
+    const demoted = caller('person-eli', 'member');
+    // Eli is in General alone.
     expect(
-      await changeFactory(teams, factories, eli(), deploys.id, { teamId: platform.id }),
+      await changeFactory(teams, factories, demoted, deploys.id, { teamId: platform.id }),
     ).toEqual({ kind: 'team-not-found' });
     expect(
-      await changeFactory(teams, factories, eli(), deploys.id, { name: 'Still mine' }),
+      await changeFactory(teams, factories, demoted, deploys.id, { name: 'Still mine' }),
     ).toMatchObject({ kind: 'changed' });
   });
 
@@ -285,36 +253,15 @@ describe('changeFactory', () => {
     });
   });
 
-  it('shows nothing to someone the copy does not hold, and nothing of another workspace', async () => {
+  it('changes nothing of another workspace, whoever asks', async () => {
     const { general } = await acme();
     const deploys = await made(dana(), 'Deploys', general.id);
-    const stranger = caller('person-hal', 'owner');
-    expect(await changeFactory(teams, factories, stranger, deploys.id, { name: 'Mine' })).toEqual({
-      kind: 'not-found',
-    });
-    await workspaceCopies.applyAfter({
-      workspaceId: 'sprocket',
-      sequence: 1,
-      after: null,
-      change: { kind: 'open-workspace' },
-    });
-    await workspaceCopies.applyAfter({
-      workspaceId: 'sprocket',
-      sequence: 2,
-      after: 1,
-      change: { kind: 'put-member', personId: 'person-dana', role: 'owner' },
-    });
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-dana', 'owner']]);
     const sprocketOwner = caller('person-dana', 'owner', 'sprocket');
     expect(
       await changeFactory(teams, factories, sprocketOwner, deploys.id, { name: 'Mine' }),
     ).toEqual({ kind: 'not-found' });
     expect(await factories.get('acme', deploys.id)).toEqual(deploys);
-  });
-
-  it('is pending while the cell does not hold the workspace', async () => {
-    expect(await changeFactory(teams, factories, dana(), 'x', { name: 'Deploys' })).toEqual({
-      kind: 'workspace-pending',
-    });
   });
 });
 
@@ -448,48 +395,23 @@ describe('who sees a factory', () => {
     ).toMatchObject({ kind: 'saved' });
   });
 
-  it('follows the copy: an admin demoted since their token was minted sees as a member', async () => {
+  it('sees as a member once an admin is demoted: the role is the one read for the request', async () => {
     const { platform } = await acme();
     const deploys = await made(fay(), 'Deploys', platform.id);
-    await apply({ kind: 'put-member', personId: 'person-eli', role: 'member' });
-    // The same token, still saying admin.
-    expect(await readFactory(teams, factories, eli(), deploys.id)).toEqual({ kind: 'not-found' });
-    const listed = await listFactories(teams, factories, eli());
-    expect(listed).toEqual({ kind: 'listed', factories: [] });
-  });
-
-  it('shows nothing to someone the copy does not hold', async () => {
-    const { general } = await acme();
-    const deploys = await made(dana(), 'Deploys', general.id);
-    const stranger = caller('person-hal', 'owner');
-    expect(await listFactories(teams, factories, stranger)).toEqual({
-      kind: 'listed',
-      factories: [],
-    });
-    expect(await readFactory(teams, factories, stranger, deploys.id)).toEqual({
+    membership.put('acme', 'person-eli', 'member');
+    const demoted = caller('person-eli', 'member');
+    expect(await readFactory(teams, factories, demoted, deploys.id)).toEqual({
       kind: 'not-found',
     });
-    expect(
-      await createFactory(teams, factories, stranger, { name: 'Mine', teamId: general.id }),
-    ).toEqual({ kind: 'team-not-found' });
+    const listed = await listFactories(teams, factories, demoted);
+    expect(listed).toEqual({ kind: 'listed', factories: [] });
   });
 
   it('finds no factory of another workspace, whoever asks', async () => {
     const { general } = await acme();
     const deploys = await made(dana(), 'Deploys', general.id);
     // Sprocket, where Dana is an owner too.
-    await workspaceCopies.applyAfter({
-      workspaceId: 'sprocket',
-      sequence: 1,
-      after: null,
-      change: { kind: 'open-workspace' },
-    });
-    await workspaceCopies.applyAfter({
-      workspaceId: 'sprocket',
-      sequence: 2,
-      after: 1,
-      change: { kind: 'put-member', personId: 'person-dana', role: 'owner' },
-    });
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-dana', 'owner']]);
     const sprocketOwner = caller('person-dana', 'owner', 'sprocket');
     expect(await listFactories(teams, factories, sprocketOwner)).toEqual({
       kind: 'listed',
@@ -507,12 +429,5 @@ describe('who sees a factory', () => {
     expect(
       await createFactory(teams, factories, sprocketOwner, { name: 'Mine', teamId: general.id }),
     ).toEqual({ kind: 'team-not-found' });
-  });
-
-  it('is pending while the cell does not hold the workspace', async () => {
-    expect(await listFactories(teams, factories, dana())).toEqual({ kind: 'workspace-pending' });
-    expect(await readFactory(teams, factories, dana(), 'x')).toEqual({
-      kind: 'workspace-pending',
-    });
   });
 });

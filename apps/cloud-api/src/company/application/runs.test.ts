@@ -1,65 +1,39 @@
-import { cellTokenClaims } from '@consola/cloud-contract';
-import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { admitClaims } from '../domain/caller.js';
+import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Caller } from '../domain/caller.js';
 import type { Factory } from '../domain/factory.js';
 import { NO_RUNS, NO_STEP_DETAIL } from '../domain/run.js';
 import type { RunWrite, StepRecord } from '../domain/run.js';
 import type { Team } from '../domain/team.js';
-import type { FactoryStore, RunStore, TeamStore, WorkspaceCopies } from './ports.js';
+import type { FactoryStore, RunStore, TeamStore } from './ports.js';
 import { answerRunApproval, listRuns, readRun, recordRun } from './runs.js';
 import type { RunsQuery } from './runs.js';
+import { callerAs as caller, fakeMembership } from './testMembership.js';
+import type { FakeMembership } from './testMembership.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let teams: TeamStore;
 let factories: FactoryStore;
 let runs: RunStore;
-let workspaceCopies: WorkspaceCopies;
+let membership: FakeMembership;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  ({ teams, factories, runs, workspaceCopies } = createDrizzleStores(db));
+  ({ db, close } = await openTestDatabase());
+  ({ teams, factories, runs } = createDrizzleStores(db));
+  membership = fakeMembership();
 });
 
 afterEach(async () => {
   await close();
 });
 
-/** Who a checked cell token names: only `admitClaims` makes a caller. */
-function caller(personId: string, role: WorkspaceRole, workspaceId = 'acme'): Caller {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = cellTokenClaims({ personId, workspaceId, role, region: 'eu', issuedAt: now });
-  const admitted = admitClaims(claims, now, 'eu');
-  if (admitted.kind !== 'accepted') throw new Error('the token was not accepted');
-  return admitted.caller;
-}
-
 const dana = () => caller('person-dana', 'owner');
 const eli = () => caller('person-eli', 'admin');
 const fay = () => caller('person-fay', 'member');
 const gus = () => caller('person-gus', 'member');
-
-/** Applies `changes` to a workspace's copy in order, the way the outbox does. */
-async function apply(
-  workspaceId: string,
-  changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']>,
-) {
-  for (const [index, change] of changes.entries()) {
-    const sequence = index + 1;
-    await workspaceCopies.applyAfter({
-      workspaceId,
-      sequence,
-      after: index === 0 ? null : index,
-      change,
-    });
-  }
-}
 
 type Acme = { general: Team; platform: Team; site: Factory; infra: Factory };
 
@@ -68,12 +42,11 @@ type Acme = { general: Team; platform: Team; site: Factory; infra: Factory };
  * Fay. General owns the Site factory, Platform the Infra factory.
  */
 async function acme(): Promise<Acme> {
-  await apply('acme', [
-    { kind: 'open-workspace' },
-    { kind: 'put-member', personId: 'person-dana', role: 'owner' },
-    { kind: 'put-member', personId: 'person-eli', role: 'admin' },
-    { kind: 'put-member', personId: 'person-fay', role: 'member' },
-    { kind: 'put-member', personId: 'person-gus', role: 'member' },
+  await makeTestWorkspace(db, membership, 'acme', [
+    ['person-dana', 'owner'],
+    ['person-eli', 'admin'],
+    ['person-fay', 'member'],
+    ['person-gus', 'member'],
   ]);
   const platform = await teams.create('acme', 'Platform');
   if (platform === 'name-taken') throw new Error('Platform was taken');
@@ -254,17 +227,19 @@ describe('listRuns', () => {
     });
   });
 
-  it('is pending while the cell does not hold the workspace, and empty for someone it does not hold', async () => {
-    expect(await listRuns(teams, factories, runs, dana(), query())).toEqual({
-      kind: 'workspace-pending',
-    });
+  it("is empty, with no facets, for a workspace that holds no factory, another's runs aside", async () => {
     await acmeWithRuns();
-    expect(await listedBy(caller('person-stranger', 'owner'))).toEqual({
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-dana', 'owner']]);
+    expect(await listedBy(caller('person-dana', 'owner', 'sprocket'))).toEqual({
       kind: 'listed',
       runs: [],
       nextCursor: null,
       counts: NO_RUNS,
-      facets: { factories: [], teams: [], automations: [] },
+      facets: {
+        factories: [],
+        teams: [expect.objectContaining({ id: expect.any(String) })],
+        automations: [],
+      },
     });
   });
 });
@@ -293,30 +268,27 @@ describe('readRun', () => {
       expect.objectContaining({ kind: 'found' }),
     );
 
-    await apply('globex', [
-      { kind: 'open-workspace' },
-      { kind: 'put-member', personId: 'person-dana', role: 'owner' },
-    ]);
-    const [globexTeam] = await teams.list('globex');
-    const globexFactory = await factories.create('globex', {
-      name: 'Globex',
-      teamId: globexTeam?.id ?? '',
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-dana', 'owner']]);
+    const [sprocketTeam] = await teams.list('sprocket');
+    const sprocketFactory = await factories.create('sprocket', {
+      name: 'Sprocket',
+      teamId: sprocketTeam?.id ?? '',
       personId: 'p',
     });
-    if (typeof globexFactory === 'string') throw new Error('not made');
-    await recorded('globex', automationRun('globex-run', globexFactory.id));
-    expect(await readRun(teams, factories, runs, dana(), 'globex-run')).toEqual({
+    if (typeof sprocketFactory === 'string') throw new Error('not made');
+    await recorded('sprocket', automationRun('sprocket-run', sprocketFactory.id));
+    expect(await readRun(teams, factories, runs, dana(), 'sprocket-run')).toEqual({
       kind: 'not-found',
     });
     expect(
-      await readRun(teams, factories, runs, caller('person-dana', 'owner', 'globex'), 'globex-run'),
+      await readRun(
+        teams,
+        factories,
+        runs,
+        caller('person-dana', 'owner', 'sprocket'),
+        'sprocket-run',
+      ),
     ).toEqual(expect.objectContaining({ kind: 'found' }));
-  });
-
-  it('is pending while the cell does not hold the workspace', async () => {
-    expect(await readRun(teams, factories, runs, dana(), 'any')).toEqual({
-      kind: 'workspace-pending',
-    });
   });
 });
 
@@ -559,10 +531,6 @@ steps:
     expect(await answer(gus(), 'nightly-done', 'approve')).toEqual({ kind: 'not-waiting' });
     // A run that never asked shows no approval.
     expect(await approvalSeenBy(gus(), 'nightly-done')).toBeNull();
-  });
-
-  it('are pending while the cell does not hold the workspace', async () => {
-    expect(await answer(fay(), 'deploy-run', 'approve')).toEqual({ kind: 'workspace-pending' });
   });
 
   it('show the file behind an automation run, and none for a request', async () => {

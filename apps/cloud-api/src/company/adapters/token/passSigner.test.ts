@@ -8,7 +8,7 @@ import {
 } from '@consola/runner-protocol';
 import { compactVerify, decodeProtectedHeader, importSPKI } from 'jose';
 import { describe, expect, it } from 'vitest';
-import { ConfigError } from '../../../companyConfig.js';
+import { ConfigError } from '../../../config.js';
 import { createPassSigner } from './passSigner.js';
 
 /** A new Ed25519 private key, as the JWK `PASS_PRIVATE_KEY` holds. */

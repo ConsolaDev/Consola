@@ -31,6 +31,15 @@ export async function openTestDatabase(): Promise<OpenDatabase> {
 }
 
 /**
+ * Waits for the database's clock to move on. A place in a team is ordered by when it was made,
+ * and PGlite's clock counts milliseconds, so two people who join one after the other within a
+ * millisecond would tie, and read back by id instead.
+ */
+export function nextMillisecond(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 2));
+}
+
+/**
  * Makes `workspaceId` for a test as making a workspace does (`openWorkspace`), its first member
  * its owner, then puts every other member in its first team, as each would join it once members
  * can be added. `membership` hears every one, so company's reads of accounts' `member` find them.
@@ -48,5 +57,8 @@ export async function makeTestWorkspace(
   const first = (await teams.list(workspaceId)).find((team) => team.first);
   if (!first) throw new Error(`${workspaceId} has no first team`);
   for (const [personId, role] of members) membership.put(workspaceId, personId, role);
-  for (const [personId] of others) await teams.addMember(workspaceId, first.id, personId);
+  for (const [personId] of others) {
+    await nextMillisecond();
+    await teams.addMember(workspaceId, first.id, personId);
+  }
 }

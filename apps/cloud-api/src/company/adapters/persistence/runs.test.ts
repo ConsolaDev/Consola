@@ -4,13 +4,12 @@ import type { FactoryStore, RunFilter, RunStore, TeamStore } from '../../applica
 import type { Factory } from '../../domain/factory.js';
 import { checkRun, NO_STEP_DETAIL } from '../../domain/run.js';
 import type { RunWrite, StepRecord } from '../../domain/run.js';
-import { migrateDatabase, openDatabase } from './database.js';
 import type { Database } from './database.js';
 import { createFactoryStore } from './factories.js';
 import { createRunStore } from './runs.js';
 import { runs as runTable } from './tables.js';
-import { createTeamStore } from './teams.js';
-import { createWorkspaceCopies } from './workspaceCopies.js';
+import { createTeamStore, openWorkspace } from './teams.js';
+import { openTestDatabase } from './testDatabase.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -19,8 +18,7 @@ let factories: FactoryStore;
 let teams: TeamStore;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   runs = createRunStore(db);
   factories = createFactoryStore(db);
   teams = createTeamStore(db);
@@ -30,14 +28,9 @@ afterEach(async () => {
   await close();
 });
 
-/** Opens `workspaceId` in the copy, the way the outbox does, with a factory in its first team. */
+/** Opens `workspaceId` as making it does, with a factory in its first team. */
 async function workspaceWithFactory(workspaceId: string, name = 'Deploys'): Promise<Factory> {
-  await createWorkspaceCopies(db).applyAfter({
-    workspaceId,
-    sequence: 1,
-    after: null,
-    change: { kind: 'open-workspace' },
-  });
+  await db.transaction((tx) => openWorkspace(tx, { workspaceId, ownerId: 'person-dana' }));
   const [first] = await teams.list(workspaceId);
   if (!first) throw new Error(`${workspaceId} has no first team`);
   return madeFactory(workspaceId, name, first.id);

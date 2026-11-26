@@ -4,7 +4,7 @@ import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import type { Team } from '../../domain/team.js';
 import type { Database } from './database.js';
 import { createTeamStore, openWorkspace } from './teams.js';
-import { openTestDatabase } from './testDatabase.js';
+import { nextMillisecond, openTestDatabase } from './testDatabase.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -17,7 +17,10 @@ let teams: TeamStore;
 async function workspace(workspaceId: string, ownerId = 'person-dana', others: string[] = []) {
   await db.transaction((tx) => openWorkspace(tx, { workspaceId, ownerId }));
   const first = await firstTeamOf(workspaceId);
-  for (const personId of others) await teams.addMember(workspaceId, first.id, personId);
+  for (const personId of others) {
+    await nextMillisecond();
+    await teams.addMember(workspaceId, first.id, personId);
+  }
 }
 
 async function firstTeamOf(workspaceId: string): Promise<Team> {
@@ -188,6 +191,7 @@ describe('the team store', () => {
     const platform = await made('acme', 'Platform');
 
     await teams.addMember('acme', platform.id, 'person-eli');
+    await nextMillisecond();
     expect(await teams.addMember('acme', platform.id, 'person-dana')).toEqual({
       ...platform,
       memberIds: ['person-eli', 'person-dana'],

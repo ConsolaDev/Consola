@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { CloudSessionStore } from '../../application/ports.js';
 import type { CloudSession, CloudSessionStatus } from '../../domain/cloudSession.js';
-import { migrateDatabase, openDatabase } from '../persistence/database.js';
+import { openTestDatabase } from '../persistence/testDatabase.js';
 import type { Database } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
 import { createPassSigner } from '../token/passSigner.js';
@@ -84,8 +84,7 @@ function build(settings: 'set' | 'unset' = 'set'): RunnerSocket {
 }
 
 beforeEach(async () => {
-  ({ db, close: closeDatabase } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close: closeDatabase } = await openTestDatabase());
   sessions = createCloudSessionStore(db);
   const jwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
   privateD = String(jwk.d);
