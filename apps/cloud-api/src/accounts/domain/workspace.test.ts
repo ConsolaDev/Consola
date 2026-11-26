@@ -19,7 +19,10 @@ describe('checkNewWorkspace', () => {
 
   it('never names a region: the deployment gives one, whatever is sent', () => {
     const sent: Record<string, unknown> = { ...acme, region: 'us' };
-    expect(checkNewWorkspace(sent)).toEqual({ ok: true, workspace: { name: 'Acme', slug: 'acme' } });
+    expect(checkNewWorkspace(sent)).toEqual({
+      ok: true,
+      workspace: { name: 'Acme', slug: 'acme' },
+    });
   });
 
   it('trims the name', () => {

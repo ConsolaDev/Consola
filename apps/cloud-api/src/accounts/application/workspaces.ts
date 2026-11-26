@@ -29,10 +29,13 @@ export async function createWorkspace(
   const checked = checkNewWorkspace(request);
   if (!checked.ok) return { kind: 'invalid', problems: checked.problems };
 
-  const made = await stores.workspaces.create({ ...checked.workspace, region }, {
-    userId: session.person.id,
-    role: CREATOR_ROLE,
-  });
+  const made = await stores.workspaces.create(
+    { ...checked.workspace, region },
+    {
+      userId: session.person.id,
+      role: CREATOR_ROLE,
+    },
+  );
   if (made.kind === 'slug-taken') return made;
 
   await stores.sessions.setActiveWorkspace({

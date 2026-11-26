@@ -84,8 +84,7 @@ describe('the workspace store', () => {
 
 describe("the workspace store's onCreated", () => {
   it('is handed the new ids, inside the transaction that holds both rows', async () => {
-    const heard: Array<{ opened: OpenedWorkspace; organizations: number; members: unknown[] }> =
-      [];
+    const heard: Array<{ opened: OpenedWorkspace; organizations: number; members: unknown[] }> = [];
     const store = createWorkspaceStore(db, {
       onCreated: async (tx, opened) => {
         // Uncommitted, the rows are seen only through the transaction the hook is handed.
@@ -120,8 +119,9 @@ describe("the workspace store's onCreated", () => {
     });
     const made = await store.create(acme, dana);
     if (made.kind !== 'created') throw new Error('not created');
-    expect(await db.select({ identifier: schema.verification.identifier }).from(schema.verification))
-      .toEqual([{ identifier: made.workspace.id }]);
+    expect(
+      await db.select({ identifier: schema.verification.identifier }).from(schema.verification),
+    ).toEqual([{ identifier: made.workspace.id }]);
   });
 
   it('that throws leaves no organization, no member and nothing it wrote, and rejects', async () => {

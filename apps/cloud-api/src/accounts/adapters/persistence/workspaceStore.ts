@@ -27,7 +27,10 @@ export type WorkspaceStoreHooks = {
  *
  * `setIcon` sets `logo` alone, never the name, slug or region.
  */
-export function createWorkspaceStore(db: Database, hooks: WorkspaceStoreHooks = {}): WorkspaceStore {
+export function createWorkspaceStore(
+  db: Database,
+  hooks: WorkspaceStoreHooks = {},
+): WorkspaceStore {
   return {
     create(workspace, firstMember) {
       const id = randomUUID();
