@@ -240,7 +240,7 @@ export class BindingsStore {
   }
 
   private copy(): Workspaces {
-    return JSON.parse(JSON.stringify(this.workspaces)) as Workspaces;
+    return structuredClone(this.workspaces);
   }
 
   /** Writes `next` and only then makes it the store's: a write that throws changes nothing. */
