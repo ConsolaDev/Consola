@@ -1,23 +1,18 @@
-import { useEffect, useState } from 'react';
-import type { ReactNode } from 'react';
+import { useEffect } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
   Folder,
-  FolderPlus,
-  GitBranch,
   Layers,
   Loader2,
+  Plus,
   SquareTerminal,
-  X,
 } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useSettings } from '../../contexts/SettingsContext';
-import { dialogBridge } from '../../services/dialogBridge';
-import { createWorkspaceFromFolders } from '../../utils/workspaceActions';
+import { openNewWorkspaceDialog } from '../../stores/newWorkspaceDialogStore';
 import { isMac } from '../../utils/platform';
-import type { FolderInfo } from '../../types/electron';
 import './styles.css';
 
 /**
@@ -58,26 +53,34 @@ export function HomeView() {
             ? 'Pick one from the rail on the left, or set up a new one.'
             : 'Run Claude Code across your projects: organized, side by side, and always running.'}
         </p>
-        <WorkspaceSetup
-          intro={
-            !hasWorkspaces && (
-              <>
-                <dl className="home-concepts">
-                  {CONCEPTS.map(({ icon: Icon, term, text }) => (
-                    <div key={term} className="home-concept">
-                      <dt>
-                        <Icon size={16} aria-hidden="true" />
-                        {term}
-                      </dt>
-                      <dd>{text}</dd>
-                    </div>
-                  ))}
-                </dl>
-                <AgentCheck />
-              </>
-            )
-          }
-        />
+        {!hasWorkspaces && (
+          <>
+            <dl className="home-concepts">
+              {CONCEPTS.map(({ icon: Icon, term, text }) => (
+                <div key={term} className="home-concept">
+                  <dt>
+                    <Icon size={16} aria-hidden="true" />
+                    {term}
+                  </dt>
+                  <dd>{text}</dd>
+                </div>
+              ))}
+            </dl>
+            <AgentCheck />
+          </>
+        )}
+        {/* The same dialog the rail's ＋, ⌘N and the palette open: where the
+            workspace runs, its name, then its folders. */}
+        <div className="home-setup-start">
+          <button type="button" className="home-view-button" onClick={openNewWorkspaceDialog}>
+            <Plus size={18} aria-hidden="true" />
+            <span>New workspace</span>
+          </button>
+          <p className="home-view-shortcut">
+            <kbd>{isMac ? '⌘' : 'Ctrl'}</kbd>
+            <kbd>N</kbd> also works.
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -147,144 +150,5 @@ function AgentCheck() {
         </span>
       )}
     </div>
-  );
-}
-
-/**
- * Pick folders, review them as scopes, name the workspace, create it.
- *
- * Reviewing before creating is the point: it is the one moment a new user
- * sees that a workspace can hold several folders, and that each becomes a
- * scope. The quick door (the rail's ＋, ⌘N) skips straight to creation.
- *
- * The intro gives way once folders are picked: by then the scope list says
- * the same thing concretely, and the form needs the room.
- */
-function WorkspaceSetup({ intro }: { intro: ReactNode }) {
-  const [folders, setFolders] = useState<FolderInfo[]>([]);
-  const [name, setName] = useState('');
-  const [isCreating, setIsCreating] = useState(false);
-  const [error, setError] = useState('');
-
-  const addFolders = async () => {
-    const picked = await dialogBridge.selectFolders();
-    if (!picked.length) return;
-    setError('');
-    const next = [
-      ...folders,
-      ...picked.filter((folder) => !folders.some((existing) => existing.path === folder.path)),
-    ];
-    setFolders(next);
-    if (!name.trim()) setName(next[0].name);
-  };
-
-  // The suggested name follows the first folder until someone types their own.
-  const removeFolder = (path: string) => {
-    const next = folders.filter((folder) => folder.path !== path);
-    if (name === folders[0]?.name) setName(next[0]?.name ?? '');
-    setFolders(next);
-  };
-
-  const create = async () => {
-    if (!folders.length || isCreating) return;
-    setIsCreating(true);
-    setError('');
-    try {
-      await createWorkspaceFromFolders(folders, name);
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason));
-      setIsCreating(false);
-    }
-  };
-
-  if (!folders.length) {
-    return (
-      <>
-        {intro}
-        <div className="home-setup-start">
-          <button type="button" className="home-view-button" onClick={() => void addFolders()}>
-            <FolderPlus size={18} />
-            <span>Choose project folders</span>
-          </button>
-          <p className="home-view-shortcut">
-            Choose one or more. Each folder becomes a scope. <kbd>{isMac ? '⌘' : 'Ctrl'}</kbd>
-            <kbd>N</kbd> also works.
-          </p>
-        </div>
-      </>
-    );
-  }
-
-  return (
-    <form
-      className="home-setup"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void create();
-      }}
-    >
-      <label className="home-setup-label" htmlFor="home-workspace-name">
-        Workspace name
-      </label>
-      <input
-        id="home-workspace-name"
-        className="home-setup-input"
-        value={name}
-        onChange={(event) => setName(event.target.value)}
-        placeholder="e.g. Checkout redesign"
-        disabled={isCreating}
-        autoFocus
-      />
-      <div className="home-setup-label" id="home-scopes-label">
-        Scopes
-      </div>
-      <ul className="home-setup-scopes" aria-labelledby="home-scopes-label">
-        {folders.map((folder) => (
-          <li key={folder.path} className="home-setup-scope">
-            {folder.isGitRepo ? (
-              <GitBranch size={14} aria-label="Git repository" />
-            ) : (
-              <Folder size={14} aria-label="Folder" />
-            )}
-            <span className="home-setup-scope-text">
-              <span>{folder.name}</span>
-              <small title={folder.path}>{folder.path}</small>
-            </span>
-            <button
-              type="button"
-              className="home-setup-remove"
-              aria-label={`Remove ${folder.name}`}
-              onClick={() => removeFolder(folder.path)}
-              disabled={isCreating}
-            >
-              <X size={14} />
-            </button>
-          </li>
-        ))}
-      </ul>
-      <button
-        type="button"
-        className="home-link-button home-setup-add"
-        onClick={() => void addFolders()}
-        disabled={isCreating}
-      >
-        <FolderPlus size={14} /> Add another folder
-      </button>
-      <p className="home-setup-hint">
-        You can add, rename and remove scopes later in workspace settings.
-      </p>
-      {error && (
-        <p className="home-setup-error" role="alert">
-          {error}
-        </p>
-      )}
-      <button
-        type="submit"
-        className="home-view-button home-setup-submit"
-        disabled={isCreating || !name.trim()}
-      >
-        {isCreating ? 'Creating…' : 'Create workspace'}
-      </button>
-    </form>
   );
 }

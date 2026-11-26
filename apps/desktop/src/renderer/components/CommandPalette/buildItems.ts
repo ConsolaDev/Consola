@@ -38,8 +38,7 @@ import {
   TERMINAL_FONT_SIZE_MAX,
   TERMINAL_FONT_SIZE_MIN,
 } from '../../stores/settingsStore';
-import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { dialogBridge } from '../../services/dialogBridge';
+import { openNewWorkspaceDialog } from '../../stores/newWorkspaceDialogStore';
 import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browserActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor } from '../../utils/sessionStatus';
@@ -199,14 +198,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     id: 'action.workspace.add',
     label: 'Add workspace…',
     icon: FolderPlus,
-    run: async () => {
-      const folder = await dialogBridge.selectFolder();
-      if (!folder) return;
-      const workspace = await useWorkspaceStore
-        .getState()
-        .createWorkspace(folder.name, folder.path, folder.isGitRepo);
-      await useNavigationStore.getState().setActiveWorkspace(workspace.id);
-    },
+    run: openNewWorkspaceDialog,
   });
 
   if (ctx.allSessions.length > 0) {

@@ -37,16 +37,43 @@ test('first run explains the model and creates a multi-scope workspace', async (
     }
     await page.screenshot({ path: 'test-results/onboarding-welcome.png' });
 
-    await stubFolderDialog(app, [web, api]);
-    await page.getByRole('button', { name: 'Choose project folders' }).click();
-    const name = page.getByLabel('Workspace name');
-    await expect(name).toHaveValue('web');
-    const scopes = page.getByRole('list', { name: 'Scopes' });
-    await expect(scopes.getByRole('listitem')).toHaveCount(2);
-    await name.fill('Checkout');
-    await page.screenshot({ path: 'test-results/onboarding-setup.png' });
-    await page.getByRole('button', { name: 'Create workspace' }).click();
+    await page.getByRole('button', { name: 'New workspace', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New workspace' });
+    const next = dialog.getByRole('button', { name: 'Next' });
 
+    // Where it runs: local is chosen, and cloud is shown but cannot be picked yet.
+    await expect(
+      dialog.getByRole('heading', { name: 'Where will this workspace run?' }),
+    ).toBeVisible();
+    await expect(dialog.getByRole('radio', { name: /^Local/ })).toBeChecked();
+    await expect(dialog.getByRole('radio', { name: /^Cloud/ })).toBeDisabled();
+    await expect(dialog.getByText('Coming soon')).toBeVisible();
+    await page.screenshot({ path: 'test-results/onboarding-location.png' });
+    await next.click();
+
+    // Its name: typed straight away, and Enter moves on once there is one.
+    const name = dialog.getByLabel('Workspace name');
+    await expect(name).toBeFocused();
+    await expect(next).toBeDisabled();
+    await name.fill('Checkout');
+    await page.keyboard.press('Enter');
+
+    // Its folders: each one picked becomes a scope.
+    await expect(dialog.getByRole('button', { name: 'Create workspace' })).toBeDisabled();
+    await stubFolderDialog(app, [web, api]);
+    await dialog.getByRole('button', { name: /Choose folders/ }).click();
+    const scopes = dialog.getByRole('list', { name: 'Scopes' });
+    await expect(scopes.getByRole('listitem')).toHaveCount(2);
+
+    // Going back keeps every answer.
+    await dialog.getByRole('button', { name: 'Back' }).click();
+    await expect(name).toHaveValue('Checkout');
+    await next.click();
+    await expect(scopes.getByRole('listitem')).toHaveCount(2);
+    await page.screenshot({ path: 'test-results/onboarding-setup.png' });
+    await dialog.getByRole('button', { name: 'Create workspace' }).click();
+
+    await expect(dialog).toHaveCount(0);
     await expect(page.locator('.workspace-empty-heading')).toContainText('Checkout');
     const created = await page.evaluate(
       async () => (await window.workspaceAPI.getSnapshot()).workspaces[0],
@@ -95,13 +122,34 @@ test('first run explains the model and creates a multi-scope workspace', async (
   }
 });
 
-test('⌘N with no workspace open starts one from the folder picker', async () => {
+test('⌘N with no workspace open opens the New workspace dialog, fresh each time', async () => {
   const { web } = makeFolders();
   const { app, page } = await launchElectron();
+  const newChord = process.platform === 'darwin' ? 'Meta+KeyN' : 'Control+KeyN';
   try {
     await expect(page.getByRole('heading', { name: 'Welcome to Consola' })).toBeVisible();
+    const dialog = page.getByRole('dialog', { name: 'New workspace' });
+    const name = dialog.getByLabel('Workspace name');
+
+    // Escape leaves nothing behind: no workspace, and no half-typed name.
+    await page.keyboard.press(newChord);
+    await dialog.getByRole('button', { name: 'Next' }).click();
+    await name.fill('Abandoned');
+    await page.keyboard.press('Escape');
+    await expect(dialog).toHaveCount(0);
+    expect(
+      await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces),
+    ).toHaveLength(0);
+
+    await page.keyboard.press(newChord);
+    await expect(dialog.getByRole('radio', { name: /^Local/ })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(name).toHaveValue('');
+    await name.fill('web');
+    await page.keyboard.press('Enter');
     await stubFolderDialog(app, [web]);
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+KeyN' : 'Control+KeyN');
+    await dialog.getByRole('button', { name: /Choose folders/ }).click();
+    await dialog.getByRole('button', { name: 'Create workspace' }).click();
     await expect(page.locator('.workspace-empty-heading')).toContainText('web');
   } finally {
     await app.close();

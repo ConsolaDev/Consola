@@ -1,0 +1,771 @@
+/*
+ * The New workspace dialog: questions on the left, the app as it will look on
+ * the right. Its controls speak the New session dialog's vocabulary (44px
+ * fields on the same blended surface, 8-10px radii, accent only for what is
+ * chosen), so the two read as one family.
+ */
+.new-workspace-dialog.dialog-content {
+  --nw-field-bg: color-mix(in oklch, var(--color-bg-secondary) 85%, var(--color-bg-primary));
+  --nw-gutter: 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 404px);
+  width: calc(100vw - 40px);
+  max-width: 880px;
+  height: min(560px, calc(100vh - 40px));
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 14px;
+  background: var(--color-bg-secondary);
+  box-shadow: 0 32px 80px -24px rgba(0, 0, 0, 0.55);
+}
+[data-theme="light"] .new-workspace-dialog.dialog-content {
+  box-shadow: 0 32px 80px -24px rgba(17, 17, 17, 0.28);
+}
+
+/* --- the questions ------------------------------------------------------ */
+
+.nw-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 40px var(--nw-gutter) 32px;
+  overflow-y: auto;
+}
+
+.nw-progress {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 30px;
+}
+.nw-progress > span {
+  width: 22px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--color-border-strong);
+  transition: background 240ms var(--ease-out-quart);
+}
+.nw-progress > span[data-state="done"] {
+  background: var(--color-text-secondary);
+}
+.nw-progress > span[data-state="current"] {
+  background: var(--color-text-primary);
+}
+
+.nw-step {
+  display: flex;
+  flex-direction: column;
+  animation: nw-step-forward 260ms var(--ease-out-quart) both;
+}
+.nw-step[data-direction="back"] {
+  animation-name: nw-step-back;
+}
+@keyframes nw-step-forward {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+@keyframes nw-step-back {
+  from {
+    opacity: 0;
+    transform: translateX(-14px);
+  }
+}
+
+.nw-title {
+  margin: 0 0 10px;
+  font-size: 24px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  letter-spacing: -0.4px;
+  color: var(--color-text-primary);
+  text-wrap: balance;
+}
+.nw-lede {
+  max-width: 44ch;
+  margin: 0 0 28px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+  text-wrap: pretty;
+}
+
+/* Where it runs. A whole row is the target; the radio inside is for keys. */
+.nw-locations {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.nw-location {
+  position: relative;
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px 14px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--nw-field-bg);
+  cursor: pointer;
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out;
+}
+.nw-location:not([data-disabled]):not([data-checked]):hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-tertiary);
+}
+.nw-location[data-checked] {
+  --nw-location-bg: color-mix(in oklch, var(--color-accent) 7%, var(--color-bg-secondary));
+  border-color: var(--color-accent);
+  background: var(--nw-location-bg);
+}
+.nw-location:has(.nw-location-input:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+/* Not yet: a dashed outline says "coming", and the words stay readable. */
+.nw-location[data-disabled] {
+  border-style: dashed;
+  background: transparent;
+  cursor: default;
+}
+.nw-location-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.nw-location-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  transition:
+    background 160ms ease-out,
+    color 160ms ease-out;
+}
+.nw-location[data-checked] .nw-location-icon {
+  background: color-mix(in oklch, var(--color-accent) 16%, transparent);
+  color: var(--color-accent);
+}
+.nw-location[data-disabled] .nw-location-icon {
+  background: transparent;
+  color: var(--color-text-tertiary);
+}
+.nw-location-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.nw-location-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+.nw-location-detail {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+  text-wrap: pretty;
+}
+.nw-location[data-disabled] .nw-location-name {
+  color: var(--color-text-secondary);
+}
+.nw-location[data-disabled] .nw-location-detail {
+  color: var(--color-text-tertiary);
+}
+.nw-location-mark {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--color-border-hover);
+  border-radius: 50%;
+  transition:
+    border-color 160ms ease-out,
+    box-shadow 160ms var(--ease-out-quart);
+}
+.nw-location[data-checked] .nw-location-mark {
+  border-color: var(--color-accent);
+  box-shadow:
+    inset 0 0 0 3.5px var(--nw-location-bg),
+    inset 0 0 0 8px var(--color-accent);
+}
+.nw-location[data-disabled] .nw-location-mark {
+  visibility: hidden;
+}
+/* A literal radius: --radius-full is 0px wherever Radix Themes reaches. */
+.nw-badge {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  line-height: 16px;
+  color: var(--color-text-secondary);
+}
+
+/* Name */
+.nw-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--nw-field-bg);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 15px;
+  outline: none;
+  transition:
+    border-color 160ms ease-out,
+    box-shadow 160ms ease-out;
+}
+.nw-input:hover {
+  border-color: var(--color-border-hover);
+}
+.nw-input:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+.nw-input::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* Folders, before there are any: one wide target that opens the picker. */
+.nw-drop {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 18px 16px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 160ms ease-out,
+    border-color 160ms ease-out,
+    color 160ms ease-out;
+}
+.nw-drop:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  background: color-mix(in oklch, var(--color-accent) 6%, transparent);
+  color: var(--color-accent);
+}
+.nw-drop-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.nw-drop-title {
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+.nw-drop-hint {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.nw-folders {
+  max-height: 188px;
+  margin: 0 0 12px;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--nw-field-bg);
+}
+.nw-folder {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 10px 9px 14px;
+  color: var(--color-text-tertiary);
+  animation: nw-row-in 240ms var(--ease-out-quart) both;
+}
+.nw-folder + .nw-folder {
+  border-top: 1px solid var(--color-border);
+}
+@keyframes nw-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.nw-folder-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.nw-folder-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+.nw-folder-text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+.nw-folder-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.nw-folder-remove:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.nw-add {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  gap: 6px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+}
+.nw-add:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.nw-error {
+  margin: 16px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-error);
+  overflow-wrap: anywhere;
+}
+
+/* Next stays put from step to step; Back appears beside it, quietly. */
+.nw-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: auto;
+  padding-top: 28px;
+}
+.nw-next.dialog-button-primary {
+  min-height: 36px;
+  padding-inline: 16px;
+  border-radius: 7px;
+  font-size: 13px;
+  color: var(--color-accent-text);
+  gap: 8px;
+  transition:
+    background 160ms ease-out,
+    opacity 160ms ease-out;
+}
+.nw-next:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.nw-next:disabled:hover {
+  background: var(--color-accent);
+}
+.nw-next-arrow {
+  transition: transform 160ms var(--ease-out-quart);
+}
+.nw-next:hover:not(:disabled) .nw-next-arrow {
+  transform: translateX(2px);
+}
+.nw-back {
+  padding: 8px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: color 160ms ease-out;
+}
+.nw-back:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+.nw-back:disabled,
+.nw-add:disabled,
+.nw-drop:disabled,
+.nw-folder-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.nw-next:focus-visible,
+.nw-back:focus-visible,
+.nw-drop:focus-visible,
+.nw-add:focus-visible,
+.nw-folder-remove:focus-visible,
+.nw-close:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.nw-close.dialog-close {
+  top: 14px;
+  right: 14px;
+  z-index: 1;
+  color: var(--color-text-secondary);
+}
+
+/* --- the preview -------------------------------------------------------- */
+
+.nw-preview {
+  position: relative;
+  overflow: hidden;
+  border-left: 1px solid var(--color-border);
+  background:
+    radial-gradient(
+      90% 70% at 100% 100%,
+      color-mix(in oklch, var(--color-accent) 13%, transparent),
+      transparent 72%
+    ),
+    color-mix(in oklch, var(--color-bg-secondary) 55%, var(--color-bg-primary));
+}
+
+/*
+ * The app at a glance, cropped by the dialog's edge the way a window sits
+ * behind another. Same surfaces as the real one: the rail and the content on
+ * the background, the title bar and the sidebar on the sidebar's surface.
+ */
+.nw-app {
+  position: absolute;
+  top: 84px;
+  left: 40px;
+  display: grid;
+  grid-template-columns: 44px 156px 360px;
+  grid-template-rows: 26px 1fr;
+  grid-template-areas:
+    "title title   title"
+    "rail  sidebar content";
+  height: 520px;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
+  box-shadow: 0 30px 60px -24px rgba(0, 0, 0, 0.6);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  pointer-events: none;
+  user-select: none;
+  animation: nw-app-in 520ms var(--ease-out-expo) 80ms both;
+}
+[data-theme="light"] .nw-app {
+  box-shadow: 0 30px 60px -24px rgba(17, 17, 17, 0.25);
+}
+@keyframes nw-app-in {
+  from {
+    opacity: 0;
+    transform: translate(18px, 18px);
+  }
+}
+
+/* What the current question changes, lit softly. */
+.nw-app [data-focus] {
+  background: color-mix(in oklch, var(--color-accent) 11%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 40%, transparent);
+}
+/* The light accent is brighter, so the same mix reads twice as loud there. */
+[data-theme="light"] .nw-app [data-focus] {
+  background: color-mix(in oklch, var(--color-accent) 7%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in oklch, var(--color-accent) 32%, transparent);
+}
+.nw-app-menu,
+.nw-app-rail-current,
+.nw-app-scopes {
+  transition:
+    background 240ms var(--ease-out-quart),
+    box-shadow 240ms var(--ease-out-quart);
+}
+
+.nw-app-titlebar {
+  grid-area: title;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+.nw-app-lights {
+  display: flex;
+  gap: 5px;
+}
+.nw-app-lights > i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-border-strong);
+}
+.nw-app-menu {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 190px;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-weight: var(--font-weight-semibold);
+}
+.nw-app-menu-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nw-app-menu-name[data-empty],
+.nw-app-title[data-empty] {
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-medium);
+}
+
+.nw-app-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 0;
+  border-right: 1px solid var(--color-border);
+}
+.nw-app-rail-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  opacity: 0.5;
+}
+.nw-app-rail-current {
+  opacity: 1;
+  animation: nw-rail-in 420ms var(--ease-out-expo) 260ms both;
+}
+.nw-app-rail-current::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: -9px;
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--color-text-primary);
+}
+@keyframes nw-rail-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+.nw-app-icon-empty {
+  display: block;
+  width: 22px;
+  height: 22px;
+  border: 1px dashed var(--color-border-hover);
+  border-radius: 6px;
+}
+.nw-app-icon-empty-sm {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+}
+.nw-app-rail-add {
+  margin-top: 1px;
+  color: var(--color-text-tertiary);
+}
+
+.nw-app-sidebar {
+  grid-area: sidebar;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+.nw-app-search {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+}
+.nw-app-nav {
+  display: flex;
+  gap: 2px;
+}
+.nw-app-nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: var(--color-text-secondary);
+}
+.nw-app-nav-active {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.nw-app-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 3px 6px;
+  border-radius: 5px;
+  color: var(--color-text-secondary);
+}
+.nw-app-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nw-app-divider {
+  width: 100%;
+  margin: 2px 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+.nw-app-scopes {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 0;
+  border-radius: 6px;
+}
+.nw-app-heading {
+  padding: 2px 6px 4px;
+  font-size: 9px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.nw-app-scope {
+  color: var(--color-text-primary);
+  animation: nw-row-in 240ms var(--ease-out-quart) both;
+}
+.nw-app-scope > svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+.nw-app-ghost {
+  display: block;
+  width: 72%;
+  height: 7px;
+  margin: 6px 6px 4px;
+  border-radius: 3px;
+  background: var(--color-bg-hover);
+}
+.nw-app-ghost-short {
+  width: 48%;
+}
+
+.nw-app-content {
+  grid-area: content;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px 22px;
+}
+.nw-app-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: -0.2px;
+}
+.nw-app-composer {
+  display: flex;
+  align-items: flex-start;
+  height: 58px;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-tertiary);
+}
+
+/* Narrow windows: the questions alone. The picture only repeats them. */
+@media (max-width: 760px) {
+  .new-workspace-dialog.dialog-content {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 520px;
+    height: auto;
+    max-height: calc(100vh - 40px);
+  }
+  .nw-preview {
+    display: none;
+  }
+  .nw-form {
+    --nw-gutter: 28px;
+    padding-top: 32px;
+  }
+  .nw-actions {
+    margin-top: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nw-step,
+  .nw-folder,
+  .nw-app,
+  .nw-app-rail-current,
+  .nw-app-scope {
+    animation: none;
+  }
+  .nw-progress > span,
+  .nw-location,
+  .nw-location-icon,
+  .nw-location-mark,
+  .nw-next-arrow,
+  .nw-app-menu,
+  .nw-app-rail-current,
+  .nw-app-scopes {
+    transition: none;
+  }
+  .nw-next:hover:not(:disabled) .nw-next-arrow {
+    transform: none;
+  }
+}

@@ -363,11 +363,18 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     });
     await page.mouse.move(500, 400);
 
-    // Drive the + button through the real folder-selection and creation flow.
+    // Drive the + button through the New workspace dialog and the real folder picker.
     await app.evaluate(({ dialog }, folder) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
     }, addedFolder);
     await rail.getByRole('button', { name: 'Add workspace', exact: true }).click();
+    const setup = page.getByRole('dialog', { name: 'New workspace' });
+    await setup.getByRole('button', { name: 'Next' }).click();
+    await setup.getByLabel('Workspace name').fill(addedName);
+    await setup.getByRole('button', { name: 'Next' }).click();
+    await setup.getByRole('button', { name: /Choose folders/ }).click();
+    await setup.getByRole('button', { name: 'Create workspace' }).click();
+    await expect(setup).toHaveCount(0);
     const added = rail.getByRole('button', { name: addedName, exact: true });
     await expect(added).toHaveAttribute('aria-current', 'true');
     await expect(rail.getByRole('button')).toHaveCount(4);

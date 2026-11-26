@@ -27,7 +27,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
+import { openNewWorkspaceDialog } from '../../stores/newWorkspaceDialogStore';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { isMac } from '../../utils/platform';
 import { WorkspaceIcon } from '../WorkspaceIcon';
@@ -138,7 +138,7 @@ export function WorkspaceRail() {
               className="workspace-rail-add"
               aria-label="Add workspace"
               title="Add workspace"
-              onClick={() => void pickFoldersAndCreateWorkspace()}
+              onClick={openNewWorkspaceDialog}
             >
               <Plus size={24} />
             </button>
