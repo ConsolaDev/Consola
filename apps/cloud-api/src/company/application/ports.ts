@@ -46,10 +46,6 @@ export type Clock = {
  * does not answer.
  */
 export type TeamStore = {
-  /** Whether the cell holds the workspace's copy yet: whether its `workspace.created` is applied. */
-  holdsWorkspace(workspaceId: string): Promise<boolean>;
-  /** The person's role in the workspace as the cell's copy holds it, or null when not a member. */
-  roleInCopy(workspaceId: string, personId: string): Promise<WorkspaceRole | null>;
   /** The workspace's teams: its first team first, then the others by name, whatever their case. */
   list(workspaceId: string): Promise<Team[]>;
   /** Makes a team with no members. `name-taken` when another team has the name, in any case. */
@@ -68,14 +64,10 @@ export type TeamStore = {
     teamId: string,
   ): Promise<'removed' | 'not-found' | 'first-team' | 'owns-factories'>;
   /**
-   * Makes the person a member of the team, if they are a member of the workspace in the cell's
-   * copy (`not-a-member` when not). A person already in it stays as they are.
+   * Makes the person a member of the team. A person already in it stays as they are. Whether they
+   * are a member of the workspace is the use case's to ask first (`MembershipReader`).
    */
-  addMember(
-    workspaceId: string,
-    teamId: string,
-    personId: string,
-  ): Promise<Team | 'not-found' | 'not-a-member'>;
+  addMember(workspaceId: string, teamId: string, personId: string): Promise<Team | 'not-found'>;
   /** Takes the person out of the team. Someone not in it changes nothing. */
   removeMember(workspaceId: string, teamId: string, personId: string): Promise<Team | 'not-found'>;
 };

@@ -1,11 +1,10 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { TeamStore } from '../../application/ports.js';
 import type { Team } from '../../domain/team.js';
-import type { Database } from './database.js';
+import type { Database, Transaction } from './database.js';
 import { FOREIGN_KEY_VIOLATION, failedWith, UNIQUE_VIOLATION } from './sqlState.js';
-import { teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
+import { teamMembers, teams } from './tables.js';
 
-type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
 type Executor = Database | Transaction;
 
 const isUniqueViolation = (error: unknown) => failedWith(error, UNIQUE_VIOLATION);
@@ -53,30 +52,9 @@ async function readTeam(
   return (await readTeams(db, workspaceId, teamId))[0] ?? 'not-found';
 }
 
-/** The workspace's teams on the cell's database. */
+/** The workspace's teams on company's database. */
 export function createTeamStore(db: Database): TeamStore {
   return {
-    async holdsWorkspace(workspaceId) {
-      const [row] = await db
-        .select({ workspaceId: workspaces.workspaceId })
-        .from(workspaces)
-        .where(eq(workspaces.workspaceId, workspaceId));
-      return row !== undefined;
-    },
-
-    async roleInCopy(workspaceId, personId) {
-      const [row] = await db
-        .select({ role: workspaceMembers.role })
-        .from(workspaceMembers)
-        .where(
-          and(
-            eq(workspaceMembers.workspaceId, workspaceId),
-            eq(workspaceMembers.personId, personId),
-          ),
-        );
-      return row?.role ?? null;
-    },
-
     list(workspaceId) {
       return readTeams(db, workspaceId);
     },
@@ -132,31 +110,18 @@ export function createTeamStore(db: Database): TeamStore {
       return kept ? 'first-team' : 'not-found';
     },
 
-    addMember(workspaceId, teamId, personId) {
-      return db.transaction(async (tx) => {
-        const [team] = await tx
-          .select({ id: teams.teamId })
-          .from(teams)
-          .where(inTeam(workspaceId, teamId));
-        if (!team) return 'not-found';
-        // Held until the place is written, so the member cannot leave the workspace in between.
-        const [member] = await tx
-          .select({ personId: workspaceMembers.personId })
-          .from(workspaceMembers)
-          .where(
-            and(
-              eq(workspaceMembers.workspaceId, workspaceId),
-              eq(workspaceMembers.personId, personId),
-            ),
-          )
-          .for('key share');
-        if (!member) return 'not-a-member';
-        await tx
+    async addMember(workspaceId, teamId, personId) {
+      try {
+        await db
           .insert(teamMembers)
           .values({ workspaceId, teamId, personId })
           .onConflictDoNothing();
-        return readTeam(tx, workspaceId, teamId);
-      });
+      } catch (error) {
+        // The place's foreign key names its team through both ids: no such team in the workspace.
+        if (failedWith(error, FOREIGN_KEY_VIOLATION)) return 'not-found';
+        throw error;
+      }
+      return readTeam(db, workspaceId, teamId);
     },
 
     async removeMember(workspaceId, teamId, personId) {
