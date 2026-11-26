@@ -65,6 +65,30 @@ export type FactoriesService = {
   moveFactory(workspace: { id: string }, factoryId: string, teamId: string): Promise<FactoryChange>;
 };
 
+/** What a change's answer comes to, for the statuses every change shares. */
+function changeOf(
+  answer: { data?: unknown; error?: unknown; response: Response } | CellRefusal,
+): FactoryChange {
+  if ('kind' in answer) return answer;
+  const { status } = answer.response;
+  const code = codeOf(answer.error);
+  if ((status === 200 || status === 201) && isFactory(answer.data)) {
+    return { kind: 'changed', factory: answer.data };
+  }
+  if (status === 400 && code === 'invalid_factory') {
+    const problems = (answer.error as { problems?: unknown }).problems;
+    return {
+      kind: 'invalid',
+      problems: Array.isArray(problems) ? problems.filter(isFactoryNameProblem) : [],
+    };
+  }
+  if (status === 404 && code === 'team_not_found') return { kind: 'team-not-found' };
+  if (status === 404 && code === 'factory_not_found') return { kind: 'factory-not-found' };
+  if (status === 409 && code === 'name_taken') return { kind: 'name-taken' };
+  if (status === 409 && code === 'workspace_pending') return PENDING;
+  return UNAVAILABLE;
+}
+
 /**
  * The factories service. The page uses `factoriesService`, on the page's way to its cell; a test
  * builds its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin
@@ -74,30 +98,6 @@ export function createFactoriesService(
   deps: CellDeps & { session?: CellSession } = {},
 ): FactoriesService {
   const { onCell } = deps.session ?? createCellSession(deps);
-
-  /** What a change's answer comes to, for the statuses every change shares. */
-  function changeOf(
-    answer: { data?: unknown; error?: unknown; response: Response } | CellRefusal,
-  ): FactoryChange {
-    if ('kind' in answer) return answer;
-    const { status } = answer.response;
-    const code = codeOf(answer.error);
-    if ((status === 200 || status === 201) && isFactory(answer.data)) {
-      return { kind: 'changed', factory: answer.data };
-    }
-    if (status === 400 && code === 'invalid_factory') {
-      const problems = (answer.error as { problems?: unknown }).problems;
-      return {
-        kind: 'invalid',
-        problems: Array.isArray(problems) ? problems.filter(isFactoryNameProblem) : [],
-      };
-    }
-    if (status === 404 && code === 'team_not_found') return { kind: 'team-not-found' };
-    if (status === 404 && code === 'factory_not_found') return { kind: 'factory-not-found' };
-    if (status === 409 && code === 'name_taken') return { kind: 'name-taken' };
-    if (status === 409 && code === 'workspace_pending') return PENDING;
-    return UNAVAILABLE;
-  }
 
   /** Runs a change on the cell, answering how it went, and never throwing. */
   async function change(
