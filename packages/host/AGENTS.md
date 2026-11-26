@@ -1601,24 +1601,29 @@ Then, from the repository root:
    `connected to the cell: …`.
 7. **The factory.** In the web app, Factories, make one (New factory) on your
    team: it is made blank, version 1, with no files. Its Definition page
-   (`#/factories/<id>/definition`) says "No files yet." and adds the two files
-   of `packages/factory-spec/src/fixtures/review-pull-requests/`:
-   - New file (in the empty editor, or beside the filter), type `review-pr`,
-     press Automation (the path becomes `automations/review-pr.yaml`), then
-     Enter: the empty file opens in the editor. Paste the fixture's
-     `automations/review-pr.yaml` into it.
-   - New file again, type `reviewer`, press Agent (`agents/reviewer.md`),
-     Enter, and paste the fixture's `agents/reviewer.md`.
+   (`#/factories/<id>/definition`) shows the empty `automations/`, `agents/`
+   and `skills/` folders and, where the editor would be, "No files yet." with
+   New automation, New agent and `factory.yml`. Add the two files of
+   `packages/factory-spec/src/fixtures/review-pull-requests/`:
+   - New automation: a field opens under `automations/`, between the path's
+     fixed parts (`automations/ [ ] .yaml`). Type `review-pr` and press Enter:
+     `automations/review-pr.yaml` opens in the editor holding the automation
+     skeleton (`on: manual`, one `run:` step). Select all of it and paste the
+     fixture's `automations/review-pr.yaml` over it.
+   - The `agents/` folder's + (New agent), or New agent from the + at the
+     top of the files: type `reviewer`, press Enter, and paste the fixture's
+     `agents/reviewer.md` over the agent skeleton that opens.
    - Save. It stays off while the Problems panel lists any (until the agent's
      file is there, the step's `agent: reviewer` names no agent), then says
      "Saved version 2."
 
    The automation's file must be `automations/<name>.yaml` (`.yaml`, not
-   `.yml`); `factory.yml` is optional. Reload: the Definition page shows
-   version 2 with `agents/reviewer.md` and `automations/review-pr.yaml`, and
-   no problems. Adding files is held by the web app's tests (Linear CON-136);
-   on the real stack the page has edited and saved an existing file, and has
-   not yet been used to add one.
+   `.yml`), which the page makes for you; `factory.yml` is optional. Reload:
+   the Definition page shows version 2 with `agents/reviewer.md` and
+   `automations/review-pr.yaml`, and no problems. Adding files is held by the
+   web app's tests (`factoryKinds.test.ts`, `factoryDraft.test.ts`; Linear
+   CON-133); on the real stack the page has edited and saved an existing
+   file, and has not yet been used to add one.
 8. **The event.** Open a pull request on the test repository. The API logs
    `Passed GitHub delivery <id> (pull_request) on to workspace <id>'s cell
    (eu).`; the runner logs `event <id> (pull_request.opened): 1 run recorded`.
