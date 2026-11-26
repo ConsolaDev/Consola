@@ -58,7 +58,9 @@ export function cloudSessionRoutes(
     }
   });
 
-  app.openapi(behindCaller(caller, listCloudSessions), async (c) => c.json(await listSessions(ports, c.var.caller), 200));
+  app.openapi(behindCaller(caller, listCloudSessions), async (c) =>
+    c.json(await listSessions(ports, c.var.caller), 200),
+  );
 
   app.openapi(behindCaller(caller, getCloudSession), async (c) => {
     const answer = await getSession(ports, c.var.caller, c.req.valid('param').sessionId);

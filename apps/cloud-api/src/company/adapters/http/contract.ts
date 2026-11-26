@@ -94,12 +94,10 @@ export const Team = z
       description:
         "Whether it is the workspace's first team, which every new member joins and which is never deleted.",
     }),
-    memberIds: z
-      .array(z.string())
-      .openapi({
-        description:
-          'Its members’ ids, in the order they joined it: only people who are members of the workspace now.',
-      }),
+    memberIds: z.array(z.string()).openapi({
+      description:
+        'Its members’ ids, in the order they joined it: only people who are members of the workspace now.',
+    }),
   })
   .openapi('Team');
 
