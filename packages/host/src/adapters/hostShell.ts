@@ -94,7 +94,7 @@ export const subscribeHostShell = (
     Effect.forEach(coalesceShellApplicationEvents(events), (stored) =>
       'aggregateKind' in stored
         ? Effect.succeed([])
-        : Effect.map(runtime.shell.thread, (shell) => [
+        : Effect.map(runtime.shell.row(stored.event.threadId), (shell) => [
             shellStreamItemFromThreadShell({ stored, shell }),
           ]),
     ).pipe(Effect.map((items) => items.flat()));
@@ -104,7 +104,7 @@ export const subscribeHostShell = (
   // live tail buffered by t3's budget.
   const liveFrom = (afterSequence: number) =>
     bufferShellLiveStream(
-      runtime.events(afterSequence).pipe(
+      runtime.shell.events(afterSequence).pipe(
         Stream.map(toShellApplicationEvent),
         Stream.groupedWithin(SHELL_BATCH_SIZE, SHELL_BATCH_WINDOW),
         Stream.mapEffect((events) => threadItems(Array.from(events))),

@@ -35,8 +35,8 @@ The app is built in layers, and imports point inward only.
   `messageParts`) and the check that finds it as the person edits
   (`factoryCheck.ts`, factory-spec's parser: see "Factories"), a person's
   changes over a version (`factoryDraft.ts`: `FactoryDraft`, `draftOf`,
-  `withEdit`, `withFileAdded`, `withRenamed`, `withSkillRenamed`,
-  `withRemoved`, `withSkillRemoved`, `withRestored`, `discarded`, `filesOf`,
+  `withEdit`, `withFileAdded`, `withFiles` (a template's files),
+  `withRenamed`, `withSkillRenamed`, `withRemoved`, `withSkillRemoved`, `withRestored`, `discarded`, `filesOf`,
   `fileMarks`, `changeSummary`, `pathMoves`, `broughtIn`, `afterSave`), the
   kinds of file a factory holds, their names and skeletons
   (`factoryKinds.ts`: `NAME_RULE`, `pathFor`, `skeletonFor`, `checkNaming`,
@@ -54,7 +54,9 @@ The app is built in layers, and imports point inward only.
   sentences (`runMessages.ts`; see "Runs"); cloud sessions
   (`cloudSession.ts`: the contract's session types, `sessionLabel`,
   `pollIntervalMs`, `listPollIntervalMs`, `chatMounted`, `shouldRenewPass`,
-  `keepsShownOn`, `sessionScreen` and the answers), where the section is
+  `keepsShownOn`, `sessionScreen`, an agent run's reading, `isAgentRun`,
+  `agentRunPhase`, `pullRequestLabel`, `pullRequestUrl`, `shortSha`, and the
+  answers), where the section is
   (`sessionsRoute.ts`) and their sentences (`cloudSessionMessages.ts`; see
   "Sessions"); where the
   running source is (`source.ts`); and how the address names a dashboard
@@ -95,8 +97,11 @@ The app is built in layers, and imports point inward only.
   of sections `sections.tsx` with each section's page, such as
   `OverviewPage.tsx` with `RegionMap` and `CopySlug`, `RunsSection.tsx`
   with the list and a run's page (see "Runs"), and `SessionsSection.tsx` with
-  `SessionsList`, `NewSessionPage` and `SessionPage`, whose chat,
-  `SessionChat`, loads only for a running session (see "Sessions"), and its
+  `SessionsList`, `NewSessionPage` and `SessionPage`, which holds its session
+  through `useCloudSession` and shows it with `SessionConversation`, whose
+  chat, `SessionChat`, loads only for a running session, and whose agent run
+  shows `AgentRunReport` (see "Sessions"; a run's Conversation tab holds an
+  agent run's session the same way), and its
   Factories group
   `FactoriesNav.tsx` with `FactoryTile`, `useFactories`, `NewFactoryDialog`
   and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage` (its
@@ -290,17 +295,19 @@ desktop app draws its sidebar.
   (`factoryLayout`) and loads only when it opens (`React.lazy`), since it
   carries the editor. A bar (the factory, "Version N, saved <when>", "by
   you" when it was the person, `savedWords`; what Save will do,
-  `changeLine`; Discard and Save), the banner until it is hidden for good in
-  this browser, then the files beside the editor:
+  `changeLine`; Add a template, Discard and Save), the banner until it is
+  hidden for good in this browser, then the files beside the editor:
   - **The files** (`FactoryFileTree`) as the folder holds them
     (`fileGroups`): `factory.yml`, then `automations/`, `agents/` and
     `skills/`, which always show, empty or not, a skill's files under the
     skill. A filter by path (`/` puts the keyboard there) hides the folders
     with no match. A file the person changed has a dot, one the saved
     version lacks "new", one renamed "renamed" with its old path in the
-    title; its own problems a red count. A factory with no files shows its
-    empty folders, and offers New automation, New agent and `factory.yml`
-    where the editor would be.
+    title; its own problems a red count. A file in a folder of its folder
+    (`orchestrator/agent.md` under `agents`, an agent team's layout) sets that
+    inner folder quieter, and it gives way first when the row is narrow. A
+    factory with no files shows its empty folders, and offers New automation, New agent, `factory.yml` and
+    Add a template where the editor would be.
   - **New by kind, never by path** (`factoryKinds.ts`). The + at the tree's
     top offers New automation, New agent, New skill, and `factory.yml` while
     there is none; each format folder's + makes its kind, a skill's + a file
@@ -334,7 +341,11 @@ desktop app draws its sidebar.
     colours; its look is an `EditorView.theme` on the app's tokens.
   - **Problems as the person types.** `factoryCheck.ts` runs factory-spec's
     `parseFactory` over the set as the cell reads it (`storedFactoryFiles`),
-    shortly after typing stops. It is loaded with `import()` once the page
+    shortly after typing stops. A set holding an agent team (`hasAgentTeam`)
+    is checked as the cell's `checkFactoryFiles` checks it, a rule kept in
+    step by hand: the team's trees (`agents/<n>/…`, `automations/<n>/…`) are
+    left out of that parse, and `parseAgentTeam`'s issues, each on its file,
+    join the problems. It is loaded with `import()` once the page
     opens: it carries YAML and zod. factory-spec is built as CommonJS, so
     `vite.config.ts` has the dev server pre-bundle it and the build convert
     it (`COMMONJS_LINKED`). A problem shows in the panel under the
@@ -360,6 +371,14 @@ desktop app draws its sidebar.
     save is on its way is kept (`afterSave`), and what it removed leaves
     "Removed on save". Discard returns to the saved version: new files go,
     removed ones come back, renames are undone.
+  - **Add a template**, in the bar (and in a factory with no files), reads
+    `GET /api/factory-templates` as it opens and lists each template (the
+    code review team, an agent team) with Add, which merges its files into
+    the draft (`withFiles`): a file at the same path takes the template's
+    text, a path the draft lacks is a new file, and one the person removed
+    stays under "Removed on save". A strip says how many were added,
+    replaced and left alone (`templateAddedLine`). Nothing is saved until
+    Save; Discard drops them with every other change.
   - **Unsaved edits** stay in the page's memory per workspace and factory
     while the person moves around the dashboard (`factoryDrafts.ts`), with a
     dot on the sidebar's Factory definition row; closing or reloading the tab
@@ -494,13 +513,19 @@ the factory's orchestrator; the automations it starts are its children.
   Conversation, first and shown unless the address says otherwise, and
   Automations with their count. Choosing one, or opening an automation,
   replaces the address's entry (`showRunPlace`).
-- **The conversation comes later.** The Conversation tab is where `AgentChat`
-  (`@consola/agent-ui`) will mount once requests run in cloud sessions, as a
-  cloud session's page mounts it already (see "Sessions"). Until then
-  (`conversation === null`) it shows the request as the person gave it and
-  says what will join it. An
-  open question's words are not in the cell, so the page says when it was
-  asked and its deadline.
+- **A request's conversation is its cloud session's, once it has one.** An
+  agent run is a request whose `conversation` names its session (see
+  "Sessions", "Agent runs"): its Conversation tab holds that session as the
+  session's page does (`useCloudSession` and `SessionConversation`, shared by
+  both), the chat, `AgentChat` (`@consola/agent-ui`), in a frame of its own
+  while the session runs (`.run-session[data-running]`), the chat holding the
+  request as its first message, and the runner's report of the agents it
+  dispatched above it; once the session has ended, the request as it was
+  sent, the session's words and that report. A request no person started
+  says who handed it over by its trigger ("Event"). Any other request
+  (`conversation === null`) shows the request as the person gave it and says
+  what will join it. An open question's words are not in the cell, so the
+  page says when it was asked and its deadline.
 - **The automations a request started** (`ui/RequestAutomations.tsx`, the
   Automations tab): `RunDetail.children` in the order the orchestrator
   started them, numbered so, each a row of its status, its automation, where
@@ -535,12 +560,13 @@ cell's database.
 ## Sessions
 
 The Sessions section (`#/sessions`, `ui/SessionsSection.tsx`, a `wide` entry
-of `SECTIONS` after Runs) shows the person's cloud sessions: each a sandbox
-the workspace's runner runs for them, with an agent CLI working in one of the
+of `SECTIONS` after Runs) shows the person's own cloud sessions: each a
+sandbox the workspace's runner runs, with an agent CLI working in one of the
 runner's repositories (`apps/cloud-region/AGENTS.md`, "Cloud sessions"). It
 reaches the cell through `cloudSessionsService` (`services/cloudSessions.ts`)
-on the page's cell session, as Runs does, and the cell decides everything: a
-person sees only their own sessions, and every status is the cell's.
+on the page's cell session, as Runs does, and the cell decides everything: the
+list holds a person's own sessions, every member opens an agent run's by its
+id, and every status is the cell's.
 
 - **The address holds the place** (`sessionsRoute.ts`): the list is
   `#/sessions`, the form `#/sessions/new`, a session `#/sessions/<id>` (the
@@ -568,7 +594,8 @@ person sees only their own sessions, and every status is the cell's.
   pushed to a branch are lost, read again every 10 s. Stopped or failed: the
   words, with no chat and so no composer, and no more reads. A failure says
   the runner's message as it came, or the sentence for the cell's code
-  (`runner_restarted`, `runner_unreachable`, `runner_failed`), never a code.
+  (`runner_restarted`, `runner_unreachable`, `runner_failed`, and an agent
+  run's four: see "Agent runs"), never a code.
 - **The chat** (`ui/SessionChat.tsx`) is `AgentChat` with its stylesheet,
   which styles nothing outside it (`packages/agent-ui/AGENTS.md`). It fills
   `.session-chat-frame`, the rest of the window under the warning, and scrolls
@@ -594,6 +621,31 @@ person sees only their own sessions, and every status is the cell's.
   session's page holds a chat with an agent that has a shell.
 - **States** are the cell's (`messageForCellRefusal`), with a session not found
   (none, or another person's: the cell says the same of both) and `no_runner`.
+
+### Agent runs
+
+An agent run is a cloud session an automation of a factory's agent team
+started on a pull request (`origin` set), which nobody types into: its first
+agent (the orchestrator) dispatches others and posts on the pull request. Every
+member opens and may stop one.
+
+- **It is in Runs, not in Sessions.** The cell lists each agent run as a run,
+  a request whose `conversation` is its session
+  (`apps/cloud-region/AGENTS.md`, "Agent runs"), so it shows in the Runs list
+  with every other run, and its run's Conversation tab holds the session (see
+  "Runs"). The Sessions list never holds one.
+- **Its session** is shown as a person's is (`useCloudSession`,
+  `SessionConversation`): `AgentRunReport` shows the runner's last report,
+  the orchestrator's result (`agentRun.summary`, as text with its line breaks
+  kept: no Markdown renderer) and each dispatched agent, folded, opening on
+  its report. While it runs that sits above the chat (at most two fifths of
+  its frame) and it is read every 5 s (`sessionPollIntervalMs`); once ended
+  it stays, alone. Opened by its own address (`#/sessions/<id>`), its session
+  page also says what it is (the automation in its factory, linking the
+  factory's definition; the pull request; the head commit's first seven
+  characters) and its phase beside its status.
+- The service reads `origin` strictly (the page links what it names) and the
+  report leniently: one it cannot read is none, and the session still shows.
 - **The chat's notices ship with the build.** Vite bundles agent-ui's built
   `dist/` (`turbo` builds it before any of this app's tasks, `dev` included),
   and `vite.config.ts` writes its `THIRD-PARTY-NOTICES` and `LICENSE` to

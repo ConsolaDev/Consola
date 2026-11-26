@@ -258,6 +258,93 @@
   color: var(--text);
 }
 
+/* "Add a template": the templates offered, a strip under the bar. */
+.definition-tools .definition-add-template {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-2);
+}
+
+.definition-templates {
+  align-items: flex-start;
+  flex-wrap: nowrap;
+}
+
+.definition-templates-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.definition-templates .definition-templates-note,
+.definition-templates .definition-templates-quiet {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.definition-templates-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.definition-template {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+}
+
+.definition-template-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.definition-templates .definition-template-name {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--text);
+  font-weight: var(--font-weight-medium);
+}
+
+.definition-template-count {
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-normal);
+}
+
+.definition-templates .definition-template-description {
+  flex: none;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.definition-templates-refused {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.definition-empty .button {
+  margin-top: 12px;
+}
+
 @keyframes definition-arrive {
   from {
     opacity: 0;
@@ -706,6 +793,24 @@
 
 .file-tree-menu .rt-BaseMenuItem {
   font-size: var(--font-size-md);
+}
+
+/* A file inside a folder of its folder (`orchestrator/agent.md`): the inner folder quieter, and the
+   one that gives way when the row is narrow. */
+.file-tree-nested-name {
+  display: flex;
+  min-width: 0;
+}
+
+.file-tree-dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+}
+
+.file-tree-base {
+  flex: none;
 }
 
 .file-tree-name mark {

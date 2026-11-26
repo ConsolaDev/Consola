@@ -173,7 +173,8 @@ say: it passes each event on to the cell of the workspace that holds its
 installation (`packages/cloud-contract`, "Passing on a GitHub event": read it
 first). What happens in a company's repositories is the company's, so it is
 kept here, in the workspace's region, for its runners and triggers (epics 21
-and 39), which read it later.
+and 39). A `pull_request` event recorded for the first time starts the agent
+runs its factories' teams fire (below, "Agent runs").
 
 - **What it keeps.** One table, `github_event`, keyed by `workspace_id` and
   GitHub's `delivery_id`: the event's name, the installation, the payload as
@@ -198,7 +199,8 @@ and 39), which read it later.
   `unreadable`), the region (421 `otherRegion`), then the record: 409
   `workspacePending` while the cell holds nothing of the workspace (its
   `workspace.created` is not applied yet), 201 when recorded now, 200 when it
-  was recorded before, and 503 when the database does not answer. Every
+  was recorded before, and 503 when the database does not answer. Starting
+  agent runs comes after the record and never changes the answer. Every
   refusal is logged in one line, with ids and the event's name, never the
   payload.
 - **Recorded once.** `GitHubEventStore.record` holds the workspace's copy row
@@ -283,8 +285,11 @@ and the routes in `adapters/http/factories.ts`.
   the same way.
 - **The files** are a factory folder's, in the format `packages/factory-spec`
   defines: `factory.yml`, `automations/<name>.yaml`, `agents/<name>.md` and
-  `skills/<name>/…`, each a path inside the folder and its text. Runners and
-  scorers have no format there yet, so the cell takes none. A file under a
+  `skills/<name>/…`, each a path inside the folder and its text. A factory may
+  also hold an agent team, in a layout of its own (`agents/<name>/agent.md`,
+  `automations/<name>/automation.md`, `skills/<name>/…`; below, "Agent
+  runs"). Runners and scorers have no format there yet, so the cell takes
+  none. A file under a
   later slice's folder (factory-spec's `LATER_FOLDERS`: `environments/`,
   `connections/`, `evals/`) is stored with factory-spec's notice that it has
   no effect yet, as the desktop's folder applies it; any other path is refused
@@ -295,7 +300,10 @@ and the routes in `adapters/http/factories.ts`.
   `FACTORY_BYTES_MAX` bytes, each path inside the folder and given once, each
   file at most factory-spec's `MAX_FACTORY_TEXT_BYTES`, with no NUL (no
   Postgres text holds one) and no lone surrogate. Then factory-spec's
-  `parseFactory` checks every file and the references across them. Any issue
+  `parseFactory` checks every file and the references across them; for a set
+  that holds a team (`hasAgentTeam`), the files in the team's own trees
+  (`agents/<name>/…`, `automations/<name>/…`) are left out of that parse, and
+  `parseAgentTeam` adds its issues, each naming its file. Any issue
   refuses the whole set: 400 `invalid_files`, with every issue in
   factory-spec's shape (`file`, `line`, `message`…). Never write a second
   schema here. factory-spec's `storedFactoryFiles` sorts the files as the
@@ -373,8 +381,9 @@ changed; every other run is a top-level automation run. The rules are in
   it can store, and no NUL or lone surrogate anywhere (`jsonb` refuses
   `\u0000` too). A record older than the one held (`updated_at`) changes
   nothing (`stale`, a compare-and-set in the upsert), and a run's factory,
-  kind and parent never change (`identity-changed`). Today the tests and the
-  seed call it; the runner's connection (CON-94) will.
+  kind and parent never change (`identity-changed`). Today the tests, the
+  seed and the cell's own agent runs call it (below, "Agent runs": the one
+  run the cell writes itself); the runner's connection (CON-94) will.
 - **Title and phase are stored**, so the list searches, filters and counts
   by them. The title (`titleOf`) is a request's item's title, else its
   text's first line; an automation run's item's title, else its
@@ -406,7 +415,9 @@ changed; every other run is a top-level automation run. The rules are in
   `limit`; `facets` are what the caller sees, whatever the filters. A run's
   page (`GET /api/runs/{runId}`) adds its steps, a request's facts and text
   and its runs in the order it started them, and a run's request.
-  `conversation` is null until cloud sessions (CON-91).
+  `conversation` names the cloud session holding a request's conversation
+  with its orchestrator (`conversation_session_id`, only on a request): an
+  agent run's session (below, "Agent runs"), else null.
 - **A step says what it was asked, did and produced**, as the desktop's
   trace does. What it did is what its runner records: the engine's
   `StepRun` fields (outputs, artifacts, turn, command, earlier attempts,
@@ -456,8 +467,15 @@ changed; every other run is a top-level automation run. The rules are in
   several runs, background runs and each member's own. Its steps print,
   exit, take turns, produce outputs and documents, retry and are refused a
   tool, as a runner's would. Ids are fixed (`demo-…`) and times counted back
-  from now, so seeding again refreshes the same runs. It refuses any
-  database but a PGlite folder (`seedRefusal`, in `config.ts`), and refuses
+  from now, so seeding again refreshes the same runs. It also installs the
+  code review team (`seedCodeReviewTeam`, `application/seedTemplates.ts`): a
+  factory `Code review team` on each workspace's first team whose latest
+  files are exactly `CODE_REVIEW_TEAM_FILES`, made when missing and saved
+  again only when they differ, after `checkFactoryFiles`, with a finished
+  agent run of it (`seedDemoAgentRun`: a stopped session holding the
+  orchestrator's report, and its run, once per workspace,
+  `demo-agent-run-<workspace>`). It refuses any database but a PGlite
+  folder (`seedRefusal`, in `config.ts`), and refuses
   while anything answers on the configuration's `PORT`, since PGlite takes
   one process per folder: stop the cell first. It is never reachable over
   HTTP.
@@ -513,19 +531,23 @@ The service is built in rings, and imports point inward only.
 - `src/domain/` holds the rules and the types they speak of, such as the
   regions (`region.ts`, which takes them from the contract), the order a
   workspace's copy applies its messages in (`workspaceCopy.ts`), teams
-  (`team.ts`), factories (`factory.ts`), runs (`run.ts`) and cloud sessions
-  (`cloudSession.ts`). It is plain TypeScript, with no I/O, and no package but
-  the shared ones (below).
+  (`team.ts`), factories (`factory.ts`) and their templates
+  (`factoryTemplates.ts`), runs (`run.ts`), cloud sessions
+  (`cloudSession.ts`) and agent runs (`agentRun.ts`). It is plain
+  TypeScript, with no I/O, and no package but the shared ones (below).
 - `src/application/` holds the use cases (`checkHealth`, `authenticate`,
   `describeMe`, `receiveDelivery`, `receiveGitHubEvent`, the teams' in
-  `teams.ts`, the factories' in `factories.ts`, the runs' in `runs.ts`,
-  `seedDemoRuns`, the cloud sessions' `sessionOptions`, `startSession`,
+  `teams.ts`, the factories' in `factories.ts` (`factoryTemplates` too), the
+  runs' in `runs.ts`, `seedDemoRuns`, `seedCodeReviewTeam`, the agent runs'
+  `startAgentRunsFor` and `startAgentRun` in `agentRuns.ts`, the cloud
+  sessions' `sessionOptions`, `startSession`,
   `listSessions`, `getSession`, `stopSession`, `applyRunnerUpdate` and
   `issuePass`, and a runner's `runnerConnected`, in `runners.ts`) and, in
   `ports.ts`, the stores, probes, the `TokenVerifier`, the
   `DeliveryVerifier`, the `WorkspaceCopies`, the `GitHubEventStore`, the
   `TeamStore`, the `FactoryStore`, the `RunStore`, the `CloudSessionStore`,
-  the `RunnerChannel`, the `PassSigner`, `Ids` and the `Clock` they need.
+  the `RunnerChannel`, the `PassSigner`, `Ids`, the `Clock` and the
+  `AgentRunPorts` they need.
   `signedPayload.ts` reads a signed delivery's JSON for both delivery use
   cases. A use case is a plain function that takes its ports first.
 - `src/adapters/` implements the ports with a library, one folder each:
@@ -622,16 +644,19 @@ copy of a workspace's members is `workspace_member`, ids and a role, never
 
 ## Cloud sessions
 
-A person's cloud session (`cloud_session`, `domain/cloudSession.ts`) is a
-sandbox a workspace's runner runs for them. The cell records it, checks that
-the connected runner offers the repository and the harness, and hands the start
-or stop to the runner through the `RunnerChannel` port.
+A cloud session (`cloud_session`, `domain/cloudSession.ts`) is a sandbox a
+workspace's runner runs for a person, or an agent run an automation started
+(below, "Agent runs"). The cell records it, checks that the connected runner
+offers the repository and the harness, and hands the start or stop to the
+runner through the `RunnerChannel` port.
 
 - **Routes** (declared in `adapters/http/contract.ts`, registered by
   `cloudSessionRoutes` in `adapters/http/cloudSessions.ts`, behind
   `requireCaller`): `GET /api/cloud-sessions/options`
   (`getCloudSessionOptions`), `POST /api/cloud-sessions` (`postCloudSession`,
-  201), `GET /api/cloud-sessions` (`listCloudSessions`, an array),
+  201), `GET /api/cloud-sessions` (`listCloudSessions`, an array: the
+  caller's own sessions, newest first; an agent run is a run, listed with
+  the runs, below "Agent runs"),
   `GET /api/cloud-sessions/{sessionId}` (`getCloudSession`),
   `POST /api/cloud-sessions/{sessionId}/stop` (`postCloudSessionStop`, 202)
   and `POST /api/cloud-sessions/{sessionId}/pass` (`postCloudSessionPass`,
@@ -642,12 +667,15 @@ or stop to the runner through the `RunnerChannel` port.
   exactly `{ repository, harness }`: the contract's strict schema checks its
   shape, and `readStartRequest` the repository's form. The options are
   registered before the session by id, so `options` is never read as an id.
-- **Whose.** A session is visible only to the person who started it, in the
-  workspace of their token: another person's, or another workspace's, is
-  `not_found`, never 403.
-- **No runner, nothing recorded.** A start is checked against the runner's
-  offer before any row is written, and before anything is sent. With no
-  runner configured, or none connected, every start is 503.
+- **Whose.** A person's session is visible only to the person who started
+  it, in the workspace of their token; an agent run, to every member of its
+  workspace, by its id (`isSeenBy`, the store's `findSeen`), though the list
+  holds a person's own alone (`listOwn`). Another person's session, or
+  another workspace's, is `not_found`, never 403.
+- **No runner, nothing recorded.** A person's start is checked against the
+  runner's offer before any row is written, and before anything is sent. With
+  no runner configured, or none connected, every start is 503. An agent run is
+  recorded either way, ended `failed` with the reason's code.
 - **Statuses** (`nextStatus`): `starting` goes to `running` or `failed`, and
   `running` to `stopped` or `failed`. An ended session never moves again, and
   an ended row ignores every update. A person's stop is the one other way to
@@ -658,11 +686,12 @@ or stop to the runner through the `RunnerChannel` port.
 - **A failure's two sources, kept apart.** `error` is the message a runner
   reported (the provider's or the start script's), shown as it came.
   `errorCode` is a code the cell decided itself (`CELL_FAILURE_CODES`:
-  `runner_restarted`, `runner_unreachable`, and `runner_failed` for a failure
-  a runner reported without a message, `runnerFailure`), which `cloud-web`
-  words. A failed row has exactly one of them, so a runner can never forge a
+  `runner_restarted`, `runner_unreachable`, `runner_failed` for a failure a
+  runner reported without a message, `runnerFailure`, and an agent run's
+  four, below), which `cloud-web` words. A failed row has exactly one of them, so a runner can never forge a
   code by naming one in its message, and the web never shows a code as text.
-- **Stop never waits for the runner.** A person can always end their session:
+- **Stop never waits for the runner.** A person can always end a session
+  they see:
   the row becomes `stopped` at once, and the runner is told only when it is the
   session's own runner and connected. A runner that is away or cannot be told
   still holds the sandbox, but the row is ended, so its `hello` finds the
@@ -677,8 +706,9 @@ or stop to the runner through the `RunnerChannel` port.
   host address is never lost to a status that moved meanwhile, and is dropped
   only once the row has ended.
 - **Passes** (`POST /api/cloud-sessions/{sessionId}/pass`, `issuePass`)
-  answer `{ pass, hostUrl, expiresAt }` for the caller's own `running`
-  session whose host has reported its address; anything else is 404
+  answer `{ pass, hostUrl, expiresAt }` for a `running` session the caller
+  sees (their own, or an agent run) whose host has reported its address;
+  anything else is 404
   `not_found`, and a cell with no pass key is 503 `no_runner`. Every answer
   the route gives is `Cache-Control: no-store` (the contract declares the
   header); the token check's answers come before it. The pass is a compact JWS, EdDSA, `typ`
@@ -689,6 +719,75 @@ or stop to the runner through the `RunnerChannel` port.
   `cloud-global`'s, and each session's host is handed the public half, as an
   SPKI PEM derived from it (`adapters/token/passSigner.ts`), in
   `session.start`.
+
+## Agent runs
+
+An experiment beside the steps design, which it leaves untouched: a software
+factory led by one agent. A factory may hold an agent team
+(`agents/<name>/agent.md`, `automations/<name>/automation.md`,
+`skills/<name>/…`), which factory-spec reads (`parseAgentTeam`). The cell's
+rules are in `domain/agentRun.ts`, the use cases in `application/agentRuns.ts`.
+
+- **What starts one.** A GitHub event the cell records for the first time
+  (`now`), and only then (`receiveGitHubEvent` calls `startAgentRunsFor`).
+  For a `pull_request` event (`pullRequestEventOf`), each of the workspace's
+  factories whose latest files hold a team with no issues starts one run per
+  automation `matchPullRequestAutomations` finds. A team with issues starts
+  nothing; any other event starts nothing. Whatever fails there is logged,
+  ids and names only, never the payload, and the event's answer stays.
+- **The row** is a `cloud_session` with no `person_id`, its `origin`
+  (`{ kind: 'automation', factoryId, factoryName, automation, agent, item:
+  { kind: 'pull_request', repository, number, url, title, headSha } }`) and
+  `agent_run`, the runner's last `AgentRunReport` (null until one), both JSON
+  as text. Every member of the workspace reads, gets a pass for and stops
+  it by its id; a person's own sessions stay theirs, and the Sessions list
+  holds those alone.
+- **It is a run.** Each agent run is a **request** of the Runs pages
+  (`agentRunRecord`, "Runs" above), since its automation hands its event to
+  an agent instead of running steps: its one step is that agent
+  (`orchestrator`, the agent's name on it), its trigger `event`
+  (`pull_request`), its item the pull request, its text what the agent was
+  sent, its conversation the session, and its id the session's. Where it
+  stands follows the session and the runner's last report: `starting` is
+  `queued`; running, the report's `working`, `waiting` (on a person, so
+  `needs-you`), `done` (`completed`, its summary the orchestrator's first line)
+  or `failed`; stopped, `completed` or `failed` by the report, else
+  `cancelled`; failed, `failed`, with the runner's message or the cell's
+  sentence for its own code. The cell writes this run itself, the one run
+  no runner records, since here the cell decides that a run starts:
+  `startAgentRun` records it with the session, and `keepingRunsInStep`, the
+  session store every writer of a session gets (`compose.ts`), records it
+  again after every change to the session that lands, from what the run
+  holds (its version, its text, when it was made). A run that cannot be
+  recorded is logged and never stops the session.
+- **The title** is the cell's, `<automation> · <owner/name>#<number> <title>`
+  on one line, at most `AGENT_RUN_TITLE_MAX` (200) characters
+  (`agentRunTitle`); a runner's `title` never replaces it. A report is kept
+  whole under the same compare-and-set as every update (`applyRunnerUpdate`).
+- **The start** is factory-spec's `planAgentRun` with `AGENT_RUN_FACTORY_DIR`,
+  `SESSION_REPOSITORY_DIR` and the row's id, plus `checkout`
+  (`refs/pull/<n>/head` at the event's head), read back with `readAgentRun`
+  (`agentRunStart`), and sent as `session.start`'s `agentRun`. The harness is
+  the first agent's, or `claude`.
+- **Failure codes.** The row is recorded `failed`, with no runner and nothing
+  sent, when no runner is connected (`runner_unavailable`), it does not offer
+  the repository (`repository_not_offered`, compared in any case) or the
+  harness (`harness_not_offered`), or the plan throws or the reader refuses it
+  (`agent_run_invalid`, the reason logged). A start the socket cannot send is
+  `runner_unreachable`, as a person's is.
+- **Templates.** `GET /api/factory-templates` (`listFactoryTemplates`)
+  answers `FACTORY_TEMPLATES` (`domain/factoryTemplates.ts`): today one,
+  `code-review-team`, factory-spec's `CODE_REVIEW_TEAM_FILES`. The web app
+  merges its files into a factory through the ordinary save; the demo seed
+  installs it too (above, "Runs").
+- **Firing a real pull request locally.** `node
+  apps/cloud-region/scripts/deliver-pull-request-event.mjs --repository
+  <owner/name> --number <n> [--action opened] [--cell-url …] [--workspace
+  <id>]` reads it with your `gh`, builds GitHub's `pull_request` body, signs
+  the message as `cloud-global` does (`CELL_TOKEN_PRIVATE_KEY` from
+  `apps/cloud-global/.env`; the workspace, region and port from this app's
+  `.env`), POSTs it with a fresh delivery id and prints the answer, never a
+  key. `--pull-request-json <file>` skips `gh`.
 
 ## The runner's socket
 
@@ -717,8 +816,8 @@ cell never has to reach it (`adapters/runner/runnerSocket.ts`). Read
   runner's socket (`closeRunnerSockets`, 1001) before the server, which
   would otherwise wait on them.
 - **Frames.** A runner's frame may be at most `RUNNER_FRAME_LIMIT_BYTES`
-  (64 KiB, ws's `maxPayload`); a larger one closes the socket with 1009
-  before it is read. A frame that is not text, not JSON or not a message
+  (the protocol's `RUNNER_SOCKET_FRAME_LIMIT_BYTES`, 4 MiB, ws's
+  `maxPayload`); a larger one closes the socket with 1009 before it is read. A frame that is not text, not JSON or not a message
   `readRunnerMessage` reads is logged with the reader's reason alone, never
   the frame, and dropped, and the socket stays open.
 - **One runner per workspace.** The runner serves `RUNNER_WORKSPACE_ID`,
@@ -807,8 +906,11 @@ which give the workspaces already held their first team
 (`migrations.test.ts` runs it over a database migrated to `0000` only);
 `0002_factories` adds the factories' tables, all generated,
 `0003_github_event` GitHub's events, `0004_runs` the runs,
-`0005_run_approval` the answers to runs waiting for approval, and
-`0006_cloud_session` the cloud sessions. `cloud_session` has no foreign key
+`0005_run_approval` the answers to runs waiting for approval,
+`0006_cloud_session` the cloud sessions, `0007_agent_runs` what an agent
+run adds to them (`person_id` and `runner_id` nullable, `origin`,
+`agent_run`, and an index by workspace), and `0008_run_conversation` a
+request's `conversation_session_id`. `cloud_session` has no foreign key
 to `workspace`, so a session does not wait for the outbox.
 Postgres cuts a name at 63 characters, and drizzle's names for a composite
 foreign key run past that, so such a key is named in `tables.ts`.

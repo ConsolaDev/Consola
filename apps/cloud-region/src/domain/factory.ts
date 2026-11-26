@@ -1,5 +1,11 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import { MAX_FACTORY_TEXT_BYTES, parseFactory, storedFactoryFiles } from '@consola/factory-spec';
+import {
+  hasAgentTeam,
+  MAX_FACTORY_TEXT_BYTES,
+  parseAgentTeam,
+  parseFactory,
+  storedFactoryFiles,
+} from '@consola/factory-spec';
 import type { Automation, FactoryNotice, FactorySpecIssue } from '@consola/factory-spec';
 import { teamsSeenBy } from './team.js';
 import type { Team } from './team.js';
@@ -12,8 +18,10 @@ import type { Team } from './team.js';
  *
  * The files are the factory folder's, in the format `packages/factory-spec` defines
  * (`factory.yml`, `automations/<name>.yaml`, `agents/<name>.md`, `skills/<name>/…`), each a path
- * inside the folder and its text. A set is stored only when factory-spec's parser finds no issue
- * in it, so the cell holds no version a runner would refuse to load.
+ * inside the folder and its text. A factory may also hold an agent team, in its own layout
+ * (`agents/<name>/agent.md`, `automations/<name>/automation.md`, `skills/<name>/…`), which
+ * factory-spec reads apart (`parseAgentTeam`). A set is stored only when factory-spec's parsers
+ * find no issue in it, so the cell holds no version a runner would refuse to load.
  *
  * Who sees a factory follows its team (decided 2026-11-21): a person sees the factories of the
  * teams they see (`teamsSeenBy`), so owners and admins see every factory and a member the
@@ -161,6 +169,23 @@ function setIssues(files: readonly FactoryFile[]): FactoryIssue[] {
   return issues;
 }
 
+/**
+ * Whether a path is in an agent team's own trees, `agents/<name>/…` or `automations/<name>/…`,
+ * which the steps design's parser would take for strays: its own files there are
+ * `agents/<name>.md` and `automations/<name>.yaml`. `skills/<name>/` is shared by both designs.
+ */
+function isTeamTreePath(path: string): boolean {
+  const parts = path.split('/');
+  return parts.length >= 3 && (parts[0] === 'agents' || parts[0] === 'automations');
+}
+
+/**
+ * The files the steps design's parser reads: for a set that holds an agent team, every file but
+ * those in the team's own trees; for any other, every file, so a stray there is refused as before.
+ */
+const stepsFilesOf = (files: readonly FactoryFile[]): readonly FactoryFile[] =>
+  hasAgentTeam(files) ? files.filter((file) => !isTeamTreePath(file.path)) : files;
+
 /** What checking a set of files found. */
 export type FilesCheck =
   /** The set may be stored. `notices` are what factory-spec tells about it that refuses nothing. */
@@ -172,14 +197,21 @@ export type FilesCheck =
  * Whether a set of files may be stored as a version of a factory. The set itself is checked
  * first (`setIssues`); only a set with no problem of its own is parsed, with factory-spec's
  * `parseFactory`, which checks every file and the references across them (a step's agent, an
- * agent's skills, a name defined twice). Any issue refuses the set. No files at all is a set too:
- * a blank factory.
+ * agent's skills, a name defined twice). The files in an agent team's own trees are left out of
+ * that parse, and when the set holds a team (`hasAgentTeam`) factory-spec's `parseAgentTeam`
+ * checks it too, each of its issues naming its file. Any issue refuses the set. No files at all
+ * is a set too: a blank factory.
  */
 export function checkFactoryFiles(files: readonly FactoryFile[]): FilesCheck {
   const issues = setIssues(files);
   if (issues.length > 0) return { ok: false, issues };
-  const parsed = parseFactory(storedFactoryFiles(files));
-  if (parsed.issues.length > 0) return { ok: false, issues: parsed.issues };
+  const parsed = parseFactory(storedFactoryFiles(stepsFilesOf(files)));
+  const teamIssues = hasAgentTeam(files)
+    ? parseAgentTeam(files).issues.map((issue) => fileIssue(issue.file, issue.message))
+    : [];
+  if (parsed.issues.length > 0 || teamIssues.length > 0) {
+    return { ok: false, issues: [...parsed.issues, ...teamIssues] };
+  }
   return { ok: true, notices: parsed.notices };
 }
 
@@ -223,5 +255,5 @@ export function judgeFactoryChange(
  * A version was stored only once it parsed clean, so this finds what was checked then.
  */
 export function automationsOf(files: readonly FactoryFile[]): Automation[] {
-  return parseFactory(storedFactoryFiles(files)).automations;
+  return parseFactory(storedFactoryFiles(stepsFilesOf(files))).automations;
 }

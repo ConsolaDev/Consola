@@ -1748,6 +1748,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/factory-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The ready-made factory files a person can start from
+         * @description The same for every workspace. A template’s files reach a factory only through `POST /api/factories/{factoryId}/versions`, which checks them as any other files.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The templates. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FactoryTemplate"][];
+                    };
+                };
+                /** @description No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_required";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_token";
+                        };
+                    };
+                };
+                /** @description A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix. */
+                421: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_region";
+                            /** @enum {string} */
+                            region: "eu" | "us";
+                        };
+                    };
+                };
+                /** @description The cell cannot get cloud-global's keys just now, so it checks no token. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "token_check_unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/runs": {
         parameters: {
             query?: never;
@@ -2215,7 +2295,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** The caller's own cloud sessions in their workspace, newest first */
+        /**
+         * The caller's own cloud sessions, newest first (an agent run is listed with the runs)
+         * @description A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -2393,7 +2476,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** One of the caller’s own cloud sessions */
+        /** One of the caller’s own cloud sessions, or one of the workspace’s agent runs */
         get: {
             parameters: {
                 query?: never;
@@ -2429,7 +2512,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller has no such session: none, another person's or another workspace's, as if it did not exist. */
+                /** @description The caller sees no such session: none, another person's or another workspace's, as if it did not exist. */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2487,7 +2570,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Stop one of the caller’s own cloud sessions
+         * Stop one of the caller’s own cloud sessions, or one of the workspace’s agent runs
          * @description The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.
          */
         post: {
@@ -2525,7 +2608,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller has no such session: none, another person's or another workspace's, as if it did not exist. */
+                /** @description The caller sees no such session: none, another person's or another workspace's, as if it did not exist. */
                 404: {
                     headers: {
                         [name: string]: unknown;
@@ -2581,7 +2664,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * A pass to one of the caller’s own running sessions
+         * A pass to a running session the caller sees: their own, or an agent run of the workspace
          * @description The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.
          */
         post: {
@@ -2621,7 +2704,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller has no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's. */
+                /** @description The caller sees no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's. */
                 404: {
                     headers: {
                         /** @description Never kept by a cache. */
@@ -2814,6 +2897,15 @@ export interface components {
                 path: string;
                 content: string;
             }[];
+        };
+        /** @description Ready-made factory files a person can start from, such as an agent team. */
+        FactoryTemplate: {
+            /** @description The template’s id, such as `code-review-team`. */
+            id: string;
+            name: string;
+            description: string;
+            /** @description Its files, by path inside a factory's folder, to merge into a factory through the ordinary save. */
+            files: components["schemas"]["FactoryFile"][];
         };
         /** @description Top-level runs (none a request started) the caller sees, newest first: every run for owners and admins, the runs of their teams’ factories for a member. */
         RunList: {
@@ -3011,7 +3103,7 @@ export interface components {
             } | null;
             /** @description The automation runs a request started, in the order it started them. */
             children: components["schemas"]["RunSummary"][];
-            /** @description The cloud session holding the orchestrator's conversation, once there is one. Always null for now. */
+            /** @description The cloud session holding a request's conversation with its orchestrator, once there is one: an agent run's. Null for an automation run. */
             conversation: {
                 sessionId: string;
             } | null;
@@ -3155,12 +3247,12 @@ export interface components {
             repositories: string[];
             harnesses: ("claude" | "codex")[];
         };
-        /** @description A person's cloud session: a sandbox the workspace's runner runs for them. */
+        /** @description A cloud session: a sandbox the workspace's runner runs for a person, or an agent run an automation started, which nobody types into. */
         CloudSession: {
             id: string;
             workspaceId: string;
-            /** @description The global id of the person who started it, the only one who sees it. */
-            personId: string;
+            /** @description The global id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees. */
+            personId: string | null;
             /** @description The repository, as `owner/name`. */
             repository: string;
             /**
@@ -3173,22 +3265,67 @@ export interface components {
              * @enum {string}
              */
             status: "starting" | "running" | "stopped" | "failed";
+            /** @description What the runner named it; for an agent run, the cell's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces. */
             title: string | null;
             /** @description The origin the session's host listens on, once the runner reported it. */
             hostUrl: string | null;
             /** @description The message the runner reported for a failure (its provider’s or its start script’s), shown as it came. A failed session has this or `errorCode`, never both. */
             error: string | null;
             /**
-             * @description A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message.
+             * @description A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start the cell could not compose (`agent_run_invalid`).
              * @enum {string|null}
              */
-            errorCode: "runner_restarted" | "runner_unreachable" | "runner_failed" | null;
-            /** @description The runner the start was handed to. */
-            runnerId: string;
+            errorCode: "runner_restarted" | "runner_unreachable" | "runner_failed" | "runner_unavailable" | "repository_not_offered" | "harness_not_offered" | "agent_run_invalid" | null;
+            /** @description The runner the start was handed to; null for an agent run no runner took, which ended as it was recorded. */
+            runnerId: string | null;
             /** @description When it was started, in epoch seconds. */
             createdAt: number;
             /** @description When it ended, in epoch seconds; null while it lives. */
             endedAt: number | null;
+            /** @description What started an agent run; null for a person's session. */
+            origin: components["schemas"]["CloudSessionOrigin"] | null;
+            /** @description The runner's last report of an agent run; null until it sent one. */
+            agentRun: components["schemas"]["AgentRunReport"] | null;
+        };
+        /** @description What started an agent run: an automation of a factory's agent team, on an item. */
+        CloudSessionOrigin: {
+            /** @enum {string} */
+            kind: "automation";
+            factoryId: string;
+            factoryName: string;
+            /** @description The automation that fired, by name. */
+            automation: string;
+            /** @description The agent that takes the first turn: the automation's, by default the orchestrator. */
+            agent: string;
+            /** @description The GitHub pull request the event was about. */
+            item: {
+                /** @enum {string} */
+                kind: "pull_request";
+                /** @description As `owner/name`. */
+                repository: string;
+                number: number;
+                url: string;
+                title: string;
+                /** @description The commit the run checks out. */
+                headSha: string;
+            };
+        };
+        /** @description The runner's last report of an agent run, as it sent it. */
+        AgentRunReport: {
+            /** @enum {string} */
+            state: "working" | "waiting" | "done" | "failed";
+            /** @description The first agent's last message, as the runner reported it. */
+            summary?: string;
+            /** @description The agents the first agent dispatched. */
+            agents?: {
+                /** @description The dispatched agent's conversation. */
+                id: string;
+                /** @description Its name in the factory. */
+                agent: string;
+                /** @enum {string} */
+                status: "working" | "done" | "failed";
+                summary?: string;
+            }[];
         };
         /** @description Exactly these two fields: a body naming anything else, a workspace above all, is refused. */
         NewCloudSession: {

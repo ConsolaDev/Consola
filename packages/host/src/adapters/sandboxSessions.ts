@@ -11,7 +11,7 @@
  * holds it, never past the cap.
  */
 import { isHostUrl } from '@consola/runner-protocol';
-import type { SessionStart, SessionUpdate } from '@consola/runner-protocol';
+import type { AgentRunReport, SessionStart, SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -23,6 +23,7 @@ import * as Queue from 'effect/Queue';
 import * as Schema from 'effect/Schema';
 import * as Stream from 'effect/Stream';
 import {
+  agentRunFilesFor,
   endOf,
   HostLineBuffer,
   lifetimeStopAfterMs,
@@ -83,6 +84,8 @@ const STOP_RETRY_BACKOFF = Duration.millis(500);
 
 export type SandboxSessionsOptions = {
   readonly sandboxes: Sandboxes;
+  /** The template a session's sandbox is made from: `SESSION_TEMPLATE` unless named. */
+  readonly template?: string;
   /** What the runner offers; a start for anything else is failed with no sandbox. */
   readonly offer: RunnerOffer;
   /** What a sandbox is given: the git token and its harness's API key. */
@@ -173,9 +176,38 @@ type Held = {
   sawExitLine: boolean;
   hostUrl: string | null;
   title: string | null;
+  /** An agent run's last report, said again with the session's state after each `hello`. */
+  agentRun: AgentRunReport | null;
 };
 
 const COULD_NOT_RUN = 'The runner could not run the session.';
+
+/** How many of an agent run's files are written at once: E2B's writes are network calls. */
+const FILE_WRITES_AT_ONCE = 8;
+
+/**
+ * Writes `files` into `sandbox`, a few at a time; the first that fails rejects, naming its path
+ * (an agent run's own, never a secret) with the provider's reason.
+ */
+const writeFiles = async (
+  sandbox: Sandbox,
+  files: ReadonlyArray<{ readonly path: string; readonly content: string }>,
+): Promise<void> => {
+  for (let from = 0; from < files.length; from += FILE_WRITES_AT_ONCE) {
+    await Promise.all(
+      files.slice(from, from + FILE_WRITES_AT_ONCE).map(async (file) => {
+        try {
+          await sandbox.writeFile(file.path, file.content);
+        } catch (error) {
+          throw new Error(
+            `The agent run's file ${file.path} could not be written into the sandbox: ${messageOf(error)}`,
+            { cause: error },
+          );
+        }
+      }),
+    );
+  }
+};
 
 export const makeSandboxSessions = (
   options: SandboxSessionsOptions,
@@ -252,6 +284,7 @@ export const makeSandboxSessions = (
         const isEnd = endOf(update) !== null;
         if (isEnd) session.ended = true;
         if (update.title !== undefined) session.title = update.title;
+        if (update.agentRun !== undefined) session.agentRun = update.agentRun;
         const said = options.report(scrubUpdate(update, options.secretValues));
         if (!isEnd || session.ending) return said;
         return said.pipe(
@@ -441,7 +474,7 @@ export const makeSandboxSessions = (
         const sandbox = yield* withinCallTimeout(
           () =>
             options.sandboxes.create({
-              template: SESSION_TEMPLATE,
+              template: options.template ?? SESSION_TEMPLATE,
               env: sandboxEnvFor(session.start, options.secrets, options.idleMinutes),
               lifetimeSeconds,
               // The browser reaches the host at the exposed address, and a browser's WebSocket
@@ -482,6 +515,17 @@ export const makeSandboxSessions = (
               stopRequested: reason.kind === 'cell',
             }),
           );
+        }
+
+        // An agent run's files and the run itself, written before the start script reads them.
+        const agentRun = session.start.agentRun;
+        if (agentRun !== undefined) {
+          const files = agentRunFilesFor(agentRun);
+          yield* withinCallTimeout(
+            () => writeFiles(sandbox, files),
+            `The sandbox did not take the agent run's files ${withinCallTimeoutText}.`,
+          );
+          yield* log(`session ${sessionId}: wrote the agent run's ${files.length} files`);
         }
 
         const chunks = yield* Queue.unbounded<string, Cause.Done>();
@@ -600,7 +644,10 @@ export const makeSandboxSessions = (
             state.hostUrl = session.hostUrl;
           }
           if (session.title !== null) state.title = session.title;
-          return state.status === undefined && state.title === undefined
+          if (session.agentRun !== null) state.agentRun = session.agentRun;
+          return state.status === undefined &&
+            state.title === undefined &&
+            state.agentRun === undefined
             ? []
             : [scrubUpdate(state, options.secretValues)];
         }),
@@ -632,6 +679,7 @@ export const makeSandboxSessions = (
           sawExitLine: false,
           hostUrl: null,
           title: null,
+          agentRun: null,
         };
         held.set(start.sessionId, session);
         yield* log(`session ${start.sessionId}: starting (${start.harness}, ${start.repository})`);

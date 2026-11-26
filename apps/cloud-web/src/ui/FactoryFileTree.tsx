@@ -654,15 +654,31 @@ function RemovedGroup({
   );
 }
 
-/** A name with the filter's match set in the text's full weight. */
+/**
+ * A name with the filter's match set in the text's full weight. A name inside a folder of its
+ * folder (an agent team's `orchestrator/agent.md`, a skill's `code-review/SKILL.md`) sets that inner
+ * folder quieter, and it is the folder that gives way when the row is narrow, never the file.
+ */
 function Matched({ text, needle }: { text: string; needle: string }) {
   const at = needle === '' ? -1 : text.toLowerCase().indexOf(needle);
-  if (at === -1) return <>{text}</>;
+  const part = (from: number, to: number): ReactNode => {
+    if (at === -1 || at >= to || at + needle.length <= from) return text.slice(from, to);
+    const start = Math.max(at, from);
+    const end = Math.min(at + needle.length, to);
+    return (
+      <>
+        {text.slice(from, start)}
+        <mark>{text.slice(start, end)}</mark>
+        {text.slice(end, to)}
+      </>
+    );
+  };
+  const slash = text.lastIndexOf('/');
+  if (slash === -1) return <>{part(0, text.length)}</>;
   return (
-    <>
-      {text.slice(0, at)}
-      <mark>{text.slice(at, at + needle.length)}</mark>
-      {text.slice(at + needle.length)}
-    </>
+    <span className="file-tree-nested-name">
+      <span className="file-tree-dir">{part(0, slash + 1)}</span>
+      <span className="file-tree-base">{part(slash + 1, text.length)}</span>
+    </span>
   );
 }

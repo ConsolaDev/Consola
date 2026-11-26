@@ -22,14 +22,15 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   vendored `@t3tools/contracts` and `@consola/runner-protocol` (below). The
   runner's decisions live here too (`runnerDecisions.ts`, "The `runner`
   command"), and the host's stdout lines (`hostLine.ts`: `HostLine` and its
-  reader).
+  reader), and an agent run's (`agentRun.ts`, `agentRunTools.ts`,
+  `mcpProtocol.ts`, "Agent runs").
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
   verifying a pass's signature, the socket's tickets (`socketTickets.ts`), the
   dev pass (`devPass.ts`), the lines on
-  stdout (`stdoutEvents.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
+  stdout (`stdoutEvents.ts`), an agent run's `/mcp` (`mcpHttp.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
   and its socket to the cell (`cellSocket.ts`). It may import `core/` and
   `runtime/`.
 - `src/main.ts` is the bin: it listens for SIGTERM and SIGINT, then imports
@@ -97,7 +98,7 @@ test file takes the list of the module it sits beside (`adapters/x.test.ts`
 `adapters`'s, `bin.test.ts` `bin`'s). Each is its layer's `consola` list in
 `LAYERS`, with a case in the table for every ring. `scripts/`, outside `src/`
 and the rings, holds the two build scripts ("The bundle and the session
-template"); `scripts/build-template.ts` imports `@consola/sandbox/e2b` to build
+template") and `agent-run-smoke.ts` ("The `runner` command"); `scripts/build-template.ts` imports `@consola/sandbox/e2b` to build
 the session template.
 
 ## Vendored t3 code is imported, never copied
@@ -170,11 +171,14 @@ type ThreadHandle = {
   shell: ThreadShellView; // the session's rows of t3's shell, for the shell routes
   lastActivityMs(): number;
   ended: Effect<never, ThreadStreamEnded>; // fails once snapshot() would stop following the thread
+  agentRun: AgentRunSession | null; // an agent run's children, tools and report ("Agent runs")
 };
 
 type ThreadShellView = {
   snapshot: Effect<OrchestrationV2ShellSnapshot, ThreadRuntimeError>; // its project and thread, now
   thread: Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>; // t3's getThreadShell
+  events(afterSequence: number): Stream<OrchestrationV2StoredEvent, ThreadRuntimeError>; // every listed thread's
+  row(threadId: string): Effect<OrchestrationV2ThreadShell | null, ThreadRuntimeError>; // a listed thread's row
 };
 
 type ThreadServerView = {
@@ -300,7 +304,8 @@ handlers are host glue that calls the helpers `ws.ts` calls
   snapshot). Each follows its `ws.ts` handler; what the host leaves out is
   named at the handler (keybindings, themes, usage-limit sources, bounded
   history windows, on-demand machine catalogs). Only the session's own thread
-  and folder are served: another thread id is t3's typed not-found error. A
+  and folder are served (and, read-only, an agent run's dispatched agents'
+  threads, "Agent runs"): another thread id is t3's typed not-found error. A
   command t3's orchestrator refuses is answered as `ws.ts` answers it: t3's
   `userFacingDispatchErrorMessage` of the refusal in `message` and `detail`.
 - **Every other method** answers `NotOfferedByHost` (`{ method }`, message
@@ -392,7 +397,8 @@ handlers are host glue that calls the helpers `ws.ts` calls
 - **The shell** (`src/adapters/hostShell.ts`): t3's
   `subscribeOrchestrationV2Shell` (`ws.ts`) and its HTTP snapshot, from the
   handle's `shell`, composed with the lifted `ShellStream.ts` helpers for one
-  thread. It lists the session's thread and its project and nothing else: an
+  thread. It lists the session's thread and its project and nothing else (but
+  an agent run's dispatched agents, after it, "Agent runs"): an
   empty shell would tell t3's chat the thread is not there, and another row
   would be a thread the host does not serve. With no cursor it sends the
   snapshot, the completion marker the client asks for, then the thread's row
@@ -438,7 +444,11 @@ at all, through modules the runtime already imports (`serverSettings.ts` →
 Every thread opens in `approval-required` (`HOST_RUNTIME_MODE`): the CLI asks
 before running a command or writing a file, and the chat shows the request.
 t3's own default (`DEFAULT_RUNTIME_MODE`) is `full-access`, which asks nothing;
-the host never uses it, and `SessionSpec` has no field to ask for it.
+the host never uses it, and `SessionSpec` has no field to ask for it, with one
+deliberate exception: an agent run (`SessionSpec.agentRun`, `--agent-run`),
+whose threads all open in `full-access` (`AGENT_RUN_RUNTIME_MODE`), since
+nobody watches or approves them. It runs only in a sandbox, which is its
+boundary: `--agent-run` with `--dev` is a start failure ("Agent runs").
 
 That holds for a state folder with t3's default settings. t3 lets a provider
 instance's settings carry launch arguments, and for Claude a `launchArgs` in
@@ -649,7 +659,8 @@ version that keeps what is built on it working.
 - `layerMcp` for `McpSessionRegistry` and `McpProviderSessions`: t3 gives each
   provider session an MCP server of its own tools, served by its HTTP server
   (`McpSessionRegistry.layer` needs `HttpServer`). The host serves none, so it
-  records no provider MCP session and a CLI starts without one.
+  records no provider MCP session and a CLI starts without one. An agent run
+  replaces it with its own (`agentRunMcp.ts`, "Agent runs").
 - `layerTerminals` for `TerminalManager`: t3's terminals are PTYs
   (`node-pty`), which the host does not carry; it runs no project setup script.
   Every terminal reads as not running.
@@ -747,6 +758,7 @@ consola-host session --session-id <id> --harness <claude|codex|opencode|pi|acp> 
   [--port <n, default 7420; 0 for a free one>] [--bind <address, default 127.0.0.1>]
   --pass-public-key <Ed25519 public key, SPKI PEM file> | --dev
   [--idle-minutes <n, default 10; fractions allowed>] [--state-dir <dir>]
+  [--agent-run <JSON file: an AgentRun; never with --dev>]
 ```
 
 The runner role (`consola-host runner`) starts it in a sandbox and reads its stdout. It opens the
@@ -759,7 +771,8 @@ session's thread (`ThreadRuntime.open`), then listens (`listenHost`), so
   `{"type":"dev-pass","pass":"<jwt>","expiresInSeconds":43200}`, then
   `{"type":"title","title":"…"}` and
   `{"type":"status","status":"working"|"waiting"|"idle"}` as they change, and
-  `{"type":"exit","reason":"idle"}`. Every Effect log goes to stderr
+  `{"type":"exit","reason":"idle"}`; for an agent run, `{"type":"agent-run",…}`
+  as its report changes ("Agent runs"). Every Effect log goes to stderr
   (`Logger.LogToStderr` over the whole program), and so does every error.
 - **The folder warning.** One line on stderr as it starts, once `--cwd` is known to be a folder
   and before any CLI runs: `consola-host: warning: turns in <cwd> load its project settings and
@@ -851,6 +864,67 @@ with no process left (a fake `claude` that stays running, as the capabilities
 probe's would), the cell's key, the idle exit, and the start failures. Each
 asserts that every stdout line is a `HostLine`.
 
+## Agent runs
+
+An experiment beside Consola's "steps": a session started by an event (a pull request) whose
+first agent, the orchestrator, dispatches other agents and posts the result itself. Nobody types
+and nobody approves.
+
+- **The flag.** `--agent-run <file>`: an `AgentRun` (`@consola/runner-protocol`) as JSON, read
+  with `readAgentRun` before any CLI starts; a file that cannot be read, is not JSON or is no
+  agent run is a start failure, and so is `--agent-run` with `--dev`. `SessionSpec.agentRun`
+  carries it. Once `ready` is written, the host sends `prompt` as the thread's first message
+  itself (`AgentRunHandle.start`), past `decideCommand`, which governs RPC clients alone.
+- **Full access.** Every thread of the run opens in `full-access` (`AGENT_RUN_RUNTIME_MODE`),
+  the one exception to "The host never starts a CLI in full access": the sandbox is the
+  boundary. Every other session is unchanged. `model` (and an agent's) is used when the
+  provider lists a model with that slug or alias (waiting up to 15 s for its list), else the
+  harness default, with one warning line on stderr.
+- **Dispatched agents are threads of the host's own** (`runtime/agentRun.ts`): `thread.create`
+  in the session's project and folder, then `message.dispatch` of the agent's instructions,
+  `# Brief from the orchestrator` and the task, on the agent's model. t3's own delegated tasks
+  were not used: their MCP handlers are not vendored, and host-owned threads need nothing more.
+  At most 4 run at once (`MAX_RUNNING_AGENTS`), 32 in all.
+- **Reports are messages.** When a dispatched agent's run ends, its final assistant message
+  (or its status and t3's reason, with nothing invented) goes to the orchestrator's thread as
+  `Report from agent \`<name>\` (id <thread>, status <status>):`, `queue_after_active`. One
+  evaluator fiber decides every delivery under one lock with the tool calls, marks each run
+  reported once, and keys the command id by the run, which t3 runs once. It is woken by t3's
+  stored events and re-reads every thread after a quiet second, so a missed event costs a
+  second. A follow-up (`t3_thread_send`) is the next turn of the same conversation, reported
+  the same way. No tool call is held open for a turn, and nothing polls.
+- **`/mcp`** (`adapters/mcpHttp.ts`): the run's `McpSessionRegistry` (`agentRunMcp.ts`, in
+  place of `layerMcp`) gives each provider session t3's `t3-code` server at
+  `http://127.0.0.1:<port>/mcp` with a random bearer token of its own thread, so t3's Claude and
+  Codex adapters connect it and add t3's orchestration instructions. `POST` only (`405`
+  otherwise), the token before the body (`401`), compared by SHA-256 in constant time, never
+  logged; no CORS. Stateless MCP over JSON (`core/mcpProtocol.ts`): `initialize`, `ping`,
+  `tools/list`, `tools/call`, notifications `202`. Another session has no `/mcp` (`404`).
+- **The tools** (`core/agentRunTools.ts`), named as t3's instructions teach:
+  `orchestrator_capabilities`, `delegate_task({agent, task})`, `t3_thread_send({threadId,
+  message})`, `task_status({taskId})` (recovery only), `task_cancel({taskId})` and
+  `complete_task({summary})`. A dispatched agent may call none but the first ("You cannot
+  dispatch other agents.").
+- **The `agent-run` line**: the run's `AgentRunReport` beside `type`, printed on every change
+  (`reportAgentRun`, from `agentRunView`): `waiting` while a thread waits on a question,
+  `working` while any runs, has a message queued or a report undelivered, else `done` or
+  `failed` by the orchestrator's last run. `summary` is its last message, or `complete_task`'s
+  while nothing followed it; each agent's is its last report, cut to 2,000 characters. The
+  `status` line and the idle exit count every thread the same way (`currentStatus`).
+- **Known gap: the sandbox trusts the pull request.** Every thread runs in full access, in a
+  checkout of the pull request's head, whose `.claude` settings, hooks and `CLAUDE.md` the CLI
+  loads, and the sandbox holds the runner's own git token as `GH_TOKEN` (today a person's), whoever
+  opened the pull request. Nothing skips a fork or an author outside the organisation. So a runner
+  serves agent runs only on repositories whose contributors are trusted, until runs get a
+  short-lived token of their own and untrusted heads are refused.
+- **What a browser reads**: the dispatched agents' threads, read-only
+  (`subscribeThread`, `subscribeCommandOutput`, the bounded snapshot; `readableThread`), and
+  their rows after the session's in the shell. Commands still reach only the session's thread.
+
+Tests: `core/agentRun.test.ts`, `runtime/agentRun.test.ts` (a fake orchestrator: exactly-once
+delivery, the cap, refusals), `adapters/mcpHttp.test.ts`, and `stdoutEvents.test.ts` (the
+`simple` replay as an agent run, without the MCP server its recording lacks: `agentRunMcp: false`).
+
 ## The `runner` command
 
 `consola-host runner` is the host's other role: a workspace's runner. It dials
@@ -871,7 +945,11 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   comma-separated), `GIT_TOKEN` (optional, for the clone), and the API keys,
   each offering its harness (`harnessesFromEnv`): `ANTHROPIC_API_KEY` claude,
   `OPENAI_API_KEY` codex, and `E2B_API_KEY`, the key of the E2B account its
-  sandboxes run on ("The provider").
+  sandboxes run on ("The provider"). `CONSOLA_SESSION_TEMPLATE` (optional, no
+  secret; `sessionTemplateFrom`, `^[a-z0-9][a-z0-9-]{0,62}$`, a start failure
+  otherwise) names the template to start sessions from instead of
+  `consola-session`, and `template:build` builds under the same name: a branch
+  can build `consola-session-orchestrator` while another runner keeps the real one.
 - **Start failures** follow the session command's: `consola-host: …` on stderr,
   exit 1, nothing on stdout. A bad flag (with the usage), a `--cell-url` that is
   not `wss:` or is `ws:` to a host that is not loopback, or carries user info,
@@ -895,7 +973,7 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
 - **A session's sandbox** (`adapters/sandboxSessions.ts`). A `session.start`
   for a repository or harness the runner does not offer is `failed`, with no
   sandbox (`offerRefusal`). Otherwise the sandbox is created from the template
-  `consola-session` with `CONSOLA_SESSION_ID`, `CONSOLA_HARNESS`,
+  `consola-session` (or `CONSOLA_SESSION_TEMPLATE`'s) with `CONSOLA_SESSION_ID`, `CONSOLA_HARNESS`,
   `CONSOLA_REPOSITORY`, `CONSOLA_PASS_PUBLIC_KEY`,
   `CONSOLA_SESSION_IDLE_MINUTES`, `GIT_TOKEN` and the API key of that harness
   alone (`sandboxEnvFor`), and runs `consola-session-start`, its output only
@@ -932,10 +1010,39 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   (never a fixed 7420) and says `{ status: 'running', hostUrl }` with the
   provider's address, once it is an origin the cell takes (`isHostUrl`); an
   address that cannot be had fails the session and stops its sandbox. `title`
-  says the title. The start script's `clone-failed` says `failed` with its
+  says the title, and `agent-run` the run's report (`agentRun`, below). The start script's `clone-failed` says `failed` with its
   message, and is read only before `ready` (the script prints it before the
   host runs). `status`, `dev-pass`, the host's `exit` and anything unreadable
   say nothing. Once a session's end is said, a later `ready` exposes nothing.
+- **An agent run's sandbox** (a `session.start` with `agentRun`; the protocol's
+  `AGENTS.md`, "Agent runs"). Nothing else about an ordinary session changes.
+  - Its variables (`sandboxEnvFor`) add `CONSOLA_AGENT_RUN`
+    (`/workspace/.consola/agent-run.json`, `AGENT_RUN_FILE`), `CONSOLA_CHECKOUT_REF`
+    and `CONSOLA_CHECKOUT_SHA` when the run names a `checkout`, and `GH_TOKEN`, the
+    git token's value, when the runner has one, so `gh` acts as the token's user.
+  - Once the sandbox is made and before its start script runs, the runner writes
+    each of the run's `files` at `/workspace/factory/<path>`
+    (`AGENT_RUN_FACTORY_DIR`) and the whole run as JSON at `AGENT_RUN_FILE`
+    (`agentRunFilesFor`, eight at a time), all within `SANDBOX_CALL_TIMEOUT`. A
+    write that fails or takes longer fails the session, naming the file, and
+    stops its sandbox, like a failed `create`.
+  - The start script fetches the checkout's ref after the clone, through the same
+    helper, checks its commit out detached and starts nothing unless `HEAD` is
+    that commit (a failure is its one `clone-failed` line), then passes
+    `--agent-run "$CONSOLA_AGENT_RUN"` to the host.
+  - The host's `{"type":"agent-run","state":…,"summary"?:…,"agents"?:[…]}` line
+    (`HostLine`, read by `readAgentRunReport`) becomes `session.update { sessionId,
+    agentRun }`, scrubbed (`scrubAgentRunReport`: summaries and ids, then bounded
+    to `AGENT_RUN_SUMMARY_MAX`; a dispatched agent whose name holds a secret is
+    left out). The last report is kept and said again with the session's
+    `running` state after every `hello`.
+  - `scripts/agent-run-smoke.ts` plays the cell for one run against the real
+    runner, from the repository's root: `node --env-file=packages/host/.env
+    packages/host/scripts/agent-run-smoke.ts --repository <owner/name> --agent-run
+    <file.json> [--harness claude] [--timeout-minutes 45]`. It prints each update as
+    a line, the run's summary at its end, and an `@consola/agent-ui` dev page URL
+    with a fresh pass every four minutes (and on SIGUSR1); it stops the session and
+    the runner, and exits 0 only for `done`.
 - **What an end becomes** (`updateForExit`), said once, the cell's stop always
   `stopped`. Before `ready`, any end the cell did not ask for is `failed` (the
   cell keeps a starting session starting on a `stopped`), with the last line on
@@ -993,14 +1100,15 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   out, a ping follows it, and it is heard only when that ping's pong comes back
   (the cell reads a socket's frames in order); should the connection close
   first, however long it was open, the end goes again in the next `hello`. An
-  id is never listed as running and ended at once. A `hello` over the cell's
-  64 KiB frame limit sends its ends without their messages. A drop is dialled again
+  id is never listed as running and ended at once. A `hello` over the socket's
+  frame limit (`RUNNER_SOCKET_FRAME_LIMIT_BYTES`, the protocol's 4 MiB) sends
+  its ends without their messages. A drop is dialled again
   after a jittered wait doubling to 30 s (`reconnectDelayMs`), starting over
   once a connection has held 10 s. A close with 4000 means another process with
   this secret said hello and replaced this one: it stops its sandboxes (as at
   SIGTERM, within the shutdown's bound), stops dialling and exits 1 saying so,
   so two runners sharing a secret never take the socket from each other in a
-  loop. Frames over 64 KiB close the socket (1009); a frame
+  loop. Frames over 4 MiB close the socket (1009); a frame
   `readCellMessage` refuses is logged with its reason and dropped. A failure of
   the runner's own while connected ends that connection, never the dialling.
   **The heartbeat** (`Pings`): a ping at least every `HEARTBEAT_INTERVAL_MS`
@@ -1011,12 +1119,14 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   takes to notice. The cell answers pings as `ws` does by default.
 - **Secrets.** It never logs its environment. Its secret variables are one
   list, `RUNNER_SECRET_VARIABLES` (`core/runnerDecisions.ts`): the runner
-  secret, the git token, each harness's API key and `E2B_API_KEY`, and
+  secret, the git token (and `GH_TOKEN`, which an agent run's sandbox gets),
+  each harness's API key and `E2B_API_KEY`, and
   `bin.test.ts` fails on a secret-named variable the host's source reads that
   the list lacks. Its log lines (stderr, `consola-host runner: …`)
   and every update are scrubbed of those variables' values (`secretValuesOf`,
   `scrubSecrets`, as they are and URL-encoded), errors and
-  titles before they are bounded to 1000 characters (`scrubUpdate`), and a
+  titles before they are bounded to 1000 characters, an agent run's report
+  before it is bounded to the protocol's caps (`scrubUpdate`), and a
   command's stderr as it arrives, before its tail is cut (`StderrTail` holds back
   what may start a secret split across chunks). `hostUrl` is the provider's
   address, checked as an origin, never the sandbox's text. Stdout stays empty.
@@ -1094,7 +1204,8 @@ build it and its id), from a bundle rather than from source.
   starts a CLI in full access"). `pnpm --filter @consola/host template:build`
   (`scripts/build-template.ts`) bundles, stages the folder with the bundled
   files and the fff-node patch in `dist/sandbox-template/`, and builds it on
-  E2B with `buildE2BTemplate` under `SESSION_TEMPLATE`, with `E2B_API_KEY` from
+  E2B with `buildE2BTemplate` under `SESSION_TEMPLATE` (or the name
+  `CONSOLA_SESSION_TEMPLATE` gives), with `E2B_API_KEY` from
   the environment or `packages/sandbox/.env`.
 - **The start script**, `consola-session-start` (POSIX `sh`), run by the runner
   in each sandbox: it clones `https://github.com/$CONSOLA_REPOSITORY.git` into
@@ -1106,12 +1217,15 @@ build it and its id), from a bundle rather than from source.
   `user.name` `Consola session` and `user.email` `session@consola.invalid`. A
   failed clone prints one `clone-failed` line (`StartScriptLine`), git's words
   with the token, as it is and URL-encoded, taken out by `node -e`, and exits 1.
-  It writes `$CONSOLA_PASS_PUBLIC_KEY` to `/workspace/.consola/pass-public-key.pem`,
+  With `CONSOLA_CHECKOUT_REF` (an agent run's) it then fetches that ref, checks
+  `CONSOLA_CHECKOUT_SHA` out detached and requires `HEAD` to be it, a failure
+  printing the same one line. It writes `$CONSOLA_PASS_PUBLIC_KEY` to `/workspace/.consola/pass-public-key.pem`,
   signs Codex in for a Codex session (`codex login --with-api-key`, the key on
   stdin: Codex reads no API key from its environment, where Claude Code reads
   `ANTHROPIC_API_KEY`), and then `exec`s `node /opt/consola/consola-host.mjs
   session … --cwd /workspace/repo --bind 0.0.0.0 --port 7420 --pass-public-key
-  … --idle-minutes ${CONSOLA_SESSION_IDLE_MINUTES:-10}`. Bound past loopback,
+  … --idle-minutes ${CONSOLA_SESSION_IDLE_MINUTES:-10}`, with `--agent-run
+  "$CONSOLA_AGENT_RUN"` added for an agent run (the file must be there). Bound past loopback,
   the host's descriptor names no platform or version ("Before the socket").
   Stdout is the runner's: nothing else is printed there.
 - **Tests** (`src/bundle.test.ts`) build the bundle, read its metafile (only

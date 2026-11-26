@@ -15,6 +15,8 @@ import type {
   FactoryNotice,
   FactoryVersion,
 } from '../domain/factory.js';
+import { FACTORY_TEMPLATES } from '../domain/factoryTemplates.js';
+import type { FactoryTemplate } from '../domain/factoryTemplates.js';
 import { actingRole, teamsSeenBy } from '../domain/team.js';
 import type { FactoryStore, TeamStore } from './ports.js';
 
@@ -246,4 +248,12 @@ export async function saveFactoryFiles(
   });
   if (saved.kind !== 'saved') return saved;
   return { kind: 'saved', version: saved.version, notices: check.notices };
+}
+
+/**
+ * The ready-made factory files a person can start from. Each is offered as it is written, and
+ * its files reach a factory only through `saveFactoryFiles`, which checks them as any others.
+ */
+export function factoryTemplates(): readonly FactoryTemplate[] {
+  return FACTORY_TEMPLATES;
 }

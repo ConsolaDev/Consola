@@ -475,6 +475,36 @@
           "files"
         ]
       },
+      "FactoryTemplate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The template’s id, such as `code-review-team`."
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FactoryFile"
+            },
+            "description": "Its files, by path inside a factory's folder, to merge into a factory through the ordinary save."
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description",
+          "files"
+        ],
+        "additionalProperties": false,
+        "description": "Ready-made factory files a person can start from, such as an agent team."
+      },
       "RunList": {
         "type": "object",
         "properties": {
@@ -1212,7 +1242,7 @@
               "sessionId"
             ],
             "additionalProperties": false,
-            "description": "The cloud session holding the orchestrator's conversation, once there is one. Always null for now."
+            "description": "The cloud session holding a request's conversation with its orchestrator, once there is one: an agent run's. Null for an automation run."
           },
           "source": {
             "anyOf": [
@@ -1837,8 +1867,11 @@
             "type": "string"
           },
           "personId": {
-            "type": "string",
-            "description": "The global id of the person who started it, the only one who sees it."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The global id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees."
           },
           "repository": {
             "type": "string",
@@ -1866,7 +1899,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "What the runner named it; for an agent run, the cell's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces."
           },
           "hostUrl": {
             "type": [
@@ -1891,13 +1925,20 @@
               "runner_restarted",
               "runner_unreachable",
               "runner_failed",
+              "runner_unavailable",
+              "repository_not_offered",
+              "harness_not_offered",
+              "agent_run_invalid",
               null
             ],
-            "description": "A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message."
+            "description": "A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start the cell could not compose (`agent_run_invalid`)."
           },
           "runnerId": {
-            "type": "string",
-            "description": "The runner the start was handed to."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The runner the start was handed to; null for an agent run no runner took, which ended as it was recorded."
           },
           "createdAt": {
             "type": "integer",
@@ -1909,6 +1950,28 @@
               "null"
             ],
             "description": "When it ended, in epoch seconds; null while it lives."
+          },
+          "origin": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CloudSessionOrigin"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What started an agent run; null for a person's session."
+          },
+          "agentRun": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AgentRunReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The runner's last report of an agent run; null until it sent one."
           }
         },
         "required": [
@@ -1924,10 +1987,142 @@
           "errorCode",
           "runnerId",
           "createdAt",
-          "endedAt"
+          "endedAt",
+          "origin",
+          "agentRun"
         ],
         "additionalProperties": false,
-        "description": "A person's cloud session: a sandbox the workspace's runner runs for them."
+        "description": "A cloud session: a sandbox the workspace's runner runs for a person, or an agent run an automation started, which nobody types into."
+      },
+      "CloudSessionOrigin": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "automation"
+            ]
+          },
+          "factoryId": {
+            "type": "string"
+          },
+          "factoryName": {
+            "type": "string"
+          },
+          "automation": {
+            "type": "string",
+            "description": "The automation that fired, by name."
+          },
+          "agent": {
+            "type": "string",
+            "description": "The agent that takes the first turn: the automation's, by default the orchestrator."
+          },
+          "item": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "pull_request"
+                ]
+              },
+              "repository": {
+                "type": "string",
+                "description": "As `owner/name`."
+              },
+              "number": {
+                "type": "integer"
+              },
+              "url": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "headSha": {
+                "type": "string",
+                "description": "The commit the run checks out."
+              }
+            },
+            "required": [
+              "kind",
+              "repository",
+              "number",
+              "url",
+              "title",
+              "headSha"
+            ],
+            "additionalProperties": false,
+            "description": "The GitHub pull request the event was about."
+          }
+        },
+        "required": [
+          "kind",
+          "factoryId",
+          "factoryName",
+          "automation",
+          "agent",
+          "item"
+        ],
+        "additionalProperties": false,
+        "description": "What started an agent run: an automation of a factory's agent team, on an item."
+      },
+      "AgentRunReport": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "working",
+              "waiting",
+              "done",
+              "failed"
+            ]
+          },
+          "summary": {
+            "type": "string",
+            "description": "The first agent's last message, as the runner reported it."
+          },
+          "agents": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The dispatched agent's conversation."
+                },
+                "agent": {
+                  "type": "string",
+                  "description": "Its name in the factory."
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "working",
+                    "done",
+                    "failed"
+                  ]
+                },
+                "summary": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "agent",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "description": "The agents the first agent dispatched."
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "additionalProperties": false,
+        "description": "The runner's last report of an agent run, as it sent it."
       },
       "NewCloudSession": {
         "type": "object",
@@ -5006,6 +5201,120 @@
         }
       }
     },
+    "/api/factory-templates": {
+      "get": {
+        "summary": "The ready-made factory files a person can start from",
+        "description": "The same for every workspace. A template’s files reach a factory only through `POST /api/factories/{factoryId}/versions`, which checks them as any other files.",
+        "responses": {
+          "200": {
+            "description": "The templates.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/FactoryTemplate"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No bearer token (`token_required`), or one the cell does not accept (`invalid_token`): malformed, forged, expired, or signed by a key cloud-global does not publish. A new token is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "token_required"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_token"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "421": {
+            "description": "A good token for a workspace in another region: the cell that answered names its own. The workspace's own cell is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_region"
+                      ]
+                    },
+                    "region": {
+                      "type": "string",
+                      "enum": [
+                        "eu",
+                        "us"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error",
+                    "region"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The cell cannot get cloud-global's keys just now, so it checks no token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "token_check_unavailable"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/runs": {
       "get": {
         "summary": "The top-level runs the caller sees, newest first",
@@ -6066,7 +6375,8 @@
         }
       },
       "get": {
-        "summary": "The caller's own cloud sessions in their workspace, newest first",
+        "summary": "The caller's own cloud sessions, newest first (an agent run is listed with the runs)",
+        "description": "A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.",
         "responses": {
           "200": {
             "description": "The sessions.",
@@ -6179,7 +6489,7 @@
     },
     "/api/cloud-sessions/{sessionId}": {
       "get": {
-        "summary": "One of the caller’s own cloud sessions",
+        "summary": "One of the caller’s own cloud sessions, or one of the workspace’s agent runs",
         "parameters": [
           {
             "schema": {
@@ -6243,7 +6553,7 @@
             }
           },
           "404": {
-            "description": "The caller has no such session: none, another person's or another workspace's, as if it did not exist.",
+            "description": "The caller sees no such session: none, another person's or another workspace's, as if it did not exist.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6321,7 +6631,7 @@
     },
     "/api/cloud-sessions/{sessionId}/stop": {
       "post": {
-        "summary": "Stop one of the caller’s own cloud sessions",
+        "summary": "Stop one of the caller’s own cloud sessions, or one of the workspace’s agent runs",
         "description": "The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.",
         "parameters": [
           {
@@ -6386,7 +6696,7 @@
             }
           },
           "404": {
-            "description": "The caller has no such session: none, another person's or another workspace's, as if it did not exist.",
+            "description": "The caller sees no such session: none, another person's or another workspace's, as if it did not exist.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6464,7 +6774,7 @@
     },
     "/api/cloud-sessions/{sessionId}/pass": {
       "post": {
-        "summary": "A pass to one of the caller’s own running sessions",
+        "summary": "A pass to a running session the caller sees: their own, or an agent run of the workspace",
         "description": "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.",
         "parameters": [
           {
@@ -6540,7 +6850,7 @@
             }
           },
           "404": {
-            "description": "The caller has no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's.",
+            "description": "The caller sees no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's.",
             "headers": {
               "Cache-Control": {
                 "schema": {

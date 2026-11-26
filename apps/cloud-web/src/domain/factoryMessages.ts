@@ -429,3 +429,53 @@ export function savedWords(
   if (!when) return null;
   return version.savedBy === personId ? `saved ${when} by you` : `saved ${when}`;
 }
+
+/** The definition's control that offers ready-made files. */
+export const ADD_TEMPLATE = 'Add a template';
+
+/** Over the templates offered: what adding one does. */
+export const TEMPLATES_NOTE =
+  'A template’s files join this factory’s as unsaved changes. A file at the same path is replaced. Nothing is saved until you save.';
+
+/** While the templates are read. */
+export const TEMPLATES_LOADING = 'Loading the templates…';
+
+/** No template to offer. */
+export const NO_TEMPLATES = 'There are no templates to add yet.';
+
+const filesWord = (count: number) => (count === 1 ? '1 file' : `${count} files`);
+
+/** How many files a template holds, on its row. */
+export function templateFilesCount(count: number): string {
+  return filesWord(count);
+}
+
+/**
+ * What adding a template did, said once it is added: how many files it added and replaced, and
+ * that nothing is saved until the person saves.
+ */
+export function templateAddedLine(
+  name: string,
+  added: readonly string[],
+  replaced: readonly string[],
+  skipped: readonly string[] = [],
+): string {
+  const changed = added.length + replaced.length;
+  const left =
+    skipped.length > 0
+      ? ` It left ${filesWord(skipped.length)} under Removed on save alone: restore ${
+          skipped.length === 1 ? 'it' : 'them'
+        } and add ${name} again to take its version.`
+      : '';
+  if (changed === 0) {
+    return skipped.length > 0
+      ? `${name} changed nothing.${left}`
+      : `This factory already holds every file of ${name} as it is. Nothing changed.`;
+  }
+  const done = [
+    added.length > 0 ? `added ${filesWord(added.length)}` : null,
+    replaced.length > 0 ? `replaced ${filesWord(replaced.length)}` : null,
+  ].filter((part) => part !== null);
+  const them = changed === 1 ? 'it' : 'them';
+  return `${name} ${done.join(' and ')}. Save to keep ${them}, or Discard to drop ${them}.${left}`;
+}

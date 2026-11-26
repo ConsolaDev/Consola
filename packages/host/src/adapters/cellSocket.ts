@@ -20,7 +20,7 @@
  * - A frame from the cell over `CELL_FRAME_LIMIT_BYTES` closes the socket (1009); one that is not
  *   a message `readCellMessage` reads is logged with the reader's reason and dropped.
  */
-import { readCellMessage } from '@consola/runner-protocol';
+import { RUNNER_SOCKET_FRAME_LIMIT_BYTES, readCellMessage } from '@consola/runner-protocol';
 import type { CellMessage, RunnerHello, SessionUpdate } from '@consola/runner-protocol';
 import * as Clock from 'effect/Clock';
 import * as Deferred from 'effect/Deferred';
@@ -41,8 +41,8 @@ import {
 import type { HeartbeatTiming, RunnerOffer } from '../core/runnerDecisions.ts';
 import type { LiveSessions } from './sandboxSessions.ts';
 
-/** The cell's frame limit (`RUNNER_FRAME_LIMIT_BYTES`), which the runner keeps for what it reads too. */
-export const CELL_FRAME_LIMIT_BYTES = 64 * 1024;
+/** The socket's frame limit (the protocol's, which the cell keeps too), for what the runner reads and sends. */
+export const CELL_FRAME_LIMIT_BYTES = RUNNER_SOCKET_FRAME_LIMIT_BYTES;
 
 /** The cell's close for a socket another socket of the same runner replaced. */
 export const REPLACED_CLOSE_CODE = 4000;

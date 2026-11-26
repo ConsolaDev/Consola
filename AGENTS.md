@@ -306,6 +306,23 @@ sign-in (sessions already open when the rule changes are not ended this
 round). The web app's footer links to the source of the commit it runs
 (AGPL §13).
 
+### Agent teams (an experiment)
+
+Beside the steps design, the cloud runs an experiment: a software factory led by
+one agent, which deliberately breaks the north star's rule that the file decides the
+route. A factory may hold an agent team (`agents/<name>/agent.md`,
+`automations/<name>/automation.md`, `skills/<name>/…`, factory-spec's
+`parseAgentTeam`), whose automations hand a pull request's event to one agent, the
+orchestrator, which dispatches the others and posts the result itself. The cell starts
+each as an agent run, a cloud session no person started, and records it as a
+request in Runs whose conversation is that session
+(`apps/cloud-region/AGENTS.md`, "Agent runs"); the host runs every agent of it in
+full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). Nothing
+in the steps design depends on it. Known gap: the sandbox holds the runner's own
+git token and loads the pull request's own `.claude` settings, whoever opened it,
+so a runner serves agent runs only on repositories whose contributors are
+trusted.
+
 ### Vendored t3code
 
 `vendor/t3code/` is t3code's packages and server files, copied byte for byte (MIT, its own

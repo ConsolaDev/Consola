@@ -22,10 +22,12 @@ type ListView =
   | { kind: 'refused'; answer: Exclude<SessionsAnswer, { kind: 'listed' }> };
 
 /**
- * The person's cloud sessions, newest first as the cell lists them: each a row of its status, its
- * name, its repository and harness, and when it started, linking to its page. It reads them again
- * while the page shows, as often as the liveliest session asks, and now and then once none can
- * change; a refresh that fails for a while keeps the rows, and says when they were read.
+ * The person's own cloud sessions, newest first as the cell lists them: each a row of its status,
+ * its name, its repository and harness, and when it started, linking to its page. The workspace's
+ * agent runs are not here: each is a run, in Runs, whose page holds its session as its
+ * conversation. It reads them again while the page shows, as often as the liveliest session asks,
+ * and now and then once none can change; a refresh that fails for a while keeps the rows, and
+ * says when they were read.
  */
 export function SessionsList({ workspace }: { workspace: MyWorkspace }) {
   const [view, setView] = useState<ListView>({ kind: 'loading' });

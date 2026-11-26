@@ -1,3 +1,6 @@
+import { readAgentRunReport } from '@consola/runner-protocol';
+import type { AgentRunReport } from '@consola/runner-protocol';
+
 /**
  * What the session is doing, as whoever started the host shows it: `waiting` while a runtime
  * request (an approval or a question) waits on the person, `working` while a run is active, and
@@ -14,13 +17,16 @@ export type SessionStatus = 'working' | 'waiting' | 'idle';
  * - `dev-pass`: with `--dev` only, right after `ready`: a pass for the session.
  * - `title`, `status`: the thread's title or the session's status changed.
  * - `exit`: the host is stopping by itself (`idle`); the process exits 0 once it has stopped.
+ * - `agent-run`: for a session started as an agent run (`--agent-run`), the run's report as it
+ *   changes (`@consola/runner-protocol`'s `AgentRunReport`, its fields beside `type`).
  */
 export type HostLine =
   | { readonly type: 'ready'; readonly port: number }
   | { readonly type: 'dev-pass'; readonly pass: string; readonly expiresInSeconds: number }
   | { readonly type: 'title'; readonly title: string }
   | { readonly type: 'status'; readonly status: SessionStatus }
-  | { readonly type: 'exit'; readonly reason: 'idle' };
+  | { readonly type: 'exit'; readonly reason: 'idle' }
+  | ({ readonly type: 'agent-run' } & AgentRunReport);
 
 /** Every `type` a `HostLine` has: the runner may refuse any other. */
 export const HOST_LINE_TYPES: ReadonlyArray<HostLine['type']> = [
@@ -29,6 +35,7 @@ export const HOST_LINE_TYPES: ReadonlyArray<HostLine['type']> = [
   'title',
   'status',
   'exit',
+  'agent-run',
 ];
 
 const SESSION_STATUSES: readonly SessionStatus[] = ['working', 'waiting', 'idle'];
@@ -77,6 +84,11 @@ export function readHostLine(json: unknown): HostLine | null {
       return hasExactly(json, ['type', 'reason']) && json.reason === 'idle'
         ? { type: 'exit', reason: 'idle' }
         : null;
+    case 'agent-run': {
+      const { type: _type, ...fields } = json;
+      const report = readAgentRunReport(fields);
+      return report.ok ? { type: 'agent-run', ...report.value } : null;
+    }
     default:
       return null;
   }

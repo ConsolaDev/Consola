@@ -88,8 +88,7 @@ export function runRoutes(
             steps: answer.steps,
             request: answer.request,
             children: answer.children,
-            // The orchestrator's conversation comes with cloud sessions (CON-91).
-            conversation: null,
+            conversation: answer.conversation === null ? null : { sessionId: answer.conversation },
             source: answer.source,
             approval: answer.approval,
           },

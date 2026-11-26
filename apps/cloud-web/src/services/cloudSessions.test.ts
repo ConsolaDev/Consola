@@ -19,6 +19,8 @@ const session: CloudSession = {
   runnerId: 'runner-1',
   createdAt: 1_795_000_000,
   endedAt: null,
+  origin: null,
+  agentRun: null,
 };
 
 const pass: CloudSessionPass = {
@@ -207,6 +209,107 @@ describe('loadSessions', () => {
       cell: { [LIST]: { status: 503, body: { error: 'token_check_unavailable' } } },
     });
     expect(await service.loadSessions(ACME)).toEqual({ kind: 'unavailable' });
+  });
+});
+
+describe('an agent run, as the cell lists it', () => {
+  const origin = {
+    kind: 'automation',
+    factoryId: 'f-1',
+    factoryName: 'Code review',
+    automation: 'review-pull-requests',
+    agent: 'orchestrator',
+    item: {
+      kind: 'pull_request',
+      repository: 'sprocket/catalog-portal',
+      number: 12,
+      url: 'https://github.com/sprocket/catalog-portal/pull/12',
+      title: 'Fix the flaky login test',
+      headSha: '0123456789abcdef0123456789abcdef01234567',
+    },
+  } as const;
+  const run = {
+    ...session,
+    id: 'cs-run',
+    personId: null,
+    title: 'review-pull-requests · sprocket/catalog-portal#12 Fix the flaky login test',
+    origin,
+    agentRun: {
+      state: 'working',
+      summary: 'Dispatched review.',
+      agents: [{ id: 'c-2', agent: 'review', status: 'working' }],
+    },
+  } satisfies CloudSession;
+
+  it('lists beside the person’s own sessions, with what started it and its report', async () => {
+    const { service } = harness({ cell: { [LIST]: { status: 200, body: [run, session] } } });
+    expect(await service.loadSessions(ACME)).toEqual({ kind: 'listed', sessions: [run, session] });
+  });
+
+  it('reads one, with its report, by its id', async () => {
+    const { service } = harness({
+      cell: { 'GET /cell/eu/api/cloud-sessions/cs-run': { status: 200, body: run } },
+    });
+    expect(await service.loadSession(ACME, 'cs-run')).toEqual({ kind: 'found', session: run });
+  });
+
+  it('stops as a person’s session stops', async () => {
+    const stopped = { ...run, status: 'stopped', endedAt: 1_795_000_600 };
+    const { service, toCell } = harness({
+      cell: { 'POST /cell/eu/api/cloud-sessions/cs-run/stop': { status: 202, body: stopped } },
+    });
+    expect(await service.stopSession(ACME, 'cs-run')).toEqual({
+      kind: 'stopped',
+      session: stopped,
+    });
+    expect(toCell()[0]?.method).toBe('POST');
+  });
+
+  it('still shows when its report cannot be read: the report is none, an odd agent left out', async () => {
+    const odd = {
+      ...run,
+      agentRun: {
+        state: 'done',
+        agents: [
+          { id: 'c-2', agent: 'review', status: 'done', summary: 'LGTM.' },
+          { id: 'c-3', agent: 'verify', status: 'paused' },
+        ],
+      },
+    };
+    const newer = { ...run, id: 'cs-newer', agentRun: { state: 'thinking' } };
+    const { service } = harness({ cell: { [LIST]: { status: 200, body: [odd, newer] } } });
+    expect(await service.loadSessions(ACME)).toEqual({
+      kind: 'listed',
+      sessions: [
+        {
+          ...odd,
+          agentRun: {
+            state: 'done',
+            agents: [{ id: 'c-2', agent: 'review', status: 'done', summary: 'LGTM.' }],
+          },
+        },
+        { ...newer, agentRun: null },
+      ],
+    });
+  });
+
+  it('is unavailable when what started it cannot be read: the page links what it names', async () => {
+    for (const broken of [
+      { ...origin, item: { ...origin.item, number: '12' } },
+      { ...origin, kind: 'schedule' },
+      { ...origin, factoryId: undefined },
+    ]) {
+      const { service } = harness({
+        cell: { [LIST]: { status: 200, body: [{ ...run, origin: broken }] } },
+      });
+      expect(await service.loadSessions(ACME)).toEqual({ kind: 'unavailable' });
+    }
+  });
+
+  it('reads a session from a cell that does not say what started it as a person’s', async () => {
+    const { origin: _origin, agentRun: _agentRun, ...older } = session;
+    const { service } = harness({ cell: { [ONE]: { status: 200, body: older } } });
+    expect(await service.loadSession(ACME, 'cs-1')).toEqual({ kind: 'found', session });
   });
 });
 

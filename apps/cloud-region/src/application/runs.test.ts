@@ -123,6 +123,7 @@ const automationRun = (id: string, factoryId: string, overrides: Partial<RunWrit
     runner: 'cloud',
     steps: [step('build')],
     request: null,
+    conversation: null,
     summary: null,
     error: null,
     costUsd: null,

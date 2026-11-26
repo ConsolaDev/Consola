@@ -37,6 +37,8 @@ import * as Fiber from 'effect/Fiber';
 import type * as Layer from 'effect/Layer';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
+import { readAgentRun } from '@consola/runner-protocol';
+import type { AgentRun } from '@consola/runner-protocol';
 import { sandboxesFrom } from '@consola/sandbox';
 import type { SandboxProvider } from '@consola/sandbox';
 import { makeCellSocket } from './adapters/cellSocket.ts';
@@ -46,7 +48,12 @@ import { PassKeyInvalid, parsePassKey } from './adapters/passVerifier.ts';
 import { listenHost } from './adapters/rpcServer.ts';
 import type { HostListening } from './adapters/rpcServer.ts';
 import { makeSandboxSessions } from './adapters/sandboxSessions.ts';
-import { reportSession, sessionStatusOf, writeHostLine } from './adapters/stdoutEvents.ts';
+import {
+  currentStatus,
+  reportAgentRun,
+  reportSession,
+  writeHostLine,
+} from './adapters/stdoutEvents.ts';
 import { isLoopback } from './core/bind.ts';
 import { isIdle } from './core/idle.ts';
 import {
@@ -56,6 +63,7 @@ import {
   readRepositories,
   scrubSecrets,
   secretValuesOf,
+  sessionTemplateFrom,
 } from './core/runnerDecisions.ts';
 import type { RunnerOffer, SandboxSecrets } from './core/runnerDecisions.ts';
 import type { SessionSpec } from './core/sessionSpec.ts';
@@ -86,6 +94,7 @@ const USAGE = `Usage:
     [--port <n, default ${DEFAULT_PORT}; 0 for any free port>] [--bind <address, default ${DEFAULT_BIND}>]
     --pass-public-key <Ed25519 public key, SPKI PEM file> | --dev
     [--idle-minutes <n, default ${DEFAULT_IDLE_MINUTES}>] [--state-dir <dir, default a temporary one>]
+    [--agent-run <JSON file: an agent run, which the host starts itself; never with --dev>]
 
   --dev makes a key pair in memory, ignores --pass-public-key, defaults --session-id to
   ${DEV_SESSION_ID}, and prints a pass for the session after "ready".
@@ -128,7 +137,13 @@ export type SessionArgs = {
   readonly idleMinutes: number;
   /** Where t3's state and settings live; `null` is a temporary folder, removed at exit. */
   readonly stateDir: string | null;
+  /** `--agent-run`: the JSON file of an agent run (`AgentRun`), read as the session starts. */
+  readonly agentRunFile?: string;
 };
+
+/** Why `--agent-run` never runs with `--dev`, on the person's own machine. */
+export const AGENT_RUN_NEEDS_SANDBOX =
+  '--agent-run cannot run with --dev: an agent run is unattended and in full access, so it runs only in a sandbox.';
 
 const isHarness = (value: string): value is SessionSpec['harness'] =>
   (HARNESSES as readonly string[]).includes(value);
@@ -153,6 +168,7 @@ export const parseSessionArgs = (argv: readonly string[]): Effect.Effect<Session
             'idle-minutes': { type: 'string' },
             'state-dir': { type: 'string' },
             dev: { type: 'boolean' },
+            'agent-run': { type: 'string' },
           },
         }),
       catch: (error) =>
@@ -199,6 +215,9 @@ export const parseSessionArgs = (argv: readonly string[]): Effect.Effect<Session
     if (!dev && (publicKeyFile === undefined || publicKeyFile === '')) {
       return yield* refuse('--pass-public-key is required without --dev.');
     }
+    const agentRunFile = values['agent-run'];
+    if (agentRunFile !== undefined && dev) return yield* refuse(AGENT_RUN_NEEDS_SANDBOX);
+    if (agentRunFile === '') return yield* refuse('--agent-run must name a file.');
 
     const args: SessionArgs = {
       spec: { sessionId, harness, cwd: resolve(values.cwd) },
@@ -207,6 +226,7 @@ export const parseSessionArgs = (argv: readonly string[]): Effect.Effect<Session
       access: dev || publicKeyFile === undefined ? { type: 'dev' } : { type: 'key', publicKeyFile },
       idleMinutes,
       stateDir: values['state-dir'] === undefined ? null : resolve(values['state-dir']),
+      ...(agentRunFile === undefined ? {} : { agentRunFile: resolve(agentRunFile) }),
     };
     return args;
   });
@@ -226,6 +246,41 @@ const readPassKey = (file: string): Effect.Effect<Access, StartFailed | PassKeyI
     Effect.tap(parsePassKey),
     Effect.map((publicKeyPem) => ({ publicKeyPem, devPass: null })),
   );
+
+/** `text` parsed as JSON, or why not. */
+const parsedJson = (
+  text: string,
+): { readonly ok: true; readonly value: unknown } | { readonly ok: false } => {
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch {
+    return { ok: false };
+  }
+};
+
+/**
+ * An agent run's file (`--agent-run`), read with the protocol's `readAgentRun` before any CLI
+ * starts: a file that cannot be read, is not JSON or is no agent run is a start failure. The
+ * reason names a field, never what the file held.
+ */
+const readAgentRunFile = (file: string): Effect.Effect<AgentRun, StartFailed> =>
+  Effect.gen(function* () {
+    const text = yield* Effect.try({
+      try: () => readFileSync(file, 'utf8'),
+      catch: () => new StartFailed({ problem: `Cannot read the agent run file ${file}.` }),
+    });
+    const json = parsedJson(text);
+    if (!json.ok) {
+      return yield* new StartFailed({ problem: `The agent run file ${file} is not JSON.` });
+    }
+    const read = readAgentRun(json.value);
+    if (!read.ok) {
+      return yield* new StartFailed({
+        problem: `The agent run file ${file} is not an agent run: ${read.reason}.`,
+      });
+    }
+    return read.value;
+  });
 
 /** A dev host's key pair and pass, made as it is about to listen, so the pass lasts its time. */
 const devAccess = (sessionId: string): Effect.Effect<Access> =>
@@ -294,7 +349,8 @@ const untilIdle = (
       const idle = isIdle({
         lastActivityMs: Math.max(handle.lastActivityMs(), clientSeenAt),
         connectedClients,
-        turnRunning: sessionStatusOf(handle.snapshot()) === 'working',
+        // Every thread of an agent run: a dispatched agent's turn, or a report on its way.
+        turnRunning: currentStatus(handle) === 'working',
         nowMs,
         idleMinutes,
       });
@@ -339,12 +395,16 @@ export const runSession = (
   Effect.gen(function* () {
     const cellKey =
       args.access.type === 'key' ? yield* readPassKey(args.access.publicKeyFile) : null;
-    yield* folderMustExist(args.spec.cwd);
-    yield* Effect.sync(() => process.stderr.write(`${folderWarning(args.spec.cwd)}\n`));
+    const spec: SessionSpec =
+      args.agentRunFile === undefined
+        ? args.spec
+        : { ...args.spec, agentRun: yield* readAgentRunFile(args.agentRunFile) };
+    yield* folderMustExist(spec.cwd);
+    yield* Effect.sync(() => process.stderr.write(`${folderWarning(spec.cwd)}\n`));
     const stateDir = args.stateDir ?? (yield* temporaryStateDir);
     const handle = yield* Effect.gen(function* () {
       const runtime = yield* ThreadRuntime.ThreadRuntime;
-      return yield* runtime.open(args.spec);
+      return yield* runtime.open(spec);
     }).pipe(Effect.provide(runtimeFor({ stateDir })));
     const access = cellKey ?? (yield* devAccess(args.spec.sessionId));
     const listening = yield* listenHost({
@@ -364,6 +424,10 @@ export const runSession = (
       ),
     );
 
+    // An agent run's MCP credentials name the port `/mcp` is served on, now known.
+    const agentRun = handle.agentRun;
+    if (agentRun !== null) yield* agentRun.setPort(listening.port);
+
     // What `ready` says, read before it is written: a retitle after it is the report's to say.
     const said = { status: 'idle' as const, title: handle.snapshot().thread.title };
     yield* writeHostLine({ type: 'ready', port: listening.port });
@@ -375,9 +439,24 @@ export const runSession = (
       });
     }
     const reporting = yield* reportSession(handle, writeHostLine, said).pipe(Effect.forkScoped);
+    // An agent run: its report as it changes, and its prompt, which the host sends itself (past
+    // the client command policy, `core/commandPolicy.ts`, which governs RPC clients alone).
+    const reportingRun =
+      agentRun === null
+        ? null
+        : yield* reportAgentRun(agentRun, writeHostLine).pipe(Effect.forkScoped);
+    if (agentRun !== null) {
+      yield* agentRun.start.pipe(
+        Effect.tapCause((cause) => Effect.logError('The agent run’s prompt was refused.', cause)),
+        Effect.mapError(
+          () => new StartFailed({ problem: 'The agent run could not send its prompt.' }),
+        ),
+      );
+    }
     // Idle, or a thread whose snapshot would go stale (`ended`): the session fails, exit 1.
     yield* Effect.raceFirst(untilIdle(handle, listening, args.idleMinutes), handle.ended);
     yield* Fiber.interrupt(reporting);
+    if (reportingRun !== null) yield* Fiber.interrupt(reportingRun);
     yield* writeHostLine({ type: 'exit', reason: 'idle' });
   }).pipe(
     // However the session ends (idle, a failure, a signal), the forced exit is armed before
@@ -416,6 +495,8 @@ export type RunnerArgs = {
   readonly idleMinutes: number;
   /** The lifetime cap of a session's sandbox, in minutes. */
   readonly maxSessionMinutes: number;
+  /** The template sessions start from (`CONSOLA_SESSION_TEMPLATE`, else `consola-session`). */
+  readonly template: string;
 };
 
 /** The runner's environment, as `process.env` holds it. */
@@ -490,6 +571,8 @@ export const parseRunnerArgs = (
     }
     const repositories = readRepositories(env.CONSOLA_RUNNER_REPOSITORIES);
     if (!repositories.ok) return yield* startFails(repositories.problem);
+    const template = sessionTemplateFrom(env);
+    if (!template.ok) return yield* startFails(template.problem);
     const harnesses = harnessesFromEnv(env);
     if (harnesses.length === 0) {
       return yield* startFails(
@@ -510,6 +593,7 @@ export const parseRunnerArgs = (
       secretValues: secretValuesOf(env),
       idleMinutes,
       maxSessionMinutes,
+      template: template.template,
     };
     return args;
   });
@@ -572,6 +656,7 @@ export const runRunner = (
         });
         const sessions = yield* makeSandboxSessions({
           sandboxes: sandboxesFrom(provider),
+          template: args.template,
           offer: args.offer,
           secrets: args.secrets,
           secretValues: args.secretValues,
@@ -590,7 +675,7 @@ export const runRunner = (
     const stopping = yield* HostStopping;
     yield* Effect.addFinalizer(() => stopping);
     yield* log(
-      `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')}; dialling ${args.cellUrl}`,
+      `runner ${args.runnerId} offers ${args.offer.repositories.join(', ')} with ${args.offer.harnesses.join(', ')} on template ${args.template}; dialling ${args.cellUrl}`,
     );
     yield* socket.connect({
       live: sessions.liveNow,

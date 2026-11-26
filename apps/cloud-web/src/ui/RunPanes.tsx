@@ -6,16 +6,24 @@ import {
   CONVERSATION_LATER_WORDS,
   questionOpenWords,
 } from '../domain/runMessages';
+import { sessionScreen } from '../domain/cloudSession';
+import {
+  CONNECTING_WORDS,
+  messageForSessionAnswer,
+  sessionRefreshFailedWords,
+} from '../domain/cloudSessionMessages';
 import { starterOf } from '../domain/runs';
 import type { RunDetail, RunSummary } from '../domain/runs';
 import { placeOfTrace, traceOfPlace } from '../domain/runsRoute';
 import type { RunPlace } from '../domain/runsRoute';
-import { agoInWords, fullTime } from '../domain/runWords';
+import { agoInWords, fullTime, triggerWords } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { Avatar } from './Avatar';
 import { RequestAutomations } from './RequestAutomations';
+import { SessionConversation } from './SessionConversation';
 import { StepTrace } from './StepTrace';
+import { useCloudSession } from './useCloudSession';
 
 type RequestView = 'conversation' | 'automations';
 
@@ -113,7 +121,7 @@ export function RequestPane({
         className="request-panel"
       >
         {view === 'conversation' ? (
-          <Conversation detail={detail} members={members} now={now} />
+          <Conversation detail={detail} workspace={workspace} members={members} now={now} />
         ) : (
           <RequestAutomations
             detail={detail}
@@ -129,16 +137,126 @@ export function RequestPane({
 }
 
 /**
- * A request's conversation with the orchestrator. `AgentChat` (`@consola/agent-ui`) mounts here
- * once requests run in cloud sessions, with the request as its first message and the composer for
- * follow-ups. Until then (`conversation === null`) it shows what the cell holds, the request as
- * the person gave it and its open question's time and deadline, and says plainly what will join
- * them.
+ * A request's conversation with the orchestrator. A request that runs in a cloud session (an
+ * agent run, `conversation` set) holds that session here (`SessionConversation`): while it runs,
+ * its chat, `AgentChat`, in a frame of its own, with the request as its first message and the
+ * runner's report of the agents it dispatched above it; once it has ended, the request as it was
+ * sent, the session's words and that report. Any other request (`conversation === null`) shows
+ * what the cell holds, the request as the person gave it and its open question's time and
+ * deadline, and says plainly what will join them.
  *
  * The request's text is untrusted (it may be a pasted ticket): it is shown as plain text, never as
  * markup.
  */
 function Conversation({
+  detail,
+  workspace,
+  members,
+  now,
+}: {
+  detail: RunDetail;
+  workspace: MyWorkspace;
+  members: WorkspaceMember[] | null;
+  now: number;
+}) {
+  const { run, request, conversation } = detail;
+  if (!request) return null;
+  if (conversation) {
+    return (
+      <SessionHeld
+        key={conversation.sessionId}
+        detail={detail}
+        sessionId={conversation.sessionId}
+        workspace={workspace}
+        members={members}
+        now={now}
+      />
+    );
+  }
+  return (
+    <div className="run-conversation">
+      <RequestMessage detail={detail} members={members} now={now} />
+
+      {request.question && (
+        <div className="run-callout" data-tone="warning" role="status">
+          <MessageCircleQuestion size={16} aria-hidden="true" />
+          <p>{questionOpenWords(request.question.until)}</p>
+        </div>
+      )}
+
+      <div className="run-later">
+        <MessagesSquare size={18} aria-hidden="true" />
+        <h2 className="run-later-title">{CONVERSATION_LATER_TITLE}</h2>
+        <p className="run-later-words">{CONVERSATION_LATER_WORDS}</p>
+      </div>
+
+      <Outcome run={run} />
+    </div>
+  );
+}
+
+/**
+ * A request's conversation held in its cloud session, read as its session page reads it
+ * (`useCloudSession`). While the session runs, the chat fills a frame of its own
+ * (`.run-session[data-running]`), the chat itself holding the request as its first message;
+ * otherwise the request as it was sent comes first, then what the session says.
+ */
+function SessionHeld({
+  detail,
+  sessionId,
+  workspace,
+  members,
+  now,
+}: {
+  detail: RunDetail;
+  sessionId: string;
+  workspace: MyWorkspace;
+  members: WorkspaceMember[] | null;
+  now: number;
+}) {
+  const { view, access, readNow, renewPass } = useCloudSession(workspace, sessionId);
+  const session = view.kind === 'shown' ? view.session : null;
+  const running = session !== null && sessionScreen(session).kind === 'running';
+  return (
+    <div className="run-conversation">
+      {!running && <RequestMessage detail={detail} members={members} now={now} />}
+      {view.kind === 'loading' && (
+        <p className="run-session-words" role="status">
+          {CONNECTING_WORDS}
+        </p>
+      )}
+      {view.kind === 'refused' && (
+        <div className="run-session-words" role="alert">
+          <p>{messageForSessionAnswer(view.answer, workspace)}</p>
+          {(view.answer.kind === 'pending' || view.answer.kind === 'unavailable') && (
+            <button type="button" className="button" onClick={readNow}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
+      {session && (
+        <div className="run-session" data-running={running ? '' : undefined}>
+          {view.kind === 'shown' && view.failedAt && (
+            <p className="run-session-stale" role="status">
+              {sessionRefreshFailedWords(view.failedAt)}
+            </p>
+          )}
+          <SessionConversation
+            session={session}
+            access={access}
+            renewPass={renewPass}
+            onRetry={readNow}
+          />
+        </div>
+      )}
+      {!running && <Outcome run={detail.run} />}
+    </div>
+  );
+}
+
+/** The request as it was given, from whoever started it: a member, someone who left, or a trigger. */
+function RequestMessage({
   detail,
   members,
   now,
@@ -150,54 +268,38 @@ function Conversation({
   const { run, request } = detail;
   if (!request) return null;
   const starter = starterOf(run, members);
+  // A request no person started was handed over by its trigger: an agent run's, by an event.
   const name =
     starter.kind === 'member'
       ? starter.member.name
       : starter.kind === 'left'
         ? 'Someone who left'
-        : 'Someone';
+        : starter.kind === 'none' && run.trigger !== 'manual'
+          ? triggerWords(run.trigger)
+          : 'Someone';
   return (
-    <div className="run-conversation">
-      <ol className="run-messages" aria-label="Conversation">
-        <li className="run-message">
-          <div className="run-message-head">
-            <Avatar
-              user={{
-                name: starter.kind === 'member' ? name : '',
-                image: starter.kind === 'member' ? starter.member.image : null,
-              }}
-              size={22}
-            />
-            <span className="run-message-who">{name}</span>
-            <time
-              className="run-message-when"
-              dateTime={run.createdAt}
-              title={fullTime(run.createdAt)}
-            >
-              {agoInWords(run.createdAt, now)}
-            </time>
-          </div>
-          <p className="run-message-text">{request.text}</p>
-        </li>
-      </ol>
-
-      {request.question && (
-        <div className="run-callout" data-tone="warning" role="status">
-          <MessageCircleQuestion size={16} aria-hidden="true" />
-          <p>{questionOpenWords(request.question.until)}</p>
+    <ol className="run-messages" aria-label="Conversation">
+      <li className="run-message">
+        <div className="run-message-head">
+          <Avatar
+            user={{
+              name: starter.kind === 'member' ? name : '',
+              image: starter.kind === 'member' ? starter.member.image : null,
+            }}
+            size={22}
+          />
+          <span className="run-message-who">{name}</span>
+          <time
+            className="run-message-when"
+            dateTime={run.createdAt}
+            title={fullTime(run.createdAt)}
+          >
+            {agoInWords(run.createdAt, now)}
+          </time>
         </div>
-      )}
-
-      {detail.conversation === null && (
-        <div className="run-later">
-          <MessagesSquare size={18} aria-hidden="true" />
-          <h2 className="run-later-title">{CONVERSATION_LATER_TITLE}</h2>
-          <p className="run-later-words">{CONVERSATION_LATER_WORDS}</p>
-        </div>
-      )}
-
-      <Outcome run={run} />
-    </div>
+        <p className="run-message-text">{request.text}</p>
+      </li>
+    </ol>
   );
 }
 

@@ -88,6 +88,9 @@ canary passes on the new version.
 2. On a failed clone, prints one line on stdout, `{"type":"exit","reason":"clone-failed","message":"…"}`,
    git's words with the token (as it is and URL-encoded) taken out, and exits
    1. The runner says the session `failed` with that message.
+   For an agent run on a commit (`CONSOLA_CHECKOUT_REF`, `CONSOLA_CHECKOUT_SHA`),
+   it then fetches that ref through the same helper and checks the commit out
+   detached; anything but `HEAD` at that commit prints the same one line.
 3. Writes `$CONSOLA_PASS_PUBLIC_KEY` to `/workspace/.consola/pass-public-key.pem`.
 4. For a Codex session, signs Codex in: `codex login --with-api-key`, the key
    from `$OPENAI_API_KEY` on stdin. Codex reads no API key from its
@@ -97,8 +100,12 @@ canary passes on the new version.
 5. Becomes the host: `exec node /opt/consola/consola-host.mjs session
    --session-id … --harness … --cwd /workspace/repo --bind 0.0.0.0 --port 7420
    --pass-public-key /workspace/.consola/pass-public-key.pem --idle-minutes
-   ${CONSOLA_SESSION_IDLE_MINUTES:-10}`. Its first stdout line is `ready`
-   (stderr carries the folder warning first).
+   ${CONSOLA_SESSION_IDLE_MINUTES:-10}`, and for an agent run `--agent-run
+   "$CONSOLA_AGENT_RUN"` (the run the runner wrote at
+   `/workspace/.consola/agent-run.json`, its factory files under
+   `/workspace/factory`). Its first stdout line is `ready`
+   (stderr carries the folder warning first). An agent run's sandbox also has
+   `GH_TOKEN`, the git token, which `gh` reads as it is.
 
 Stdout is the runner's: the script prints nothing else there. Its tests are
 `src/bundle.test.ts`.
@@ -106,8 +113,10 @@ Stdout is the runner's: the script prints nothing else there. Its tests are
 ## Building it
 
 On Consola's E2B account, under the name the runner creates sandboxes from
-(`SESSION_TEMPLATE`, `consola-session`). Building again replaces it. From the
-repository root:
+(`SESSION_TEMPLATE`, `consola-session`). Building again replaces it. To build
+another one beside it (a branch's own), set `CONSOLA_SESSION_TEMPLATE`
+(`consola-session-orchestrator`, say) for the build and for the runner that should
+use it. From the repository root:
 
 ```bash
 pnpm exec turbo run build --filter=@consola/host^...   # the host's dependencies
@@ -123,6 +132,10 @@ never an argument and never printed. The build prints the template's id.
 
 **Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
 build prints here, and only the id.
+
+**`consola-session-orchestrator`** (the agent runs' template, which the runner uses
+with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`): `4s8mieamplpn8bzyi9vg`
+(built 2026-11-26).
 
 ## The sandbox's lifetime
 

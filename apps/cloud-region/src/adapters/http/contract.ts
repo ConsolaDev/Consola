@@ -6,7 +6,7 @@ import {
   WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
 import { AUTOMATION_MODES } from '@consola/factory-spec';
-import { HARNESSES } from '@consola/runner-protocol';
+import { AGENT_RUN_STATES, DISPATCHED_AGENT_STATUSES, HARNESSES } from '@consola/runner-protocol';
 import { createRoute, z } from '@hono/zod-openapi';
 import { CELL_FAILURE_CODES, CLOUD_SESSION_STATUSES } from '../../domain/cloudSession.js';
 import {
@@ -692,6 +692,32 @@ export const postFactoryVersion = createRoute({
   },
 });
 
+export const FactoryTemplate = z
+  .strictObject({
+    id: z.string().openapi({ description: 'The template’s id, such as `code-review-team`.' }),
+    name: z.string(),
+    description: z.string(),
+    files: z.array(FactoryFile).openapi({
+      description:
+        "Its files, by path inside a factory's folder, to merge into a factory through the ordinary save.",
+    }),
+  })
+  .openapi('FactoryTemplate', {
+    description: 'Ready-made factory files a person can start from, such as an agent team.',
+  });
+
+export const listFactoryTemplates = createRoute({
+  method: 'get',
+  path: '/api/factory-templates',
+  summary: 'The ready-made factory files a person can start from',
+  description:
+    'The same for every workspace. A template’s files reach a factory only through `POST /api/factories/{factoryId}/versions`, which checks them as any other files.',
+  responses: {
+    200: json(z.array(FactoryTemplate), 'The templates.'),
+    ...tokenFailures,
+  },
+});
+
 // Runs: what each factory's runners ran, a request and the automation runs it started among them
 // (`domain/run.ts`). Read only: a runner records runs through the store, never over HTTP.
 
@@ -1024,7 +1050,7 @@ export const RunDetail = z
     }),
     conversation: z.strictObject({ sessionId: z.string() }).nullable().openapi({
       description:
-        "The cloud session holding the orchestrator's conversation, once there is one. Always null for now.",
+        "The cloud session holding a request's conversation with its orchestrator, once there is one: an agent run's. Null for an automation run.",
     }),
     source: z.union([RunSource, z.null()]),
     approval: z.union([RunApproval, z.null()]),
@@ -1183,11 +1209,12 @@ export const postRunApproval = createRoute({
   },
 });
 
-// Cloud sessions: a person's sandboxes, run by the workspace's runner (`domain/cloudSession.ts`).
+// Cloud sessions: a person's sandboxes, and the agent runs automations start, run by the
+// workspace's runner (`domain/cloudSession.ts`).
 
 const sessionNotFound = json(
   failure('not_found'),
-  "The caller has no such session: none, another person's or another workspace's, as if it did not exist.",
+  "The caller sees no such session: none, another person's or another workspace's, as if it did not exist.",
 );
 
 /**
@@ -1208,12 +1235,61 @@ const sessionParams = z.object({ sessionId: SessionId });
 
 const Harness = z.enum(HARNESSES).openapi({ description: 'The agent CLI the session runs.' });
 
+export const CloudSessionOrigin = z
+  .strictObject({
+    kind: z.literal('automation'),
+    factoryId: z.string(),
+    factoryName: z.string(),
+    automation: z.string().openapi({ description: 'The automation that fired, by name.' }),
+    agent: z.string().openapi({
+      description:
+        "The agent that takes the first turn: the automation's, by default the orchestrator.",
+    }),
+    item: z
+      .strictObject({
+        kind: z.literal('pull_request'),
+        repository: z.string().openapi({ description: 'As `owner/name`.' }),
+        number: z.number().int(),
+        url: z.string(),
+        title: z.string(),
+        headSha: z.string().openapi({ description: 'The commit the run checks out.' }),
+      })
+      .openapi({ description: 'The GitHub pull request the event was about.' }),
+  })
+  .openapi('CloudSessionOrigin', {
+    description: "What started an agent run: an automation of a factory's agent team, on an item.",
+  });
+
+export const AgentRunReport = z
+  .strictObject({
+    state: z.enum(AGENT_RUN_STATES),
+    summary: z
+      .string()
+      .optional()
+      .openapi({ description: "The first agent's last message, as the runner reported it." }),
+    agents: z
+      .array(
+        z.strictObject({
+          id: z.string().openapi({ description: "The dispatched agent's conversation." }),
+          agent: z.string().openapi({ description: 'Its name in the factory.' }),
+          status: z.enum(DISPATCHED_AGENT_STATUSES),
+          summary: z.string().optional(),
+        }),
+      )
+      .optional()
+      .openapi({ description: 'The agents the first agent dispatched.' }),
+  })
+  .openapi('AgentRunReport', {
+    description: "The runner's last report of an agent run, as it sent it.",
+  });
+
 export const CloudSession = z
   .strictObject({
     id: z.string(),
     workspaceId: z.string(),
-    personId: z.string().openapi({
-      description: 'The global id of the person who started it, the only one who sees it.',
+    personId: z.string().nullable().openapi({
+      description:
+        'The global id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees.',
     }),
     repository: z.string().openapi({ description: 'The repository, as `owner/name`.' }),
     harness: Harness,
@@ -1221,7 +1297,10 @@ export const CloudSession = z
       description:
         '`starting` goes to `running` or `failed`, and `running` to `stopped` or `failed`; `stopped` and `failed` are ends.',
     }),
-    title: z.string().nullable(),
+    title: z.string().nullable().openapi({
+      description:
+        "What the runner named it; for an agent run, the cell's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces.",
+    }),
     hostUrl: z.string().nullable().openapi({
       description: "The origin the session's host listens on, once the runner reported it.",
     }),
@@ -1231,18 +1310,28 @@ export const CloudSession = z
     }),
     errorCode: z.enum(CELL_FAILURE_CODES).nullable().openapi({
       description:
-        'A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message.',
+        'A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start the cell could not compose (`agent_run_invalid`).',
     }),
-    runnerId: z.string().openapi({ description: 'The runner the start was handed to.' }),
+    runnerId: z.string().nullable().openapi({
+      description:
+        'The runner the start was handed to; null for an agent run no runner took, which ended as it was recorded.',
+    }),
     createdAt: z.number().int().openapi({ description: 'When it was started, in epoch seconds.' }),
     endedAt: z
       .number()
       .int()
       .nullable()
       .openapi({ description: 'When it ended, in epoch seconds; null while it lives.' }),
+    origin: z.union([CloudSessionOrigin, z.null()]).openapi({
+      description: "What started an agent run; null for a person's session.",
+    }),
+    agentRun: z.union([AgentRunReport, z.null()]).openapi({
+      description: "The runner's last report of an agent run; null until it sent one.",
+    }),
   })
   .openapi('CloudSession', {
-    description: "A person's cloud session: a sandbox the workspace's runner runs for them.",
+    description:
+      "A cloud session: a sandbox the workspace's runner runs for a person, or an agent run an automation started, which nobody types into.",
   });
 
 export const CloudSessionOptions = z
@@ -1333,7 +1422,9 @@ export const postCloudSession = createRoute({
 export const listCloudSessions = createRoute({
   method: 'get',
   path: '/api/cloud-sessions',
-  summary: "The caller's own cloud sessions in their workspace, newest first",
+  summary: "The caller's own cloud sessions, newest first (an agent run is listed with the runs)",
+  description:
+    "A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.",
   responses: {
     200: json(z.array(CloudSession), 'The sessions.'),
     ...tokenFailures,
@@ -1343,7 +1434,7 @@ export const listCloudSessions = createRoute({
 export const getCloudSession = createRoute({
   method: 'get',
   path: '/api/cloud-sessions/{sessionId}',
-  summary: 'One of the caller’s own cloud sessions',
+  summary: 'One of the caller’s own cloud sessions, or one of the workspace’s agent runs',
   request: { params: sessionParams },
   responses: {
     200: json(CloudSession, 'The session.'),
@@ -1355,7 +1446,7 @@ export const getCloudSession = createRoute({
 export const postCloudSessionStop = createRoute({
   method: 'post',
   path: '/api/cloud-sessions/{sessionId}/stop',
-  summary: 'Stop one of the caller’s own cloud sessions',
+  summary: 'Stop one of the caller’s own cloud sessions, or one of the workspace’s agent runs',
   description:
     'The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.',
   request: { params: sessionParams },
@@ -1369,7 +1460,8 @@ export const postCloudSessionStop = createRoute({
 export const postCloudSessionPass = createRoute({
   method: 'post',
   path: '/api/cloud-sessions/{sessionId}/pass',
-  summary: 'A pass to one of the caller’s own running sessions',
+  summary:
+    'A pass to a running session the caller sees: their own, or an agent run of the workspace',
   description:
     "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.",
   request: { params: sessionParams },
@@ -1378,7 +1470,7 @@ export const postCloudSessionPass = createRoute({
     404: {
       ...json(
         failure('not_found'),
-        "The caller has no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's.",
+        "The caller sees no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's.",
       ),
       headers: noStore,
     },
@@ -1405,6 +1497,7 @@ export const ROUTES = [
   patchFactory,
   getFactoryVersion,
   postFactoryVersion,
+  listFactoryTemplates,
   listRuns,
   getRun,
   postRunApproval,

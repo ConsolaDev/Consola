@@ -102,7 +102,10 @@ export function createApp(deps: {
 
   // No token, since no person sends it: its signature is checked instead (`outboxRoutes`).
   app.route('/', outboxRoutes({ region, deliveries, workspaceCopies, report }));
-  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report }));
+  // An event recorded for the first time starts the agent runs it fires, on the cloud sessions'
+  // ports and the workspace's factories.
+  const agentRuns = { ...cloudSessions, factories, runs, report };
+  app.route('/', gitHubEventRoutes({ region, events, gitHubEvents, report, agentRuns }));
 
   // No token either: a runner is no person, and presents its secret instead.
   app.route('/', deps.runner);

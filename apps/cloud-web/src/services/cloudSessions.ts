@@ -1,8 +1,13 @@
 import { isHarness, isSessionStatus } from '../domain/cloudSession';
 import type {
+  AgentRunReport,
+  AgentRunState,
   CloudSession,
   CloudSessionOptions,
+  CloudSessionOrigin,
   CloudSessionPass,
+  DispatchedAgent,
+  DispatchedAgentStatus,
   Harness,
   OptionsAnswer,
   PassAnswer,
@@ -19,8 +24,8 @@ import type { CellDeps, CellSession } from './cell';
 /*
  * The person's cloud sessions, from the workspace's regional cell, reached through `cell.ts` as
  * runs and teams are: the cell's address on the page's own origin, and a cell token for the
- * workspace the page shows with every call. Each session is the person's own; the cell answers
- * another's as not found.
+ * workspace the page shows with every call. A session is the person's own, or an agent run, which
+ * every member sees; the cell answers another person's session as not found.
  *
  * Every call answers in domain types and never throws, but `renewPass`, which is the chat's
  * `onPassExpired` and rejects when there is no pass to give. Only a 401 from `cloud-global` means
@@ -41,22 +46,101 @@ const isTextOrNull = (value: unknown): boolean => value === null || isText(value
 const isTime = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-/** A body with the shape of a session: the parts the pages read. */
-function isSession(body: unknown): body is CloudSession {
+/** What started an agent run, with the parts the pages read: the automation and its pull request. */
+function isOrigin(value: unknown): value is CloudSessionOrigin {
+  if (!isObject(value) || value.kind !== 'automation') return false;
+  const { item } = value;
   return (
-    isObject(body) &&
-    isText(body.id) &&
-    body.id !== '' &&
-    isText(body.repository) &&
-    isHarness(body.harness) &&
-    isSessionStatus(body.status) &&
-    isTextOrNull(body.title) &&
-    isTextOrNull(body.hostUrl) &&
-    isTextOrNull(body.error) &&
-    isTextOrNull(body.errorCode) &&
-    isTime(body.createdAt) &&
-    (body.endedAt === null || isTime(body.endedAt))
+    isText(value.factoryId) &&
+    isText(value.factoryName) &&
+    isText(value.automation) &&
+    isText(value.agent) &&
+    isObject(item) &&
+    item.kind === 'pull_request' &&
+    isText(item.repository) &&
+    typeof item.number === 'number' &&
+    Number.isInteger(item.number) &&
+    isText(item.url) &&
+    isText(item.title) &&
+    isText(item.headSha)
   );
+}
+
+const AGENT_RUN_STATES: ReadonlySet<unknown> = new Set<AgentRunState>([
+  'working',
+  'waiting',
+  'done',
+  'failed',
+]);
+const DISPATCHED_STATUSES: ReadonlySet<unknown> = new Set<DispatchedAgentStatus>([
+  'working',
+  'done',
+  'failed',
+]);
+
+function dispatchedOf(value: unknown): DispatchedAgent | null {
+  if (!isObject(value) || !isText(value.id) || !isText(value.agent)) return null;
+  if (!DISPATCHED_STATUSES.has(value.status)) return null;
+  const agent: DispatchedAgent = {
+    id: value.id,
+    agent: value.agent,
+    status: value.status as DispatchedAgentStatus,
+  };
+  if (isText(value.summary)) agent.summary = value.summary;
+  return agent;
+}
+
+/**
+ * The runner's report of an agent run, as far as the page can read it: a report it cannot read
+ * (a newer runner's state) is none, and an agent it cannot read is left out, so the session
+ * itself still shows.
+ */
+function reportOf(value: unknown): AgentRunReport | null {
+  if (!isObject(value) || !AGENT_RUN_STATES.has(value.state)) return null;
+  const report: AgentRunReport = { state: value.state as AgentRunState };
+  if (isText(value.summary)) report.summary = value.summary;
+  if (Array.isArray(value.agents)) {
+    report.agents = value.agents.map(dispatchedOf).filter((agent) => agent !== null);
+  }
+  return report;
+}
+
+/**
+ * A body with the shape of a session, the parts the pages read, or null. An agent run's
+ * `origin` must be whole, since the page links what it names; its report is read leniently.
+ */
+function sessionOf(body: unknown): CloudSession | null {
+  if (
+    !isObject(body) ||
+    !isText(body.id) ||
+    body.id === '' ||
+    !isText(body.repository) ||
+    !isHarness(body.harness) ||
+    !isSessionStatus(body.status) ||
+    !isTextOrNull(body.title) ||
+    !isTextOrNull(body.hostUrl) ||
+    !isTextOrNull(body.error) ||
+    !isTextOrNull(body.errorCode) ||
+    !isTime(body.createdAt) ||
+    !(body.endedAt === null || isTime(body.endedAt)) ||
+    !(body.origin === undefined || body.origin === null || isOrigin(body.origin))
+  ) {
+    return null;
+  }
+  return {
+    ...(body as CloudSession),
+    personId: isText(body.personId) ? body.personId : null,
+    runnerId: isText(body.runnerId) ? body.runnerId : null,
+    origin: isOrigin(body.origin) ? body.origin : null,
+    agentRun: reportOf(body.agentRun),
+  };
+}
+
+/** Every session of a list, or null when any is not one. */
+function sessionsOf(body: unknown): CloudSession[] | null {
+  if (!Array.isArray(body)) return null;
+  const sessions = body.map(sessionOf);
+  return sessions.every((session) => session !== null) ? sessions : null;
 }
 
 /** What a runner offers, keeping only the harnesses this page can name. */
@@ -117,7 +201,7 @@ const isNotFound = (status: number, error: unknown): boolean =>
 type Workspace = { id: string };
 
 export type CloudSessionsService = {
-  /** The person's sessions in `workspace`, newest first. */
+  /** The person's own sessions in `workspace` and every agent run of it, newest first. */
   loadSessions(workspace: Workspace): Promise<SessionsAnswer>;
   loadSession(workspace: Workspace, sessionId: string): Promise<SessionAnswer>;
   /** The repositories and harnesses the workspace's runner offers a new session. */
@@ -172,9 +256,8 @@ export function createCloudSessionsService(
         const answer = await onCell(workspace.id, (cell) => cell.GET('/api/cloud-sessions'));
         if ('kind' in answer) return answer;
         const { data, response } = answer;
-        if (response.status === 200 && Array.isArray(data) && data.every(isSession)) {
-          return { kind: 'listed', sessions: data };
-        }
+        const sessions = response.status === 200 ? sessionsOf(data) : null;
+        if (sessions) return { kind: 'listed', sessions };
         return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;
@@ -188,7 +271,8 @@ export function createCloudSessionsService(
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
-        if (response.status === 200 && isSession(data)) return { kind: 'found', session: data };
+        const session = response.status === 200 ? sessionOf(data) : null;
+        if (session) return { kind: 'found', session };
         if (isNotFound(response.status, error)) return NOT_FOUND;
         return UNAVAILABLE;
       } catch {
@@ -219,7 +303,8 @@ export function createCloudSessionsService(
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
-        if (response.status === 201 && isSession(data)) return { kind: 'started', session: data };
+        const session = response.status === 201 ? sessionOf(data) : null;
+        if (session) return { kind: 'started', session };
         const code = startRefusalOf(response.status, error);
         return code ? { kind: 'refused', code } : UNAVAILABLE;
       } catch {
@@ -234,7 +319,8 @@ export function createCloudSessionsService(
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
-        if (response.status === 202 && isSession(data)) return { kind: 'stopped', session: data };
+        const session = response.status === 202 ? sessionOf(data) : null;
+        if (session) return { kind: 'stopped', session };
         if (isNotFound(response.status, error)) return NOT_FOUND;
         return UNAVAILABLE;
       } catch {

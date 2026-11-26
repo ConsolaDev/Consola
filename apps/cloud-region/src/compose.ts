@@ -3,6 +3,7 @@ import type { OpenAPIHono } from '@hono/zod-openapi';
 import { systemClock } from './adapters/clock/systemClock.js';
 import type { CellEnv } from './adapters/http/caller.js';
 import { createApp } from './adapters/http/app.js';
+import { keepingRunsInStep } from './application/agentRuns.js';
 import type { Database } from './adapters/persistence/database.js';
 import { randomIds } from './adapters/persistence/cloudSessions.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
@@ -44,6 +45,12 @@ export async function composeCell(deps: {
 }): Promise<Cell> {
   const { db, config } = deps;
   const stores = createDrizzleStores(db);
+  // Every writer of a cloud session moves an agent run's run with it (`keepingRunsInStep`).
+  const sessions = keepingRunsInStep(stores.cloudSessions, {
+    runs: stores.runs,
+    clock: systemClock,
+    report: (line) => console.error(line),
+  });
   const keys = deps.cellTokenKeys ?? cloudGlobalKeys(config.cloudGlobalUrl);
   const passKey = config.runner ? await createPassSigner(config.runner.passPrivateKey) : null;
   const runner = createRunnerSocket({
@@ -55,7 +62,7 @@ export async function composeCell(deps: {
             passPublicKeyPem: passKey.publicKeyPem,
           }
         : null,
-    ports: { sessions: stores.cloudSessions, clock: systemClock },
+    ports: { sessions, clock: systemClock },
   });
   const app = createApp({
     region: config.region,
@@ -70,7 +77,7 @@ export async function composeCell(deps: {
     runs: stores.runs,
     clock: systemClock,
     cloudSessions: {
-      sessions: stores.cloudSessions,
+      sessions,
       runners: runner.channel,
       ids: randomIds,
       clock: systemClock,

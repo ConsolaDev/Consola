@@ -5,8 +5,16 @@
  * Nothing here reaches the machine; `adapters/sandboxSessions.ts` and `adapters/cellSocket.ts`
  * act on it.
  */
-import { HARNESSES, isRepository, readStartScriptLine } from '@consola/runner-protocol';
+import {
+  AGENT_RUN_FACTORY_DIR,
+  AGENT_RUN_SUMMARY_MAX,
+  HARNESSES,
+  isRepository,
+  readStartScriptLine,
+} from '@consola/runner-protocol';
 import type {
+  AgentRun,
+  AgentRunReport,
   EndedSession,
   Harness,
   Repository,
@@ -18,6 +26,58 @@ import type { HostLine } from './hostLine.ts';
 
 /** The template a session's sandbox starts from (`sandbox-template/`, built on E2B under this name). */
 export const SESSION_TEMPLATE = 'consola-session';
+
+/**
+ * The variable naming another template to build and start sessions from, in place of
+ * `SESSION_TEMPLATE`: a branch can build its own (`consola-session-orchestrator`, say) while another
+ * runner keeps using the real one. It is not a secret.
+ */
+export const SESSION_TEMPLATE_VARIABLE = 'CONSOLA_SESSION_TEMPLATE';
+
+const TEMPLATE_NAME = /^[a-z0-9][a-z0-9-]{0,62}$/;
+
+export type ReadTemplate =
+  | { readonly ok: true; readonly template: string }
+  | { readonly ok: false; readonly problem: string };
+
+/**
+ * The template sessions start from: `CONSOLA_SESSION_TEMPLATE` when set (lower-case letters,
+ * digits and `-`, 63 at most, starting with a letter or digit), else `SESSION_TEMPLATE`. A name is
+ * no secret, so a refusal names the one it refuses.
+ */
+export function sessionTemplateFrom(
+  env: Readonly<Record<string, string | undefined>>,
+): ReadTemplate {
+  const value = env[SESSION_TEMPLATE_VARIABLE];
+  if (value === undefined || value === '') return { ok: true, template: SESSION_TEMPLATE };
+  return TEMPLATE_NAME.test(value)
+    ? { ok: true, template: value }
+    : {
+        ok: false,
+        problem: `${SESSION_TEMPLATE_VARIABLE} holds ${JSON.stringify(value)}, which is not a template's name (lower-case letters, digits and -, 63 at most).`,
+      };
+}
+
+/** Where the runner writes an agent run, whole, as JSON, in its sandbox (`CONSOLA_AGENT_RUN`). */
+export const AGENT_RUN_FILE = '/workspace/.consola/agent-run.json';
+
+/** A file the runner writes into a session's sandbox before its start script runs. */
+export type SandboxFile = { readonly path: string; readonly content: string };
+
+/**
+ * What the runner writes into an agent run's sandbox before its start script runs: each of the
+ * run's files under `AGENT_RUN_FACTORY_DIR` (their paths are relative, checked by
+ * `readAgentRun`), then the run itself as JSON at `AGENT_RUN_FILE`, which the host reads.
+ */
+export function agentRunFilesFor(run: AgentRun): SandboxFile[] {
+  return [
+    ...run.files.map((file) => ({
+      path: `${AGENT_RUN_FACTORY_DIR}/${file.path}`,
+      content: file.content,
+    })),
+    { path: AGENT_RUN_FILE, content: `${JSON.stringify(run)}\n` },
+  ];
+}
 
 /** The command a session's sandbox runs: the template's start script, which runs the host. */
 export const SESSION_START_ARGV: readonly string[] = ['consola-session-start'];
@@ -38,6 +98,9 @@ export const HARNESS_API_KEYS: Readonly<Record<Harness, string>> = {
 export const RUNNER_SECRET_VARIABLES: readonly string[] = [
   'CONSOLA_RUNNER_SECRET',
   'GIT_TOKEN',
+  // An agent run's sandbox gets the git token as `GH_TOKEN` too (`sandboxEnvFor`); a runner
+  // whose own environment holds one has it taken out of what it says as well.
+  'GH_TOKEN',
   ...Object.values(HARNESS_API_KEYS),
   'E2B_API_KEY',
 ];
@@ -187,10 +250,11 @@ export function readSessionLine(text: string): SessionLine {
 }
 
 /**
- * What one stdout line tells the cell: a `title` its title, the start script's `clone-failed` a
- * failure with its message. Nothing for `status` and `dev-pass` (the cell keeps neither), the
- * host's `exit` (the end is told when the sandbox's command ends, `updateForExit`), or a line it
- * cannot read. `ready` is answered by the runner once it has exposed the port the line names.
+ * What one stdout line tells the cell: a `title` its title, an `agent-run` the run's report, the
+ * start script's `clone-failed` a failure with its message. Nothing for `status` and `dev-pass`
+ * (the cell keeps neither), the host's `exit` (the end is told when the sandbox's command ends,
+ * `updateForExit`), or a line it cannot read. `ready` is answered by the runner once it has
+ * exposed the port the line names.
  */
 export function updateForLine(sessionId: string, text: string): SessionUpdate | null {
   const read = readSessionLine(text);
@@ -199,6 +263,10 @@ export function updateForLine(sessionId: string, text: string): SessionUpdate | 
   }
   if (read.kind === 'host' && read.line.type === 'title' && read.line.title !== '') {
     return { type: 'session.update', sessionId, title: read.line.title };
+  }
+  if (read.kind === 'host' && read.line.type === 'agent-run') {
+    const { type: _type, ...report } = read.line;
+    return { type: 'session.update', sessionId, agentRun: report };
   }
   return null;
 }
@@ -375,12 +443,47 @@ export const MAX_ERROR_LENGTH = 1000;
 const bounded = (text: string): string =>
   text.length <= MAX_ERROR_LENGTH ? text : `${text.slice(0, MAX_ERROR_LENGTH - 1)}…`;
 
+const boundedSummary = (text: string): string =>
+  text.length <= AGENT_RUN_SUMMARY_MAX ? text : `${text.slice(0, AGENT_RUN_SUMMARY_MAX - 1)}…`;
+
 /**
- * An update as the cell may hear it. Its two free texts, the error and the title (made from the
- * conversation, which may hold a token someone typed), have every secret taken out first, then
- * are bounded: bounding first could leave a piece of a secret. `hostUrl` is the provider's
- * address for a port, checked as an origin before it is sent, and the status is one of three
- * words, so neither carries the sandbox's text.
+ * An agent run's report as the cell may hear it: its summaries (the agents' own words) and each
+ * dispatched agent's id with every secret taken out, then bounded, a summary to what the protocol
+ * takes (`AGENT_RUN_SUMMARY_MAX`, so the orchestrator's last message reaches the cell whole), an
+ * id like a title. A dispatched agent whose name held a secret is left out: its name could not be
+ * redacted and stay a name the cell reads.
+ */
+export function scrubAgentRunReport(
+  report: AgentRunReport,
+  secrets: readonly string[],
+): AgentRunReport {
+  const forms = secretForms(secrets);
+  const scrubbed: AgentRunReport = { state: report.state };
+  if (report.summary !== undefined) {
+    scrubbed.summary = boundedSummary(replaceForms(report.summary, forms));
+  }
+  if (report.agents !== undefined) {
+    scrubbed.agents = report.agents.flatMap((agent) => {
+      if (replaceForms(agent.agent, forms) !== agent.agent) return [];
+      const each = {
+        id: bounded(replaceForms(agent.id, forms)) || REDACTED,
+        agent: agent.agent,
+        status: agent.status,
+      };
+      return agent.summary === undefined
+        ? [each]
+        : [{ ...each, summary: boundedSummary(replaceForms(agent.summary, forms)) }];
+    });
+  }
+  return scrubbed;
+}
+
+/**
+ * An update as the cell may hear it. Its free texts, the error, the title (made from the
+ * conversation, which may hold a token someone typed) and an agent run's report, have every
+ * secret taken out first, then are bounded: bounding first could leave a piece of a secret.
+ * `hostUrl` is the provider's address for a port, checked as an origin before it is sent, and the
+ * status is one of three words, so neither carries the sandbox's text.
  */
 export function scrubUpdate(update: SessionUpdate, secrets: readonly string[]): SessionUpdate {
   const forms = secretForms(secrets);
@@ -390,6 +493,9 @@ export function scrubUpdate(update: SessionUpdate, secrets: readonly string[]): 
   }
   if (update.title !== undefined) {
     scrubbed.title = bounded(replaceForms(update.title, forms)) || REDACTED;
+  }
+  if (update.agentRun !== undefined) {
+    scrubbed.agentRun = scrubAgentRunReport(update.agentRun, secrets);
   }
   return scrubbed;
 }
@@ -434,7 +540,10 @@ export type SandboxSecrets = {
 /**
  * The variables a session's sandbox is created with: the session, its harness and repository, the
  * key its host checks passes with, its idle minutes, the git token, and the API key of its own
- * harness and no other.
+ * harness and no other. An agent run's also gets where its run is (`CONSOLA_AGENT_RUN`, the file
+ * the runner writes, `agentRunFilesFor`), the commit to check out when it names one
+ * (`CONSOLA_CHECKOUT_REF`, `CONSOLA_CHECKOUT_SHA`), and the git token as `GH_TOKEN`, so `gh` acts
+ * as the token's user for the agent.
  */
 export function sandboxEnvFor(
   start: SessionStart,
@@ -448,9 +557,20 @@ export function sandboxEnvFor(
     CONSOLA_PASS_PUBLIC_KEY: start.passPublicKeyPem,
     CONSOLA_SESSION_IDLE_MINUTES: String(idleMinutes),
   };
-  if (secrets.gitToken !== undefined && secrets.gitToken !== '') env.GIT_TOKEN = secrets.gitToken;
+  const gitToken =
+    secrets.gitToken !== undefined && secrets.gitToken !== '' ? secrets.gitToken : null;
+  if (gitToken !== null) env.GIT_TOKEN = gitToken;
   const apiKey = secrets.apiKeys[start.harness];
   if (apiKey !== undefined && apiKey !== '') env[HARNESS_API_KEYS[start.harness]] = apiKey;
+  const run = start.agentRun;
+  if (run !== undefined) {
+    env.CONSOLA_AGENT_RUN = AGENT_RUN_FILE;
+    if (run.checkout !== undefined) {
+      env.CONSOLA_CHECKOUT_REF = run.checkout.ref;
+      env.CONSOLA_CHECKOUT_SHA = run.checkout.sha;
+    }
+    if (gitToken !== null) env.GH_TOKEN = gitToken;
+  }
   return env;
 }
 

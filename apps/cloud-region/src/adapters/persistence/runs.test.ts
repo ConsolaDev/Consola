@@ -85,6 +85,7 @@ const automationRun = (id: string, overrides: Partial<RunWrite> = {}): RunWrite 
   runner: 'cloud',
   steps: [step('plan', 'completed'), step('review', 'running'), step('report', 'pending')],
   request: null,
+  conversation: null,
   summary: null,
   error: null,
   costUsd: null,
@@ -183,6 +184,7 @@ describe('the run store', () => {
       steps: automationRun('nightly').steps,
       request: null,
       children: [],
+      conversation: null,
     });
   });
 

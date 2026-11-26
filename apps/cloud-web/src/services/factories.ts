@@ -5,7 +5,9 @@ import type {
   FactoryChange,
   FactoryRead,
   FactorySave,
+  FactoryTemplate,
   FactoryVersion,
+  TemplatesAnswer,
 } from '../domain/factories';
 import type { FactoryIssue } from '../domain/factoryProblems';
 import { codeOf, createCellSession, PENDING, pageCellSession, UNAVAILABLE } from './cell';
@@ -64,6 +66,25 @@ function isVersion(value: unknown): value is FactoryVersion {
   );
 }
 
+/** Whether `value` has a template's shape, its files included, as far as the page reads one. */
+function isTemplate(value: unknown): value is FactoryTemplate {
+  if (typeof value !== 'object' || value === null) return false;
+  const { id, name, description, files } = value as Record<string, unknown>;
+  return (
+    typeof id === 'string' &&
+    typeof name === 'string' &&
+    typeof description === 'string' &&
+    Array.isArray(files) &&
+    files.every(
+      (file) =>
+        typeof file === 'object' &&
+        file !== null &&
+        typeof (file as Record<string, unknown>).path === 'string' &&
+        typeof (file as Record<string, unknown>).content === 'string',
+    )
+  );
+}
+
 export type FactoriesService = {
   /** The factories the person sees in `workspace`, and the teams the cell lists for them. */
   loadFactories(workspace: { id: string }): Promise<FactoriesState>;
@@ -86,6 +107,8 @@ export type FactoriesService = {
     factoryId: string,
     save: { baseVersion: number; files: ReadonlyArray<{ path: string; content: string }> },
   ): Promise<FactorySave>;
+  /** The ready-made files a person can add to a factory (the same for every workspace). */
+  loadTemplates(workspace: { id: string }): Promise<TemplatesAnswer>;
 };
 
 /** What a change's answer comes to, for the statuses every change shares. */
@@ -232,6 +255,20 @@ export function createFactoriesService(
         if (status === 409 && code === 'workspace_pending') return PENDING;
         if (status === 404 && code === 'factory_not_found') return { kind: 'not-found' };
         if (status === 413) return { kind: 'too-large' };
+        return UNAVAILABLE;
+      } catch {
+        return UNAVAILABLE;
+      }
+    },
+
+    async loadTemplates(workspace) {
+      try {
+        const answer = await onCell(workspace.id, (cell) => cell.GET('/api/factory-templates'));
+        if ('kind' in answer) return answer;
+        const { data, response } = answer;
+        if (response.status === 200 && Array.isArray(data) && data.every(isTemplate)) {
+          return { kind: 'listed', templates: data };
+        }
         return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;

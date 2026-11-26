@@ -27,7 +27,9 @@
       "!apps/cloud-global/openapi.json",
       "!apps/cloud-region/openapi.json",
       "!apps/cloud-web/src/domain/apiContract.ts",
-      "!apps/cloud-web/src/domain/cellApiContract.ts"
+      "!apps/cloud-web/src/domain/cellApiContract.ts",
+      // Embedded from packages/factory-spec/templates/ by its templates:embed script.
+      "!packages/factory-spec/src/team/codeReviewTeam.generated.ts"
     ]
   },
   "formatter": {

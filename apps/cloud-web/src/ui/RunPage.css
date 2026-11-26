@@ -604,3 +604,36 @@
     transition: none;
   }
 }
+
+/* ---- A request held in its cloud session: an agent run's conversation ---- */
+
+/* While the session runs, its chat fills a frame of its own height: the chat's root is 100% of
+   it (`.session-chat-frame`), the runner's report above it at most two fifths. */
+.run-session {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.run-session[data-running] {
+  height: min(78dvh, 860px);
+  min-height: 440px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+}
+
+.run-session .session-words {
+  margin: 16px auto;
+}
+
+.run-session-words,
+.run-session-stale {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.run-session-words .button {
+  margin-top: 8px;
+}

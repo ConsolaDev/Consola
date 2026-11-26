@@ -4,6 +4,7 @@ import type { Caller } from '../domain/caller.js';
 import {
   belongsToRunner,
   CELL_FAILURE_CODES,
+  isAgentRun,
   isEnded,
   readStartRequest,
   runnerFailure,
@@ -16,6 +17,7 @@ import type {
   Offer,
   RunnerIdentity,
   RunnerUpdatePorts,
+  SessionStartRequest,
 } from './ports.js';
 
 export { readStartRequest };
@@ -39,7 +41,7 @@ export type StartAnswer =
  * Starts a session for the caller. Nothing is recorded or sent unless a runner is connected and
  * offers both the repository and the harness. The row is recorded `starting` before the runner is
  * told, so its first update finds it. When the runner cannot be told, the row ends `failed` with
- * the cell's own code, and what the transport said is never kept.
+ * the cell's own code, and what the transport said is never kept (`handToRunner`).
  */
 export async function startSession(
   ports: CloudSessionPorts,
@@ -65,15 +67,31 @@ export async function startSession(
     runnerId: offer.runnerId,
     createdAt: ports.clock.nowSeconds(),
     endedAt: null,
+    origin: null,
+    agentRun: null,
   };
   await ports.sessions.insert(session);
+  return { kind: 'ok', session: await handToRunner(ports, session, offer.runnerId, {}) };
+}
 
+/**
+ * Hands a `starting` row's start to `runnerId`, `extra` beside the session's own fields. When the
+ * runner cannot be told, the row ends `failed` with the cell's own code, and what the transport
+ * said is never kept. Answers the row as it is now.
+ */
+export async function handToRunner(
+  ports: Pick<CloudSessionPorts, 'sessions' | 'runners' | 'clock'>,
+  session: CloudSession,
+  runnerId: string,
+  extra: Pick<SessionStartRequest, 'agentRun'>,
+): Promise<CloudSession> {
   try {
-    await ports.runners.startSession(offer.runnerId, {
+    await ports.runners.startSession(runnerId, {
       sessionId: session.id,
       workspaceId: session.workspaceId,
       repository: session.repository,
       harness: session.harness,
+      ...extra,
     });
   } catch {
     const failed = transition(session, 'failed', ports.clock.nowSeconds());
@@ -84,40 +102,47 @@ export async function startSession(
     };
     await ports.sessions.update(session.id, 'starting', changes);
     const held = await ports.sessions.find(session.id);
-    return { kind: 'ok', session: held ?? { ...failed, ...changes } };
+    return held ?? { ...failed, ...changes };
   }
-  return { kind: 'ok', session };
+  return session;
 }
 
+/**
+ * The caller's own sessions, newest first. The workspace's agent runs are runs, listed with the
+ * runs (`GET /api/runs`), whose page opens each one's session as its conversation.
+ */
 export function listSessions(ports: CloudSessionPorts, caller: Caller): Promise<CloudSession[]> {
   return ports.sessions.listOwn(caller.workspaceId, caller.personId);
 }
 
 export type SessionAnswer = { kind: 'ok'; session: CloudSession } | { kind: 'not_found' };
 
-/** One of the caller's own sessions; anyone else's is `not_found`, as if it did not exist. */
+/**
+ * One of the caller's own sessions, or one of the workspace's agent runs (`isSeenBy`); another
+ * person's session is `not_found`, as if it did not exist.
+ */
 export async function getSession(
   ports: CloudSessionPorts,
   caller: Caller,
   sessionId: string,
 ): Promise<SessionAnswer> {
-  const session = await ports.sessions.findOwn(caller.workspaceId, caller.personId, sessionId);
+  const session = await ports.sessions.findSeen(caller.workspaceId, caller.personId, sessionId);
   return session ? { kind: 'ok', session } : { kind: 'not_found' };
 }
 
 /**
- * Ends the caller's session at once, whether or not its runner is connected: the row becomes
- * `stopped`, and the runner is told only if it is the session's own runner and connected. A
- * runner that is away, or that cannot be told, still holds the sandbox, but the row is ended, so
- * when its `hello` lists the session the cell answers with a stop (`runnerConnected`). A stop of an
- * ended session changes and sends nothing.
+ * Ends a session the caller sees (their own, or an agent run of the workspace) at once, whether
+ * or not its runner is connected: the row becomes `stopped`, and the runner is told only if it is
+ * the session's own runner and connected. A runner that is away, or that cannot be told, still
+ * holds the sandbox, but the row is ended, so when its `hello` lists the session the cell answers
+ * with a stop (`runnerConnected`). A stop of an ended session changes and sends nothing.
  */
 export async function stopSession(
   ports: CloudSessionPorts,
   caller: Caller,
   sessionId: string,
 ): Promise<SessionAnswer> {
-  const session = await ports.sessions.findOwn(caller.workspaceId, caller.personId, sessionId);
+  const session = await ports.sessions.findSeen(caller.workspaceId, caller.personId, sessionId);
   if (!session) return { kind: 'not_found' };
   if (isEnded(session.status)) return { kind: 'ok', session };
 
@@ -130,9 +155,10 @@ export async function stopSession(
   // Another change ended it first (a runner's failure): that end stands, and nobody is told.
   if (!won) return { kind: 'ok', session: current };
 
-  if (ports.runners.connected(caller.workspaceId)?.runnerId === session.runnerId) {
+  const { runnerId } = session;
+  if (runnerId !== null && ports.runners.connected(caller.workspaceId)?.runnerId === runnerId) {
     try {
-      await ports.runners.stopSession(session.runnerId, session.id);
+      await ports.runners.stopSession(runnerId, session.id);
     } catch {
       // The row is ended; `hello` will have the runner stop what it still holds.
     }
@@ -147,7 +173,11 @@ export async function stopSession(
  */
 const UPDATE_ATTEMPTS = 3;
 
-/** What an update changes on a live row: its status, as `nextStatus` allows, and what it says. */
+/**
+ * What an update changes on a live row: its status, as `nextStatus` allows, and what it says. An
+ * agent run's title is the cell's (`agentRunTitle`), so a runner's title never replaces it; its
+ * report is kept whole, the latest replacing the one before.
+ */
 function changesOf(session: CloudSession, update: SessionUpdate, now: number): CloudSessionChanges {
   const moved = update.status ? transition(session, update.status, now) : session;
   const changes: CloudSessionChanges = {};
@@ -156,8 +186,9 @@ function changesOf(session: CloudSession, update: SessionUpdate, now: number): C
     changes.endedAt = moved.endedAt;
     if (moved.status === 'failed') Object.assign(changes, runnerFailure(update.error));
   }
-  if (update.title !== undefined) changes.title = update.title;
+  if (update.title !== undefined && !isAgentRun(session)) changes.title = update.title;
   if (update.hostUrl !== undefined) changes.hostUrl = update.hostUrl;
+  if (update.agentRun !== undefined) changes.agentRun = update.agentRun;
   return changes;
 }
 
@@ -192,19 +223,20 @@ export type PassAnswer =
   | { kind: 'not_found' | 'no_runner' };
 
 /**
- * A pass for the caller's own running session, which its host checks before it serves them: the
- * protocol's claims for the caller and the session (`passClaims`), for `PASS_LIFETIME_SECONDS`.
- * `expiresAt` is the pass's `exp`, in whole seconds. Anything else is `not_found`, as if it did
- * not exist: a session still starting or ended, a running one whose host has no address yet,
- * another person's or another workspace's, or an id the cell does not hold. A cell with no pass
- * key issues none (`no_runner`: such a cell has no runner either).
+ * A pass for a running session the caller sees (their own, or an agent run of the workspace),
+ * which its host checks before it serves them: the protocol's claims for the caller and the
+ * session (`passClaims`), for `PASS_LIFETIME_SECONDS`. `expiresAt` is the pass's `exp`, in whole
+ * seconds. Anything else is `not_found`, as if it did not exist: a session still starting or
+ * ended, a running one whose host has no address yet, another person's or another workspace's,
+ * or an id the cell does not hold. A cell with no pass key issues none (`no_runner`: such a cell
+ * has no runner either).
  */
 export async function issuePass(
   ports: CloudSessionPorts,
   caller: Caller,
   sessionId: string,
 ): Promise<PassAnswer> {
-  const session = await ports.sessions.findOwn(caller.workspaceId, caller.personId, sessionId);
+  const session = await ports.sessions.findSeen(caller.workspaceId, caller.personId, sessionId);
   if (session?.status !== 'running' || session.hostUrl === null) {
     return { kind: 'not_found' };
   }

@@ -15,9 +15,10 @@ import type {
  * - an **automation run**, with steps: one a request started (a child, whose `parent` names the
  *   request and never changes), or one a trigger or a person started (a top-level run).
  *
- * The cell writes no run of its own. A runner records each (`RunStore.record`), and a record is
- * stored only once `checkRun` finds nothing wrong with it, so every run the cell answers keeps
- * these rules. Who sees a run follows its factory (`factoriesSeenBy`): owners and admins every
+ * A runner records each run (`RunStore.record`), and a record is stored only once `checkRun`
+ * finds nothing wrong with it, so every run the cell answers keeps these rules. The one run the
+ * cell records itself is an agent run's (`agentRunRecord`), a request whose conversation is the
+ * cloud session the cell started. Who sees a run follows its factory (`factoriesSeenBy`): owners and admins every
  * run, a member the runs of the factories of the teams they are in.
  *
  * Each run is in a **phase**, the cell's grouping of its status, which the list filters and
@@ -351,6 +352,11 @@ export type RunWrite = {
   readonly steps: readonly StepRecord[];
   /** A request's text and facts; null exactly for an automation run. */
   readonly request: (RequestFacts & { readonly text: string }) | null;
+  /**
+   * The cloud session holding a request's conversation with its orchestrator, by its id: null
+   * until there is one, and always for an automation run.
+   */
+  readonly conversation: string | null;
   /** One human sentence once it ends. */
   readonly summary: string | null;
   readonly error: string | null;
@@ -723,6 +729,12 @@ export function checkRun(
   }
   if (!isRequest && orchestrators.length > 0) {
     refuse('steps', 'Only a request has an orchestrator step.');
+  }
+  if (run.conversation !== null) {
+    if (!isRequest) refuse('conversation', 'Only a request has a conversation.');
+    if (!RUN_ID_PATTERN.test(run.conversation)) {
+      refuse('conversation', 'That is no cloud session id.');
+    }
   }
 
   if (run.request !== null) {

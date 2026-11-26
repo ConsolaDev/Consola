@@ -2,8 +2,10 @@ import type { OrchestrationV2ThreadProjection } from '@t3tools/contracts';
 import * as Effect from 'effect/Effect';
 import * as Stream from 'effect/Stream';
 import { isActiveRun } from 't3/orchestration-v2/CommandPolicy.ts';
+import type { AgentRunReport } from '@consola/runner-protocol';
+import { sameReport } from '../core/agentRun.ts';
 import type { HostLine, SessionStatus } from '../core/hostLine.ts';
-import type { ThreadHandle } from '../runtime/threadRuntime.ts';
+import type { AgentRunSession, ThreadHandle } from '../runtime/threadRuntime.ts';
 
 // The lines' types live in `core/`, where the runner's decisions read them; they are said here.
 export { HOST_LINE_TYPES, type HostLine, type SessionStatus } from '../core/hostLine.ts';
@@ -33,6 +35,15 @@ export function sessionStatusOf(
   return 'idle';
 }
 
+/**
+ * The session's status now: its thread's (`sessionStatusOf`), or for an agent run every thread's
+ * (`AgentRunHandle.view`): a child that runs, or a report not yet delivered, keeps it `working`.
+ */
+export function currentStatus(handle: Pick<ThreadHandle, 'snapshot' | 'agentRun'>): SessionStatus {
+  const agentRun = handle.agentRun ?? null;
+  return agentRun === null ? sessionStatusOf(handle.snapshot()) : agentRun.view().status;
+}
+
 /** What the runner was last told of the session: `ready` says idle and the thread's title. */
 export type SaidOfSession = { readonly status: SessionStatus; readonly title: string };
 
@@ -40,7 +51,8 @@ export type SaidOfSession = { readonly status: SessionStatus; readonly title: st
  * Follows the thread's projection (`handle.snapshots()`, which starts with the current one) and
  * writes a `status` line when the session's status changes and a `title` line when t3 retitles
  * the thread, each only on a change from what was last said, starting from `said`: what `ready`
- * said, read before it was written, so a change in between is said too.
+ * said, read before it was written, so a change in between is said too. For an agent run the
+ * status is every thread's, followed from the run's views (`AgentRunHandle.views`).
  */
 export const reportSession = (
   handle: ThreadHandle,
@@ -50,18 +62,48 @@ export const reportSession = (
   Effect.gen(function* () {
     let status: SessionStatus = said.status;
     let title = said.title;
-    yield* handle.snapshots().pipe(
+    const agentRun = handle.agentRun ?? null;
+    const sayStatus = (nextStatus: SessionStatus) =>
+      Effect.suspend(() => {
+        if (nextStatus === status) return Effect.void;
+        status = nextStatus;
+        return write({ type: 'status', status });
+      });
+    const titles = handle.snapshots().pipe(
       Stream.runForEach((projection) =>
         Effect.gen(function* () {
-          const nextStatus = sessionStatusOf(projection);
-          if (nextStatus !== status) {
-            status = nextStatus;
-            yield* write({ type: 'status', status });
-          }
+          if (agentRun === null) yield* sayStatus(sessionStatusOf(projection));
           if (projection.thread.title !== title) {
             title = projection.thread.title;
             yield* write({ type: 'title', title });
           }
+        }),
+      ),
+    );
+    if (agentRun === null) return yield* titles;
+    yield* Effect.all(
+      [titles, agentRun.views().pipe(Stream.runForEach((view) => sayStatus(view.status)))],
+      { concurrency: 'unbounded', discard: true },
+    );
+  });
+
+/**
+ * Follows an agent run's report (`AgentRunHandle.views`, which starts with the current one) and
+ * writes an `agent-run` line, its report's fields beside `type`, whenever it changes from what was
+ * last said (the first one always).
+ */
+export const reportAgentRun = (
+  agentRun: Pick<AgentRunSession, 'views'>,
+  write: (line: HostLine) => Effect.Effect<void>,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    let said: AgentRunReport | null = null;
+    yield* agentRun.views().pipe(
+      Stream.runForEach((view) =>
+        Effect.suspend(() => {
+          if (said !== null && sameReport(said, view.report)) return Effect.void;
+          said = view.report;
+          return write({ type: 'agent-run', ...view.report });
         }),
       ),
     );

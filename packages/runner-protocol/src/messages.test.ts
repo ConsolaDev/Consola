@@ -28,6 +28,17 @@ const start = {
   passPublicKeyPem: '-----BEGIN PUBLIC KEY-----\nabc\n-----END PUBLIC KEY-----\n',
 };
 const stop = { type: 'session.stop', sessionId: 's-1' };
+const agentRun = {
+  agent: 'orchestrator',
+  prompt: 'Review pull request 7.',
+  checkout: { ref: 'refs/pull/7/head', sha: 'b'.repeat(40) },
+  agents: [{ name: 'review', description: 'Reviews.', instructions: 'You review.' }],
+  files: [{ path: 'factory.yml', content: 'version: 1\n' }],
+};
+const agentRunReport = {
+  state: 'working',
+  agents: [{ id: 'conversation-1', agent: 'review', status: 'working' }],
+};
 
 describe('harnesses', () => {
   it('knows claude and codex', () => {
@@ -105,6 +116,14 @@ describe('readRunnerMessage', () => {
     expect(readRunnerMessage(wire(full))).toEqual({ ok: true, value: full });
     expect(readRunnerMessage(wire({ type: 'session.update', sessionId: 's-1' })).ok).toBe(true);
   });
+  it("reads session.update with an agent run's report", () => {
+    const value = { ...update, agentRun: agentRunReport };
+    expect(readRunnerMessage(wire(value))).toEqual({ ok: true, value });
+  });
+  it('refuses session.update with a report it cannot read, naming the field', () => {
+    const read = readRunnerMessage(wire({ ...update, agentRun: { state: 'paused' } }));
+    expect(read).toEqual({ ok: false, reason: expect.stringContaining('agentRun') });
+  });
 
   it.each([
     ['not an object', 'hello'],
@@ -158,6 +177,20 @@ describe('readCellMessage', () => {
   it('reads session.start and session.stop', () => {
     expect(readCellMessage(wire(start))).toEqual({ ok: true, value: start });
     expect(readCellMessage(wire(stop))).toEqual({ ok: true, value: stop });
+  });
+
+  it('reads session.start as an agent run', () => {
+    const value = { ...start, agentRun };
+    expect(readCellMessage(wire(value))).toEqual({ ok: true, value });
+  });
+
+  it.each([
+    ['not an object', 'orchestrator'],
+    ['without a prompt', { ...agentRun, prompt: undefined }],
+    ['with a path climbing out', { ...agentRun, files: [{ path: '../x', content: '' }] }],
+  ])('refuses a session.start whose agent run is %s, naming the field', (_name, run) => {
+    const read = readCellMessage(wire({ ...start, agentRun: run }));
+    expect(read).toEqual({ ok: false, reason: expect.stringContaining('agentRun') });
   });
 
   it.each(['../etc', 'sprocket/..', 'sprocket/.git', 'sprocket/.'])(

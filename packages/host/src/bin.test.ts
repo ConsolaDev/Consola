@@ -1211,8 +1211,19 @@ describe('parseRunnerArgs', () => {
       secretValues: [RUNNER_SECRET, RUNNER_GIT_TOKEN, RUNNER_ANTHROPIC_KEY],
       idleMinutes: 10,
       maxSessionMinutes: DEFAULT_MAX_SESSION_MINUTES,
+      template: 'consola-session',
     });
     expect(DEFAULT_MAX_SESSION_MINUTES).toBe(480);
+  });
+
+  it('starts sessions from the template CONSOLA_SESSION_TEMPLATE names, and refuses a name no template has', () => {
+    expect(
+      parse(flags, { ...RUNNER_ENV, CONSOLA_SESSION_TEMPLATE: 'consola-session-orchestrator' })
+        .template,
+    ).toBe('consola-session-orchestrator');
+    const refused = refusal(flags, { ...RUNNER_ENV, CONSOLA_SESSION_TEMPLATE: 'Consola Session' });
+    expect(refused._tag).toBe('StartFailed');
+    expect(refused.message).toContain('CONSOLA_SESSION_TEMPLATE');
   });
 
   it('takes its minutes, both harnesses, and no git token', () => {

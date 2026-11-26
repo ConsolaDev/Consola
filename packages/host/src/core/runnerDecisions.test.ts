@@ -1,6 +1,9 @@
-import type { SessionStart } from '@consola/runner-protocol';
+import { AGENT_RUN_SUMMARY_MAX, readAgentRunReport } from '@consola/runner-protocol';
+import type { AgentRun, SessionStart } from '@consola/runner-protocol';
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  AGENT_RUN_FILE,
+  agentRunFilesFor,
   cellUrlProblem,
   EndedSessions,
   HostLineBuffer,
@@ -12,6 +15,7 @@ import {
   offerRefusal,
   Pings,
   RECONNECT_CAP_MS,
+  RUNNER_SECRET_VARIABLES,
   readRepositories,
   reconnectDelayMs,
   SANDBOX_LEASE_RENEW_SECONDS,
@@ -24,6 +28,7 @@ import {
   sandboxLifetimeSeconds,
   scrubSecrets,
   scrubUpdate,
+  sessionTemplateFrom,
   updateForExit,
   updateForLine,
 } from './runnerDecisions.ts';
@@ -163,8 +168,22 @@ describe('updateForLine', () => {
     });
   });
 
+  it("turns an agent run's line into its report", () => {
+    const report = {
+      state: 'working',
+      summary: 'Dispatched two.',
+      agents: [{ id: 'thread-2', agent: 'reviewer', status: 'working' }],
+    };
+    expect(updateForLine(ID, JSON.stringify({ type: 'agent-run', ...report }))).toEqual({
+      type: 'session.update',
+      sessionId: ID,
+      agentRun: report,
+    });
+  });
+
   it.each([
     ['ready, which the runner answers once it has the address', '{"type":"ready","port":4100}'],
+    ['an agent run line it cannot read', '{"type":"agent-run","state":"paused"}'],
     ['a status', '{"type":"status","status":"working"}'],
     ['a dev pass', '{"type":"dev-pass","pass":"a.b.c","expiresInSeconds":43200}'],
     ["the host's own exit", '{"type":"exit","reason":"idle"}'],
@@ -429,6 +448,33 @@ describe('scrubUpdate', () => {
     },
   );
 
+  it("takes secrets out of an agent run's summaries and ids, bounds them to what the protocol takes, and leaves out an agent whose name held one", () => {
+    const update = scrubUpdate(
+      {
+        type: 'session.update',
+        sessionId: ID,
+        agentRun: {
+          state: 'done',
+          summary: `Pushed with ${GIT_TOKEN}. ${'s'.repeat(AGENT_RUN_SUMMARY_MAX)}`,
+          agents: [
+            { id: `t-${API_KEY}`, agent: 'reviewer', status: 'done', summary: `Key ${API_KEY}` },
+            { id: 't-3', agent: 'tester', status: 'failed' },
+            { id: 't-4', agent: 'leaky', status: 'done' },
+          ],
+        },
+      },
+      [GIT_TOKEN, API_KEY, 'leaky'],
+    );
+    const report = update.agentRun;
+    expect(report?.summary?.startsWith('Pushed with [redacted]. ')).toBe(true);
+    expect(report?.summary?.length).toBe(AGENT_RUN_SUMMARY_MAX);
+    expect(report?.agents).toEqual([
+      { id: 't-[redacted]', agent: 'reviewer', status: 'done', summary: 'Key [redacted]' },
+      { id: 't-3', agent: 'tester', status: 'failed' },
+    ]);
+    expect(readAgentRunReport(JSON.parse(JSON.stringify(report))).ok).toBe(true);
+  });
+
   it('leaves an update with neither an error nor a title as it is', () => {
     const update = {
       type: 'session.update' as const,
@@ -504,6 +550,89 @@ describe('sandboxEnvFor', () => {
   it('names the session template and its start command', () => {
     expect(SESSION_TEMPLATE).toBe('consola-session');
     expect(SESSION_START_ARGV).toEqual(['consola-session-start']);
+  });
+
+  const run: AgentRun = {
+    agent: 'orchestrator',
+    prompt: 'Review pull request 12.',
+    checkout: { ref: 'refs/pull/12/head', sha: 'a'.repeat(40) },
+    agents: [{ name: 'reviewer', description: 'Reviews', instructions: 'Review it.' }],
+    files: [{ path: 'agents/reviewer.md', content: '# Reviewer\n' }],
+  };
+
+  it('gives an agent run where its run is, the commit to check out, and the git token for gh', () => {
+    expect(sandboxEnvFor({ ...start('claude'), agentRun: run }, secrets, 10)).toEqual({
+      ...sandboxEnvFor(start('claude'), secrets, 10),
+      CONSOLA_AGENT_RUN: AGENT_RUN_FILE,
+      CONSOLA_CHECKOUT_REF: 'refs/pull/12/head',
+      CONSOLA_CHECKOUT_SHA: 'a'.repeat(40),
+      GH_TOKEN: 'ghp_sprocket',
+    });
+    expect(AGENT_RUN_FILE).toBe('/workspace/.consola/agent-run.json');
+  });
+
+  it('gives an agent run with no checkout and no git token neither', () => {
+    const { checkout: _checkout, ...noCheckout } = run;
+    const env = sandboxEnvFor(
+      { ...start('claude'), agentRun: noCheckout },
+      { ...secrets, gitToken: undefined },
+      10,
+    );
+    expect(env.CONSOLA_AGENT_RUN).toBe(AGENT_RUN_FILE);
+    for (const name of ['CONSOLA_CHECKOUT_REF', 'CONSOLA_CHECKOUT_SHA', 'GH_TOKEN', 'GIT_TOKEN']) {
+      expect(env).not.toHaveProperty(name);
+    }
+  });
+
+  it("gives an ordinary session none of an agent run's variables", () => {
+    const env = sandboxEnvFor(start('claude'), secrets, 10);
+    for (const name of [
+      'CONSOLA_AGENT_RUN',
+      'CONSOLA_CHECKOUT_REF',
+      'CONSOLA_CHECKOUT_SHA',
+      'GH_TOKEN',
+    ]) {
+      expect(env).not.toHaveProperty(name);
+    }
+  });
+
+  it("writes an agent run's files under the factory folder, then the run itself", () => {
+    expect(agentRunFilesFor(run)).toEqual([
+      { path: '/workspace/factory/agents/reviewer.md', content: '# Reviewer\n' },
+      { path: AGENT_RUN_FILE, content: `${JSON.stringify(run)}\n` },
+    ]);
+  });
+
+  it('lists GH_TOKEN among the secrets, so its value is scrubbed like the git token', () => {
+    expect(RUNNER_SECRET_VARIABLES).toContain('GH_TOKEN');
+  });
+});
+
+describe('sessionTemplateFrom', () => {
+  it('is consola-session unless CONSOLA_SESSION_TEMPLATE names another', () => {
+    expect(sessionTemplateFrom({})).toEqual({ ok: true, template: 'consola-session' });
+    expect(sessionTemplateFrom({ CONSOLA_SESSION_TEMPLATE: '' })).toEqual({
+      ok: true,
+      template: 'consola-session',
+    });
+    expect(
+      sessionTemplateFrom({ CONSOLA_SESSION_TEMPLATE: 'consola-session-orchestrator' }),
+    ).toEqual({
+      ok: true,
+      template: 'consola-session-orchestrator',
+    });
+  });
+
+  it.each([
+    ['upper case', 'Consola-session'],
+    ['a space', 'consola session'],
+    ['a leading -', '-consola'],
+    ['a slash', 'consola/session'],
+    ['64 characters', 'a'.repeat(64)],
+  ])('refuses a name with %s, naming it', (_case, name) => {
+    const read = sessionTemplateFrom({ CONSOLA_SESSION_TEMPLATE: name });
+    expect(read.ok).toBe(false);
+    if (!read.ok) expect(read.problem).toContain(JSON.stringify(name));
   });
 });
 

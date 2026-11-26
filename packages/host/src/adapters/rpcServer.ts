@@ -72,8 +72,10 @@ import { redactServerSettingsForClient } from 't3/serverSettings.ts';
 import { withOutputWindow } from 't3/terminal/OutputProtocol.ts';
 import { isLoopback } from '../core/bind.ts';
 import type { PassLifetime } from '../core/pass.ts';
+import { readableThread } from '../runtime/threadRuntime.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
 import { serveHostHttp } from './hostHttp.ts';
+import { MCP_PATH, serveMcp } from './mcpHttp.ts';
 import { subscribeHostShell } from './hostShell.ts';
 import { parsePassKey, verifyPassWith } from './passVerifier.ts';
 import type { PassKey, PassKeyInvalid } from './passVerifier.ts';
@@ -384,12 +386,14 @@ const layerHandlers = (
           ...(cause === undefined ? {} : { cause }),
         });
 
-      // t3's `ws.ts` `subscribeOrchestrationV2Thread`, over the session's handle: a snapshot and
-      // the live events after its sequence, or a replay of what followed a client's cursor.
+      // t3's `ws.ts` `subscribeOrchestrationV2Thread`, over the session's handle (or, for an agent
+      // run, a dispatched agent's thread, read-only): a snapshot and the live events after its
+      // sequence, or a replay of what followed a client's cursor.
       const subscribeThread = (input: OrchestrationV2SubscribeThreadInput) =>
         Stream.unwrap(
           Effect.gen(function* () {
-            if (input.threadId !== threadId) {
+            const thread = readableThread(runtime, sessionId, input.threadId);
+            if (thread === undefined) {
               return Stream.fail(
                 new OrchestrationV2GetThreadProjectionError({
                   threadId: input.threadId,
@@ -397,6 +401,7 @@ const layerHandlers = (
                 }),
               );
             }
+            const threadId = input.threadId;
             const dedupeBodies = input.acceptDedupedBodies === true;
             // Replay, snapshot and live tail share one deduper: it must see every record sent.
             const withLiveDedupe = <E>(stream: Stream.Stream<StreamItem, E>) =>
@@ -404,7 +409,7 @@ const layerHandlers = (
                 ? Stream.suspend(() => Stream.map(stream, makeLiveBodyDeduper()))
                 : stream;
             const eventStreamFrom = (afterSequence: number) =>
-              runtime.events(afterSequence).pipe(
+              thread.events(afterSequence).pipe(
                 Stream.map(threadStreamEventItem),
                 coalesceThreadLiveStream,
                 Stream.mapError((cause) =>
@@ -424,8 +429,8 @@ const layerHandlers = (
             const snapshotThenLive = () => {
               // Read together: `snapshotSequence()` is the last event `snapshot()` holds, so the
               // live events after it continue the snapshot with nothing missed or repeated.
-              const snapshotSequence = runtime.snapshotSequence();
-              const projection = projectThreadProjectionForWire(runtime.snapshot());
+              const snapshotSequence = thread.snapshotSequence();
+              const projection = projectThreadProjectionForWire(thread.snapshot());
               const snapshot: StreamItem = {
                 kind: 'snapshot',
                 snapshotSequence,
@@ -442,13 +447,13 @@ const layerHandlers = (
             const afterSequence = input.afterSequence;
             // The thread's high water is the last event its snapshot holds; a cursor past it (a
             // host restarted under the client) gets a snapshot, as in t3.
-            const highWater = runtime.snapshotSequence();
+            const highWater = thread.snapshotSequence();
             if (afterSequence > highWater) return snapshotThenLive();
             const replayed =
               afterSequence === highWater
                 ? []
                 : Array.from(
-                    yield* runtime.events(afterSequence).pipe(
+                    yield* thread.events(afterSequence).pipe(
                       Stream.takeUntil((stored) => stored.sequence >= highWater),
                       Stream.take(THREAD_RESUME_MAX_REPLAY_EVENTS + 1),
                       Stream.map(threadStreamEventItem),
@@ -521,15 +526,15 @@ const layerHandlers = (
       const served = ServedRpcGroup.of({
         [ORCHESTRATION_V2_WS_METHODS.subscribeThread]: subscribeThread,
         [ORCHESTRATION_V2_WS_METHODS.dispatchCommand]: dispatchCommand,
+        // The session's command rows, or a dispatched agent's (read-only).
         [ORCHESTRATION_V2_WS_METHODS.subscribeCommandOutput]: (input) =>
-          input.threadId === threadId
-            ? runtime.commandOutput(input.itemId)
-            : Stream.fail(
-                new OrchestrationV2CommandOutputError({
-                  threadId: input.threadId,
-                  message: `This host serves one thread, not ${input.threadId}.`,
-                }),
-              ),
+          readableThread(runtime, sessionId, input.threadId)?.commandOutput(input.itemId) ??
+          Stream.fail(
+            new OrchestrationV2CommandOutputError({
+              threadId: input.threadId,
+              message: `This host serves one thread, not ${input.threadId}.`,
+            }),
+          ),
         // t3's `ws.ts` `subscribeOrchestrationV2Shell`, for the session's thread alone.
         [ORCHESTRATION_V2_WS_METHODS.subscribeShell]: (input) => subscribeHostShell(runtime, input),
         [WS_METHODS.serverProbe]: () => Effect.succeed({}),
@@ -742,6 +747,10 @@ const app = Effect.fn('host.app')(function* (
   const url = URL.parse(request.url, 'http://consola-host.invalid');
   if (url === null) return HttpServerResponse.empty({ status: 400 });
   const lifetime: PassLifetime = options.dev === true ? 'dev' : 'cell';
+  // An agent run's tools, for its threads' CLIs alone: a thread's token, never a pass, and no
+  // CORS (`mcpHttp.ts`). Every other session has no `/mcp`: it is the `404` below.
+  const agentRun = options.runtime.agentRun;
+  if (url.pathname === MCP_PATH && agentRun !== null) return yield* serveMcp(agentRun);
   // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
   if (url.pathname !== WS_PATH) {
     return yield* serveHostHttp(

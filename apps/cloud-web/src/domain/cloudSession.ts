@@ -1,6 +1,7 @@
 import type { CellRefusal } from './cell';
 import type { components, paths } from './cellApiContract';
 import {
+  AGENT_RUN_PHASE_WORDS,
   failedWords,
   HARNESS_NAMES,
   SESSION_STATUS_WORDS,
@@ -8,14 +9,18 @@ import {
   STOPPED_WORDS,
   UNPUSHED_CHANGES_WARNING,
 } from './cloudSessionMessages';
+import { safeItemUrl } from './runs';
 
 /**
- * A person's cloud sessions as the web app sees them: each a sandbox the workspace's runner runs
- * for them, with an agent CLI working in one of the runner's repositories. They live in the
- * workspace's regional cell (`apps/cloud-region/AGENTS.md`, "Cloud sessions"), which shows a
- * person only their own and decides every status: `starting` goes to `running` or `failed`, and
- * `running` to `stopped` or `failed`, the two ends. A running session's chat connects straight
- * to its sandbox's host, with a short-lived pass the cell signs.
+ * Cloud sessions as the web app sees them: each a sandbox the workspace's runner runs, with an
+ * agent CLI working in one of the runner's repositories. A person's own session is started from
+ * the New session form, and only they see it; an agent run is started by an automation of a
+ * factory's agent team, when a pull request opens, and every member of the workspace sees it
+ * (`origin` names what started it, `agentRun` is the runner's last report of it). They live in
+ * the workspace's regional cell (`apps/cloud-region/AGENTS.md`, "Cloud sessions"), which decides
+ * every status: `starting` goes to `running` or `failed`, and `running` to `stopped` or
+ * `failed`, the two ends. A running session's chat connects straight to its sandbox's host, with
+ * a short-lived pass the cell signs.
  */
 
 type Schemas = components['schemas'];
@@ -27,6 +32,78 @@ export type CloudSessionStatus = CloudSession['status'];
 export type Harness = CloudSession['harness'];
 /** A failure the cell decided itself, which the page words (never shows as a code). */
 export type CellFailureCode = NonNullable<CloudSession['errorCode']>;
+
+/** What started an agent run: an automation of a factory's agent team, on a pull request. */
+export type CloudSessionOrigin = Schemas['CloudSessionOrigin'];
+/** The runner's last report of an agent run. */
+export type AgentRunReport = Schemas['AgentRunReport'];
+export type AgentRunState = AgentRunReport['state'];
+/** An agent the run's first agent (the foreman) dispatched, as the runner last reported it. */
+export type DispatchedAgent = NonNullable<AgentRunReport['agents']>[number];
+export type DispatchedAgentStatus = DispatchedAgent['status'];
+
+/** An agent run: a session an automation started, which nobody types into. */
+export type AgentRun = CloudSession & { origin: CloudSessionOrigin };
+
+/** Whether a session is an agent run (an automation started it), not a person's own. */
+export function isAgentRun(session: CloudSession): session is AgentRun {
+  return session.origin !== null;
+}
+
+/**
+ * Where an agent run stands, in the page's words: the runner's report while it has one, else the
+ * session's status. A report that the run finished or failed is the run's end, whatever came of
+ * the sandbox after it; a session that ended before such a report failed, or was stopped before
+ * the run finished.
+ */
+export type AgentRunPhase = 'starting' | AgentRunState | 'stopped';
+
+export function agentRunPhase(session: Pick<CloudSession, 'status' | 'agentRun'>): AgentRunPhase {
+  const reported = session.agentRun?.state;
+  if (reported === 'done' || reported === 'failed') return reported;
+  switch (session.status) {
+    case 'starting':
+      return 'starting';
+    case 'running':
+      return reported ?? 'working';
+    case 'stopped':
+      return 'stopped';
+    case 'failed':
+      return 'failed';
+  }
+}
+
+/** How an agent run's phase is said: working, waiting on a question, finished, failed. */
+export function agentRunPhaseWords(session: Pick<CloudSession, 'status' | 'agentRun'>): string {
+  return AGENT_RUN_PHASE_WORDS[agentRunPhase(session)];
+}
+
+/** A pull request as a person names it: `owner/name#12 Title`. */
+export function pullRequestLabel(item: CloudSessionOrigin['item']): string {
+  const title = item.title.trim();
+  return `${item.repository}#${item.number}${title ? ` ${title}` : ''}`;
+}
+
+/** The pull request's address, only when it is an `https:` one: the cell passes GitHub's on. */
+export function pullRequestUrl(item: CloudSessionOrigin['item']): string | null {
+  return safeItemUrl(item.url);
+}
+
+/** A commit as it is shown: its first seven characters. */
+export function shortSha(sha: string): string {
+  return sha.slice(0, 7);
+}
+
+/** The agents an agent run dispatched, as the runner last reported them; none before a report. */
+export function dispatchedAgents(session: Pick<CloudSession, 'agentRun'>): DispatchedAgent[] {
+  return session.agentRun?.agents ?? [];
+}
+
+/** The foreman's result: its last message, once the runner reported one with any text. */
+export function agentRunSummary(session: Pick<CloudSession, 'agentRun'>): string | null {
+  const summary = session.agentRun?.summary;
+  return summary && summary.trim() !== '' ? summary : null;
+}
 
 type StartError<Status extends 400 | 503> =
   paths['/api/cloud-sessions']['post']['responses'][Status]['content']['application/json']['error'];
@@ -71,12 +148,24 @@ const POLL_MS: Readonly<Record<CloudSessionStatus, number | null>> = {
   failed: null,
 };
 
+/** How long an agent run's page waits while it runs: its report (state, result, agents) moves. */
+export const AGENT_RUN_POLL_MS = 5000;
+
 /**
  * How long a session's page waits before reading it again: briefly while its sandbox starts,
- * longer while it runs (to notice it stop), and never once it has ended.
+ * longer while it runs (to notice it stop), and never once it has ended. A running agent run is
+ * read more often, since what the page shows of it is its report, which only a read brings.
  */
-export function pollIntervalMs(status: CloudSessionStatus): number | null {
-  return POLL_MS[status];
+export function pollIntervalMs(
+  status: CloudSessionStatus,
+  kind: 'session' | 'agent-run' = 'session',
+): number | null {
+  return kind === 'agent-run' && status === 'running' ? AGENT_RUN_POLL_MS : POLL_MS[status];
+}
+
+/** How long a session's page waits before reading it again, for that session. */
+export function sessionPollIntervalMs(session: CloudSession): number | null {
+  return pollIntervalMs(session.status, isAgentRun(session) ? 'agent-run' : 'session');
 }
 
 /** How long the list waits once nothing shown can change: a session started elsewhere shows. */
@@ -131,7 +220,7 @@ export type SessionScreen =
   | { kind: 'failed'; words: string };
 
 export function sessionScreen(
-  session: Pick<CloudSession, 'status' | 'error' | 'errorCode'>,
+  session: Pick<CloudSession, 'status' | 'error' | 'errorCode' | 'repository' | 'harness'>,
 ): SessionScreen {
   switch (session.status) {
     case 'starting':

@@ -805,4 +805,180 @@ describe('consola-session-start', () => {
     },
     TEST_TIMEOUT_MS,
   );
+
+  const PULL_REF = 'refs/pull/12/head';
+
+  /**
+   * A repository standing in for GitHub's, beside the workspace: `main`, and a pull request's
+   * commit that only `refs/pull/12/head` names (so a clone does not have it).
+   */
+  const originWithPullRequest = (scripted: ReturnType<typeof scriptMachine>) => {
+    const origin = join(scripted.root, 'origin');
+    mkdirSync(origin);
+    const git = (...args: string[]) =>
+      spawnSync(
+        realGit(),
+        ['-c', 'user.name=Sprocket', '-c', 'user.email=sprocket@example.invalid', ...args],
+        {
+          cwd: origin,
+          encoding: 'utf8',
+          env: { PATH: '/usr/bin:/bin', HOME: machine.home(), GIT_CONFIG_NOSYSTEM: '1' },
+        },
+      );
+    git('init', '-q', '-b', 'main');
+    git('commit', '-q', '--allow-empty', '-m', 'main');
+    git('checkout', '-q', '-b', 'pull-request');
+    git('commit', '-q', '--allow-empty', '-m', 'the pull request');
+    const sha = git('rev-parse', 'HEAD').stdout.trim();
+    git('update-ref', PULL_REF, sha);
+    git('checkout', '-q', 'main');
+    git('branch', '-q', '-D', 'pull-request');
+    return { origin, sha };
+  };
+
+  /** A git that clones `origin` (a folder) for GitHub's address, and is git otherwise. */
+  const writeGitCloning = (scripted: ReturnType<typeof scriptMachine>, origin: string) =>
+    writeScript(scripted.bin, 'git', [
+      'for arg in "$@"; do last="$arg"; done',
+      'for arg in "$@"; do',
+      `  [ "$arg" = clone ] && exec '${realGit()}' clone -q '${origin}' "$last"`,
+      'done',
+      `exec '${realGit()}' "$@"`,
+    ]);
+
+  /** The agent run's file, where the runner writes it (under the test's workspace). */
+  const writeAgentRunFile = (scripted: ReturnType<typeof scriptMachine>): string => {
+    mkdirSync(join(scripted.workspace, '.consola'), { recursive: true });
+    const file = join(scripted.workspace, '.consola', 'agent-run.json');
+    writeFileSync(file, '{}\n');
+    return file;
+  };
+
+  it(
+    "checks an agent run's pull request out at its commit, detached, then runs the host with the run",
+    () => {
+      const scripted = scriptMachine();
+      const { origin, sha } = originWithPullRequest(scripted);
+      writeGitCloning(scripted, origin);
+      writeRecordingNode(scripted);
+      const agentRun = writeAgentRunFile(scripted);
+
+      const ran = runScript(scripted, {
+        CONSOLA_AGENT_RUN: agentRun,
+        CONSOLA_CHECKOUT_REF: PULL_REF,
+        CONSOLA_CHECKOUT_SHA: sha,
+        GH_TOKEN: GIT_TOKEN,
+      });
+      expect(ran.status, ran.stderr).toBe(0);
+      expect(ran.stdout).toBe('');
+      expect(scripted.argsOf('node')).toEqual([
+        ...hostArgs(scripted, 'claude'),
+        '--agent-run',
+        agentRun,
+      ]);
+      const repo = join(scripted.workspace, 'repo');
+      const inRepo = (...args: string[]) =>
+        spawnSync(realGit(), ['-C', repo, ...args], { encoding: 'utf8' });
+      expect(inRepo('rev-parse', 'HEAD').stdout.trim()).toBe(sha);
+      // Detached: HEAD names no branch.
+      expect(inRepo('symbolic-ref', '-q', 'HEAD').status).not.toBe(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'on a commit the ref does not have prints one clone-failed line naming the ref and the commit, and runs no host',
+    () => {
+      const scripted = scriptMachine();
+      const { origin } = originWithPullRequest(scripted);
+      writeGitCloning(scripted, origin);
+      // The failure's line is written by node: the real one, beside the recording stand-in.
+      writeScript(scripted.bin, 'node', [
+        'if [ "$1" = -e ]; then',
+        `  exec '${process.execPath}' "$@"`,
+        'fi',
+        scripted.record('node'),
+        'exit 0',
+      ]);
+      const missing = 'c'.repeat(40);
+
+      const ran = runScript(scripted, {
+        CONSOLA_AGENT_RUN: writeAgentRunFile(scripted),
+        CONSOLA_CHECKOUT_REF: PULL_REF,
+        CONSOLA_CHECKOUT_SHA: missing,
+      });
+      expect(ran.status).toBe(1);
+      const lines = ran.stdout.split('\n').filter((line) => line !== '');
+      expect(lines).toHaveLength(1);
+      const read = readSessionLine(lines[0] ?? '');
+      expect(read).toEqual({ kind: 'clone-failed', message: expect.any(String) });
+      const message = read.kind === 'clone-failed' ? read.message : '';
+      expect(message).toContain(`Could not check out ${PULL_REF} at ${missing} in ${REPOSITORY}`);
+      expect(scripted.argsOf('node')).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'on a fetch that fails prints its words without the token, and runs no host',
+    () => {
+      const scripted = scriptMachine();
+      writeScript(scripted.bin, 'git', [
+        'for arg in "$@"; do last="$arg"; done',
+        'for arg in "$@"; do',
+        `  [ "$arg" = clone ] && exec '${realGit()}' init -q "$last"`,
+        '  if [ "$arg" = fetch ]; then',
+        `    echo "fatal: unable to access 'https://x-access-token:${GIT_TOKEN}@github.com/${REPOSITORY}.git/': 403" >&2`,
+        '    exit 128',
+        '  fi',
+        'done',
+        `exec '${realGit()}' "$@"`,
+      ]);
+      writeScript(scripted.bin, 'node', [
+        'if [ "$1" = -e ]; then',
+        `  exec '${process.execPath}' "$@"`,
+        'fi',
+        scripted.record('node'),
+        'exit 0',
+      ]);
+
+      const ran = runScript(scripted, {
+        CONSOLA_AGENT_RUN: writeAgentRunFile(scripted),
+        CONSOLA_CHECKOUT_REF: PULL_REF,
+        CONSOLA_CHECKOUT_SHA: 'd'.repeat(40),
+      });
+      expect(ran.status).toBe(1);
+      const lines = ran.stdout.split('\n').filter((line) => line !== '');
+      expect(lines).toHaveLength(1);
+      const read = readSessionLine(lines[0] ?? '');
+      const message = read.kind === 'clone-failed' ? read.message : '';
+      expect(message).toContain(`Could not check out ${PULL_REF}`);
+      expect(message).toContain(`403`);
+      expect(message).toContain(REDACTED);
+      for (const output of [ran.stdout, ran.stderr]) {
+        expect(output).not.toContain(GIT_TOKEN);
+        expect(output).not.toContain(encodeURIComponent(GIT_TOKEN));
+      }
+      expect(scripted.argsOf('node')).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'refuses to start a host for an agent run whose file is not there',
+    () => {
+      const scripted = scriptMachine();
+      writeCloningGit(scripted);
+      writeRecordingNode(scripted);
+
+      const ran = runScript(scripted, {
+        CONSOLA_AGENT_RUN: join(scripted.workspace, '.consola', 'agent-run.json'),
+      });
+      expect(ran.status).toBe(1);
+      expect(ran.stdout).toBe('');
+      expect(ran.stderr).toMatch(/consola-session-start: CONSOLA_AGENT_RUN names .* not a file/);
+      expect(scripted.argsOf('node')).toBeNull();
+    },
+    TEST_TIMEOUT_MS,
+  );
 });

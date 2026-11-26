@@ -53,6 +53,7 @@ const automationRun = (overrides: Partial<RunWrite> = {}): RunWrite => ({
   runner: 'cloud',
   steps: [step('plan', 'completed'), step('review', 'running')],
   request: null,
+  conversation: null,
   summary: null,
   error: null,
   costUsd: null,
@@ -197,6 +198,14 @@ describe('checkRun', () => {
     const checked = checkRun(request({ status: 'waiting', waitingOn: 'person' }));
     expect(checked.ok && checked.run.kind).toBe('request');
     expect(checked.ok && checked.run.ownPhase).toBe('needs-you');
+  });
+
+  it('takes a conversation on a request only, by a cloud session id', () => {
+    expect(problemsOf(request({ conversation: 'b1c2d3e4-0000-4000-8000-000000000001' }))).toEqual(
+      [],
+    );
+    expect(problemsOf(automationRun({ conversation: 'session-1' }))).toEqual(['conversation']);
+    expect(problemsOf(request({ conversation: 'not a session' }))).toEqual(['conversation']);
   });
 
   it('says what a waiting run waits on exactly while it is waiting', () => {

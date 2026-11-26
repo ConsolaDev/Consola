@@ -1,8 +1,14 @@
-import { Check, FileCode2, FolderOpen, X } from 'lucide-react';
+import { Check, FileCode2, FolderOpen, LayoutTemplate, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { fileGroups, firstFile } from '../domain/factories';
-import type { Factory, FactoryRead, FactoryVersion } from '../domain/factories';
+import type {
+  Factory,
+  FactoryRead,
+  FactoryTemplate,
+  FactoryVersion,
+  TemplatesAnswer,
+} from '../domain/factories';
 import type { factoryCheckOf } from '../domain/factoryCheck';
 import {
   afterSave,
@@ -21,6 +27,7 @@ import {
   restoreBlocker,
   withEdit,
   withFileAdded,
+  withFiles,
   withRemoved,
   withRenamed,
   withRestored,
@@ -38,6 +45,7 @@ import {
 } from '../domain/factoryKinds';
 import type { NamingTarget } from '../domain/factoryKinds';
 import {
+  ADD_TEMPLATE,
   bringInLabel,
   broughtInLine,
   changeLine,
@@ -52,10 +60,15 @@ import {
   NEW_LABELS,
   NO_FILES,
   NO_FILES_HINT,
+  NO_TEMPLATES,
   problemsCount,
   removedSaid,
   restoredSaid,
   savedWords,
+  TEMPLATES_LOADING,
+  TEMPLATES_NOTE,
+  templateAddedLine,
+  templateFilesCount,
   versionMovedLine,
 } from '../domain/factoryMessages';
 import {
@@ -83,11 +96,11 @@ import './FactoryDefinition.css';
 /**
  * A factory's definition (`#/factories/<id>/definition`): the whole factory as files, where they
  * are made and kept. It takes the whole width beside the sidebar: a bar with the factory, its
- * version, what Save will do, and Save; the banner, until hidden; then the files beside the
- * editor, its tabs and the problems under it. Files are added by kind (an automation, an agent, a
- * skill, a file inside a skill, `factory.yml`), renamed and removed in the tree, and edited in the
- * editor, all a draft until Save sends the whole set as the next version. A factory with no files
- * offers the first ones where the editor would be.
+ * version, what Save will do, "Add a template" and Save; the banner, until hidden; then the files
+ * beside the editor, its tabs and the problems under it. Files are added by kind (an automation,
+ * an agent, a skill, a file inside a skill, `factory.yml`) or from a template, renamed and
+ * removed in the tree, and edited in the editor, all a draft until Save sends the whole set as
+ * the next version. A factory with no files offers the first ones where the editor would be.
  *
  * The files are read from the cell as the page opens (`GET /api/factories/{factoryId}`). A
  * factory the cell no longer shows the person reads the sidebar's list again (`onChanged`), which
@@ -180,6 +193,9 @@ const MOMENT_MS = 1800;
 /** A newer version than the draft's, saved by someone else: `latest` once it is read. */
 type Moved = { latestVersion: number; latest: FactoryVersion | null };
 
+/** The templates offered: closed, being read, or what reading them came to. */
+type Templates = { kind: 'closed' } | { kind: 'loading' } | TemplatesAnswer;
+
 function Workbench({
   factory,
   personId,
@@ -243,6 +259,9 @@ function Workbench({
   const [naming, setNaming] = useState<Naming | null>(null);
   const [definedAutomations, setDefinedAutomations] = useState<string[]>([]);
   const [editorMoves, setEditorMoves] = useState<EditorMoves | null>(null);
+  const [templates, setTemplates] = useState<Templates>({ kind: 'closed' });
+  const [templateAdded, setTemplateAdded] = useState<string | null>(null);
+  const templatesAsked = useRef(0);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const filterRef = useRef<HTMLInputElement>(null);
@@ -383,6 +402,7 @@ function Workbench({
         setVersion(answer.version);
         setDraft((current) => afterSave(current, sent, answer.version));
         setFromCell(null);
+        setTemplateAdded(null);
         setRolled(true);
         setSaving('saved');
         setSaid(`Saved version ${answer.version.version}.`);
@@ -487,6 +507,44 @@ function Workbench({
     apply(discarded);
     setNaming(null);
     setConfirmDiscard(false);
+    setSaveError(null);
+    setTemplateAdded(null);
+  };
+
+  /** Reads the templates the cell offers, showing them as they arrive. */
+  const loadTemplates = async () => {
+    const asked = ++templatesAsked.current;
+    setTemplates({ kind: 'loading' });
+    const answer = await factoriesService.loadTemplates(ws);
+    if (asked === templatesAsked.current) setTemplates(answer);
+  };
+
+  const toggleTemplates = () => {
+    if (templates.kind !== 'closed') {
+      templatesAsked.current++;
+      setTemplates({ kind: 'closed' });
+      return;
+    }
+    setTemplateAdded(null);
+    void loadTemplates();
+  };
+
+  /**
+   * Merges a template's files into the files being edited, as unsaved changes (`withFiles`): a
+   * file at the same path takes the template's text. The first file it changed opens, and the
+   * page says how many it added and replaced; the person saves them with Save.
+   */
+  const addTemplate = (template: FactoryTemplate) => {
+    const result = withFiles(draftRef.current, template.files);
+    apply(() => result.draft);
+    const touched = [...result.added, ...result.replaced];
+    const first = firstFile(fileGroups(touched.map((path) => ({ path }))));
+    if (first) setTabs((current) => openTab(current, first));
+    templatesAsked.current++;
+    setTemplates({ kind: 'closed' });
+    const line = templateAddedLine(template.name, result.added, result.replaced, result.skipped);
+    setTemplateAdded(line);
+    setSaid(line);
   };
 
   const open = (path: string) => setTabs((current) => openTab(current, path));
@@ -585,6 +643,16 @@ function Workbench({
           {saved && <span className="definition-version-saved">, {saved}</span>}
         </p>
         {dirty && <p className="definition-changes">{changeLine(summary)}</p>}
+        <button
+          type="button"
+          className="button definition-add-template"
+          aria-expanded={templates.kind !== 'closed'}
+          disabled={saving === 'saving'}
+          onClick={toggleTemplates}
+        >
+          <LayoutTemplate size={14} aria-hidden="true" />
+          {ADD_TEMPLATE}
+        </button>
         {dirty && saving !== 'saving' && (
           <button
             type="button"
@@ -642,6 +710,28 @@ function Workbench({
         </section>
       )}
 
+      {templates.kind !== 'closed' && (
+        <TemplatesStrip
+          templates={templates}
+          workspace={workspace}
+          onAdd={addTemplate}
+          onRetry={() => void loadTemplates()}
+          onClose={toggleTemplates}
+        />
+      )}
+      {templateAdded && (
+        <div className="definition-strip" role="status">
+          <p>{templateAdded}</p>
+          <button
+            type="button"
+            className="definition-strip-close"
+            aria-label="Dismiss"
+            onClick={() => setTemplateAdded(null)}
+          >
+            <X size={14} aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {confirmDiscard && dirty && (
         <div className="definition-strip">
           <p>{discardQuestion(summary.files)}</p>
@@ -747,6 +837,11 @@ function Workbench({
                     factory.yml
                   </button>
                 )}
+                {templates.kind === 'closed' && (
+                  <button type="button" className="button" onClick={toggleTemplates}>
+                    {ADD_TEMPLATE}
+                  </button>
+                )}
               </div>
             </div>
           ) : (
@@ -766,6 +861,77 @@ function Workbench({
         </div>
       </div>
     </>
+  );
+}
+
+/**
+ * The templates offered, under the bar while "Add a template" is open: what adding one does,
+ * then each template (its name, how many files, what it is) with Add, or why there are none.
+ */
+function TemplatesStrip({
+  templates,
+  workspace,
+  onAdd,
+  onRetry,
+  onClose,
+}: {
+  templates: Exclude<Templates, { kind: 'closed' }>;
+  workspace: MyWorkspace;
+  onAdd: (template: FactoryTemplate) => void;
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <section className="definition-strip definition-templates" aria-label="Templates">
+      <div className="definition-templates-body">
+        <p className="definition-templates-note">{TEMPLATES_NOTE}</p>
+        {templates.kind === 'loading' ? (
+          <p className="definition-templates-quiet" role="status">
+            {TEMPLATES_LOADING}
+          </p>
+        ) : templates.kind === 'listed' ? (
+          templates.templates.length === 0 ? (
+            <p className="definition-templates-quiet">{NO_TEMPLATES}</p>
+          ) : (
+            <ul className="definition-templates-list">
+              {templates.templates.map((template) => (
+                <li key={template.id} className="definition-template">
+                  <div className="definition-template-text">
+                    <p className="definition-template-name">
+                      {template.name}
+                      <span className="definition-template-count">
+                        {templateFilesCount(template.files.length)}
+                      </span>
+                    </p>
+                    <p className="definition-template-description">{template.description}</p>
+                  </div>
+                  <button type="button" className="button primary" onClick={() => onAdd(template)}>
+                    Add
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : (
+          <div className="definition-templates-refused" role="alert">
+            <p>{messageForFactoriesState(templates, workspace)}</p>
+            {(templates.kind === 'pending' || templates.kind === 'unavailable') && (
+              <button type="button" className="button" onClick={onRetry}>
+                Try again
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <button
+        type="button"
+        className="definition-strip-close"
+        aria-label="Close the templates"
+        onClick={onClose}
+      >
+        <X size={14} aria-hidden="true" />
+      </button>
+    </section>
   );
 }
 

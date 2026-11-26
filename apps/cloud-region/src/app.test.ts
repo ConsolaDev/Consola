@@ -24,6 +24,7 @@ import type {
   OutboxMessage,
   WorkspaceChange,
 } from '@consola/cloud-contract';
+import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import {
   PASS_AUDIENCE,
   PASS_MAX_LIFETIME_SECONDS,
@@ -62,6 +63,7 @@ import {
   postRunApproval,
   listCloudSessions,
   listFactories,
+  listFactoryTemplates,
   listRuns,
   listTeams,
   patchFactory,
@@ -1797,6 +1799,133 @@ describe('a delivery sent as a cell token', () => {
   });
 });
 
+describe('agent teams', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  /** A pull request opened in Acme's repository, as GitHub POSTs it. */
+  const opened = (deliveryId: string): GitHubEventMessage =>
+    pullRequestOpened({
+      deliveryId,
+      payload: {
+        action: 'opened',
+        number: 7,
+        pull_request: {
+          number: 7,
+          html_url: 'https://github.com/sprocket/catalog-portal/pull/7',
+          title: 'Price the catalog in euros',
+          body: 'Customers in Lyon asked.',
+          draft: false,
+          user: { login: 'octocat', type: 'User' },
+          head: { sha: 'b'.repeat(40), ref: 'euros' },
+          base: { ref: 'main' },
+          labels: [],
+        },
+        repository: { full_name: 'sprocket/catalog-portal' },
+        installation: { id: 41 },
+      },
+    });
+
+  it('offer the code review team as a template, its files as factory-spec writes them', async () => {
+    const answer = await ask(listFactoryTemplates, '/api/factory-templates', member);
+    expect(answer).toEqual({
+      status: 200,
+      body: [
+        {
+          id: 'code-review-team',
+          name: 'Code review team',
+          description: expect.any(String),
+          files: CODE_REVIEW_TEAM_FILES.map(({ path, content }) => ({ path, content })),
+        },
+      ],
+    });
+  });
+
+  it("save beside the steps design's files with no issue, and refuse a team's problems by file", async () => {
+    await acmeWithMembers();
+    const [first] = (await teamsSeenBy(owner)).teams;
+    const factory = await makeFactory('Reviews', first?.id ?? '');
+    const both = [
+      ...FILES,
+      ...CODE_REVIEW_TEAM_FILES.map(({ path, content }) => ({ path, content })),
+    ];
+    const saved = await saveFiles(factory.id, member, { baseVersion: 1, files: both });
+    expect(saved).toMatchObject({ status: 201, body: { notices: [] } });
+
+    const broken = [
+      ...both,
+      { path: 'agents/stray/agent.md', content: '---\nagentType: NOBODY\n---\nHi.\n' },
+    ];
+    const refused = await saveFiles(factory.id, member, { baseVersion: 2, files: broken });
+    expect(refused).toMatchObject({
+      status: 400,
+      body: {
+        error: 'invalid_files',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ file: 'agents/stray/agent.md' }),
+        ]),
+      },
+    });
+  });
+
+  it('start an agent run on an opened pull request, which every member sees in Runs, failed when no runner is connected', async () => {
+    await acmeWithMembers();
+    const [first] = (await teamsSeenBy(owner)).teams;
+    const factory = await makeFactory('Reviews', first?.id ?? '');
+    await saveFiles(factory.id, owner, {
+      baseVersion: 1,
+      files: CODE_REVIEW_TEAM_FILES.map(({ path, content }) => ({ path, content })),
+    });
+
+    expect(await passOn(opened('5e1f0a2c-0001'))).toEqual({
+      status: 201,
+      body: { recorded: true },
+    });
+    // Delivered again: recorded before, so it starts nothing more.
+    expect(await passOn(opened('5e1f0a2c-0001'))).toEqual({
+      status: 200,
+      body: { recorded: true },
+    });
+
+    // The run is in Runs, a request whose conversation is its session; no one's Sessions list
+    // holds it.
+    const listed = await ask(listRuns, '/api/runs', member);
+    expect(listed.status).toBe(200);
+    const runs = (listed.body as { runs: Array<{ id: string }> }).runs;
+    expect(runs).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        status: 'failed',
+        trigger: 'event',
+        title: 'Price the catalog in euros',
+        error: 'No runner was connected for this workspace, so nothing ran.',
+        factory: expect.objectContaining({ id: factory.id }),
+      }),
+    ]);
+    const id = runs[0]?.id ?? '';
+    const read = await ask(getRun, `/api/runs/${id}`, member);
+    expect(read).toMatchObject({ status: 200, body: { conversation: { sessionId: id } } });
+    expect(await ask(listCloudSessions, '/api/cloud-sessions', member)).toEqual({
+      status: 200,
+      body: [],
+    });
+    const session = await ask(getCloudSession, `/api/cloud-sessions/${id}`, member);
+    expect(session).toEqual({
+      status: 200,
+      body: expect.objectContaining({
+        personId: null,
+        runnerId: null,
+        status: 'failed',
+        errorCode: 'runner_unavailable',
+        title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
+        origin: expect.objectContaining({ factoryId: factory.id, agent: 'orchestrator' }),
+        agentRun: null,
+      }),
+    });
+  });
+});
+
 describe('cloud sessions, with no runner connected (the channel when no runner socket is set up)', () => {
   const start = { repository: 'sprocket/catalog-portal', harness: 'claude' };
 
@@ -2126,6 +2255,7 @@ const cronRun = (id: string, factoryId: string, overrides: Partial<RunWrite> = {
   runner: 'cloud',
   steps: [runStep('build')],
   request: null,
+  conversation: null,
   summary: 'Built.',
   error: null,
   costUsd: 0.1,

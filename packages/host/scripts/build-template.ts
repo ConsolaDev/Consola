@@ -9,14 +9,15 @@
  * context its COPY reads): its Dockerfile and start script, the two files `scripts/bundle.ts`
  * writes, and t3's patch to `@ff-labs/fff-node` from the repository's `patches/`, which the
  * Dockerfile applies as pnpm does. Then it builds it there with `@consola/sandbox/e2b`'s builder,
- * under the name the runner creates sandboxes from (`SESSION_TEMPLATE`). The key is
+ * under the name the runner creates sandboxes from (`SESSION_TEMPLATE`, or the one
+ * `CONSOLA_SESSION_TEMPLATE` names, `sessionTemplateFrom`). The key is
  * `E2B_API_KEY`, from the environment or else `packages/sandbox/.env`; it is never an argument,
  * and never printed.
  */
 import { copyFileSync, existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { buildE2BTemplate } from '@consola/sandbox/e2b';
-import { SESSION_TEMPLATE } from '../src/core/runnerDecisions.ts';
+import { sessionTemplateFrom } from '../src/core/runnerDecisions.ts';
 
 const PACKAGE = join(import.meta.dirname, '..');
 const TEMPLATE = join(PACKAGE, 'sandbox-template');
@@ -30,6 +31,10 @@ const refuse = (problem: string): never => {
   process.stderr.write(`${problem}\n`);
   process.exit(2);
 };
+
+// `CONSOLA_SESSION_TEMPLATE` builds another template (a branch's own), as the runner reads it.
+const template = sessionTemplateFrom(process.env);
+const templateName = template.ok ? template.template : refuse(template.problem);
 
 for (const file of [BUNDLE, HISTORY_WORKER]) {
   if (!existsSync(file)) {
@@ -57,7 +62,7 @@ copyFileSync(FFF_NODE_PATCH, join(STAGE, 'fff-node.patch'));
 
 const built = await buildE2BTemplate({
   apiKey,
-  name: SESSION_TEMPLATE,
+  name: templateName,
   folder: STAGE,
   onLog: (line) => process.stdout.write(`${line}\n`),
 });

@@ -1,5 +1,13 @@
+import { readAgentRun, readAgentRunReport } from './agentRun.js';
+import type { AgentRun, AgentRunReport } from './agentRun.js';
 import { fieldProblem, isId, isRecord, read, refused } from './read.js';
 import type { ReadResult } from './read.js';
+
+/**
+ * The largest frame either side of the runner's socket sends or reads, in bytes: room for a
+ * `session.start` carrying an agent run's prompt and files. Past it the socket closes with 1009.
+ */
+export const RUNNER_SOCKET_FRAME_LIMIT_BYTES = 4 * 1024 * 1024;
 
 /** The agent CLIs a runner can start a session with. */
 export const HARNESSES = ['claude', 'codex'] as const;
@@ -79,6 +87,8 @@ export type SessionUpdate = {
   hostUrl?: string;
   title?: string;
   error?: string;
+  /** What the runner says of the session's agent run, for a session started as one. */
+  agentRun?: AgentRunReport;
 };
 
 export type RunnerMessage = RunnerHello | SessionUpdate;
@@ -91,6 +101,8 @@ export type SessionStart = {
   harness: Harness;
   /** The key the session's host checks passes with. A public key: never a secret. */
   passPublicKeyPem: string;
+  /** Starts the session as an agent run: its first message and its agents come with it. */
+  agentRun?: AgentRun;
 };
 
 export type SessionStop = { type: 'session.stop'; sessionId: string };
@@ -159,7 +171,15 @@ function readHello(message: Record<string, unknown>): ReadResult<RunnerHello> {
   });
 }
 
-const UPDATE_FIELDS = ['type', 'sessionId', 'status', 'hostUrl', 'title', 'error'] as const;
+const UPDATE_FIELDS = [
+  'type',
+  'sessionId',
+  'status',
+  'hostUrl',
+  'title',
+  'error',
+  'agentRun',
+] as const;
 
 function readUpdate(message: Record<string, unknown>): ReadResult<SessionUpdate> {
   const extra = Object.keys(message).find(
@@ -168,7 +188,7 @@ function readUpdate(message: Record<string, unknown>): ReadResult<SessionUpdate>
   if (extra !== undefined) {
     return refused(`the update has \`${extra}\`, which the protocol does not name`);
   }
-  const { sessionId, status, hostUrl, title, error } = message;
+  const { sessionId, status, hostUrl, title, error, agentRun } = message;
   if (!isId(sessionId)) return refused("`sessionId` is not a session's id");
   const update: SessionUpdate = { type: 'session.update', sessionId };
   if (status !== undefined) {
@@ -186,6 +206,11 @@ function readUpdate(message: Record<string, unknown>): ReadResult<SessionUpdate>
   if (error !== undefined) {
     if (!isId(error)) return refused('`error` is not text');
     update.error = error;
+  }
+  if (agentRun !== undefined) {
+    const report = readAgentRunReport(agentRun);
+    if (!report.ok) return refused(`\`agentRun\` is not an agent run's report: ${report.reason}`);
+    update.agentRun = report.value;
   }
   return read(update);
 }
@@ -211,7 +236,8 @@ const START = [
 ] as const;
 
 function readStart(message: Record<string, unknown>): ReadResult<SessionStart> {
-  const fields = fieldProblem(message, START, 'the start');
+  const asAgentRun = Object.hasOwn(message, 'agentRun');
+  const fields = fieldProblem(message, asAgentRun ? [...START, 'agentRun'] : START, 'the start');
   if (fields !== null) return refused(fields);
   const { sessionId, workspaceId, repository, harness, passPublicKeyPem } = message;
   if (!isId(sessionId)) return refused("`sessionId` is not a session's id");
@@ -219,14 +245,20 @@ function readStart(message: Record<string, unknown>): ReadResult<SessionStart> {
   if (!isRepository(repository)) return refused('`repository` is not `owner/name`');
   if (!isHarness(harness)) return refused('`harness` is not a harness');
   if (!isId(passPublicKeyPem)) return refused('`passPublicKeyPem` is not a key');
-  return read({
+  const start: SessionStart = {
     type: 'session.start',
     sessionId,
     workspaceId,
     repository,
     harness,
     passPublicKeyPem,
-  });
+  };
+  if (asAgentRun) {
+    const run = readAgentRun(message.agentRun);
+    if (!run.ok) return refused(`\`agentRun\` is not an agent run: ${run.reason}`);
+    start.agentRun = run.value;
+  }
+  return read(start);
 }
 
 function readStop(message: Record<string, unknown>): ReadResult<SessionStop> {

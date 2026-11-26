@@ -190,7 +190,8 @@ the secret nor the key is ever logged.
 
 The runner opens a WebSocket at `GET /api/runner` with
 `Authorization: Bearer <RUNNER_SECRET>`; anything else is 401 before the
-upgrade. A frame may be at most 64 KiB. Each `session.start` the cell sends
+upgrade. A frame may be at most 4 MiB (the protocol's
+`RUNNER_SOCKET_FRAME_LIMIT_BYTES`). Each `session.start` the cell sends
 carries the public half of the pass key, which the session's host checks
 passes with.
 

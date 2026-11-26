@@ -18,6 +18,7 @@ import {
   restoreBlocker,
   withEdit,
   withFileAdded,
+  withFiles,
   withRemoved,
   withRenamed,
   withRestored,
@@ -335,6 +336,69 @@ describe('discarded', () => {
         ['skills/sorting/refs/queries.md', 'skills/triage/refs/queries.md'],
       ]),
     );
+  });
+});
+
+describe('withFiles (a template’s files, merged in)', () => {
+  const TEAM = [
+    { path: 'agents/orchestrator/agent.md', content: 'orchestrator' },
+    { path: 'agents/reviewer.md', content: 'the template’s reviewer' },
+    { path: 'factory.yml', content: 'version: 1\n' },
+  ];
+
+  it('adds the files the draft lacks and replaces those it holds, as unsaved changes', () => {
+    const { draft, added, replaced, skipped } = withFiles(draftOf(V3), TEAM);
+    expect(added).toEqual(['agents/orchestrator/agent.md']);
+    expect(replaced).toEqual(['agents/reviewer.md']);
+    expect(skipped).toEqual([]);
+    expect(isChanged(draft)).toBe(true);
+    expect(fileMarks(draft).get('agents/orchestrator/agent.md')?.isNew).toBe(true);
+    expect(fileMarks(draft).get('agents/reviewer.md')?.changed).toBe(true);
+    // The version's files keep their order; an added file follows them.
+    expect(filesOf(draft)).toEqual([
+      { path: 'factory.yml', content: 'version: 1\n' },
+      { path: 'agents/reviewer.md', content: 'the template’s reviewer' },
+      { path: 'automations/triage.yaml', content: 'triage v3' },
+      { path: 'agents/orchestrator/agent.md', content: 'orchestrator' },
+    ]);
+  });
+
+  it('counts a file already as the template has it as neither, and changes nothing for it', () => {
+    const draft = draftOf(V3);
+    const result = withFiles(draft, [{ path: 'factory.yml', content: 'version: 1\n' }]);
+    expect(result).toEqual({ draft, added: [], replaced: [], skipped: [] });
+  });
+
+  it('replaces the person’s own unsaved edit of a file at the same path', () => {
+    const edited = withEdit(draftOf(V3), 'agents/reviewer.md', 'mine');
+    const { draft, replaced } = withFiles(edited, TEAM);
+    expect(replaced).toEqual(['agents/reviewer.md']);
+    expect(contentOf(draft, 'agents/reviewer.md')).toBe('the template’s reviewer');
+  });
+
+  it('leaves a path the person removed under Removed on save', () => {
+    const removed = withRemoved(draftOf(V3), 'agents/reviewer.md');
+    const { draft, added, replaced, skipped } = withFiles(removed, TEAM);
+    expect(skipped).toEqual(['agents/reviewer.md']);
+    expect(added).toEqual(['agents/orchestrator/agent.md']);
+    expect(replaced).toEqual([]);
+    expect(removedPaths(draft)).toEqual(['agents/reviewer.md']);
+    expect(contentOf(draft, 'agents/reviewer.md')).toBeUndefined();
+  });
+
+  it('adds every file to a blank factory, and discarding drops them all', () => {
+    const blank = draftOf({ version: 1, files: [] });
+    const { draft, added, replaced } = withFiles(blank, TEAM);
+    expect(added).toEqual(TEAM.map((file) => file.path));
+    expect(replaced).toEqual([]);
+    expect(pathsOf(draft)).toEqual(TEAM.map((file) => file.path));
+    expect(filesOf(discarded(draft))).toEqual([]);
+  });
+
+  it('leaves what a save sends as every file, the added ones included', () => {
+    const { draft } = withFiles(draftOf({ version: 1, files: [] }), TEAM);
+    const saved = { version: 2, files: filesOf(draft) };
+    expect(isChanged(afterSave(draft, draft, saved))).toBe(false);
   });
 });
 
