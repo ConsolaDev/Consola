@@ -9,13 +9,6 @@ import {
   readGitHubId,
 } from './connections.js';
 import type { GitHubInstallation } from './connections.js';
-import type { SignedIn } from './person.js';
-
-const session: SignedIn = {
-  sessionId: 'session-1',
-  person: { id: 'dana', name: 'Dana Ortiz', email: 'dana@sprocket.test', image: null },
-  activeWorkspaceId: 'sprocket',
-};
 
 describe('a GitHub id in an address', () => {
   it('is digits with no leading zero, as a safe integer', () => {
@@ -112,36 +105,31 @@ describe('who manages connections', () => {
 
 describe("a Connect's state", () => {
   const now = 1_800_000_000;
-  const state = newInstallState(session, 'sprocket', now);
+  const state = newInstallState('dana', 'sprocket', now);
 
-  it('names the workspace, the person and the session, for ten minutes', () => {
+  it('names the workspace and the person, for ten minutes', () => {
     expect(state).toEqual({
       workspaceId: 'sprocket',
-      userId: 'dana',
-      sessionId: 'session-1',
+      personId: 'dana',
       expiresAt: now + INSTALL_STATE_LIFETIME_SECONDS,
     });
     expect(INSTALL_STATE_LIFETIME_SECONDS).toBe(600);
   });
 
-  it('finishes a Connect only in the session that started it, in time', () => {
-    expect(checkInstallState(state, session, now + 1)).toBe('ok');
-    expect(checkInstallState(state, session, state.expiresAt - 1)).toBe('ok');
+  it('finishes a Connect only for the person who started it, in time', () => {
+    expect(checkInstallState(state, 'dana', now + 1)).toBe('ok');
+    expect(checkInstallState(state, 'dana', state.expiresAt - 1)).toBe('ok');
   });
 
   it('is expired from the second it ends', () => {
-    expect(checkInstallState(state, session, state.expiresAt)).toBe('expired');
+    expect(checkInstallState(state, 'dana', state.expiresAt)).toBe('expired');
   });
 
-  it("is refused in another session, the person's own included", () => {
-    expect(checkInstallState(state, { ...session, sessionId: 'session-2' }, now)).toBe(
-      'not-this-session',
-    );
-    const someoneElse = { ...session, person: { ...session.person, id: 'eli' } };
-    expect(checkInstallState(state, someoneElse, now)).toBe('not-this-session');
+  it('is refused to anyone else, even in time', () => {
+    expect(checkInstallState(state, 'eli', now)).toBe('not-this-person');
   });
 
   it('is unreadable when it could not be read', () => {
-    expect(checkInstallState(null, session, now)).toBe('unreadable');
+    expect(checkInstallState(null, 'dana', now)).toBe('unreadable');
   });
 });
