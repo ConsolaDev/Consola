@@ -6,10 +6,10 @@ import * as Effect from 'effect/Effect';
 import { SignJWT } from 'jose';
 
 /**
- * A pass for `sessionId` signed with `privateKey` as the cell's `passSigner` signs one
- * (`apps/cloud-region`, `adapters/token/passSigner.ts`): the protocol's claims (`passClaims`, for
- * Acme's person in Sprocket's workspace), EdDSA, `typ` `PASS_TYPE`, issued now and living
- * `lifetimeSeconds` (the protocol's cap unless given; `passClaims` throws over it).
+ * A pass for `sessionId` signed with `privateKey` as the cloud app's `passSigner` signs one
+ * (`apps/cloud-api`, `src/company/adapters/token/passSigner.ts`): the protocol's claims
+ * (`passClaims`, for Acme's person in Sprocket's workspace), EdDSA, `typ` `PASS_TYPE`, issued now
+ * and living `lifetimeSeconds` (the protocol's cap unless given; `passClaims` throws over it).
  */
 export const signCellPass = Effect.fn('signCellPass')(function* (
   privateKey: KeyObject,

@@ -9,8 +9,8 @@ import type { ReadResult } from './read.js';
  */
 
 /**
- * The audience every pass names. It differs from the cell token's (`consola-cell`), so a token
- * minted with the same kind of key for a cell is never a pass, and a pass is never a cell token.
+ * The audience every pass names. It differs from the cell token's (`consola-cell`), which the
+ * cloud app no longer mints, so such a token is never a pass.
  */
 export const PASS_AUDIENCE = 'consola-session-pass';
 

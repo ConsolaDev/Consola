@@ -1,5 +1,5 @@
 /**
- * What a runner and a regional cell agree on. It holds only `export … from`.
+ * What a runner and its cell, the cloud app, agree on. It holds only `export … from`.
  */
 export {
   AGENT_RUN_FACTORY_DIR,
