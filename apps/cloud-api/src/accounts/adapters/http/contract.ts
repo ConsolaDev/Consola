@@ -51,12 +51,14 @@ export const Me = z
   .strictObject({ user: Person, workspace: z.union([MyWorkspace, z.null()]) })
   .openapi('Me', { description: 'Who is signed in, and their session’s active workspace.' });
 
-export const NewWorkspace = z.object({ name: z.string(), slug: z.string() }).openapi('NewWorkspace', {
-  description:
-    `A name (trimmed, at most ${WORKSPACE_NAME_MAX} characters) and a slug of lowercase letters ` +
-    `and digits with single dashes between (at most ${WORKSPACE_SLUG_MAX}). The workspace is ` +
-    'made in the deployment’s region, which no request names.',
-});
+export const NewWorkspace = z
+  .object({ name: z.string(), slug: z.string() })
+  .openapi('NewWorkspace', {
+    description:
+      `A name (trimmed, at most ${WORKSPACE_NAME_MAX} characters) and a slug of lowercase letters ` +
+      `and digits with single dashes between (at most ${WORKSPACE_SLUG_MAX}). The workspace is ` +
+      'made in the deployment’s region, which no request names.',
+  });
 
 export const ActiveWorkspace = z.object({ workspaceId: z.string() }).openapi('ActiveWorkspace');
 
@@ -215,23 +217,15 @@ export const postWorkspace = createRoute({
   },
 });
 
-export const getHealth = createRoute({
-  method: 'get',
-  path: '/api/health',
-  summary: 'Whether the service can reach its database',
-  responses: {
-    200: json(z.strictObject({ ok: z.literal(true) }), 'It can.'),
-    503: json(z.strictObject({ ok: z.literal(false) }), 'It cannot.'),
-  },
-});
-
-/** Every route in the contract, in the order `app.ts` registers them. */
-export const ROUTES = [
+/**
+ * Every route accounts serves, in the order `registerAccountRoutes` registers them. The app's
+ * one health route is the composition's, over every part's probe, so it is not among them.
+ */
+export const ACCOUNT_ROUTES = [
   getMe,
   putActiveWorkspace,
   putActiveWorkspaceIcon,
   getActiveWorkspaceMembers,
   listWorkspaces,
   postWorkspace,
-  getHealth,
 ];
