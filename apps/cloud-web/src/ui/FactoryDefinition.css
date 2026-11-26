@@ -79,6 +79,17 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* What Save will do, summed up: "2 new · 1 removed · 3 changed". */
+.definition-changes {
+  margin: 0 4px 0 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A save's new version arrives from below, as a counter turns over. */
 .definition-version-number[data-rolled] {
   animation: definition-roll 560ms var(--ease-out-expo);
@@ -281,6 +292,14 @@
   font-weight: var(--font-weight-medium);
 }
 
+.definition-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 /* ---- The files beside the editor ---- */
 
 .workbench {
@@ -373,22 +392,111 @@
   list-style: none;
 }
 
-.file-tree-folder {
+/* The tree's head: "Files" and the + that offers every kind of file. */
+.file-tree-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0;
-  padding: 4px 8px 2px;
+  padding: 8px 8px 0 14px;
+}
+
+.file-tree-title {
+  flex: 1;
   color: var(--text-3);
   font-size: var(--sidebar-font-size-label);
   font-weight: var(--font-weight-medium);
 }
 
-.file-tree-row {
+/* A +, a ⋯: 20px, quiet until pointed at, always reachable by Tab. */
+.file-tree-icon-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.file-tree-icon-button:hover,
+.file-tree-icon-button[data-state="open"] {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.file-tree-icon-button:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+  color: var(--text);
+}
+
+.file-tree-folder {
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
+  margin: 0;
+  padding: 4px 4px 2px 8px;
+  color: var(--text-3);
+  font-size: var(--sidebar-font-size-label);
+  font-weight: var(--font-weight-medium);
+}
+
+.file-tree-folder > span {
+  flex: 1;
+}
+
+.file-tree-folder .file-tree-icon-button,
+.file-tree-skill-head .file-tree-icon-button {
+  opacity: 0.6;
+}
+
+.file-tree-folder:hover .file-tree-icon-button,
+.file-tree-skill-head:hover .file-tree-icon-button,
+.file-tree-folder .file-tree-icon-button:focus-visible,
+.file-tree-skill-head .file-tree-icon-button:focus-visible,
+.file-tree-icon-button[data-state="open"] {
+  opacity: 1;
+}
+
+/* A file: its row, and its ⋯ beside it, on one fill. */
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+
+.file-tree-item:hover,
+.file-tree-item[data-state="open"] {
+  background: var(--hover);
+}
+
+.file-tree-item[data-active] {
+  background: var(--active);
+}
+
+.file-tree-item .file-tree-more {
+  margin-right: 4px;
+  opacity: 0;
+}
+
+.file-tree-item:hover .file-tree-more,
+.file-tree-item:focus-within .file-tree-more,
+.file-tree-item[data-active] .file-tree-more,
+.file-tree-more[data-state="open"] {
+  opacity: 1;
+}
+
+.file-tree-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
   min-height: 28px;
   padding: 4px 8px;
   border: 0;
@@ -405,14 +513,6 @@
   padding-left: 27px;
 }
 
-.file-tree-row:hover {
-  background: var(--hover);
-}
-
-.file-tree-row[aria-current="true"] {
-  background: var(--active);
-}
-
 .file-tree-row:focus-visible {
   outline: 1px solid var(--cyan);
   outline-offset: -1px;
@@ -427,9 +527,185 @@
   white-space: nowrap;
 }
 
-.file-tree-row[aria-current="true"] .file-tree-name,
-.file-tree-row:hover .file-tree-name {
+.file-tree-item[data-active] .file-tree-name,
+.file-tree-item:hover .file-tree-name {
   color: var(--text);
+}
+
+/* What Save will do to a file it does not hold as it is: "new", "renamed". */
+.file-mark {
+  flex: none;
+  color: var(--text-3);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  line-height: 16px;
+  animation: definition-pop 240ms var(--ease-out-quart);
+}
+
+.file-mark[data-mark="new"] {
+  color: var(--cyan-text);
+}
+
+/* A skill: its folder's name, its + and ⋯, then its files a step deeper. */
+.file-tree-skill-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 2px 4px 2px 27px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+}
+
+.file-tree-skill-head:hover,
+.file-tree-skill-head[data-state="open"] {
+  background: var(--hover);
+}
+
+.file-tree-skill-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--sidebar-font-size-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-skill-name mark {
+  background: none;
+  color: var(--text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.file-tree-skill > ul {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.file-tree-skill > ul .file-tree-row {
+  padding-left: 46px;
+}
+
+.file-tree-skill > ul .file-tree-naming {
+  padding-left: 46px;
+}
+
+/* The naming field: the path's fixed parts around it, its sentence under it. */
+.file-tree-naming {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 3px 6px 5px 27px;
+}
+
+.file-tree-skill > .file-tree-naming {
+  padding-left: 27px;
+}
+
+.file-tree-naming-field {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0 6px;
+  border: 1px solid var(--cyan);
+  border-radius: var(--radius-md);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: var(--sidebar-font-size-small);
+}
+
+.file-tree-naming-field[data-refused] {
+  border-color: var(--danger);
+}
+
+.file-tree-naming-fixed {
+  flex: none;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.file-tree-naming-field input {
+  flex: 1;
+  min-width: 2ch;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+
+.file-tree-naming-note {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.file-tree-naming-note[data-refused] {
+  color: var(--danger);
+}
+
+/* The foot: what Save will remove, each with Restore. */
+.file-tree-removed {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
+}
+
+.file-tree-removed-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 2px 4px 2px 27px;
+  font-family: var(--font-mono);
+  font-size: var(--sidebar-font-size-small);
+}
+
+.file-tree-removed-row .file-tree-name {
+  color: var(--text-3);
+}
+
+.file-tree-restore {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+}
+
+.file-tree-restore:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.file-tree-restore:focus-visible {
+  outline: 1px solid var(--cyan);
+  outline-offset: -1px;
+}
+
+.file-tree-restore:disabled {
+  color: var(--text-3);
+  cursor: not-allowed;
+}
+
+.file-tree-menu .rt-BaseMenuItem {
+  font-size: var(--font-size-md);
 }
 
 .file-tree-name mark {
@@ -845,6 +1121,7 @@
   .definition-save-check polyline,
   .definition-strip,
   .file-changed,
+  .file-mark,
   .file-problems,
   .code-editor .cm-flash,
   .problems-head[data-nudged],

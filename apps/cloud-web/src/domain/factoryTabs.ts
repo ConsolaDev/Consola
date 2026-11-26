@@ -24,6 +24,14 @@ export function closeTab(tabs: FactoryTabs, path: string): FactoryTabs {
   return { open, active: open[at] ?? open[at - 1] ?? null };
 }
 
+/** The tabs with each renamed file's tab at its new path, in its place: `moves` old to new. */
+export function renamedTabs(tabs: FactoryTabs, moves: ReadonlyMap<string, string>): FactoryTabs {
+  if (!tabs.open.some((path) => moves.has(path))) return tabs;
+  const open = [...new Set(tabs.open.map((path) => moves.get(path) ?? path))];
+  const active = tabs.active === null ? null : (moves.get(tabs.active) ?? tabs.active);
+  return { open, active };
+}
+
 /** The tabs with every file `paths` does not hold closed, as after a newer version is read. */
 export function keptTabs(tabs: FactoryTabs, paths: readonly string[]): FactoryTabs {
   let kept = tabs;

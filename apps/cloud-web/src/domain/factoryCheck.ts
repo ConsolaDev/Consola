@@ -14,5 +14,24 @@ import type { FactoryProblem } from './factoryProblems';
 export function checkFactory(
   files: ReadonlyArray<{ path: string; content: string }>,
 ): FactoryProblem[] {
-  return parseFactory(storedFactoryFiles(files)).issues.map(problemOf);
+  return factoryCheckOf(files).problems;
+}
+
+/** What one check of the files found: their problems, and what a new file's name could clash with. */
+export type FactoryCheck = {
+  problems: FactoryProblem[];
+  /** The automations `factory.yml` defines under `automations:`, as the parser kept them. */
+  definedAutomations: string[];
+};
+
+export function factoryCheckOf(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): FactoryCheck {
+  const parsed = parseFactory(storedFactoryFiles(files));
+  return {
+    problems: parsed.issues.map(problemOf),
+    definedAutomations: parsed.automations
+      .filter((automation) => automation.file === 'factory.yml')
+      .map((automation) => automation.name),
+  };
 }
