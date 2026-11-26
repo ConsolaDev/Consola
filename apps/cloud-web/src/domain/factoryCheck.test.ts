@@ -17,7 +17,7 @@ steps:
     prompt: Summarise last night's build.
 `;
 
-/** A small factory that keeps the schema, as the cell's demo seed stores one. */
+/** A small factory that keeps the schema, as the API's demo seed stores one. */
 const FACTORY = [
   { path: 'factory.yml', content: 'version: 1\n' },
   { path: 'agents/reviewer.md', content: REVIEWER },
@@ -84,14 +84,14 @@ describe('checkFactory', () => {
     );
   });
 
-  it('refuses a stray file as the cell does', () => {
+  it('refuses a stray file as the API does', () => {
     const problems = checkFactory([...FACTORY, { path: 'README.md', content: 'Hello' }]);
     expect(problems.length).toBeGreaterThan(0);
   });
 });
 
 /**
- * The code review team, as the cell offers it (`GET /api/factory-templates`): factory-spec embeds
+ * The code review team, as the API offers it (`GET /api/factory-templates`): factory-spec embeds
  * these very files. Read from disk, since no test imports a workspace package.
  */
 const TEMPLATE_ROOT = fileURLToPath(

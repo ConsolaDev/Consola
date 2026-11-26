@@ -1,4 +1,4 @@
-import { messageForCellRefusal } from './cell';
+import { messageForRefusal } from './refusal';
 import { TEAM_NAME_MAX } from './teams';
 import type { TeamChange, TeamProblem, TeamsState } from './teams';
 
@@ -26,19 +26,13 @@ export function messageForTeamProblem(problem: TeamProblem): string {
   return PROBLEMS[problem];
 }
 
-/** Why a team's state could not be shown, for the workspace and its region. */
-export function messageForTeamsState(
-  state: Exclude<TeamsState, { kind: 'listed' }>,
-  workspace: { name: string; region: string },
-): string {
-  return messageForCellRefusal(state, workspace);
+/** Why a team's state could not be shown. */
+export function messageForTeamsState(state: Exclude<TeamsState, { kind: 'listed' }>): string {
+  return messageForRefusal(state);
 }
 
 /** What a change that did not go through says, or null for one that did. */
-export function messageForTeamChange(
-  change: TeamChange,
-  workspace: { name: string; region: string },
-): string | null {
+export function messageForTeamChange(change: TeamChange): string | null {
   switch (change.kind) {
     case 'changed':
       return null;
@@ -54,10 +48,9 @@ export function messageForTeamChange(
       return 'The first team can’t be deleted: everyone who joins the workspace joins it.';
     case 'not-a-member':
       return 'That person isn’t a member of this workspace any more.';
-    case 'pending':
     case 'switched':
     case 'signed-out':
     case 'unavailable':
-      return messageForTeamsState(change, workspace);
+      return messageForTeamsState(change);
   }
 }

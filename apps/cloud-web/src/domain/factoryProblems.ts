@@ -2,9 +2,9 @@ import type { components } from './apiContract';
 
 /**
  * What is wrong with a factory's files, wherever it was found: by the page's own check as the
- * person edits (`factoryCheck.ts`, factory-spec's parser in the browser) or in the cell's answer
+ * person edits (`factoryCheck.ts`, factory-spec's parser in the browser) or in the API's answer
  * to a save (`invalid_files`). Both speak factory-spec's issues, so they read alike. This module
- * is light on purpose: it does not import the parser, so the page can say a cell's answer
+ * is light on purpose: it does not import the parser, so the page can say the API's answer
  * without loading it.
  */
 
@@ -22,10 +22,10 @@ export type FactoryProblem = {
   cause: string | null;
 };
 
-/** An issue as the cell answers one. */
+/** An issue as the API answers one. */
 export type FactoryIssue = components['schemas']['FactoryIssue'];
 
-/** A problem, from an issue in factory-spec's shape (the parser's or the cell's). */
+/** A problem, from an issue in factory-spec's shape (the parser's or the API's). */
 export function problemOf(issue: {
   message: string;
   file?: string;

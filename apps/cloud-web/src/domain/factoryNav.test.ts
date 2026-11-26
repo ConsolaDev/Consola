@@ -91,7 +91,7 @@ describe('the address of a factory page', () => {
 });
 
 describe('where #/factories lands', () => {
-  it("is the first factory's definition, as the cell lists them", () => {
+  it("is the first factory's definition, as the API lists them", () => {
     expect(factoryLanding([factory('f-2'), factory('f-1')])).toBe('#/factories/f-2/definition');
   });
 

@@ -82,7 +82,7 @@ describe('isWorkspaceProblem', () => {
   });
 });
 
-// The same cases as cloud-global's own checkNewWorkspace, which stays the authority.
+// The same cases as the API's own checkNewWorkspace, which stays the authority.
 describe('checkNewWorkspace', () => {
   it('takes a name, a slug and a listed region', () => {
     expect(checkNewWorkspace(acme)).toEqual({

@@ -12,7 +12,6 @@ import { kindOfPath, PATH_MAX } from './factoryKinds';
 import type { NameCheck, NamingTarget, NewKind } from './factoryKinds';
 import type { FactoryPageId } from './factoryNav';
 import { messageForTeamsState } from './teamMessages';
-import { regionName } from './workspace';
 
 /** What the Factories section says, for each rule and each answer. */
 
@@ -26,7 +25,7 @@ export const FACTORIES_ACCESS_NOTE =
 /** Said under the sidebar's Factories heading when the person sees none. */
 export const NO_FACTORIES = 'No factories yet';
 
-/** Said where a factory would be made, to someone the cell lists in no team. */
+/** Said where a factory would be made, to someone the API lists in no team. */
 export const NO_TEAMS_TO_OWN =
   'You’re not in a team yet, so you can’t make a factory. Ask an owner or admin to add you to one.';
 
@@ -66,7 +65,7 @@ export function sourceDescription(kind: FactorySourceKind | SourceOption['kind']
 }
 
 /**
- * A factory's team, named. The cell lists every team that owns a factory the person sees, so
+ * A factory's team, named. The API lists every team that owns a factory the person sees, so
  * one missing is a list read between a change and the next load.
  */
 export function teamLabel(team: { name: string } | null): string {
@@ -98,12 +97,11 @@ export function messagesForFactoryProblems(
   return messages;
 }
 
-/** Why the factories could not be shown, for the workspace and its region. */
+/** Why the factories could not be shown. */
 export function messageForFactoriesState(
   state: Exclude<FactoriesState, { kind: 'listed' }>,
-  workspace: { name: string; region: string },
 ): string {
-  return messageForTeamsState(state, workspace);
+  return messageForTeamsState(state);
 }
 
 /** What a factory missing from the list says: it is gone, or now another team's. */
@@ -113,10 +111,7 @@ export const FACTORY_GONE = 'This factory was deleted, or moved to a team you’
  * What a change that did not go through says, under the field it is about, or nothing for one
  * that did.
  */
-export function messagesForFactoryChange(
-  change: FactoryChange,
-  workspace: { name: string; region: string },
-): FactoryFormMessages {
+export function messagesForFactoryChange(change: FactoryChange): FactoryFormMessages {
   switch (change.kind) {
     case 'changed':
       return {};
@@ -132,11 +127,10 @@ export function messagesForFactoryChange(
       };
     case 'factory-not-found':
       return { form: FACTORY_GONE };
-    case 'pending':
     case 'switched':
     case 'signed-out':
     case 'unavailable':
-      return { form: messageForFactoriesState(change, workspace) };
+      return { form: messageForFactoriesState(change) };
   }
 }
 
@@ -154,13 +148,10 @@ export function foldLabel(factoryName: string, unfolded: boolean): string {
 /** The sidebar's one line for factories it could not list, short beside the page's sentences. */
 export function sidebarLineForFactoriesState(
   state: Exclude<FactoriesState, { kind: 'listed' }>,
-  workspace: { region: string },
 ): string {
   switch (state.kind) {
-    case 'pending':
-      return 'Still being set up.';
     case 'unavailable':
-      return `The ${regionName(workspace.region)} region isn’t answering.`;
+      return 'Consola Cloud isn’t answering.';
     case 'switched':
       return 'Another workspace is open now. Reload.';
     case 'signed-out':
@@ -315,8 +306,8 @@ export function fixToSave(count: number): string {
 export const CHECK_UNAVAILABLE =
   'The files can’t be checked on this page right now. Saving still checks them.';
 
-/** Said over the problems the cell found that the page's own check did not. */
-export const CELL_FOUND_PROBLEMS = 'Saving found problems, so nothing was saved.';
+/** Said over the problems the API found that the page's own check did not. */
+export const API_FOUND_PROBLEMS = 'Saving found problems, so nothing was saved.';
 
 /** What Discard asks before it drops the person's changes. */
 export function discardQuestion(files: number): string {
@@ -375,7 +366,6 @@ function listOf(paths: readonly string[]): string {
 /** What a save that did not land says; a refusal of the files themselves shows as problems. */
 export function messageForSave(
   answer: Exclude<FactorySave, { kind: 'saved' } | { kind: 'invalid' } | { kind: 'version-moved' }>,
-  workspace: { name: string; region: string },
 ): string {
   switch (answer.kind) {
     case 'too-large':
@@ -383,7 +373,7 @@ export function messageForSave(
     case 'not-found':
       return FACTORY_GONE;
     default:
-      return messageForFactoriesState(answer, workspace);
+      return messageForFactoriesState(answer);
   }
 }
 

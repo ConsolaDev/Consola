@@ -64,7 +64,7 @@ function changesBetween(
   return { arrived, ended };
 }
 
-/** The rows after the cell's answer for `query`: merged into the rows shown for it, or new. */
+/** The rows after the API's answer for `query`: merged into the rows shown for it, or new. */
 function shownAfter(previous: ListView, query: string, list: RunList): Shown {
   const before =
     previous.kind === 'shown' && previous.shown.query === query ? previous.shown : null;
@@ -145,7 +145,7 @@ export function RunsList({
           ? previous
           : {
               ...previous,
-              [requestId]: { kind: 'failed', message: messageForRunAnswer(answer, workspace) },
+              [requestId]: { kind: 'failed', message: messageForRunAnswer(answer) },
             },
       );
       return null;
@@ -219,7 +219,7 @@ export function RunsList({
       return;
     }
     if (answer.kind !== 'listed') {
-      setMore({ loading: false, failed: messageForRunsAnswer(answer, workspace) });
+      setMore({ loading: false, failed: messageForRunsAnswer(answer) });
       return;
     }
     setMore({ loading: false, failed: null });
@@ -258,13 +258,13 @@ export function RunsList({
 
       {refused ? (
         <div className="runs-notice" role="alert">
-          <p>{messageForRunsAnswer(refused, workspace)}</p>
+          <p>{messageForRunsAnswer(refused)}</p>
           {refused.kind === 'invalid' ? (
             <button type="button" className="button" onClick={() => change(NO_FILTERS)}>
               Clear filters
             </button>
           ) : (
-            (refused.kind === 'pending' || refused.kind === 'unavailable') && (
+            refused.kind === 'unavailable' && (
               <button type="button" className="button" onClick={readNow}>
                 Try again
               </button>

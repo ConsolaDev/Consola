@@ -38,7 +38,7 @@ const releases: Factory = {
   updatedAt: '2026-11-22T10:00:00.000Z',
 };
 
-describe("the cell's contract", () => {
+describe("the API's contract", () => {
   it('is what the page names: the problems, the sources and the factory', () => {
     expectTypeOf<FactoryNameProblem>().toEqualTypeOf<
       Schemas['InvalidFactory']['problems'][number]
@@ -53,7 +53,7 @@ describe('checkFactoryName', () => {
     expect(checkFactoryName('  Releases ')).toEqual({ ok: true, name: 'Releases' });
   });
 
-  it("names every problem the cell would, as the cell's rule does", () => {
+  it("names every problem the API would, as the API's rule does", () => {
     expect(checkFactoryName(' ')).toEqual({ ok: false, problems: ['name_missing'] });
     expect(checkFactoryName('🚀'.repeat(FACTORY_NAME_MAX)).ok).toBe(true);
     expect(checkFactoryName(`${'a'.repeat(FACTORY_NAME_MAX)}\tb`)).toEqual({
@@ -64,7 +64,7 @@ describe('checkFactoryName', () => {
 });
 
 describe('isFactoryNameProblem', () => {
-  it('is true only for the problems the cell names', () => {
+  it('is true only for the problems the API names', () => {
     expect(isFactoryNameProblem('name_taken')).toBe(false);
     expect(isFactoryNameProblem('name_invalid')).toBe(true);
     expect(isFactoryNameProblem('toString')).toBe(false);
@@ -73,13 +73,13 @@ describe('isFactoryNameProblem', () => {
 });
 
 describe('a new factory', () => {
-  it('chooses the team for the person only when the cell lists one', () => {
+  it('chooses the team for the person only when the API lists one', () => {
     expect(newFactoryDraft([general])).toEqual({ name: '', teamId: 't-1' });
     expect(newFactoryDraft([general, platform])).toEqual({ name: '', teamId: null });
     expect(newFactoryDraft([])).toEqual({ name: '', teamId: null });
   });
 
-  it('is a good name and one of the teams the cell lists for the person', () => {
+  it('is a good name and one of the teams the API lists for the person', () => {
     expect(checkNewFactory({ name: ' Releases ', teamId: 't-2' }, [general, platform])).toEqual({
       ok: true,
       factory: { name: 'Releases', teamId: 't-2' },
@@ -93,7 +93,7 @@ describe('a new factory', () => {
     });
   });
 
-  it('never offers a team the cell does not list for the person', () => {
+  it('never offers a team the API does not list for the person', () => {
     // A team the person is not in, or one gone since the list was read.
     expect(checkNewFactory({ name: 'Releases', teamId: 't-9' }, [general, platform])).toEqual({
       ok: false,
@@ -107,12 +107,12 @@ describe('a new factory', () => {
 });
 
 describe("a factory's team", () => {
-  it('is named from the teams the cell lists', () => {
+  it('is named from the teams the API lists', () => {
     expect(owningTeam(releases, [platform, general])).toBe(general);
     expect(teamLabel(owningTeam(releases, [platform]))).toBe('Another team');
   });
 
-  it('moves only to another of the teams the cell lists for the person', () => {
+  it('moves only to another of the teams the API lists for the person', () => {
     expect(isMove(releases, 't-2', [general, platform])).toBe(true);
     expect(isMove(releases, 't-1', [general, platform])).toBe(false);
     expect(isMove(releases, 't-9', [general, platform])).toBe(false);
@@ -252,8 +252,6 @@ describe('when a version was saved', () => {
 });
 
 describe('the sentences', () => {
-  const acme = { name: 'Acme', region: 'eu' };
-
   it('put each problem under the field it is about', () => {
     expect(messagesForFactoryProblems(['name_too_long', 'name_invalid', 'team_missing'])).toEqual({
       name: `${messageForFactoryProblem('name_too_long')} ${messageForFactoryProblem('name_invalid')}`,
@@ -262,28 +260,29 @@ describe('the sentences', () => {
     expect(messagesForFactoryProblems([])).toEqual({});
   });
 
-  it("say each of the cell's answers where it belongs", () => {
-    expect(messagesForFactoryChange({ kind: 'changed', factory: releases }, acme)).toEqual({});
-    expect(messagesForFactoryChange({ kind: 'invalid', problems: ['name_missing'] }, acme)).toEqual(
-      { name: 'Give the factory a name.' },
-    );
-    expect(messagesForFactoryChange({ kind: 'name-taken' }, acme)).toEqual({
+  it("say each of the API's answers where it belongs", () => {
+    expect(messagesForFactoryChange({ kind: 'changed', factory: releases })).toEqual({});
+    expect(messagesForFactoryChange({ kind: 'invalid', problems: ['name_missing'] })).toEqual({
+      name: 'Give the factory a name.',
+    });
+    expect(messagesForFactoryChange({ kind: 'name-taken' })).toEqual({
       name: 'Another factory already has that name.',
     });
-    expect(messagesForFactoryChange({ kind: 'team-not-found' }, acme).team).toMatch(
+    expect(messagesForFactoryChange({ kind: 'team-not-found' }).team).toMatch(
       /That team was deleted/,
     );
-    expect(messagesForFactoryChange({ kind: 'factory-not-found' }, acme)).toEqual({
+    expect(messagesForFactoryChange({ kind: 'factory-not-found' })).toEqual({
       form: 'This factory was deleted, or moved to a team you’re not in.',
     });
-    expect(messagesForFactoryChange({ kind: 'pending' }, acme).form).toContain('Acme');
-    expect(messagesForFactoryChange({ kind: 'unavailable' }, acme).form).toContain('EU region');
-    expect(messagesForFactoryChange({ kind: 'signed-out' }, acme).form).toMatch(/signed out/);
-    expect(messagesForFactoryChange({ kind: 'switched' }, acme).form).toMatch(/another workspace/);
+    expect(messagesForFactoryChange({ kind: 'unavailable' }).form).toMatch(
+      /Consola Cloud isn’t answering/,
+    );
+    expect(messagesForFactoryChange({ kind: 'signed-out' }).form).toMatch(/signed out/);
+    expect(messagesForFactoryChange({ kind: 'switched' }).form).toMatch(/another workspace/);
   });
 
   it('never leave an invalid name unexplained', () => {
-    expect(messagesForFactoryChange({ kind: 'invalid', problems: [] }, acme).name).toBe(
+    expect(messagesForFactoryChange({ kind: 'invalid', problems: [] }).name).toBe(
       'That name can’t be used.',
     );
   });

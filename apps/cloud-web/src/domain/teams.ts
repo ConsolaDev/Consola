@@ -1,25 +1,25 @@
 import type { components } from './apiContract';
 
 /**
- * A workspace's teams as the web app sees them. They live in the workspace's regional cell,
+ * A workspace's teams as the web app sees them. They live in the API,
  * which is the authority on every rule here: the web app imports no package, so it keeps its own
- * copy of the name rule, to check a name before sending it. When the cell disagrees, its answer
- * is what the page shows. The copies are checked against the cell's contract
+ * copy of the name rule, to check a name before sending it. When the API disagrees, its answer
+ * is what the page shows. The copies are checked against the API's contract
  * (`cellApiContract.ts`) as the app typechecks.
  *
- * A team names its members by global id. Their names and emails are `cloud-global`'s, so the
+ * A team names its members by global id. Their names and emails are the API's, so the
  * page puts the two together (`memberOf`).
  */
 
 export type Team = components['schemas']['Team'];
 
-/** A member of the workspace, from `cloud-global`: who they are, and their role. */
+/** A member of the workspace, from the API: who they are, and their role. */
 export type WorkspaceMember = components['schemas']['WorkspaceMember'];
 
-/** What the cell names as a problem with a team's name. */
+/** What the API names as a problem with a team's name. */
 export type TeamProblem = components['schemas']['InvalidTeam']['problems'][number];
 
-/** Every problem the cell names; `teamMessages.ts` has a sentence for each, keyed by the type. */
+/** Every problem the API names; `teamMessages.ts` has a sentence for each, keyed by the type. */
 const TEAM_PROBLEMS: Record<TeamProblem, true> = {
   name_missing: true,
   name_too_long: true,
@@ -36,9 +36,9 @@ export const TEAM_NAME_MAX = 64;
 const CONTROL = /\p{Cc}/u;
 
 /**
- * A team's name, trimmed, when the cell would take it: 1 to `TEAM_NAME_MAX` characters with no
+ * A team's name, trimmed, when the API would take it: 1 to `TEAM_NAME_MAX` characters with no
  * control character. Every problem is named at once. Whether another team has the name is the
- * cell's to say (`name-taken`).
+ * API's to say (`name-taken`).
  */
 export function checkTeamName(
   name: string,
@@ -53,8 +53,8 @@ export function checkTeamName(
 
 /**
  * A team's member as the page shows them: the workspace member the id names, or, for an id
- * `cloud-global` no longer lists (someone who just left, whose leaving the cell has not heard
- * yet), the id alone.
+ * the workspace's members no longer list (someone who left between the two reads), the id
+ * alone.
  */
 export type TeamMember =
   | { kind: 'member'; member: WorkspaceMember }
@@ -80,8 +80,6 @@ export type TeamsState =
       /** The workspace's members, to name the people in each team. */
       members: WorkspaceMember[];
     }
-  /** The cell does not hold the workspace yet: `cloud-global` is still telling it. */
-  | { kind: 'pending' }
   /** The session's workspace is not the one the page shows: another tab switched it. */
   | { kind: 'switched' }
   | { kind: 'signed-out' }
@@ -98,9 +96,8 @@ export type TeamChange =
   | { kind: 'not-found' }
   /** The workspace's first team, which is never deleted. */
   | { kind: 'first-team' }
-  /** The person is not a member of the workspace, as far as its cell knows. */
+  /** The person is not a member of the workspace, as far as the API knows. */
   | { kind: 'not-a-member' }
-  | { kind: 'pending' }
   | { kind: 'switched' }
   | { kind: 'signed-out' }
   | { kind: 'unavailable' };

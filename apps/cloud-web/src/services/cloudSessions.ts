@@ -18,19 +18,19 @@ import type {
   StopAnswer,
 } from '../domain/cloudSession';
 import { messageForPassAnswer } from '../domain/cloudSessionMessages';
-import { codeOf, createCellSession, pageCellSession, UNAVAILABLE } from './cell';
-import type { CellDeps, CellSession } from './cell';
+import type { ApiOptions } from './api';
+import { codeOf, UNAVAILABLE, workspaceCalls } from './workspaceCalls';
 
 /*
- * The person's cloud sessions, from the workspace's regional cell, reached through `cell.ts` as
- * runs and teams are: the cell's address on the page's own origin, and a cell token for the
- * workspace the page shows with every call. A session is the person's own, or an agent run, which
- * every member sees; the cell answers another person's session as not found.
+ * The person's cloud sessions, from the API, reached through `workspaceCalls.ts` as runs and
+ * teams are: the workspace the page shows named with every call. A session is the person's own,
+ * or an agent run, which every member sees; the API answers another person's session as not
+ * found.
  *
  * Every call answers in domain types and never throws, but `renewPass`, which is the chat's
- * `onPassExpired` and rejects when there is no pass to give. Only a 401 from `cloud-global` means
- * signed out; anything the calls do not expect, a proxy's error page or a cell that does not
- * answer included, is `unavailable`. An answer is read defensively, as the contract's types check
+ * `onPassExpired` and rejects when there is no pass to give. Only a 401 means signed out;
+ * anything the calls do not expect, a proxy's error page or an API that does not answer
+ * included, is `unavailable`. An answer is read defensively, as the contract's types check
  * nothing that arrives.
  */
 
@@ -180,7 +180,7 @@ const START_REFUSALS: Readonly<Record<StartRefusalCode, 400 | 503>> = {
   invalid_request: 400,
 };
 
-/** The cell's refusal of a start, by its code and the status it comes with, if it is one. */
+/** The API's refusal of a start, by its code and the status it comes with, if it is one. */
 function startRefusalOf(status: number, error: unknown): StartRefusalCode | null {
   const code = codeOf(error);
   return typeof code === 'string' &&
@@ -190,11 +190,11 @@ function startRefusalOf(status: number, error: unknown): StartRefusalCode | null
     : null;
 }
 
-/** The cell's `no_runner`, which only comes as a 503. */
+/** The API's `no_runner`, which only comes as a 503. */
 const isNoRunner = (status: number, error: unknown): boolean =>
   status === 503 && codeOf(error) === 'no_runner';
 
-/** The cell's own `not_found`: a 404 without it is a proxy's, with no cell behind it. */
+/** The API's own `not_found`: a 404 without it is a proxy's, with no API behind it. */
 const isNotFound = (status: number, error: unknown): boolean =>
   status === 404 && codeOf(error) === 'not_found';
 
@@ -206,7 +206,7 @@ export type CloudSessionsService = {
   loadSession(workspace: Workspace, sessionId: string): Promise<SessionAnswer>;
   /** The repositories and harnesses the workspace's runner offers a new session. */
   loadOptions(workspace: Workspace): Promise<OptionsAnswer>;
-  /** Starts a session: the cell records it and hands it to the runner, or refuses with a code. */
+  /** Starts a session: the API records it and hands it to the runner, or refuses with a code. */
   startSession(
     workspace: Workspace,
     asked: { repository: string; harness: Harness },
@@ -217,27 +217,22 @@ export type CloudSessionsService = {
   issuePass(workspace: Workspace, sessionId: string): Promise<PassAnswer>;
   /**
    * A new pass, for the chat's `onPassExpired`: it rejects, with the sentence for why, when the
-   * cell gives none (a session no longer running is a 404), so the chat stops asking.
+   * API gives none (a session no longer running is a 404), so the chat stops asking.
    */
-  renewPass(
-    workspace: Workspace & { name: string; region: string },
-    sessionId: string,
-  ): Promise<string>;
+  renewPass(workspace: Workspace, sessionId: string): Promise<string>;
 };
 
 /**
- * The cloud sessions service. The page uses `cloudSessionsService`, on the page's cell session; a
- * test builds its own with `cloud-global`'s client and the cell's `fetch` stood in for.
+ * The cloud sessions service. The page uses `cloudSessionsService`; a test builds its own with
+ * the API's `fetch` stood in for.
  */
-export function createCloudSessionsService(
-  deps: CellDeps & { session?: CellSession } = {},
-): CloudSessionsService {
-  const { onCell } = deps.session ?? createCellSession(deps);
+export function createCloudSessionsService(options: ApiOptions = {}): CloudSessionsService {
+  const onWorkspace = workspaceCalls(options);
 
   async function issuePass(workspace: Workspace, sessionId: string): Promise<PassAnswer> {
     try {
-      const answer = await onCell(workspace.id, (cell) =>
-        cell.POST('/api/cloud-sessions/{sessionId}/pass', { params: { path: { sessionId } } }),
+      const answer = await onWorkspace(workspace.id, (api) =>
+        api.POST('/api/cloud-sessions/{sessionId}/pass', { params: { path: { sessionId } } }),
       );
       if ('kind' in answer) return answer;
       const { data, error, response } = answer;
@@ -253,7 +248,7 @@ export function createCloudSessionsService(
   return {
     async loadSessions(workspace) {
       try {
-        const answer = await onCell(workspace.id, (cell) => cell.GET('/api/cloud-sessions'));
+        const answer = await onWorkspace(workspace.id, (api) => api.GET('/api/cloud-sessions'));
         if ('kind' in answer) return answer;
         const { data, response } = answer;
         const sessions = response.status === 200 ? sessionsOf(data) : null;
@@ -266,8 +261,8 @@ export function createCloudSessionsService(
 
     async loadSession(workspace, sessionId) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.GET('/api/cloud-sessions/{sessionId}', { params: { path: { sessionId } } }),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.GET('/api/cloud-sessions/{sessionId}', { params: { path: { sessionId } } }),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -282,8 +277,8 @@ export function createCloudSessionsService(
 
     async loadOptions(workspace) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.GET('/api/cloud-sessions/options'),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.GET('/api/cloud-sessions/options'),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -298,8 +293,8 @@ export function createCloudSessionsService(
 
     async startSession(workspace, { repository, harness }) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.POST('/api/cloud-sessions', { body: { repository, harness } }),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.POST('/api/cloud-sessions', { body: { repository, harness } }),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -314,8 +309,8 @@ export function createCloudSessionsService(
 
     async stopSession(workspace, sessionId) {
       try {
-        const answer = await onCell(workspace.id, (cell) =>
-          cell.POST('/api/cloud-sessions/{sessionId}/stop', { params: { path: { sessionId } } }),
+        const answer = await onWorkspace(workspace.id, (api) =>
+          api.POST('/api/cloud-sessions/{sessionId}/stop', { params: { path: { sessionId } } }),
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
@@ -333,10 +328,10 @@ export function createCloudSessionsService(
     async renewPass(workspace, sessionId) {
       const answer = await issuePass(workspace, sessionId);
       if (answer.kind === 'issued') return answer.pass.pass;
-      throw new Error(messageForPassAnswer(answer, workspace));
+      throw new Error(messageForPassAnswer(answer));
     },
   };
 }
 
 /** The page's cloud sessions service. */
-export const cloudSessionsService = createCloudSessionsService({ session: pageCellSession });
+export const cloudSessionsService = createCloudSessionsService();

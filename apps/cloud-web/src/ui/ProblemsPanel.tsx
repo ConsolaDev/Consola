@@ -1,5 +1,5 @@
 import { Check, ChevronRight, CircleAlert, CornerDownRight } from 'lucide-react';
-import { CELL_FOUND_PROBLEMS, CHECK_UNAVAILABLE, problemsCount } from '../domain/factoryMessages';
+import { API_FOUND_PROBLEMS, CHECK_UNAVAILABLE, problemsCount } from '../domain/factoryMessages';
 import { messageParts, problemPath } from '../domain/factoryProblems';
 import type { FactoryProblem } from '../domain/factoryProblems';
 
@@ -9,8 +9,8 @@ import type { FactoryProblem } from '../domain/factoryProblems';
  * A problem that only shows another file's sits quieter, naming that file. When the last problem
  * is fixed the head says so with a check that draws itself (`cleared`), once.
  *
- * What the cell found on a save, and the page's own check did not, is said over the list
- * (`fromCell`).
+ * What the API found on a save, and the page's own check did not, is said over the list
+ * (`fromApi`).
  */
 export function ProblemsPanel({
   problems,
@@ -18,7 +18,7 @@ export function ProblemsPanel({
   open,
   cleared,
   nudge,
-  fromCell,
+  fromApi,
   checkFailed,
   onToggle,
   onReveal,
@@ -30,7 +30,7 @@ export function ProblemsPanel({
   cleared: boolean;
   /** Save was asked for while problems stand: a new number shakes the head once. */
   nudge: number;
-  fromCell: boolean;
+  fromApi: boolean;
   checkFailed: boolean;
   onToggle: () => void;
   onReveal: (problem: FactoryProblem, path: string) => void;
@@ -71,7 +71,7 @@ export function ProblemsPanel({
       {checkFailed && <p className="problems-note">{CHECK_UNAVAILABLE}</p>}
       {listed && (
         <>
-          {fromCell && <p className="problems-note">{CELL_FOUND_PROBLEMS}</p>}
+          {fromApi && <p className="problems-note">{API_FOUND_PROBLEMS}</p>}
           <ul className="problems-list">
             {problems.map((problem, index) => {
               const path = problemPath(problem, paths);

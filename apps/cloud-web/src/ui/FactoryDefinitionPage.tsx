@@ -102,8 +102,8 @@ import './FactoryDefinition.css';
  * removed in the tree, and edited in the editor, all a draft until Save sends the whole set as
  * the next version. A factory with no files offers the first ones where the editor would be.
  *
- * The files are read from the cell as the page opens (`GET /api/factories/{factoryId}`). A
- * factory the cell no longer shows the person reads the sidebar's list again (`onChanged`), which
+ * The files are read from the API as the page opens (`GET /api/factories/{factoryId}`). A
+ * factory the API no longer shows the person reads the sidebar's list again (`onChanged`), which
  * then says it is gone.
  */
 export function FactoryDefinitionPage({
@@ -161,9 +161,9 @@ export function FactoryDefinitionPage({
         ) : (
           <div className="factory-notice">
             <p role="alert">
-              {read.kind === 'not-found' ? FACTORY_GONE : messageForFactoriesState(read, workspace)}
+              {read.kind === 'not-found' ? FACTORY_GONE : messageForFactoriesState(read)}
             </p>
-            {(read.kind === 'pending' || read.kind === 'unavailable') && (
+            {read.kind === 'unavailable' && (
               <button type="button" className="button" onClick={() => void load()}>
                 Try again
               </button>
@@ -243,7 +243,7 @@ function Workbench({
   const [bannerShown, setBannerShown] = useState(() => !isDefinitionBannerHidden());
   const [checker, setChecker] = useState<Checker>('loading');
   const [checked, setChecked] = useState<FactoryProblem[]>([]);
-  const [fromCell, setFromCell] = useState<FactoryProblem[] | null>(null);
+  const [fromApi, setFromApi] = useState<FactoryProblem[] | null>(null);
   const [problemsOpen, setProblemsOpen] = useState(true);
   const [cleared, setCleared] = useState(false);
   const [nudge, setNudge] = useState(0);
@@ -290,8 +290,8 @@ function Workbench({
   const facts = useMemo(() => nameFactsOf(draft, definedAutomations), [draft, definedAutomations]);
   const canAddFactoryYml = !heldPaths(draft).has('factory.yml');
   const problems = useMemo(
-    () => sortedProblems(fromCell ?? checked, paths),
-    [fromCell, checked, paths],
+    () => sortedProblems(fromApi ?? checked, paths),
+    [fromApi, checked, paths],
   );
   const own = ownProblems(problems).length;
   const counts = useMemo(() => problemCounts(problems, paths), [problems, paths]);
@@ -383,7 +383,7 @@ function Workbench({
 
   const edit = useCallback((path: string, text: string) => {
     setDraft((current) => withEdit(current, path, text));
-    setFromCell(null);
+    setFromApi(null);
     setSaveError(null);
   }, []);
 
@@ -401,7 +401,7 @@ function Workbench({
       case 'saved':
         setVersion(answer.version);
         setDraft((current) => afterSave(current, sent, answer.version));
-        setFromCell(null);
+        setFromApi(null);
         setTemplateAdded(null);
         setRolled(true);
         setSaving('saved');
@@ -409,7 +409,7 @@ function Workbench({
         void onChanged();
         return;
       case 'invalid':
-        setFromCell(answer.issues.map(problemOf));
+        setFromApi(answer.issues.map(problemOf));
         setProblemsOpen(true);
         setSaving('idle');
         setSaid(problemsCount(ownProblems(answer.issues.map(problemOf)).length));
@@ -419,7 +419,7 @@ function Workbench({
         setSaving('idle');
         return;
       default:
-        setSaveError(messageForSave(answer, workspace));
+        setSaveError(messageForSave(answer));
         setSaving('idle');
         if (answer.kind === 'not-found') {
           // Gone, or now another team's: its edits have nowhere to go, and nothing to ask about.
@@ -467,9 +467,7 @@ function Workbench({
     if (!latestVersion) {
       const read = await factoriesService.loadFactory(ws, factory.id);
       if (read.kind !== 'found') {
-        setSaveError(
-          read.kind === 'not-found' ? FACTORY_GONE : messageForFactoriesState(read, workspace),
-        );
+        setSaveError(read.kind === 'not-found' ? FACTORY_GONE : messageForFactoriesState(read));
         return;
       }
       latestVersion = read.version;
@@ -478,7 +476,7 @@ function Workbench({
     setVersion(latestVersion);
     apply(() => result.draft);
     setMoved(null);
-    setFromCell(null);
+    setFromApi(null);
     setBrought(broughtInLine(latestVersion.version, result));
   };
 
@@ -498,7 +496,7 @@ function Workbench({
     if (moves.size > 0) {
       setEditorMoves((current) => ({ seq: (current?.seq ?? 0) + 1, moves: [...moves] }));
     }
-    setFromCell(null);
+    setFromApi(null);
     setSaveError(null);
     return next;
   };
@@ -511,7 +509,7 @@ function Workbench({
     setTemplateAdded(null);
   };
 
-  /** Reads the templates the cell offers, showing them as they arrive. */
+  /** Reads the templates the API offers, showing them as they arrive. */
   const loadTemplates = async () => {
     const asked = ++templatesAsked.current;
     setTemplates({ kind: 'loading' });
@@ -713,7 +711,6 @@ function Workbench({
       {templates.kind !== 'closed' && (
         <TemplatesStrip
           templates={templates}
-          workspace={workspace}
           onAdd={addTemplate}
           onRetry={() => void loadTemplates()}
           onClose={toggleTemplates}
@@ -853,7 +850,7 @@ function Workbench({
             open={problemsOpen}
             cleared={cleared}
             nudge={nudge}
-            fromCell={fromCell !== null}
+            fromApi={fromApi !== null}
             checkFailed={checker === 'failed'}
             onToggle={() => setProblemsOpen((shown) => !shown)}
             onReveal={revealProblem}
@@ -870,13 +867,11 @@ function Workbench({
  */
 function TemplatesStrip({
   templates,
-  workspace,
   onAdd,
   onRetry,
   onClose,
 }: {
   templates: Exclude<Templates, { kind: 'closed' }>;
-  workspace: MyWorkspace;
   onAdd: (template: FactoryTemplate) => void;
   onRetry: () => void;
   onClose: () => void;
@@ -914,8 +909,8 @@ function TemplatesStrip({
           )
         ) : (
           <div className="definition-templates-refused" role="alert">
-            <p>{messageForFactoriesState(templates, workspace)}</p>
-            {(templates.kind === 'pending' || templates.kind === 'unavailable') && (
+            <p>{messageForFactoriesState(templates)}</p>
+            {templates.kind === 'unavailable' && (
               <button type="button" className="button" onClick={onRetry}>
                 Try again
               </button>

@@ -1,7 +1,7 @@
 import type { components } from './apiContract';
 
 /**
- * Workspaces as the web app sees them. `cloud-global` is the authority on every rule here: the
+ * Workspaces as the web app sees them. The API is the authority on every rule here: the
  * web app imports no package, so it keeps its own copy, to check a request before sending it
  * and to suggest a slug. When the server disagrees, its answer is what the page shows. The
  * copies are checked against the API's contract (`apiContract.ts`) as the app typechecks, so the

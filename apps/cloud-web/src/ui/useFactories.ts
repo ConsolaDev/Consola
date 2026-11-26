@@ -3,7 +3,7 @@ import type { FactoriesState } from '../domain/factories';
 import { factoriesService } from '../services/factories';
 
 /**
- * The factories the person sees in the workspace, and the teams the cell lists for them, read
+ * The factories the person sees in the workspace, and the teams the API lists for them, read
  * once for the dashboard: the sidebar lists them and a factory's page shows one, so the two
  * always agree. `reload` reads them again, after any create, rename or move. Only the latest
  * read's answer is shown, and a list read for another workspace never is.

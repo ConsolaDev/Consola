@@ -7,8 +7,8 @@ import type { TeamProblem } from '../domain/teams';
 type Outcome = string | null | { kind: 'invalid'; problems: TeamProblem[] };
 
 /**
- * A team's name, to make a team or rename one. The name is checked as the cell would before it
- * is sent, and whatever the cell answers is shown under the field. `onSubmit` sends it.
+ * A team's name, to make a team or rename one. The name is checked as the API would before it
+ * is sent, and whatever the API answers is shown under the field. `onSubmit` sends it.
  */
 export function TeamNameForm({
   label,

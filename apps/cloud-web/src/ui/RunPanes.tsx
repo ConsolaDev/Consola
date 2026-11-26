@@ -142,7 +142,7 @@ export function RequestPane({
  * its chat, `AgentChat`, in a frame of its own, with the request as its first message and the
  * runner's report of the agents it dispatched above it; once it has ended, the request as it was
  * sent, the session's words and that report. Any other request (`conversation === null`) shows
- * what the cell holds, the request as the person gave it and its open question's time and
+ * what the API holds, the request as the person gave it and its open question's time and
  * deadline, and says plainly what will join them.
  *
  * The request's text is untrusted (it may be a pasted ticket): it is shown as plain text, never as
@@ -227,8 +227,8 @@ function SessionHeld({
       )}
       {view.kind === 'refused' && (
         <div className="run-session-words" role="alert">
-          <p>{messageForSessionAnswer(view.answer, workspace)}</p>
-          {(view.answer.kind === 'pending' || view.answer.kind === 'unavailable') && (
+          <p>{messageForSessionAnswer(view.answer)}</p>
+          {view.answer.kind === 'unavailable' && (
             <button type="button" className="button" onClick={readNow}>
               Try again
             </button>

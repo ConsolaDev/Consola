@@ -18,12 +18,12 @@ import { SourceChoice } from './SourceChoice';
 
 /**
  * A factory's Settings (`#/factories/<id>/settings`): Name, renamed in place; Team, given to
- * another of the teams the cell lists for the person by Move, which asks first, since it changes
+ * another of the teams the API lists for the person by Move, which asks first, since it changes
  * who sees the factory; and Files, where they come from, shown and not changeable yet. Whoever
  * sees a factory may rename and move it, so there is no `canManage` to read.
  *
  * Every change reads the list again (`onChanged`), so the sidebar and this page show what the
- * cell holds.
+ * API holds.
  */
 export function FactorySettingsPage({
   factory,
@@ -97,7 +97,7 @@ function NameSetting({
       return;
     }
     setPending(false);
-    setMessages(messagesForFactoryChange(answer, workspace));
+    setMessages(messagesForFactoryChange(answer));
     if (answer.kind === 'factory-not-found') await onChanged();
   }
 
@@ -158,7 +158,7 @@ function TeamSetting({
   const [messages, setMessages] = useState<FactoryFormMessages>({});
   const owner = owningTeam(factory, teams);
   const others = teams.filter((team) => team.id !== factory.teamId);
-  // A team the cell no longer lists for the person (the list was read again) is no move.
+  // A team the API no longer lists for the person (the list was read again) is no move.
   const teamId = isMove(factory, wanted, teams) ? wanted : factory.teamId;
   const target = others.find((team) => team.id === teamId);
   const keepButton = useRef<HTMLButtonElement>(null);
@@ -186,7 +186,7 @@ function TeamSetting({
     }
     setPending(false);
     setAsking(false);
-    setMessages(messagesForFactoryChange(answer, workspace));
+    setMessages(messagesForFactoryChange(answer));
     if (answer.kind === 'team-not-found' || answer.kind === 'factory-not-found') {
       await onChanged();
     }

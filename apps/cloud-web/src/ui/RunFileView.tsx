@@ -6,7 +6,7 @@ import type { LineRange, RunSource } from '../domain/runs';
 import { copyText } from '../services/clipboard';
 import './RunFileView.css';
 
-/** A step of the file: its id, and its lines when the cell knows them. */
+/** A step of the file: its id, and its lines when the API knows them. */
 export type FileStep = { id: string; range: LineRange | null };
 
 /**

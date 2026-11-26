@@ -194,9 +194,9 @@ export function RunPage({
 
       {view.kind === 'refused' && (
         <div className="run-notice" role="alert">
-          <p>{messageForRunAnswer(view.answer, workspace)}</p>
+          <p>{messageForRunAnswer(view.answer)}</p>
           <div className="run-notice-actions">
-            {(view.answer.kind === 'pending' || view.answer.kind === 'unavailable') && (
+            {view.answer.kind === 'unavailable' && (
               <button type="button" className="button" onClick={readNow}>
                 Try again
               </button>
@@ -258,7 +258,7 @@ export function RunPage({
 
 /**
  * The latest version of a run's factory, to say when the run used an older one; null until it
- * is known. The cell names it among the list's facets, read once for the factory.
+ * is known. The API names it among the list's facets, read once for the factory.
  */
 function useLatestVersion(workspaceId: string, factoryId: string | null): number | null {
   const [latest, setLatest] = useState<{ factoryId: string; version: number } | null>(null);

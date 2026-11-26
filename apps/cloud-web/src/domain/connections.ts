@@ -1,7 +1,7 @@
 import type { components } from './apiContract';
 
 /*
- * What a workspace is connected to, as `cloud-global` answers `GET /api/connections` (its
+ * What a workspace is connected to, as the API answers `GET /api/connections` (`cloud-api`'s
  * `AGENTS.md`, "Connections"). The server is the authority on every rule: who may connect, which
  * installation a workspace may hold. The page only shows what it answers.
  */
@@ -29,7 +29,8 @@ export type Connections = Schemas['Connections'];
 export type ConnectionsState =
   | { kind: 'loaded'; connections: Connections }
   | { kind: 'signed-out' }
-  | { kind: 'no-workspace' }
+  /** The session has no workspace open, or another than the page shows, or the person left it. */
+  | { kind: 'switched' }
   | { kind: 'unavailable' };
 
 /** The answer to starting a Connect: the address on GitHub to send the person to. */
@@ -48,7 +49,7 @@ export type DisconnectAnswer =
   | { kind: 'unavailable' };
 
 /**
- * How a Connect ended, as `cloud-global`'s callback names it in `?github=` when it sends the
+ * How a Connect ended, as the API's GitHub callback names it in `?github=` when it sends the
  * person back to Settings' Connections page.
  */
 export const GITHUB_RESULTS = [

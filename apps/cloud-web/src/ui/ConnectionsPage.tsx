@@ -75,14 +75,16 @@ export function ConnectionsPage({ workspace }: SectionProps) {
   const latest = useRef(0);
   const title = useRef<HTMLHeadingElement>(null);
 
+  const workspaceId = workspace.id;
   const load = useCallback(async () => {
     const asked = ++latest.current;
-    const answer = await loadConnections();
+    const answer = await loadConnections({ id: workspaceId });
     if (asked === latest.current) setState(answer);
-  }, []);
+  }, [workspaceId]);
 
-  // The server answers for the session's active workspace. Settings mounts its page afresh for
-  // each workspace, so one load per mount follows a switch.
+  // The server answers for the session's active workspace, and refuses a call that names
+  // another (`switched`). Settings mounts its page afresh for each workspace, so one load per
+  // mount follows a switch.
   useEffect(() => {
     void load();
     return () => {
@@ -119,6 +121,7 @@ export function ConnectionsPage({ workspace }: SectionProps) {
         <Loading />
       ) : state.kind === 'loaded' ? (
         <GitHubGroup
+          workspaceId={workspaceId}
           connections={state.connections}
           justConnected={
             result === 'connected'
@@ -189,10 +192,12 @@ function ServiceTile({ service, live = false }: { service: string; live?: boolea
  * Available with Connect for those who may.
  */
 function GitHubGroup({
+  workspaceId,
   connections,
   justConnected,
   onChanged,
 }: {
+  workspaceId: string;
   connections: Connections;
   justConnected: number | null;
   onChanged: () => Promise<void>;
@@ -218,7 +223,7 @@ function GitHubGroup({
   async function connect() {
     setPending(true);
     setFailure(null);
-    const answer = await startGitHubConnect();
+    const answer = await startGitHubConnect({ id: workspaceId });
     if (answer.kind === 'started') {
       // The page is left for GitHub, which sends the person back here.
       goToGitHub(answer.url);
@@ -310,6 +315,7 @@ function GitHubGroup({
         {installations.map((installation, index) => (
           <Installation
             key={installation.id}
+            workspaceId={workspaceId}
             installation={installation}
             index={index + 1}
             isNew={installation.id === justConnected}
@@ -344,12 +350,14 @@ function GitHubGroup({
 
 /** One installation the workspace holds: its account, how many repositories, and Disconnect. */
 function Installation({
+  workspaceId,
   installation,
   index,
   isNew,
   canManage,
   onChanged,
 }: {
+  workspaceId: string;
   installation: GitHubConnection;
   index: number;
   isNew: boolean;
@@ -375,7 +383,7 @@ function Installation({
   async function disconnect() {
     setPending(true);
     setFailure(null);
-    const answer = await disconnectGitHub(installation.id);
+    const answer = await disconnectGitHub({ id: workspaceId }, installation.id);
     if (answer.kind === 'not-allowed' || answer.kind === 'unavailable') {
       setFailure(messageForDisconnectFailure(answer));
       setPending(false);

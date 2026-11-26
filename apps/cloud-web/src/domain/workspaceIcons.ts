@@ -4,7 +4,7 @@ import type { components } from './apiContract';
  * The icons a workspace can wear, as the desktop app offers them (its
  * `shared/workspaceIcons.ts`): symbols, each drawn from the desktop's icon set by the screen
  * (`ui/WorkspaceIcon.tsx`), and emoji. The ids are the API's (`MyWorkspace.icon`), which
- * cloud-global keeps equal to the desktop's; `workspaceIcons.test.ts` checks this copy holds
+ * the API keeps equal to the desktop's; `workspaceIcons.test.ts` checks this copy holds
  * exactly those. A label is what the picker searches and a screen reader hears.
  */
 export type WorkspaceIcon = NonNullable<components['schemas']['MyWorkspace']['icon']>;

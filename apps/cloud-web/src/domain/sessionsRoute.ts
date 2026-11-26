@@ -2,7 +2,7 @@
  * Where the Sessions section is, as the address names it: the person's sessions are `#/sessions`,
  * the form that starts one `#/sessions/new`, and one session `#/sessions/<sessionId>`. All of it
  * is the section's own part of the hash (`sections.ts`), so the dashboard opens Sessions for any.
- * A session's id is the cell's UUID, so it is never `new`.
+ * A session's id is the API's UUID, so it is never `new`.
  */
 
 export const SESSIONS_SECTION_ID = 'sessions';

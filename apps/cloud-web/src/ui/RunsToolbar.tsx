@@ -31,7 +31,7 @@ const SEARCH_SETTLE_MS = 250;
  * picker, My runs, a chip per phase with its count, Background runs, and a Filter menu for the
  * automation and the trigger. Every change goes to `onChange`, which puts it in the address.
  *
- * `counts` and `facets` are the cell's last answer, kept while a new one loads, so the row does
+ * `counts` and `facets` are the API's last answer, kept while a new one loads, so the row does
  * not jump as filters change; null before the first.
  */
 export function RunsToolbar({
