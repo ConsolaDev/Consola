@@ -1,8 +1,11 @@
 import { PGlite } from '@electric-sql/pglite';
 import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { drizzle } from 'drizzle-orm/pglite';
+import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
+import type { FakeMembership } from '../../application/testMembership.js';
 import type { Database, OpenDatabase } from './database.js';
 import { schema } from './schema.js';
+import { createTeamStore, openWorkspace } from './teams.js';
 
 /**
  * The statements that make company's tables from nothing, as drizzle-kit writes a migration:
@@ -25,4 +28,25 @@ export async function openTestDatabase(): Promise<OpenDatabase> {
   for (const statement of await statements) await client.exec(statement);
   const db = drizzle(client, { schema }) as unknown as Database;
   return { db, close: () => client.close() };
+}
+
+/**
+ * Makes `workspaceId` for a test as making a workspace does (`openWorkspace`), its first member
+ * its owner, then puts every other member in its first team, as each would join it once members
+ * can be added. `membership` hears every one, so company's reads of accounts' `member` find them.
+ */
+export async function makeTestWorkspace(
+  db: Database,
+  membership: FakeMembership,
+  workspaceId: string,
+  members: ReadonlyArray<readonly [personId: string, role: WorkspaceRole]>,
+): Promise<void> {
+  const [owner, ...others] = members;
+  if (!owner) throw new Error(`${workspaceId} needs an owner`);
+  await db.transaction((tx) => openWorkspace(tx, { workspaceId, ownerId: owner[0] }));
+  const teams = createTeamStore(db);
+  const first = (await teams.list(workspaceId)).find((team) => team.first);
+  if (!first) throw new Error(`${workspaceId} has no first team`);
+  for (const [personId, role] of members) membership.put(workspaceId, personId, role);
+  for (const [personId] of others) await teams.addMember(workspaceId, first.id, personId);
 }

@@ -12,14 +12,25 @@ import type {
   StepStatus,
   WaitingOn,
 } from '../domain/run.js';
+import { withCurrentMembers } from '../domain/team.js';
 import type { Team } from '../domain/team.js';
-import type { FactoryStore, RunStore, TeamStore } from './ports.js';
+import type {
+  CloudSessionStore,
+  FactoryStore,
+  MembershipReader,
+  RunStore,
+  TeamStore,
+} from './ports.js';
 import { recordRun } from './runs.js';
+import { seedCodeReviewTeam, seedDemoAgentRun } from './seedTemplates.js';
+import type { TemplateSeed } from './seedTemplates.js';
+import { CODE_REVIEW_TEAM_TEMPLATE } from '../domain/factoryTemplates.js';
 
 /*
- * Demo runs for a workspace the cell holds, so the web's Runs pages have something to show
- * before any runner records a run (`pnpm --filter @consola/cloud-region db:seed`, `src/seed.ts`,
- * which refuses any database but a local PGlite folder). Never reachable over HTTP.
+ * Demo runs for every workspace, so the web's Runs pages have something to show before any
+ * runner records a run (`src/seed.ts`, which refuses any database but a local PGlite folder).
+ * Never reachable over HTTP. Which workspaces there are, and who is in each, is accounts' to say
+ * (`MembershipReader`); company keeps no copy of either.
  *
  * Each of the workspace's teams gets a demo factory (made once, its files saved once), and each
  * factory runs: requests in every state, one with several runs of its own, background runs
@@ -775,11 +786,6 @@ function otherPlans(people: ReadonlyArray<string | null>): Plan[] {
   ];
 }
 
-/** Everyone a team holds, the first team's first, each once. */
-function peopleOf(teams: readonly Team[]): string[] {
-  return [...new Set(teams.flatMap((team) => team.memberIds))];
-}
-
 /** The demo factory's name for a team: unique per team, within a factory name's 64. */
 const demoNameOf = (team: Team) => [...`Demo · ${team.name}`].slice(0, 64).join('');
 
@@ -831,20 +837,28 @@ export type DemoSeed = {
   runs: number;
 };
 
-/** Seeds the demo runs of one workspace the cell holds; `workspace-pending` when it holds none. */
+/**
+ * Seeds the demo runs of one workspace: a demo factory per team, and runs of it started by the
+ * team's members, or, for a team with none, by the workspace's (as `membership` lists them now).
+ */
 export async function seedDemoRuns(
-  ports: { teams: TeamStore; factories: FactoryStore; runs: RunStore },
+  ports: {
+    teams: TeamStore;
+    factories: FactoryStore;
+    runs: RunStore;
+    membership: MembershipReader;
+  },
   workspaceId: string,
   nowMs: number,
-): Promise<DemoSeed | 'workspace-pending'> {
-  const { teams, factories, runs } = ports;
-  if (!(await teams.holdsWorkspace(workspaceId))) return 'workspace-pending';
-  const all = await teams.list(workspaceId);
-  const everyone = peopleOf(all);
+): Promise<DemoSeed> {
+  const { teams, factories, runs, membership } = ports;
+  const everyone = await membership.memberIds(workspaceId);
+  const members = new Set(everyone);
+  const all = (await teams.list(workspaceId)).map((team) => withCurrentMembers(team, members));
   const seeded: DemoSeed = { factories: [], runs: 0 };
 
   for (const [index, team] of all.entries()) {
-    const people = team.memberIds.length > 0 ? team.memberIds : everyone;
+    const people = team.memberIds.length > 0 ? team.memberIds : [...everyone];
     const factory = await demoFactoryOf(factories, workspaceId, team, people[0] ?? 'demo-seed');
     if (!factory) continue;
     seeded.factories.push(factory.name);
@@ -900,4 +914,53 @@ async function record(runs: RunStore, workspaceId: string, run: RunWrite) {
     const why = answer.kind === 'invalid' ? JSON.stringify(answer.problems) : answer.kind;
     throw new Error(`The demo run ${run.id} was not recorded: ${why}`);
   }
+}
+
+/** What the demo seed did in one workspace. */
+export type WorkspaceSeed = {
+  workspaceId: string;
+  /** Its demo factories and runs (`seedDemoRuns`). */
+  runs: DemoSeed;
+  /** The code review team on its first team (`seedCodeReviewTeam`). */
+  template: TemplateSeed;
+  /** Its finished agent run of the code review team; null when the template was left alone. */
+  agentRun: 'created' | 'unchanged' | null;
+};
+
+/**
+ * Seeds every workspace there is, as `membership` lists them, one after the other: its demo runs,
+ * then the code review team on its first team, with a finished agent run of it. Seeding again
+ * refreshes the same runs, saves the template again only when its files differ, and records the
+ * agent run once.
+ */
+export async function seedEveryWorkspace(
+  ports: {
+    teams: TeamStore;
+    factories: FactoryStore;
+    runs: RunStore;
+    sessions: CloudSessionStore;
+    membership: MembershipReader;
+  },
+  nowMs: number,
+): Promise<WorkspaceSeed[]> {
+  const seeded: WorkspaceSeed[] = [];
+  for (const workspaceId of await ports.membership.workspaceIds()) {
+    const runs = await seedDemoRuns(ports, workspaceId, nowMs);
+    const template = await seedCodeReviewTeam(ports, workspaceId);
+    const agentRun =
+      template.kind === 'taken'
+        ? null
+        : await seedDemoAgentRun(
+            ports,
+            workspaceId,
+            {
+              id: template.factoryId,
+              name: CODE_REVIEW_TEAM_TEMPLATE.name,
+              version: template.version,
+            },
+            nowMs,
+          );
+    seeded.push({ workspaceId, runs, template, agentRun });
+  }
+  return seeded;
 }

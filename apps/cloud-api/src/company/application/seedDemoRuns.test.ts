@@ -1,50 +1,44 @@
-import { cellTokenClaims } from '@consola/cloud-contract';
-import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { runs as runTable } from '../adapters/persistence/tables.js';
-import { admitClaims } from '../domain/caller.js';
+import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Caller } from '../domain/caller.js';
 import { checkFactoryFiles } from '../domain/factory.js';
 import { OUTPUT_TAIL_MAX, PHASES, RUN_STATUSES } from '../domain/run.js';
 import type { StepRecord } from '../domain/run.js';
-import type { FactoryStore, RunStore, TeamStore, WorkspaceCopies } from './ports.js';
+import type { CloudSessionStore, FactoryStore, RunStore, TeamStore } from './ports.js';
 import { listRuns, readRun } from './runs.js';
 import type { RunsQuery } from './runs.js';
-import { DEMO_FACTORY_FILES, seedDemoRuns } from './seedDemoRuns.js';
+import { DEMO_FACTORY_FILES, seedDemoRuns, seedEveryWorkspace } from './seedDemoRuns.js';
+import { callerAs as caller, fakeMembership } from './testMembership.js';
+import type { FakeMembership } from './testMembership.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let teams: TeamStore;
 let factories: FactoryStore;
 let runs: RunStore;
-let workspaceCopies: WorkspaceCopies;
+let sessions: CloudSessionStore;
+let membership: FakeMembership;
+/** What `seedDemoRuns` is handed. */
+let ports: {
+  teams: TeamStore;
+  factories: FactoryStore;
+  runs: RunStore;
+  membership: FakeMembership;
+};
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  ({ teams, factories, runs, workspaceCopies } = createDrizzleStores(db));
+  ({ db, close } = await openTestDatabase());
+  ({ teams, factories, runs, cloudSessions: sessions } = createDrizzleStores(db));
+  membership = fakeMembership();
+  ports = { teams, factories, runs, membership };
 });
 
 afterEach(async () => {
   await close();
 });
-
-function caller(personId: string, role: WorkspaceRole): Caller {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = cellTokenClaims({
-    personId,
-    workspaceId: 'acme',
-    role,
-    region: 'eu',
-    issuedAt: now,
-  });
-  const admitted = admitClaims(claims, now, 'eu');
-  if (admitted.kind !== 'accepted') throw new Error('the token was not accepted');
-  return admitted.caller;
-}
 
 const MEMBERS = [
   ['person-dana', 'owner'],
@@ -55,18 +49,7 @@ const MEMBERS = [
 
 /** Acme with four members in General, and a Platform team only Fay is in. */
 async function acme() {
-  const changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']> = [
-    { kind: 'open-workspace' },
-    ...MEMBERS.map(([personId, role]) => ({ kind: 'put-member' as const, personId, role })),
-  ];
-  for (const [index, change] of changes.entries()) {
-    await workspaceCopies.applyAfter({
-      workspaceId: 'acme',
-      sequence: index + 1,
-      after: index === 0 ? null : index,
-      change,
-    });
-  }
+  await makeTestWorkspace(db, membership, 'acme', MEMBERS);
   const platform = await teams.create('acme', 'Platform');
   if (platform === 'name-taken') throw new Error('Platform was taken');
   await teams.addMember('acme', platform.id, 'person-fay');
@@ -98,13 +81,13 @@ describe('seedDemoRuns', () => {
     expect(checkFactoryFiles(DEMO_FACTORY_FILES)).toEqual({ ok: true, notices: [] });
   });
 
-  it('is pending for a workspace the cell does not hold', async () => {
-    expect(await seedDemoRuns({ teams, factories, runs }, 'acme', NOW)).toBe('workspace-pending');
+  it('seeds nothing for a workspace with no team', async () => {
+    expect(await seedDemoRuns(ports, 'acme', NOW)).toEqual({ factories: [], runs: 0 });
   });
 
   it('gives every team a demo factory, and runs in every phase and status', async () => {
     await acme();
-    const seeded = await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    const seeded = await seedDemoRuns(ports, 'acme', NOW);
     expect(seeded).toEqual({
       factories: ['Demo · General', 'Demo · Platform'],
       runs: expect.any(Number),
@@ -126,7 +109,7 @@ describe('seedDemoRuns', () => {
 
   it('nests several runs under a request, and rolls a run that needs someone up to it', async () => {
     await acme();
-    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    await seedDemoRuns(ports, 'acme', NOW);
     const dana = caller('person-dana', 'owner');
     const requests = (await listed(dana, { q: 'euro price toggle' })).runs;
     expect(requests).toHaveLength(1);
@@ -144,7 +127,7 @@ describe('seedDemoRuns', () => {
 
   it('gives every member runs of their own, and a member outside a team fewer', async () => {
     await acme();
-    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    await seedDemoRuns(ports, 'acme', NOW);
     for (const [personId, role] of MEMBERS) {
       const mine = await listed(caller(personId, role), { mine: true });
       expect([personId, mine.runs.length > 0]).toEqual([personId, true]);
@@ -157,12 +140,22 @@ describe('seedDemoRuns', () => {
     );
   });
 
+  it('starts no run for someone a team still lists who has left the workspace', async () => {
+    await acme();
+    membership.remove('acme', 'person-gus');
+    await seedDemoRuns(ports, 'acme', NOW);
+    const rows = await db.select({ startedBy: runTable.startedBy }).from(runTable);
+    const starters = new Set(rows.map((row) => row.startedBy));
+    expect(starters.has('person-fay')).toBe(true);
+    expect(starters.has('person-gus')).toBe(false);
+  });
+
   it('refreshes the same runs when it seeds again', async () => {
     await acme();
-    const first = await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    const first = await seedDemoRuns(ports, 'acme', NOW);
     const count = async () => (await db.select({ id: runTable.runId }).from(runTable)).length;
     const before = await count();
-    const second = await seedDemoRuns({ teams, factories, runs }, 'acme', NOW + 60 * 60_000);
+    const second = await seedDemoRuns(ports, 'acme', NOW + 60 * 60_000);
     expect(second).toEqual(first);
     expect(await count()).toBe(before);
     expect((await factories.list('acme')).map((factory) => factory.latestVersion)).toEqual([2, 2]);
@@ -173,7 +166,7 @@ describe("seedDemoRuns' steps", () => {
   /** Every step the seed recorded, with its run's id. */
   async function seededSteps() {
     await acme();
-    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    await seedDemoRuns(ports, 'acme', NOW);
     const rows = await db.select({ id: runTable.runId, steps: runTable.steps }).from(runTable);
     return rows.flatMap((row) => row.steps.map((step: StepRecord) => ({ run: row.id, ...step })));
   }
@@ -220,7 +213,7 @@ describe("seedDemoRuns' steps", () => {
 
   it('are defined by the files the demo factory holds, but on the version before them', async () => {
     await acme();
-    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    await seedDemoRuns(ports, 'acme', NOW);
     const dana = caller('person-dana', 'owner');
     const builds = (await listed(dana, { q: 'nightly-build', limit: 100 })).runs;
     const newest = builds.find((run) => run.factory.version === 2);
@@ -251,7 +244,7 @@ describe("seedDemoRuns' steps", () => {
       files: [{ path: 'factory.yml', content: 'version: 1\n' }],
       personId: 'person-dana',
     });
-    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    await seedDemoRuns(ports, 'acme', NOW);
     expect((await factories.get('acme', made.id))?.latestVersion).toBe(3);
   });
 });
@@ -259,7 +252,7 @@ describe("seedDemoRuns' steps", () => {
 describe("seedDemoRuns' approvals", () => {
   it('leaves every run waiting for approval unanswered, asking for both reasons', async () => {
     await acme();
-    await seedDemoRuns({ teams, factories, runs }, 'acme', NOW);
+    await seedDemoRuns(ports, 'acme', NOW);
     const dana = caller('person-dana', 'owner');
     const waiting = (await listed(dana, { phases: ['needs-you'], limit: 100 })).runs.filter(
       (run) => run.status === 'needs-approval',
@@ -277,5 +270,36 @@ describe("seedDemoRuns' approvals", () => {
         "Version 2 of nightly-build hasn't been approved to run on its own yet.",
       ]),
     );
+  });
+});
+
+describe('seedEveryWorkspace', () => {
+  it('seeds every workspace accounts lists, each with its demo runs, the template and its agent run', async () => {
+    await acme();
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-ida', 'owner']]);
+    const all = { ...ports, sessions };
+
+    const seeded = await seedEveryWorkspace(all, NOW);
+    expect(seeded).toEqual([
+      {
+        workspaceId: 'acme',
+        runs: { factories: ['Demo · General', 'Demo · Platform'], runs: expect.any(Number) },
+        template: { kind: 'created', factoryId: expect.any(String), version: 2 },
+        agentRun: 'created',
+      },
+      {
+        workspaceId: 'sprocket',
+        runs: { factories: ['Demo · General'], runs: expect.any(Number) },
+        template: { kind: 'created', factoryId: expect.any(String), version: 2 },
+        agentRun: 'created',
+      },
+    ]);
+    expect((await runs.get('sprocket', 'demo-agent-run-sprocket'))?.run.kind).toBe('request');
+
+    const again = await seedEveryWorkspace(all, NOW + 60_000);
+    expect(again.map(({ template, agentRun }) => [template.kind, agentRun])).toEqual([
+      ['unchanged', 'unchanged'],
+      ['unchanged', 'unchanged'],
+    ]);
   });
 });
