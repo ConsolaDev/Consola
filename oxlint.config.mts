@@ -25,6 +25,7 @@ export default defineConfig({
     // Generated and compared byte for byte.
     'apps/cloud-web/src/domain/apiContract.ts',
     'apps/cloud-web/src/domain/cellApiContract.ts',
+    'apps/cloud-region/src/adapters/cloudGlobal/apiContract.ts',
   ],
   rules: {
     // ---- Rules of the preset, with this repository's options ----
