@@ -34,19 +34,20 @@ import { recordRun } from './runs.js';
  */
 
 /**
- * A GitHub event the company recorded for a workspace, as starting its agent runs reads it: the
- * workspace whose installation it came through, GitHub's id of the delivery and the event's
- * name, for the log, and its payload as GitHub sent it. The webhook's own record of an event
- * holds more (the installation), and is one of these.
+ * A GitHub event the webhook recorded for a workspace, as it hands it on: the webhook's own
+ * `GitHubEvent` (`domain/webhooks.ts`), field for field, which starting its agent runs reads.
  */
-export type GitHubEventMessage = {
-  readonly workspaceId: string;
+export type GitHubEvent = {
+  /** The workspace that holds the installation. */
+  workspaceId: string;
   /** GitHub's id of the delivery (`X-GitHub-Delivery`). */
-  readonly deliveryId: string;
+  deliveryId: string;
   /** The event's name (`X-GitHub-Event`): `pull_request`, `push`, … */
-  readonly event: string;
+  event: string;
+  /** The installation of Consola's GitHub App the event came through. */
+  installationId: number;
   /** The event's payload, as GitHub sent it. */
-  readonly payload: Record<string, unknown>;
+  payload: Record<string, unknown>;
 };
 
 /** The event's name GitHub gives a pull request's webhook. */
@@ -61,7 +62,7 @@ type Firing = {
   event: PullRequestEvent;
 };
 
-const about = (event: GitHubEventMessage) =>
+const about = (event: GitHubEvent) =>
   `GitHub delivery ${event.deliveryId} (${event.event}) for workspace ${event.workspaceId}`;
 
 /**
@@ -75,7 +76,7 @@ const about = (event: GitHubEventMessage) =>
  */
 export async function startAgentRunsFor(
   ports: AgentRunPorts,
-  message: GitHubEventMessage,
+  message: GitHubEvent,
 ): Promise<CloudSession[]> {
   if (message.event !== PULL_REQUEST) return [];
   const event = pullRequestEventOf(message.payload);
