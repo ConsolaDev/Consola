@@ -911,6 +911,12 @@ and nobody approves.
   `failed` by the orchestrator's last run. `summary` is its last message, or `complete_task`'s
   while nothing followed it; each agent's is its last report, cut to 2,000 characters. The
   `status` line and the idle exit count every thread the same way (`currentStatus`).
+- **Known gap: the sandbox trusts the pull request.** Every thread runs in full access, in a
+  checkout of the pull request's head, whose `.claude` settings, hooks and `CLAUDE.md` the CLI
+  loads, and the sandbox holds the runner's own git token as `GH_TOKEN` (today a person's), whoever
+  opened the pull request. Nothing skips a fork or an author outside the organisation. So a runner
+  serves agent runs only on repositories whose contributors are trusted, until runs get a
+  short-lived token of their own and untrusted heads are refused.
 - **What a browser reads**: the dispatched agents' threads, read-only
   (`subscribeThread`, `subscribeCommandOutput`, the bounded snapshot; `readableThread`), and
   their rows after the session's in the shell. Commands still reach only the session's thread.

@@ -133,6 +133,10 @@ never an argument and never printed. The build prints the template's id.
 **Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
 build prints here, and only the id.
 
+**`consola-session-foreman`** (the agent runs' template, which the runner uses
+with `CONSOLA_SESSION_TEMPLATE=consola-session-foreman`): `5uzguxofe57tlv8e7eo4`
+(built 2026-11-26).
+
 ## The sandbox's lifetime
 
 The runner leases each sandbox for ten minutes at a time and renews the lease
