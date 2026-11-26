@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import { isRegion } from './region.js';
 import type { Region } from './region.js';
 import type { WorkspaceIcon } from './workspaceIcon.js';

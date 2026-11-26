@@ -1,6 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
-import type { GitHubEventMessage, WorkspaceRole } from '@consola/cloud-contract';
+import type { GitHubEventMessage } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import type { AgentRun, Harness, PassClaims, Repository } from '@consola/runner-protocol';
 import type { CloudSession, CloudSessionStatus, RunnerIdentity } from '../domain/cloudSession.js';
 import type { Factory, FactoryChange, FactoryFile, FactoryVersion } from '../domain/factory.js';

@@ -16,8 +16,8 @@ import {
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
   readOutOfOrderAnswer,
-  WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
+import { WORKSPACE_ROLES } from './shared/workspaceRole.js';
 import type {
   CellTokenGrant,
   GitHubEventMessage,

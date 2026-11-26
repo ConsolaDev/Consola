@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import {
   hasAgentTeam,
   MAX_FACTORY_TEXT_BYTES,

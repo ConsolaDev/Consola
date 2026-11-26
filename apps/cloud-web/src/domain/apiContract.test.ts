@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * the API that the web app has not followed fails this test, and then the typecheck wherever
  * the web app no longer fits it.
  */
-const SPEC = new URL('../../../cloud-global/openapi.json', import.meta.url);
+const SPEC = new URL('../../../cloud-api/openapi.json', import.meta.url);
 
 const HEADER = `/**
  * The types of cloud-global's API, generated from apps/cloud-global/openapi.json by

@@ -3,8 +3,8 @@ import {
   GITHUB_EVENT_DELIVERY_PATH,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
-  WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
+import { WORKSPACE_ROLES } from '../../../shared/workspaceRole.js';
 import { AUTOMATION_MODES } from '@consola/factory-spec';
 import { AGENT_RUN_STATES, DISPATCHED_AGENT_STATUSES, HARNESSES } from '@consola/runner-protocol';
 import { createRoute, z } from '@hono/zod-openapi';

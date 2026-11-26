@@ -10,8 +10,7 @@
     "typecheck": "effect-tsgo tsrs --noEmit"
   },
   "devDependencies": {
-    "@consola/cloud-contract": "workspace:*",
-    "@consola/cloud-region": "workspace:*",
+    "@consola/cloud-api": "workspace:*",
     "@consola/host": "workspace:*",
     "@consola/runner-protocol": "workspace:*",
     "@consola/sandbox": "workspace:*",

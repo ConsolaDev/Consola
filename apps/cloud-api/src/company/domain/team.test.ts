@@ -1,4 +1,4 @@
-import { WORKSPACE_ROLES } from '@consola/cloud-contract';
+import { WORKSPACE_ROLES } from '../../shared/workspaceRole.js';
 import { describe, expect, it } from 'vitest';
 import { actingRole, checkTeamName, mayManageTeams, TEAM_NAME_MAX, teamsSeenBy } from './team.js';
 import type { Team } from './team.js';

@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 
 /**
  * Teams inside a workspace, held in its region's cell: names are the company's information, so

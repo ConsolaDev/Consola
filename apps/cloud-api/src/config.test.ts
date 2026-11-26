@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { REGIONS } from '@consola/cloud-contract';
+import { REGIONS } from './shared/region.js';
 import { describe, expect, it } from 'vitest';
 import { ConfigError, cellKeyVariable, cellUrlVariable, loadConfig } from './config.js';
 

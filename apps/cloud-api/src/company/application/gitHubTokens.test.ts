@@ -1,5 +1,6 @@
 import { GITHUB_TOKEN_REQUEST_LIFETIME_SECONDS, gitHubTokenRequest } from '@consola/cloud-contract';
-import type { GitHubTokenAsk, Region } from '@consola/cloud-contract';
+import type { GitHubTokenAsk } from '@consola/cloud-contract';
+import type { Region } from '../../shared/region.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';

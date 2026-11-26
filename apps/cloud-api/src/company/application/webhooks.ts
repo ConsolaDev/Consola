@@ -1,4 +1,5 @@
-import type { GitHubEventMessage, Region } from '@consola/cloud-contract';
+import type { GitHubEventMessage } from '@consola/cloud-contract';
+import type { Region } from '../../shared/region.js';
 import { installationOfEvent, PING_EVENT, readDeliveryHeaders } from '../domain/webhooks.js';
 import type {
   CellEvents,

@@ -1,5 +1,5 @@
 import { cellTokenClaims } from '@consola/cloud-contract';
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';

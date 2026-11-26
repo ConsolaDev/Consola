@@ -1,5 +1,6 @@
 import { createHmac } from 'node:crypto';
-import type { GitHubEventMessage, Region } from '@consola/cloud-contract';
+import type { GitHubEventMessage } from '@consola/cloud-contract';
+import type { Region } from '../../shared/region.js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWebhookSignatures } from '../adapters/github/webhookSignatures.js';
 import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';

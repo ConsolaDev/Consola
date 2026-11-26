@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import type { SignedIn } from './person.js';
 
 /**

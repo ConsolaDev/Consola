@@ -3,9 +3,9 @@ import type {
   CellTokenClaims,
   GitHubEventMessage,
   OutboxMessage,
-  Region,
-  WorkspaceRole,
 } from '@consola/cloud-contract';
+import type { Region } from '../../shared/region.js';
+import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import type {
   ConnectedInstallation,
   GitHubInstallation,

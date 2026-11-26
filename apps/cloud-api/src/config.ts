@@ -1,5 +1,5 @@
-import { REGIONS } from '@consola/cloud-contract';
-import type { Region } from '@consola/cloud-contract';
+import { REGIONS } from './shared/region.js';
+import type { Region } from './shared/region.js';
 import { z } from 'zod';
 
 /**

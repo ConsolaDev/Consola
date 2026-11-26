@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
  * the cell that the web app has not followed fails this test, and then the typecheck wherever the
  * web app no longer fits it. Every region's cell runs the same code, so one contract serves all.
  */
-const SPEC = new URL('../../../cloud-region/openapi.json', import.meta.url);
+const SPEC = new URL('../../../cloud-api/openapi.json', import.meta.url);
 
 const HEADER = `/**
  * The types of the regional cell's API, generated from apps/cloud-region/openapi.json by

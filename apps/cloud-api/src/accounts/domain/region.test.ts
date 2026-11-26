@@ -1,4 +1,4 @@
-import { isRegion, REGIONS } from '@consola/cloud-contract';
+import { isRegion, REGIONS } from '../../shared/region.js';
 import { describe, expect, it } from 'vitest';
 import { isRegion as domainIsRegion, REGIONS as DOMAIN_REGIONS } from './region.js';
 

@@ -1,4 +1,4 @@
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TeamStore } from '../../application/ports.js';
 import { FIRST_TEAM_NAME } from '../../domain/team.js';

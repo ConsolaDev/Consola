@@ -2,8 +2,8 @@ import {
   CELL_TOKEN_ALGORITHM,
   CELL_TOKEN_KEYS_PATH,
   GITHUB_TOKEN_REQUEST_TYPE,
-  WORKSPACE_ROLES,
 } from '@consola/cloud-contract';
+import { WORKSPACE_ROLES } from '../../../shared/workspaceRole.js';
 import { createRoute, z } from '@hono/zod-openapi';
 import { TOKEN_REQUEST_PROBLEMS } from '../../domain/gitHubTokens.js';
 import { REGIONS } from '../../domain/region.js';

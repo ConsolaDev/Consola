@@ -1,5 +1,5 @@
-import { isWorkspaceRole } from '@consola/cloud-contract';
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import { isWorkspaceRole } from '../../../shared/workspaceRole.js';
+import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
 
 /**
  * A stored membership's role, read back only when it is one of the contract's

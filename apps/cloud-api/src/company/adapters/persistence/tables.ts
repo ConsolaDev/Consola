@@ -5,7 +5,7 @@
 // person is a column holding their global id, never a copy of their account. `schema.test.ts`
 // checks both.
 
-import type { WorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
 import { sql } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import {
