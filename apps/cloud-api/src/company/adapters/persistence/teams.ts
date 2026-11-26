@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 import type { TeamStore } from '../../application/ports.js';
+import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import type { Team } from '../../domain/team.js';
 import type { Database, Transaction } from './database.js';
 import { FOREIGN_KEY_VIOLATION, failedWith, UNIQUE_VIOLATION } from './sqlState.js';
@@ -50,6 +51,41 @@ async function readTeam(
   teamId: string,
 ): Promise<Team | 'not-found'> {
   return (await readTeams(db, workspaceId, teamId))[0] ?? 'not-found';
+}
+
+/**
+ * Opens a workspace in company's tables, inside the transaction that makes it (accounts'
+ * `WorkspaceStore.create`, handed this as its hook by the composition): its first team
+ * (`FIRST_TEAM_NAME`, `is_first`), with its owner in it. So a workspace is never without its first
+ * team, nor its owner outside it, and a failure anywhere in the transaction leaves neither.
+ *
+ * Opening a workspace that has its first team changes nothing: not its name, nor who is in it,
+ * even if its owner was taken out since.
+ */
+export async function openWorkspace(
+  tx: Transaction,
+  opened: { workspaceId: string; ownerId: string },
+): Promise<void> {
+  const { workspaceId, ownerId } = opened;
+  const [made] = await tx
+    .insert(teams)
+    .values({ workspaceId, name: FIRST_TEAM_NAME, isFirst: true })
+    .onConflictDoNothing()
+    .returning({ id: teams.teamId });
+  if (made) {
+    await tx.insert(teamMembers).values({ workspaceId, teamId: made.id, personId: ownerId });
+    return;
+  }
+  // Nothing was made: the workspace has its first team already, unless another of its teams has
+  // the name, which only a workspace opened without one could.
+  const [first] = await tx
+    .select({ id: teams.teamId })
+    .from(teams)
+    .where(and(eq(teams.workspaceId, workspaceId), eq(teams.isFirst, true)));
+  if (!first)
+    throw new Error(
+      `Workspace ${workspaceId} has a team named ${FIRST_TEAM_NAME} but no first team.`,
+    );
 }
 
 /** The workspace's teams on company's database. */
