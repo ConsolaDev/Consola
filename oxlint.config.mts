@@ -102,6 +102,16 @@ export default defineConfig({
     // in tests, whose fakes are built with assertions on purpose.
     'quality/no-chained-type-assertions': 'warn',
     'typescript/no-unsafe-type-assertion': 'warn',
+    // No slop: all of nkzw's quality plugin is on. These six warn until
+    // every finding is fixed, then become errors (CON-138: "No slop: turn on
+    // all six of nkzw's quality rules",
+    // https://linear.app/consola/issue/CON-138).
+    'quality/no-array-filter-map': 'warn',
+    'quality/no-conditional-empty-object-spread': 'warn',
+    'quality/no-known-value-widening': 'warn',
+    'quality/no-object-parameters': 'warn',
+    'quality/no-unknown-returns': 'warn',
+    'quality/no-unsafe-dictionary-type': 'warn',
 
     // ---- Off here, each with its reason ----
 
@@ -123,25 +133,6 @@ export default defineConfig({
     // flags is DOM nodes and events, typed arrays and jose's error classes,
     // which nothing narrows as plainly as instanceof.
     '@nkzw/no-instanceof': 'off',
-    // `...(x ? { x } : {})` leaves a key out of a record written to a file,
-    // sent over IPC or compared in a test, rather than writing it undefined;
-    // the rule's alternative builds the same object in more statements.
-    'quality/no-conditional-empty-object-spread': 'off',
-    // It flags declared return types, which the code keeps as the function's
-    // contract even where inference would say more.
-    'quality/no-known-value-widening': 'off',
-    // It flags Record<string, unknown>, which is the type parsed JSON has
-    // while the isRecord guards narrow it.
-    'quality/no-unsafe-dictionary-type': 'off',
-    // It flags the ports that read a file or an answer and return unknown, so
-    // each caller parses it with its own schema.
-    'quality/no-unknown-returns': 'off',
-    // `object` is right for helpers that take any non-null value
-    // (hasOwnProperty checks, JSON messages).
-    'quality/no-object-parameters': 'off',
-    // Its alternative is iterator helpers, which no package's library has,
-    // or a flatMap that reads worse than .filter().map().
-    'quality/no-array-filter-map': 'off',
     // Every finding is a control character (ESC, BEL, DEL, NUL, Ctrl+C) in
     // terminal, PTY or sanitizing code, written as \x1b as terminal
     // references write it.
