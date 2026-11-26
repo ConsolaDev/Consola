@@ -1,16 +1,13 @@
 import { useCallback, useRef, useState } from 'react';
-import { type DragMoveEvent, useDndMonitor, useDroppable } from '@dnd-kit/core';
+import { useDndMonitor, useDroppable } from '@dnd-kit/core';
+import type { DragMoveEvent } from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
-import { type DropZone, draggedTabOf, splitEdge } from '../../sidePanel/dropTarget';
-import {
-  type Edge,
-  type GroupId,
-  type GroupPosition,
-  NEW_TAB,
-  type TabGroupNode,
-  type TabId,
-} from '../../sidePanel/layout';
-import { bodyFor, tabKind, type TabFacts } from '../../sidePanel/tabKinds';
+import { draggedTabOf, splitEdge } from '../../sidePanel/dropTarget';
+import type { DropZone } from '../../sidePanel/dropTarget';
+import { NEW_TAB } from '../../sidePanel/layout';
+import type { Edge, GroupId, GroupPosition, TabGroupNode, TabId } from '../../sidePanel/layout';
+import { bodyFor, tabKind } from '../../sidePanel/tabKinds';
+import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer } from './dragPointer';
 import { keyboardToConversation } from './keyboardAfterClose';

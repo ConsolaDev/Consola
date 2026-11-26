@@ -3,15 +3,17 @@ import type { Caller } from '../domain/caller.js';
 import {
   checkFactoryFiles,
   checkFactoryName,
-  type Factory,
-  type FactoryChange,
-  type FactoryFile,
-  type FactoryIssue,
-  type FactoryNameProblem,
-  type FactoryNotice,
-  type FactoryVersion,
   factoriesSeenBy,
   judgeFactoryChange,
+} from '../domain/factory.js';
+import type {
+  Factory,
+  FactoryChange,
+  FactoryFile,
+  FactoryIssue,
+  FactoryNameProblem,
+  FactoryNotice,
+  FactoryVersion,
 } from '../domain/factory.js';
 import { actingRole, teamsSeenBy } from '../domain/team.js';
 import type { FactoryStore, TeamStore } from './ports.js';

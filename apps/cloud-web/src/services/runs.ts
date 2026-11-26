@@ -4,13 +4,8 @@ import type { ApprovalDecision, ApproveAnswer } from '../domain/runApproval';
 import type { RunFilters } from '../domain/runFilters';
 import type { MembersAnswer, RunAnswer, RunsAnswer } from '../domain/runs';
 import type { WorkspaceMember } from '../domain/teams';
-import {
-  type CellDeps,
-  type CellSession,
-  codeOf,
-  createCellSession,
-  pageCellSession,
-} from './cell';
+import { codeOf, createCellSession, pageCellSession } from './cell';
+import type { CellDeps, CellSession } from './cell';
 
 /*
  * A workspace's runs, from its regional cell, reached through `cell.ts` as Teams reaches its
@@ -147,8 +142,9 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
-        if (response.status === 200 && data && isRunList(data))
+        if (response.status === 200 && data && isRunList(data)) {
           return { kind: 'listed', list: data };
+        }
         if (response.status === 400 && codeOf(error) === 'invalid_request') {
           return { kind: 'invalid' };
         }

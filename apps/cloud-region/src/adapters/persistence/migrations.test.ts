@@ -6,12 +6,13 @@ import { asc, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, describe, expect, it } from 'vitest';
 import { FIRST_TEAM_NAME } from '../../domain/team.js';
-import { type Database, migrateDatabase, openDatabase } from './database.js';
+import { migrateDatabase, openDatabase } from './database.js';
+import type { Database } from './database.js';
 import { runs, teamMembers, teams, workspaceMembers, workspaces } from './tables.js';
 
 const MIGRATIONS = fileURLToPath(new URL('../../../drizzle', import.meta.url));
 
-type Journal = { entries: { tag: string }[] };
+type Journal = { entries: Array<{ tag: string }> };
 
 /** A migrations folder holding only the migrations up to and including `lastTag`. */
 function migrationsUpTo(lastTag: string): string {
@@ -24,12 +25,13 @@ function migrationsUpTo(lastTag: string): string {
   if (last < 0) throw new Error(`No migration is tagged ${lastTag}`);
   const entries = journal.entries.slice(0, last + 1);
   writeFileSync(join(folder, 'meta', '_journal.json'), JSON.stringify({ ...journal, entries }));
-  for (const { tag } of entries)
+  for (const { tag } of entries) {
     copyFileSync(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
+  }
   return folder;
 }
 
-const cleanups: (() => void | Promise<void>)[] = [];
+const cleanups: Array<() => void | Promise<void>> = [];
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
@@ -52,7 +54,7 @@ describe('the teams migration', () => {
       { workspaceId: 'acme', personId: 'person-eli', role: 'member' },
     ]);
 
-    await migrateDatabase(db as Database);
+    await migrateDatabase(db);
 
     const made = await db
       .select({ workspaceId: teams.workspaceId, name: teams.name, first: teams.isFirst })

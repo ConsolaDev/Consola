@@ -114,7 +114,7 @@ export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {
 export function defineTool<Shape extends z.ZodRawShape>(
   tool: ToolDefinition<Shape>,
 ): ToolDefinition {
-  return tool as unknown as ToolDefinition;
+  return tool;
 }
 
 export type ToolMode = 'preview' | 'run';
@@ -139,10 +139,11 @@ export class ToolRegistry {
     // or is only data (the engine refuses untrusted values for the first two).
     if (tool.automatable) {
       for (const argument of Object.keys(tool.input)) {
-        if (!tool.roles?.[argument])
+        if (!tool.roles?.[argument]) {
           throw new Error(
             `Automatable tool ${tool.name} must say what each argument does (prompt, selector or data): ${argument} has no role.`,
           );
+        }
       }
     }
     this.tools.set(tool.name, tool);
@@ -189,8 +190,9 @@ export class ToolRegistry {
     const validated = this.validate(tool, raw);
     if (!validated.ok) throw new Error(`Invalid arguments for ${tool.name}: ${validated.error}`);
     if (mode === 'preview') {
-      if (!tool.preview)
+      if (!tool.preview) {
         throw new Error(`${tool.name} has nothing to preview; it changes nothing.`);
+      }
       return tool.preview(validated.args, context);
     }
     return tool.run(validated.args, context);

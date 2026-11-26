@@ -1,5 +1,6 @@
 import type { DownloadItem, Session, Streams, WebContents } from 'electron';
-import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
+import { browserPartitionFor } from '../../shared/browser';
+import type { BrowserTab } from '../../shared/browser';
 import type { TabHands } from './PersonInput';
 
 /**

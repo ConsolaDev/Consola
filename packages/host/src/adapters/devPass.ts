@@ -4,7 +4,8 @@ import * as Clock from 'effect/Clock';
 import * as Effect from 'effect/Effect';
 import { PASS_AUDIENCE, PASS_TYPE } from '@consola/runner-protocol';
 import { SignJWT } from 'jose';
-import { DEV_PASS_SECONDS, type PassClaims } from '../core/pass.ts';
+import { DEV_PASS_SECONDS } from '../core/pass.ts';
+import type { PassClaims } from '../core/pass.ts';
 
 /** How long a dev pass lasts (`core/pass.ts`): twelve hours, over a cell's pass's cap. */
 export { DEV_PASS_SECONDS } from '../core/pass.ts';

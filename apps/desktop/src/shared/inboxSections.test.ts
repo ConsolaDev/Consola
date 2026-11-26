@@ -5,8 +5,8 @@ import {
   INBOX_SECTIONS,
   sectionFor,
   sectionItemType,
-  type InboxSection,
 } from './inboxSections';
+import type { InboxSection } from './inboxSections';
 
 function pr(overrides: Partial<InboxItem> = {}): InboxItem {
   return {

@@ -1,13 +1,6 @@
 import { X } from 'lucide-react';
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useId,
-  useRef,
-  useState,
-  useSyncExternalStore,
-} from 'react';
+import { useCallback, useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
+import type { ReactNode } from 'react';
 import { chooseSection } from '../domain/sections';
 import { hashOfSettingsPage } from '../domain/settings';
 import { currentSettingsPageId, onSettingsPageChange } from '../services/settingsAddress';

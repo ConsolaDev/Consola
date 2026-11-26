@@ -1,15 +1,10 @@
 import { ArrowUpRight, ChevronRight, Hand, Workflow } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
 import { messageForRunAnswer, NO_AUTOMATIONS_STARTED } from '../domain/runMessages';
-import {
-  isLive,
-  type RunAnswer,
-  type RunDetail,
-  RUN_POLL_WAITING_MS,
-  type RunSummary,
-  runPollDelay,
-} from '../domain/runs';
-import { hashOfRun, type TracePlace } from '../domain/runsRoute';
+import { isLive, RUN_POLL_WAITING_MS, runPollDelay } from '../domain/runs';
+import type { RunAnswer, RunDetail, RunSummary } from '../domain/runs';
+import { hashOfRun } from '../domain/runsRoute';
+import type { TracePlace } from '../domain/runsRoute';
 import {
   childFactsWords,
   childStateWords,

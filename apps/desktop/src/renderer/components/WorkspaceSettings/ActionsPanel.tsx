@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react';
-import { INBOX_SECTIONS, sectionItemType, type InboxSection } from '../../../shared/inboxSections';
+import { INBOX_SECTIONS, sectionItemType } from '../../../shared/inboxSections';
+import type { InboxSection } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import {
   actionConversation,
   createDefaultActions,
   createDefaultSectionDefaults,
-  type ActionConversation,
-  type WorkItemAction,
 } from '../../../shared/workItemActions';
+import type { ActionConversation, WorkItemAction } from '../../../shared/workItemActions';
 import { generateId } from '../../../shared/ids';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 
@@ -139,8 +140,8 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
     try {
       await setActions(workspace.id, nextActions, nextDefaults);
       return null;
-    } catch (err) {
-      return ipcErrorMessage(err);
+    } catch (failure) {
+      return ipcErrorMessage(failure);
     }
   };
 
@@ -220,7 +221,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
     // A default pointing at a deleted action would dangle; clear it in the
     // same write so main never sees the inconsistent pair.
     const nextDefaults: SectionDefaults = {};
-    for (const [section, actionId] of Object.entries(defaults) as [InboxSection, string][]) {
+    for (const [section, actionId] of Object.entries(defaults) as Array<[InboxSection, string]>) {
       if (actionId !== id) nextDefaults[section] = actionId;
     }
     const ok = await commit(

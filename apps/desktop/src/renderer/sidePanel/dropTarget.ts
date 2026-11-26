@@ -7,7 +7,8 @@
  *
  * Pure, with no DOM and no stores: the components measure, and this decides.
  */
-import { canSplit, type Edge, type GroupId, type SidePanelLayout, type TabId } from './layout';
+import { canSplit } from './layout';
+import type { Edge, GroupId, SidePanelLayout, TabId } from './layout';
 
 /** How deep an edge's band reaches into the area: a quarter of its width or height. */
 export const EDGE_BAND = 0.25;

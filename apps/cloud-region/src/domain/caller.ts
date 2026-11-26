@@ -1,4 +1,5 @@
-import { readCellTokenClaims, type WorkspaceRole } from '@consola/cloud-contract';
+import { readCellTokenClaims } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import type { Region } from './region.js';
 
 declare const fromCheckedToken: unique symbol;

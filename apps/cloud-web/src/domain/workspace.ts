@@ -117,9 +117,9 @@ const UNSPELLED = new RegExp(`[${Object.keys(SPELLED).join('')}]`, 'g');
 export function suggestSlug(name: string): string {
   const words = name
     .toLowerCase()
-    .replace(UNSPELLED, (letter) => SPELLED[letter] ?? letter)
+    .replaceAll(UNSPELLED, (letter) => SPELLED[letter] ?? letter)
     .normalize('NFKD')
-    .replace(/\p{M}/gu, '')
+    .replaceAll(/\p{M}/gu, '')
     .split(/[^a-z0-9]+/)
     .filter((word) => word !== '');
 

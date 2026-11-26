@@ -1,7 +1,6 @@
 // @effect-diagnostics nodeBuiltinImport:off - The checker reads the source tree from disk.
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import * as ts from 'typescript';
 import { describe, expect, it } from 'vite-plus/test';
 
@@ -14,7 +13,7 @@ import { describe, expect, it } from 'vite-plus/test';
  * t3's MIT code and imports none of them either; it is checked too.
  */
 
-const SRC = dirname(fileURLToPath(import.meta.url));
+const SRC = import.meta.dirname;
 const PACKAGE = resolve(SRC, '..');
 const REPOSITORY = resolve(PACKAGE, '../..');
 const APPS = join(REPOSITORY, 'apps');

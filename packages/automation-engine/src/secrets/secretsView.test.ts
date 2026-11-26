@@ -1,7 +1,8 @@
 import type { SecretUse } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import type { SecretBinding } from './secretsPort';
-import { buildSecretsView, type SecretBindingView } from './secretsView';
+import { buildSecretsView } from './secretsView';
+import type { SecretBindingView } from './secretsView';
 
 const SLACK: SecretBinding = {
   kind: 'keychain',
@@ -73,15 +74,20 @@ describe('buildSecretsView', () => {
   it('has no field a value could ride in', () => {
     build({});
     expect(built.length).toBeGreaterThanOrEqual(3);
-    for (const views of built)
+    for (const views of built) {
       for (const view of views) {
-        for (const key of Object.keys(view))
+        for (const key of Object.keys(view)) {
           expect(['name', 'binding', 'uses', 'sameAs'], key).toContain(key);
-        for (const key of Object.keys(view.binding ?? {}))
+        }
+        for (const key of Object.keys(view.binding ?? {})) {
           expect(['kind', 'label', 'changedAt', 'program'], key).toContain(key);
-        for (const use of view.uses)
-          for (const key of Object.keys(use))
+        }
+        for (const use of view.uses) {
+          for (const key of Object.keys(use)) {
             expect(['automation', 'step', 'check', 'accepted'], key).toContain(key);
+          }
+        }
       }
+    }
   });
 });

@@ -16,18 +16,14 @@ import {
   ScanSearch,
   SquareTerminal,
   Wrench,
-  type LucideIcon,
 } from 'lucide-react';
-import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
+import type { LucideIcon } from 'lucide-react';
+import { isAgentRunPreview } from '../../../shared/automations';
+import type { RunRecord } from '../../../shared/automations';
 import { stepKindLabel } from './callWords';
 import { formatElapsed } from './presentation';
-import {
-  foundNothingToDo,
-  triggerStageWords,
-  type RunStage,
-  type RunStageKey,
-  type RunStageState,
-} from './runPage';
+import { foundNothingToDo, triggerStageWords } from './runPage';
+import type { RunStage, RunStageKey, RunStageState } from './runPage';
 
 const STATE_ICONS: Record<RunStageState, LucideIcon> = {
   passed: CircleCheck,

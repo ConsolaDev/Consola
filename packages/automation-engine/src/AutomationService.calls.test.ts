@@ -3,8 +3,8 @@ import {
   parseFactorySpec,
   serverHash,
   stepsResolvedBody,
-  type McpServerDefinition,
 } from '@consola/factory-spec';
+import type { McpServerDefinition } from '@consola/factory-spec';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, onTestFinished, vi } from 'vitest';
@@ -14,15 +14,10 @@ import { maskFormsOf } from './secrets/values';
 import { CHECK_STALE } from './servers/checkServer';
 import { INTERRUPTED_CALL } from './steps/recover';
 import type { StepsRunPreview } from './steps/definition';
-import { defineTool, type TestTool } from './tools.test-helpers';
-import {
-  BIND_HINT,
-  stepsHarness,
-  WORKSPACE_ID,
-  type FakeServer,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { defineTool } from './tools.test-helpers';
+import type { TestTool } from './tools.test-helpers';
+import { BIND_HINT, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { FakeServer, StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * 5a-2: `uses:` steps, as the engine resolves, runs, recovers and checks
@@ -80,7 +75,7 @@ const TRACKER_BINDING = {
   kind: '1password' as const,
   label: '1Password (op://Ops/Tracker/credential)',
 };
-const BOT_VALUE = 'stub-slack-secret-9c1e"\\back%slash';
+const BOT_VALUE = String.raw`stub-slack-secret-9c1e"\back%slash`;
 const TRACKER_VALUE = 'stub-tracker-secret-4d7a%slash"q';
 const BOUND = {
   bindings: { SLACK_BOT_TOKEN: BOT_BINDING, TRACKER_TOKEN: TRACKER_BINDING },
@@ -1159,8 +1154,9 @@ describe('a call of a factory server (5a-2 Task 8)', () => {
     });
     expect(post().call?.intentAt).toBeDefined();
     expect(post().call?.resultAt).toBeDefined();
-    for (const file of ['call.json', 'result.json', 'output.json'])
+    for (const file of ['call.json', 'result.json', 'output.json']) {
       expect(fs.existsSync(attemptFile(h, run.id, 'post', file)), file).toBe(true);
+    }
     expect(h.world.mcp.closes).toEqual(['slack']);
     expect(h.store.get(run.id)?.status).toBe('completed');
   });
@@ -1348,7 +1344,7 @@ describe('every row of the Failure table (5a-2 Task 8)', () => {
 
   it('a landed call whose result lacks an output fails as landed', async () => {
     const { post } = await posting(
-      slack({ answer: () => ({ ...POSTED, structuredContent: { ok: true } }) as McpCallOutcome }),
+      slack({ answer: () => ({ ...POSTED, structuredContent: { ok: true } }) }),
     );
     expect(post()).toMatchObject({
       status: 'failed',
@@ -1595,9 +1591,11 @@ describe('a server that echoes its credential (5a-2 Task 8, Review Focus 1)', ()
     walk(h.folder.runDir(WORKSPACE_ID, runId));
     const record = JSON.stringify(h.store.get(runId));
     if (forms.some((form) => record.includes(form))) found.push('the record');
-    for (const notice of h.notices)
-      if (forms.some((form) => `${notice.title} ${notice.body}`.includes(form)))
+    for (const notice of h.notices) {
+      if (forms.some((form) => `${notice.title} ${notice.body}`.includes(form))) {
         found.push('a notice');
+      }
+    }
     return found;
   };
 
@@ -2304,8 +2302,9 @@ describe("a server's literals on its views, never a value (review S1)", () => {
       h.service.getStepDetail(run.id, 'post'),
       check,
     ]);
-    for (const form of [...maskFormsOf(BOT_VALUE), ...maskFormsOf(TRACKER_VALUE)])
+    for (const form of [...maskFormsOf(BOT_VALUE), ...maskFormsOf(TRACKER_VALUE)]) {
       expect(views).not.toContain(form);
+    }
     gate.release();
     await h.flush();
   });
@@ -2457,12 +2456,13 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
       attempt: 2,
       outputs: { ts: 'done' },
     });
-    for (const attempt of [1, 2])
+    for (const attempt of [1, 2]) {
       expect(
         fs.existsSync(
           path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'post', attempt), 'call.json'),
         ),
       ).toBe(true);
+    }
     expect(h.store.get(run.id)!.status).toBe('completed');
   });
 
@@ -2506,7 +2506,7 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
       yaml: factory(SLACK, rounds()),
       mcp: { servers: { slack: slack({ tools: [CHAT_POST] }) } },
     });
-    const version = row(h, 'rounds').servers![0].version!;
+    const version = row(h, 'rounds').servers![0].version;
     const view = await h.service.checkServer(WORKSPACE_ID, 'rounds', 'slack', version);
     expect(view).toEqual({
       server: 'slack',

@@ -7,7 +7,8 @@ import { usePreviewTabStore } from '../stores/previewTabStore';
 import { useBrowserSlotStore } from '../stores/browserSlotStore';
 import { useBrowserStore } from '../stores/browserStore';
 import { requestBrowserPanelFocus } from '../stores/browserPanelFocusStore';
-import { closeTarget, isCloseShortcut, type KeyboardPlace } from '../utils/closeShortcut';
+import { closeTarget, isCloseShortcut } from '../utils/closeShortcut';
+import type { KeyboardPlace } from '../utils/closeShortcut';
 import {
   kindOnScreen,
   pressShortcutOnScreen,

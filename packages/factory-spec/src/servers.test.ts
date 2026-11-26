@@ -8,7 +8,6 @@ import {
   parseMcpServers,
   serverHash,
   unpinnedLauncher,
-  type McpServerDefinition,
 } from './servers';
 
 type Issue = { message: string; path: Array<string | number> };
@@ -163,8 +162,9 @@ describe('parseMcpServers: the mapping and its names', () => {
   );
 
   it('takes a name of lowercase letters, digits and dashes', () => {
-    for (const name of ['slack', 'tracker-2', `s${'x'.repeat(63)}`])
+    for (const name of ['slack', 'tracker-2', `s${'x'.repeat(63)}`]) {
       expect(MCP_SERVER_NAME_PATTERN.test(name)).toBe(true);
+    }
     expect(parse({ 'tracker-2': HTTP }).issues).toEqual([]);
   });
 
@@ -173,8 +173,9 @@ describe('parseMcpServers: the mapping and its names', () => {
   });
 
   it('refuses a server that is not a mapping', () => {
-    for (const value of ['npx slack', null, ['npx'], 3])
+    for (const value of ['npx slack', null, ['npx'], 3]) {
       expect(issuesOf(value)).toEqual([{ message: NOT_A_SERVER, path: ['slack'] }]);
+    }
   });
 
   it('keeps a broken server out of servers, names it in broken, and reads its siblings', () => {
@@ -208,10 +209,11 @@ describe('parseMcpServers: what is refused, each with its reason', () => {
       [HTTP, 'stdio'],
       [HTTP, 'streamable-http'],
       [HTTP, 3],
-    ] as const)
+    ] as const) {
       expect(issuesOf({ ...definition, type }), String(type)).toEqual([
         { message: NO_TYPE, path: ['slack', 'type'] },
       ]);
+    }
     expect(one({ ...HTTP, type: 'http' }).broken).toEqual(['slack']);
   });
 
@@ -262,7 +264,7 @@ describe('parseMcpServers: a server Consola starts', () => {
   });
 
   it('wants a command that is text', () => {
-    for (const command of ['', 3, ['npx']])
+    for (const command of ['', 3, ['npx']]) {
       expect(issuesOf({ command })).toEqual([
         {
           message:
@@ -270,6 +272,7 @@ describe('parseMcpServers: a server Consola starts', () => {
           path: ['slack', 'command'],
         },
       ]);
+    }
   });
 
   it.each([['${TOKEN}'], ['--token=${SLACK_BOT_TOKEN}'], ['{{item.key}}'], ['x {{ steps.a.b }}']])(
@@ -321,10 +324,11 @@ describe('parseMcpServers: a server Consola starts', () => {
   });
 
   it('keeps a server’s env: literal', () => {
-    for (const value of ['{{item.key}}', '${SLACK_BOT_TOKEN}', 'Bearer ${T}'])
+    for (const value of ['{{item.key}}', '${SLACK_BOT_TOKEN}', 'Bearer ${T}']) {
       expect(issuesOf({ command: 'node', env: { SLACK_TEAM: value } })).toEqual([
         { message: ENV_LITERAL, path: ['slack', 'env', 'SLACK_TEAM'] },
       ]);
+    }
     expect(issuesOf({ command: 'node', env: { PORT: 8080 } })).toEqual([
       {
         message: 'Expected text: write a number in quotes, e.g. "8080".',
@@ -343,10 +347,11 @@ describe('parseMcpServers: a server Consola starts', () => {
       'DB_PASSWORD',
       'SPROCKET_API_KEY',
       'GCP_CREDENTIALS',
-    ])
+    ]) {
       expect(issuesOf({ command: 'node', env: { [name]: 'abcdefghijklmnop1234' } })).toEqual([
         { message: CREDENTIAL, path: ['slack', 'env', name] },
       ]);
+    }
     // A short value, a value with spaces, or a name that is no credential's, passes.
     expect(issuesOf({ command: 'node', env: { MAX_TOKENS: '4096' } })).toEqual([]);
     expect(issuesOf({ command: 'node', env: { API_TOKEN: 'not a secret at all' } })).toEqual([]);
@@ -447,10 +452,11 @@ describe('parseMcpServers: a server Consola calls', () => {
     expect(issuesOf({ ...HTTP, headers: { 'X-Item': '{{item.key}}' } })).toEqual([
       { message: HEADER_BRACES, path: ['slack', 'headers', 'X-Item'] },
     ]);
-    for (const value of ['a\nb', 'a\r\nX-Other: b'])
+    for (const value of ['a\nb', 'a\r\nX-Other: b']) {
       expect(issuesOf({ ...HTTP, headers: { 'X-Team': value } })).toEqual([
         { message: ONE_LINE, path: ['slack', 'headers', 'X-Team'] },
       ]);
+    }
   });
 
   it.each([
@@ -520,7 +526,7 @@ describe('serverHash', () => {
       env: { A: 'a', B: 'b' },
       secrets: ['SLACK_BOT_TOKEN'],
       ...over,
-    }).servers.slack as McpServerDefinition;
+    }).servers.slack;
 
   it('is 16 hex characters, equal for equal definitions whatever order their keys were written in', () => {
     const hash = serverHash(definition());
@@ -529,7 +535,7 @@ describe('serverHash', () => {
       yaml(
         'secrets: [SLACK_BOT_TOKEN]\nenv: { B: b, A: a }\nargs: [-y, "@sprocket/slack-mcp@1.4.2"]\ncommand: npx\n',
       ),
-    ).servers.slack as McpServerDefinition;
+    ).servers.slack;
     expect(serverHash(reordered)).toBe(hash);
   });
 

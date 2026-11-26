@@ -15,7 +15,8 @@
  * host probes each CLI's version as it starts) and exits 1; teardown fails the run unless every
  * call saw this machine's home and no config folder, so no CLI of the developer's can run.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -78,7 +79,7 @@ const makeMachine = (): Machine => {
 const startNode = (
   machine: Machine,
   script: string,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   onLine: (line: string) => void,
 ) => {
   // The machine's PATH holds only fake CLIs and /usr/bin:/bin, so node is named by its path.

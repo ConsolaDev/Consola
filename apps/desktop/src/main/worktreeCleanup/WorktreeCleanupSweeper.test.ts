@@ -89,9 +89,9 @@ describe('WorktreeCleanupSweeper', () => {
     expect(sweeps).toEqual([]);
     for (const report of [...reporters]) report();
     sweeps = [];
-    subject.kick(1_000);
-    subject.kick(1_000);
-    vi.advanceTimersByTime(1_000);
+    subject.kick(1000);
+    subject.kick(1000);
+    vi.advanceTimersByTime(1000);
     expect(sweeps).toHaveLength(1);
     subject.stop();
   });

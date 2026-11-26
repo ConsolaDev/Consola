@@ -10,7 +10,8 @@
  * the runner not: each sandbox is leased for `SANDBOX_LEASE_SECONDS` and renewed while the runner
  * holds it, never past the cap.
  */
-import { isHostUrl, type SessionStart, type SessionUpdate } from '@consola/runner-protocol';
+import { isHostUrl } from '@consola/runner-protocol';
+import type { SessionStart, SessionUpdate } from '@consola/runner-protocol';
 import type { Sandbox, Sandboxes } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -26,14 +27,12 @@ import {
   HostLineBuffer,
   lifetimeStopAfterMs,
   offerRefusal,
-  type RunnerOffer,
   readSessionLine,
   SANDBOX_LEASE_RENEW_SECONDS,
   SANDBOX_LEASE_SECONDS,
   SESSION_START_ARGV,
   SESSION_TEMPLATE,
   StderrTail,
-  type SandboxSecrets,
   sandboxEnvFor,
   sandboxLifetimeSeconds,
   scrubSecrets,
@@ -41,6 +40,7 @@ import {
   updateForExit,
   updateForLine,
 } from '../core/runnerDecisions.ts';
+import type { RunnerOffer, SandboxSecrets } from '../core/runnerDecisions.ts';
 
 /**
  * How long after the host's `exit` line the runner stops the sandbox itself, should the host not
@@ -88,7 +88,7 @@ export type SandboxSessionsOptions = {
   /** What a sandbox is given: the git token and its harness's API key. */
   readonly secrets: SandboxSecrets;
   /** Every secret the runner holds, taken out of whatever it reports or logs. */
-  readonly secretValues: ReadonlyArray<string>;
+  readonly secretValues: readonly string[];
   /** The host's idle minutes (`CONSOLA_SESSION_IDLE_MINUTES`). */
   readonly idleMinutes: number;
   /**
@@ -115,9 +115,9 @@ export type SandboxSessionsOptions = {
 /** The sessions a runner holds now, for `hello` and what follows it. */
 export type LiveSessions = {
   /** Every session not yet ended: its sandbox is being made, or runs. */
-  readonly sessionIds: ReadonlyArray<string>;
+  readonly sessionIds: readonly string[];
   /** What the cell should know of each now: `running` and its address once ready, its title. */
-  readonly states: ReadonlyArray<SessionUpdate>;
+  readonly states: readonly SessionUpdate[];
 };
 
 export type SandboxSessions = {

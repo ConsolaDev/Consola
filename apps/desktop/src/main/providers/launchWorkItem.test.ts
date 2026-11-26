@@ -3,8 +3,10 @@ import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
-import { createLaunchCoalescer, launchWorkItem, type WorkItemLaunchDeps } from './launchWorkItem';
-import { launchAgentRun, type AgentLaunchDeps } from '../automations/launchAgentRun';
+import { createLaunchCoalescer, launchWorkItem } from './launchWorkItem';
+import type { WorkItemLaunchDeps } from './launchWorkItem';
+import { launchAgentRun } from '../automations/launchAgentRun';
+import type { AgentLaunchDeps } from '../automations/launchAgentRun';
 
 const pr51: WorkItemRef = {
   provider: 'github',
@@ -407,8 +409,8 @@ describe('launchWorkItem — an automation already reviewing the item', () => {
   });
 
   it('opens the newest automated review, not one from an earlier request', async () => {
-    const older = { ...automationReview, id: 'auto-old', createdAt: 1 } as unknown as Session;
-    const newer = { ...automationReview, id: 'auto-new', createdAt: 2 } as unknown as Session;
+    const older = { ...automationReview, id: 'auto-old', createdAt: 1 };
+    const newer = { ...automationReview, id: 'auto-new', createdAt: 2 };
     const { deps } = makeDeps(makeWorkspace({ sessions: [older, newer] }));
     expect(await launchWorkItem(deps, 'ws-1', pr51, { id: review.id })).toMatchObject({
       reason: 'automation-review',
@@ -558,7 +560,10 @@ describe('createLaunchCoalescer', () => {
     ]);
 
     expect(created).toHaveLength(2);
-    expect(created.map((fields) => fields.workItemAction).sort()).toEqual(['Fix CI', 'Review']);
+    expect(created.map((fields) => fields.workItemAction ?? '').sort()).toEqual([
+      'Fix CI',
+      'Review',
+    ]);
   });
 
   it('coalesces a custom prompt by its trimmed body', async () => {

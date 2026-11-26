@@ -2,12 +2,8 @@ import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import {
-  generateSessionInstanceId,
-  type NewSessionFields,
-  type Session,
-  type Workspace,
-} from '../../shared/workspace';
+import { generateSessionInstanceId } from '../../shared/workspace';
+import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 import { asToolResult } from '../mcp/toolResult';
 
 /** A conductor never prompts a session with a policy: an automation's step, whatever it may change (slice 3-B). */
@@ -161,7 +157,7 @@ export class ConductorTools {
       labelIds: [...(conductor.labelIds ?? [])],
       kind: 'interactive',
       initialPrompt: args.prompt,
-    } as NewSessionFields & { initialPrompt?: string });
+    });
 
     return { sessionId: spawned.id, instanceId: spawned.instanceId };
   }

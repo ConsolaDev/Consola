@@ -37,8 +37,9 @@ export function applyFilter(entries: Entry[], selection: FilterSelection): Filte
   let hiddenNeedingYou = 0;
   for (const entry of entries) {
     if (matches(entry, selection)) shown.push(entry);
-    else if (entry.attention === 'needs-attention' || entry.attention === 'done')
+    else if (entry.attention === 'needs-attention' || entry.attention === 'done') {
       hiddenNeedingYou += 1;
+    }
   }
   return { entries: shown, hiddenNeedingYou };
 }

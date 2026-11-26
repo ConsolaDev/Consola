@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { browserBridge } from '../../services/browserBridge';
 import { matchBrowserFocusedShortcut } from '../../../shared/shortcuts';
 import { closeFind, useBrowserFindStore } from '../../stores/browserFindStore';

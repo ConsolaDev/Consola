@@ -1,10 +1,6 @@
 import type { SandboxProvider } from '../application/ports';
-import {
-  requireCapability,
-  type Sandbox,
-  type Sandboxes,
-  sandboxesFrom,
-} from '../application/sandboxes';
+import { requireCapability, sandboxesFrom } from '../application/sandboxes';
+import type { Sandbox, Sandboxes } from '../application/sandboxes';
 import type { SandboxCapability } from '../domain/capabilities';
 import type { CreateSandboxOptions } from '../domain/sandbox';
 import { holds, rejectsWith, same } from './expect';
@@ -129,7 +125,7 @@ export const sandboxContract: readonly ContractCheck[] = [
     name: 'runs a command to its end, with its output and exit code',
     run: inSandbox(async (sandbox) => {
       const result = await sandbox.run({ argv: ['printf', '%s\n', 'hello'] });
-      same(result, { exitCode: 0, stdout: 'hello\n', stderr: '' }, 'printf %s\\n hello');
+      same(result, { exitCode: 0, stdout: 'hello\n', stderr: '' }, String.raw`printf %s\n hello`);
     }),
   },
   {
@@ -144,7 +140,7 @@ export const sandboxContract: readonly ContractCheck[] = [
         '`echo run`',
         'two  spaces',
         'semi;colon && more',
-        'back\\slash',
+        String.raw`back\slash`,
         'new\nline',
         '',
       ];

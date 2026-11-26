@@ -5,7 +5,8 @@ vi.mock('../services/attentionBridge', () => ({
   attentionBridge: { getSnapshot: vi.fn(), onChanged: vi.fn(() => () => {}) },
 }));
 
-import { createSessionRecord, type Session } from '../../shared/workspace';
+import { createSessionRecord } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import { applyFilter } from './filter';
 import {
   filterSelection,

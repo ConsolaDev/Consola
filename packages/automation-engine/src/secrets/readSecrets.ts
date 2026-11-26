@@ -6,7 +6,8 @@
  * binding's variable).
  */
 import { describeReason } from '../steps/commandStep';
-import { PERSONAL_FACTORY, SecretReadError, type SecretsPort } from './secretsPort';
+import { PERSONAL_FACTORY, SecretReadError } from './secretsPort';
+import type { SecretsPort } from './secretsPort';
 import { maskFormsOf, normalizeSecretValue } from './values';
 
 export type SecretsRead =

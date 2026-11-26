@@ -96,9 +96,9 @@ export class ViewMemoryService {
    * orphans real transcripts. Halting the app over it would be the larger bug.
    */
   public load(): void {
-    let stored: { views?: unknown } | null = null;
+    let stored: { views?: unknown } | null;
     try {
-      stored = this.file.read() as { views?: unknown } | null;
+      stored = this.file.read();
     } catch {
       // A corrupt file and its backup: start empty rather than refuse to launch.
       return;

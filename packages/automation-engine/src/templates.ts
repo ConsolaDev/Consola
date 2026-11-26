@@ -17,12 +17,8 @@ import type {
   TemplateView,
   WorkspaceView,
 } from './views';
-import {
-  isStepsEntry,
-  nextCronOccurrence,
-  parseAutomationEntry,
-  type Automation,
-} from '@consola/factory-spec';
+import { isStepsEntry, nextCronOccurrence, parseAutomationEntry } from '@consola/factory-spec';
+import type { Automation } from '@consola/factory-spec';
 import { resolveEventSource } from './connections';
 
 /**
@@ -86,7 +82,7 @@ const SCOPE: TemplateRequirement = {
 };
 
 /** The events automatic reviews listen to: a review asked of the person, or the pull request assigned to them. */
-const ASSIGNED_REVIEW_EVENTS = ['pull_request.review_requested', 'pull_request.assigned'];
+const ASSIGNED_REVIEW_EVENTS = new Set(['pull_request.review_requested', 'pull_request.assigned']);
 
 /**
  * Whether an automation already reviews requests or assignments — or goes by
@@ -98,7 +94,7 @@ export function coversAssignedReviews(automation: Automation): boolean {
     automation.name === ASSIGNED_REVIEWS_NAME ||
     (automation.trigger.kind === 'event' &&
       automation.trigger.connection === 'github' &&
-      automation.trigger.events.some((event) => ASSIGNED_REVIEW_EVENTS.includes(event)))
+      automation.trigger.events.some((event) => ASSIGNED_REVIEW_EVENTS.has(event)))
   );
 }
 

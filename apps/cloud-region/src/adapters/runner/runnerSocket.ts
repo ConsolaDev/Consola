@@ -1,20 +1,21 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
-import {
-  type CellMessage,
-  type FactoriesRequest,
-  type GitHubEventAck,
-  type GitHubStepTokenRefused,
-  type GitHubStepTokenRequest,
-  type ReadResult,
-  type RunnerHello,
-  type RunnerMessage,
-  type RunRecordMessage,
-  readRunnerMessage,
-  SOCKET_FRAME_MAX_BYTES,
-  type SessionUpdate,
+import { readRunnerMessage, SOCKET_FRAME_MAX_BYTES } from '@consola/runner-protocol';
+import type {
+  CellMessage,
+  FactoriesRequest,
+  GitHubEventAck,
+  GitHubStepTokenRefused,
+  GitHubStepTokenRequest,
+  ReadResult,
+  RunnerHello,
+  RunnerMessage,
+  RunRecordMessage,
+  SessionUpdate,
 } from '@consola/runner-protocol';
-import { createNodeWebSocket, type NodeWebSocket } from '@hono/node-ws';
-import { type Context, Hono } from 'hono';
+import { createNodeWebSocket } from '@hono/node-ws';
+import type { NodeWebSocket } from '@hono/node-ws';
+import { Hono } from 'hono';
+import type { Context } from 'hono';
 import type { WSContext, WSEvents } from 'hono/ws';
 import { belongsToRunner, isEnded } from '../../domain/cloudSession.js';
 import { HELD_EVENTS_MAX } from '../../domain/gitHubEvent.js';
@@ -505,7 +506,7 @@ export function createRunnerSocket(deps: {
                 return automation(connection, message, settings);
             }
           })
-          .catch((error) => {
+          .catch((error: unknown) => {
             try {
               report(`The cell could not handle a runner's message: ${describe(error)}`);
             } catch {

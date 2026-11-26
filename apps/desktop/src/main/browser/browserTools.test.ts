@@ -3,21 +3,19 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import type { WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  MAX_TABS_PER_SESSION,
-  type BrowserSessionSnapshot,
-  type BrowserTab,
-  type LocalServer,
-} from '../../shared/browser';
+import { MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type { BrowserSessionSnapshot, BrowserTab, LocalServer } from '../../shared/browser';
 import type { Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { buildSessionServer } from '../mcp/buildSessionServer';
 import { ToolRegistry } from '../tools/Tool';
 import { BLANK_TAB_MESSAGE, NO_WINDOW_MESSAGE } from './AgentPages';
 import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
-import { browserTools, type BrowserToolsBrowser } from './browserTools';
+import { browserTools } from './browserTools';
+import type { BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
-import { type PageSnapshot, PageStepError } from './PageDriver';
+import { PageStepError } from './PageDriver';
+import type { PageSnapshot } from './PageDriver';
 import type { HeldDialog } from './PageDialogs';
 import { PERSON_INPUT_GUARD_MS, PersonInput } from './PersonInput';
 import { decideDownload, QUIET_SESSION } from './sessionPolicy';

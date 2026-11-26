@@ -4,17 +4,16 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { JsonStateFile } from '../../main/state/JsonStateFile';
-import {
-  JsonAttentionLedger,
-  type AttentionLedgerStateFile,
-} from '../../main/attention/AttentionLedger';
+import { JsonAttentionLedger } from '../../main/attention/AttentionLedger';
+import type { AttentionLedgerStateFile } from '../../main/attention/AttentionLedger';
 import { SessionSource } from '../../main/attention/SessionSource';
 import { settleSession, unsettleSession } from '../../main/attention/settling';
 import { makeSession, makeWorkspace } from '../../main/conductor/ConductorTools.test-helpers';
 import { bucketize } from './bucketize';
 import { sessionEntries, sessionKey } from './entries';
 import { visibleNodes } from './fold';
-import { aggregateAttention, buildForest, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, buildForest, membersOf } from './forest';
+import type { TreeNode } from './forest';
 import { settleOffer } from './settleRules';
 
 /**
@@ -93,15 +92,16 @@ function world(specs: Spec[]) {
   const offerFor = (id: string) => {
     for (const root of forest()) {
       if (root.entry.key === sessionKey(id)) return settleOffer(root, false);
-      if (root.children.some((c) => c.entry.key === sessionKey(id)))
+      if (root.children.some((c) => c.entry.key === sessionKey(id))) {
         return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true);
+      }
     }
     throw new Error('no such row');
   };
   return { ledger, workspace, treeOnShelf, rowOnShelf, throughTheFold, atTheTop, offerFor };
 }
 
-const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }[] = [
+const SCENARIOS: Array<{ name: string; specs: Spec[]; target: string; lands: boolean }> = [
   { name: 'an idle root', specs: [{ id: 'a', terminal: 'ready' }], target: 'a', lands: true },
   {
     name: 'a finished root the person has not opened (done)',

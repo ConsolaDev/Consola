@@ -6,10 +6,13 @@
  * Imports `steps.ts` (its item kinds and trusted fields), which never imports
  * this file.
  */
-import { isStepsEntry, type Automation, type Trigger } from './schema';
-import { flatSteps, itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS, type StepEntry } from './steps';
+import { isStepsEntry } from './schema';
+import type { Automation, Trigger } from './schema';
+import { flatSteps, itemKindOf, leafSteps, TRUSTED_ITEM_FIELDS } from './steps';
+import type { StepEntry } from './steps';
 import { templatePaths } from './template';
-import { usesTexts, type UsesStep } from './uses';
+import { usesTexts } from './uses';
+import type { UsesStep } from './uses';
 
 export type ArgumentTrust = 'literal' | 'trusted' | 'untrusted';
 
@@ -33,7 +36,7 @@ export interface CallArgument {
 }
 
 /** Output types whose values cannot carry instructions: what a call may take as trusted. */
-const TRUSTED_OUTPUT_TYPES = ['enum', 'integer', 'number', 'boolean'];
+const TRUSTED_OUTPUT_TYPES = new Set(['enum', 'integer', 'number', 'boolean']);
 
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -52,27 +55,27 @@ export function callArguments(
       for (const ref of templatePaths(text)) {
         if (seen.has(ref.text)) continue;
         seen.add(ref.text);
-        if (ref.root === 'item')
+        if (ref.root === 'item') {
           sources.push({
             kind: 'item',
             field: ref.field,
             trusted: identity && TRUSTED_ITEM_FIELDS.includes(ref.field),
           });
-        else if (ref.root === 'previous')
+        } else if (ref.root === 'previous') {
           sources.push({ kind: 'previous', step: ref.step, name: ref.name });
-        else {
+        } else {
           // A loop's steps are producers too; a gate's one output is `decision`, one of its choices.
           const producer = leafSteps(entry.steps).find((candidate) => candidate.id === ref.step);
           const outputs: Readonly<Record<string, { type: string }>> | undefined =
             producer?.kind === 'gate' ? { decision: { type: 'enum' } } : producer?.outputs;
-          if (outputs && own(outputs, ref.name))
+          if (outputs && own(outputs, ref.name)) {
             sources.push({
               kind: 'output',
               step: ref.step,
               name: ref.name,
-              trusted: TRUSTED_OUTPUT_TYPES.includes(outputs[ref.name].type),
+              trusted: TRUSTED_OUTPUT_TYPES.has(outputs[ref.name].type),
             });
-          else sources.push({ kind: 'artifact', step: ref.step, name: ref.name });
+          } else sources.push({ kind: 'artifact', step: ref.step, name: ref.name });
         }
       }
     }
@@ -131,9 +134,11 @@ export function usesNotices(
       appliesTo: automation.appliesTo,
       steps: automation.steps,
     };
-    for (const argument of callArguments(step, entry))
-      if (argument.notice)
+    for (const argument of callArguments(step, entry)) {
+      if (argument.notice) {
         notices.push({ message: argument.notice, path: ['steps', ...path, 'with', argument.name] });
+      }
+    }
   }
   return notices;
 }

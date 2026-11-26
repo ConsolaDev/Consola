@@ -1,6 +1,7 @@
 import { SearchX, Zap } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
-import { hasFilters, NO_FILTERS, queryOfFilters, type RunFilters } from '../domain/runFilters';
+import { hasFilters, NO_FILTERS, queryOfFilters } from '../domain/runFilters';
+import type { RunFilters } from '../domain/runFilters';
 import {
   messageForRunAnswer,
   messageForRunsAnswer,
@@ -15,18 +16,15 @@ import {
   LIST_POLL_QUIET_MS,
   listPollDelay,
   mergeRefresh,
-  type PhaseCounts,
-  type RunFacets,
-  type RunList,
-  type RunsAnswer,
-  type RunSummary,
   refreshLimit,
 } from '../domain/runs';
+import type { PhaseCounts, RunFacets, RunList, RunsAnswer, RunSummary } from '../domain/runs';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { runsService } from '../services/runs';
 import { showRunsFilters } from '../services/runsAddress';
-import { type ChildrenView, RunRow } from './RunRow';
+import { RunRow } from './RunRow';
+import type { ChildrenView } from './RunRow';
 import { RunsToolbar } from './RunsToolbar';
 import { useNow, usePoll } from './usePoll';
 import './RunsList.css';

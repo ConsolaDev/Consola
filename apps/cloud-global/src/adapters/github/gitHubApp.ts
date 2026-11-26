@@ -1,4 +1,5 @@
-import { createPrivateKey, type KeyObject, sign } from 'node:crypto';
+import { createPrivateKey, sign } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { z } from 'zod';
 import type { GitHubApp, GitHubTokenMinter, MintAnswer } from '../../application/ports.js';
@@ -7,7 +8,8 @@ import type {
   GitHubRepository,
   InstallerFacts,
 } from '../../domain/connections.js';
-import { ConfigError, type GitHubAppConfig } from '../../config.js';
+import { ConfigError } from '../../config.js';
+import type { GitHubAppConfig } from '../../config.js';
 
 const WEB = 'https://github.com';
 const API = 'https://api.github.com';
@@ -41,7 +43,7 @@ export async function loadGitHubAppKey(path: string): Promise<KeyObject> {
     const code = (error as NodeJS.ErrnoException).code ?? 'unreadable';
     throw new ConfigError([`GITHUB_APP_PRIVATE_KEY_PATH: cannot read ${path} (${code})`]);
   }
-  let key: KeyObject | null = null;
+  let key: KeyObject | null;
   try {
     key = createPrivateKey(pem);
   } catch {

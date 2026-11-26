@@ -1,13 +1,11 @@
-import { useEffect, type CSSProperties } from 'react';
+import { useEffect } from 'react';
+import type { CSSProperties } from 'react';
 import { getDriverDescriptor } from '../../../shared/constants';
 import { HarnessIcon } from '../HarnessIcon';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
-import {
-  isSelectableHarness,
-  useHarnessStore,
-  type Harness,
-  type HarnessStatus,
-} from '../../stores/harnessStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
+import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
+import type { Harness, HarnessStatus } from '../../stores/harnessStore';
 
 interface HarnessPanelProps {
   workspace: Workspace;

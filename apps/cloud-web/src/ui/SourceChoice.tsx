@@ -1,6 +1,7 @@
 import { HardDrive } from 'lucide-react';
 import { useId } from 'react';
-import { type FactorySourceKind, SOURCE_OPTIONS } from '../domain/factories';
+import { SOURCE_OPTIONS } from '../domain/factories';
+import type { FactorySourceKind } from '../domain/factories';
 import { SOURCE_HINT, sourceDescription, sourceName } from '../domain/factoryMessages';
 import { ServiceMark } from './serviceMarks';
 import './SourceChoice.css';

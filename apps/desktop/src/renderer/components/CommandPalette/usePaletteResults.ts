@@ -26,16 +26,10 @@ import {
   buildPickerItems,
   buildSessionItems,
   buildWorkspaceItems,
-  type PaletteContext,
 } from './buildItems';
-import {
-  SECTION_ORDER,
-  type PaletteGroup,
-  type PaletteItem,
-  type PaletteMode,
-  type PaletteResults,
-  type PaletteScope,
-} from './types';
+import type { PaletteContext } from './buildItems';
+import { SECTION_ORDER } from './types';
+import type { PaletteGroup, PaletteItem, PaletteMode, PaletteResults, PaletteScope } from './types';
 
 /**
  * Cap per group, so one long list cannot push the others off screen.

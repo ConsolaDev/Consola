@@ -1,9 +1,11 @@
-import { PERSONAL_FACTORY, type SecretBindingView } from '@consola/automation-engine';
+import { PERSONAL_FACTORY } from '@consola/automation-engine';
+import type { SecretBindingView } from '@consola/automation-engine';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { SecretsList } from '../../shared/secrets';
 import type { guardedIpc } from '../guardedIpc';
 import type { BindingsStore } from './BindingsStore';
-import { asSecretReferenceInput, bindSecret, type DesktopSecretsDeps } from './desktopSecrets';
+import { asSecretReferenceInput, bindSecret } from './desktopSecrets';
+import type { DesktopSecretsDeps } from './desktopSecrets';
 
 /**
  * Settings › Secrets' three channels, the person's only: no tool an agent can
@@ -46,8 +48,9 @@ export function registerSecretsIpc(deps: SecretsIpcDeps): void {
     if (
       typeof workspaceId !== 'string' ||
       !workspaces.getAll().some((workspace) => workspace.id === workspaceId)
-    )
+    ) {
       throw new Error('Unknown workspace.');
+    }
     return workspaceId;
   };
   ipc.handle(

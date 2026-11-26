@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PollTrigger } from '@consola/factory-spec';
-import { readCheckResult, type PolledItem } from './checkResult';
+import { readCheckResult } from './checkResult';
+import type { PolledItem } from './checkResult';
 import type { ItemRef } from '../views';
 
 const PR_URL = /^https:\/\/github\.com\/sprocket\/catalog-portal\/(pull|issues)\/(\d+)$/;
@@ -22,8 +23,8 @@ const workItems = {
 const pollTrigger = (extra: Partial<PollTrigger>): PollTrigger => ({
   kind: 'poll',
   run: 'x',
-  everyMs: 60000,
-  timeoutMs: 60000,
+  everyMs: 60_000,
+  timeoutMs: 60_000,
   ...extra,
 });
 const withItem = pollTrigger({ item: { connection: 'github', path: '.url' } });

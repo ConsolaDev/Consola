@@ -1,4 +1,5 @@
-import { useEffect, useId, useImperativeHandle, useRef, useState, type Ref } from 'react';
+import { useEffect, useId, useImperativeHandle, useRef, useState } from 'react';
+import type { Ref } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   ChevronDown,
@@ -10,7 +11,8 @@ import {
 import { MOD_KEY } from './inboxPresentation';
 import { closeLabel, reopenLabel } from './workItemDetailPresentation';
 import { Avatar, Messages, useWorkItemDetail } from './WorkItemDetailParts';
-import { MarkdownEditor, type MarkdownEditorHandle } from './WorkItemMarkdownEditor';
+import { MarkdownEditor } from './WorkItemMarkdownEditor';
+import type { MarkdownEditorHandle } from './WorkItemMarkdownEditor';
 
 type CloseReason = 'completed' | 'not-planned';
 
@@ -64,8 +66,9 @@ export function CommentBox({ ref }: { ref?: Ref<MarkdownEditorHandle> }) {
     if (
       !busy &&
       (await perform({ kind: 'reopen', ...withComment }, `${noun} reopened.`, 'composer'))
-    )
+    ) {
       setBody('');
+    }
   };
   const dismiss = () => {
     setClosing(null);

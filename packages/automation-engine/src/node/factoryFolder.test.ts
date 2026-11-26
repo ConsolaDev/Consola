@@ -247,8 +247,9 @@ describe('FactoryFolder.read', () => {
     fs.symlinkSync(outside, path.join(dir, 'skills/linked/refs'));
     execFileSync('mkfifo', [path.join(dir, 'skills/linked/pipe')]);
     const many: Record<string, string> = {};
-    for (let index = 0; index < 150; index += 1)
+    for (let index = 0; index < 150; index += 1) {
       many[`skills/many/f${String(index).padStart(3, '0')}.md`] = 'x';
+    }
     layout(dir, many);
     const mebibyte = new Uint8Array(1024 * 1024).fill(0x61);
     layout(dir, {
@@ -374,8 +375,9 @@ describe('FactoryFolder.read', () => {
     });
     const dir = tmp();
     layout(dir, { 'factory.yml': FACTORY });
-    for (const folder of ['agents', 'automations', 'skills'])
+    for (const folder of ['agents', 'automations', 'skills']) {
       fs.symlinkSync(path.join(elsewhere, folder), path.join(dir, folder));
+    }
     const { files } = await new FactoryFolder(dir).read();
     expect(files.outside).toEqual(['automations/', 'agents/', 'skills/']);
     expect(files.agents).toEqual({});
@@ -485,8 +487,9 @@ describe('FactoryFolder.watch', () => {
   it('a skill is watched no further than it is read', async () => {
     const { dir, changes } = watched();
     const many: Record<string, string> = {};
-    for (let index = 0; index < 150; index += 1)
+    for (let index = 0; index < 150; index += 1) {
       many[`skills/many/f${String(index).padStart(3, '0')}.md`] = 'x';
+    }
     layout(dir, many);
     await eventually(() => changes() === 1);
     // Past the first 101 entries the read stops, and so does the watch.
@@ -607,8 +610,9 @@ automations:
       '# Every morning.',
       '# the first one',
       '# - name: someday',
-    ])
+    ]) {
       expect(written).toContain(kept);
+    }
     expect(namesIn(await folder.readText())).toEqual(['morning', ASSIGNED_REVIEWS_NAME]);
   });
 

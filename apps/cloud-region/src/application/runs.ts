@@ -1,33 +1,24 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import type { Caller } from '../domain/caller.js';
 import type { Automation } from '@consola/factory-spec';
-import { automationsOf, type Factory, factoriesSeenBy } from '../domain/factory.js';
-import {
-  checkRun,
-  decodeCursor,
-  encodeCursor,
-  NO_RUNS,
-  type Phase,
-  type PhaseCounts,
-  type RunProblem,
-  type RunSummary,
-  type RunTrigger,
-  type RunWrite,
-  type StepSummary,
-  stepDefinitionOf,
+import { automationsOf, factoriesSeenBy } from '../domain/factory.js';
+import type { Factory } from '../domain/factory.js';
+import { checkRun, decodeCursor, encodeCursor, NO_RUNS, stepDefinitionOf } from '../domain/run.js';
+import type {
+  Phase,
+  PhaseCounts,
+  RunProblem,
+  RunSummary,
+  RunTrigger,
+  RunWrite,
+  StepSummary,
 } from '../domain/run.js';
-import {
-  type ApprovalChoice,
-  type ApprovalRun,
-  approvalOf,
-  DECISION_OF,
-  judgeAnswer,
-  RUN_DECISION_OF,
-  type RunAnswer,
-  type RunApproval,
-} from '../domain/runApproval.js';
-import { type RunSource, sourceOf } from '../domain/runSource.js';
-import { actingRole, type Team, teamsSeenBy } from '../domain/team.js';
+import { approvalOf, DECISION_OF, judgeAnswer, RUN_DECISION_OF } from '../domain/runApproval.js';
+import type { ApprovalChoice, ApprovalRun, RunAnswer, RunApproval } from '../domain/runApproval.js';
+import { sourceOf } from '../domain/runSource.js';
+import type { RunSource } from '../domain/runSource.js';
+import { actingRole, teamsSeenBy } from '../domain/team.js';
+import type { Team } from '../domain/team.js';
 import type {
   FactoryStore,
   RunFilter,
@@ -91,9 +82,9 @@ export type RunsQuery = {
 
 /** What the filters offer: what the caller sees, whatever the query's filters. */
 export type RunFacets = {
-  factories: { id: string; name: string; teamId: string; latestVersion: number }[];
-  teams: { id: string; name: string }[];
-  automations: { factoryId: string; name: string }[];
+  factories: Array<{ id: string; name: string; teamId: string; latestVersion: number }>;
+  teams: Array<{ id: string; name: string }>;
+  automations: Array<{ factoryId: string; name: string }>;
 };
 
 export type RunsListing =

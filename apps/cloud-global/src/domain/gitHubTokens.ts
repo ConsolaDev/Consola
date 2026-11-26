@@ -83,7 +83,7 @@ export function scopeFor(request: {
 /** The repositories the scope names that the installation does not cover, as GitHub lists it. */
 export function uncoveredRepositories(
   scope: TokenScope,
-  covered: readonly { id: number }[],
+  covered: ReadonlyArray<{ id: number }>,
 ): number[] {
   const ids = new Set(covered.map((repository) => repository.id));
   return scope.repositoryIds.filter((id) => !ids.has(id));

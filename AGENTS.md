@@ -21,7 +21,26 @@ pnpm test                 # Every Consola package's tests via Turborepo (the web
 pnpm run test:vendor      # The copied t3code packages' own tests, as CI's vendor job runs them (Linux)
 pnpm run typecheck:vendor # The copied t3code packages' own typecheck, as CI's vendor job runs it
 pnpm --filter @consola/automation-engine test   # Just the engine's tests
+pnpm run lint             # Biome, then Oxlint (lint:oxlint), as CI's lint job runs them
 ```
+
+Linting is two tools, and each check runs in one of them. Biome formats,
+lints CSS and owns accessibility (`biome.jsonc`). Oxlint owns JavaScript and
+TypeScript linting with Cloudflare's preset (`@cloudflare/oxlint-config`, in
+`oxlint.config.mts`), whose type-aware rules read the real types through
+`tsrs`. Where both have a rule, Biome's is off when its own rule sources call
+Oxlint's the same rule and Oxlint runs it as an error everywhere Biome lints;
+Biome keeps the rest, including those Oxlint leaves to TypeScript in `.ts`
+files, and Oxlint leaves accessibility to Biome. Those rules read the workspace packages' types from their `dist/`, so
+`lint:oxlint` builds the packages first: run bare `oxlint` without them and
+every import from one is `any`, which the `no-unsafe-*` rules then report. A
+rule of the preset that stays off says why beside it in the config, and a
+rule turned off for one line names itself and its reason
+(`// oxlint-disable-next-line <rule> -- <why>`): an unused disable fails the
+check. A rule that is right here but has a backlog warns (the Rules of React,
+unsafe type assertions, non-null assertions in the desktop and the engine,
+nkzw's quality rules), each with a Linear issue to clear it; CI runs Oxlint with `--quiet`, as it
+runs Biome at error level, so warnings show in the editor.
 
 Individual builds:
 ```bash

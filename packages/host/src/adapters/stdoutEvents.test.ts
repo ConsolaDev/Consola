@@ -1,4 +1,5 @@
-import { CommandId, type RuntimeMode, ThreadId } from '@t3tools/contracts';
+import { CommandId, ThreadId } from '@t3tools/contracts';
+import type { RuntimeMode } from '@t3tools/contracts';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import type * as Scope from 'effect/Scope';
@@ -19,13 +20,8 @@ import {
   waitForSnapshot,
   withState,
 } from '../testing/replay.ts';
-import {
-  encodeHostLine,
-  HOST_LINE_TYPES,
-  type HostLine,
-  reportSession,
-  sessionStatusOf,
-} from './stdoutEvents.ts';
+import { encodeHostLine, HOST_LINE_TYPES, reportSession, sessionStatusOf } from './stdoutEvents.ts';
+import type { HostLine } from './stdoutEvents.ts';
 
 /** Every test runs on a machine of its own, with fake CLIs (`../testing/machine.ts`). */
 isolateMachine();
@@ -91,10 +87,7 @@ const withReportedReplay = <A, E>(
   }).pipe(Effect.scoped, Effect.runPromise);
 
 /** Waits until the lines written so far satisfy `done`. */
-const waitForLines = (
-  lines: ReadonlyArray<HostLine>,
-  done: (lines: ReadonlyArray<HostLine>) => boolean,
-) =>
+const waitForLines = (lines: readonly HostLine[], done: (lines: readonly HostLine[]) => boolean) =>
   Effect.gen(function* () {
     while (!done(lines)) yield* Effect.sleep(Duration.millis(10));
   }).pipe(
@@ -104,9 +97,9 @@ const waitForLines = (
     }),
   );
 
-const statusLines = (lines: ReadonlyArray<HostLine>) =>
+const statusLines = (lines: readonly HostLine[]) =>
   lines.flatMap((line) => (line.type === 'status' ? [line.status] : []));
-const titleLines = (lines: ReadonlyArray<HostLine>) =>
+const titleLines = (lines: readonly HostLine[]) =>
   lines.flatMap((line) => (line.type === 'title' ? [line.title] : []));
 
 describe('the host lines', () => {

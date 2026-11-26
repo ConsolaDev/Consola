@@ -37,8 +37,9 @@ describe("a sandboxed write step's environment (slice 3-B Task 18)", () => {
       pnpm_config_store_dir: `${c}/pnpm-store`,
       YARN_CACHE_FOLDER: `${c}/yarn`,
     });
-    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) {
       expect(env).not.toHaveProperty(name);
+    }
     expect([passed, missing]).toEqual([['NODE_ENV'], ['CI']]);
   });
 

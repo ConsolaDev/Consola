@@ -12,10 +12,12 @@
  * ```
  */
 
-import { type ReactNode, memo } from 'react';
+import { memo } from 'react';
+import type { ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { SelectionPopup } from './SelectionPopup';
-import { useCodeSelection, type UseCodeSelectionOptions } from './useCodeSelection';
+import { useCodeSelection } from './useCodeSelection';
+import type { UseCodeSelectionOptions } from './useCodeSelection';
 
 interface SelectableCodeProps {
   /** The file path this code belongs to */

@@ -55,8 +55,8 @@ describe('HarnessLimitsCache', () => {
     let now = 0;
     const driver = driverAnswering(() => new Promise(() => {}));
     const cache = new HarnessLimitsCache(() => now);
-    const pending = cache.fresh(driver, config(), { maxAgeMs: 60_000, waitMs: 3_000 });
-    await vi.advanceTimersByTimeAsync(3_000);
+    const pending = cache.fresh(driver, config(), { maxAgeMs: 60_000, waitMs: 3000 });
+    await vi.advanceTimersByTimeAsync(3000);
     expect(await pending).toBeUndefined();
     vi.useRealTimers();
 
@@ -64,7 +64,7 @@ describe('HarnessLimitsCache', () => {
     const fresh = new HarnessLimitsCache(() => now);
     await fresh.ask(quick, config());
     now = 30_000;
-    await fresh.fresh(quick, config(), { maxAgeMs: 60_000, waitMs: 3_000 });
+    await fresh.fresh(quick, config(), { maxAgeMs: 60_000, waitMs: 3000 });
     expect(quick.usageLimits.read).toHaveBeenCalledTimes(1);
   });
 });

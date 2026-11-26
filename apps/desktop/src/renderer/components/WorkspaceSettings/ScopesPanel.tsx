@@ -19,8 +19,8 @@ export function ScopesPanel({ workspace }: ScopesPanelProps) {
     setError(null);
     try {
       await addScopeViaDialog(workspace.id);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message : String(failure));
     }
   };
 

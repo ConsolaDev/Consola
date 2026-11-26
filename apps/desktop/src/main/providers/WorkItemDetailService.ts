@@ -15,8 +15,9 @@ export class WorkItemDetailService {
       throw new Error('Invalid work item.');
     }
     const provider = this.deps.getWorkspace(workspaceId)?.provider;
-    if (!provider || provider.id !== input.provider)
+    if (!provider || provider.id !== input.provider) {
       throw new Error('Work item does not match the workspace provider.');
+    }
     if (!repoInOrg(input.repo, provider.org)) {
       throw new Error('Work item is outside the workspace organization.');
     }

@@ -1,17 +1,16 @@
 import type { Factory, FactoryFile } from '../domain/factory.js';
-import {
-  NO_STEP_DETAIL,
-  type OutputValue,
-  type RunItem,
-  type RunStatus,
-  type RunTrigger,
-  type RunWrite,
-  type StepDetail,
-  type StepKind,
-  type StepRecord,
-  type StepStatus,
-  tailOf,
-  type WaitingOn,
+import { NO_STEP_DETAIL, tailOf } from '../domain/run.js';
+import type {
+  OutputValue,
+  RunItem,
+  RunStatus,
+  RunTrigger,
+  RunWrite,
+  StepDetail,
+  StepKind,
+  StepRecord,
+  StepStatus,
+  WaitingOn,
 } from '../domain/run.js';
 import type { Team } from '../domain/team.js';
 import type { FactoryStore, RunStore, TeamStore } from './ports.js';
@@ -200,7 +199,7 @@ const AUTOMATIONS = {
     ['alert', 'run'],
   ],
   deploy: [['deploy', 'run']],
-} as const satisfies Record<string, readonly (readonly [string, StepKind])[]>;
+} as const satisfies Record<string, ReadonlyArray<readonly [string, StepKind]>>;
 
 type AutomationName = keyof typeof AUTOMATIONS;
 
@@ -310,7 +309,7 @@ function stepsOf(
           ? 'not-run'
           : plan.status === 'expired' || plan.status === 'cancelled'
             ? 'failed'
-            : (plan.status as StepStatus);
+            : plan.status;
     return [
       {
         id: 'orchestrator',
@@ -357,7 +356,7 @@ function stepsOf(
   const slot = runStart === null ? 0 : Math.max(0, runEnd - runStart) / Math.max(1, ranCount);
   const at = (ms: number) => new Date(Math.round(ms)).toISOString();
   return AUTOMATIONS[plan.automation].map(([id, kind], index) => {
-    const status = statuses[index] as StepStatus;
+    const status = statuses[index];
     const ran = status === 'completed' || status === 'failed' || status === 'running';
     const stepStart = runStart === null ? null : runStart + index * slot;
     const detail = ran ? detailOf(plan, id, status) : NO_STEP_DETAIL;
@@ -448,7 +447,7 @@ function turned(
   turns: number,
   maxTurns: number | null,
   outputs: Record<string, OutputValue> | null,
-  documents: [string, number][],
+  documents: Array<[string, number]>,
   extra: Partial<StepDetail> = {},
 ): StepDetail {
   return {
@@ -609,7 +608,7 @@ const child = (
 ): Plan => ({ key, automation, status, ago, ...extra });
 
 /** The requests and runs of the first team's factory: every phase, and more than a page. */
-function mainPlans(people: readonly (string | null)[]): Plan[] {
+function mainPlans(people: ReadonlyArray<string | null>): Plan[] {
   const person = (n: number) => people[n % people.length] ?? null;
   const ask = (text: string, budget = { usd: 20, runs: 8 }) => ({ text, budget });
   const plans: Plan[] = [
@@ -825,7 +824,7 @@ function mainPlans(people: readonly (string | null)[]): Plan[] {
 }
 
 /** A smaller set for every other team's factory: a member outside it sees fewer runs. */
-function otherPlans(people: readonly (string | null)[]): Plan[] {
+function otherPlans(people: ReadonlyArray<string | null>): Plan[] {
   return [
     {
       key: 'request-docs',

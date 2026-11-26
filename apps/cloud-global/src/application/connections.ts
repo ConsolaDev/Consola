@@ -1,12 +1,11 @@
 import {
-  type ConnectedInstallation,
   checkInstaller,
   checkInstallState,
-  type GitHubRepository,
   mayManageConnections,
   newInstallState,
   readGitHubId,
 } from '../domain/connections.js';
+import type { ConnectedInstallation, GitHubRepository } from '../domain/connections.js';
 import type { SignedIn } from '../domain/person.js';
 import type { MyWorkspace } from '../domain/workspace.js';
 import type { GitHubApp, InstallationStore, InstallStateSigner, MembershipStore } from './ports.js';

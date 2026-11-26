@@ -1,6 +1,7 @@
 import type { Bucket } from './bucketize';
 import type { EntryKey } from './entry';
-import { membersOf, type TreeNode } from './forest';
+import { membersOf } from './forest';
+import type { TreeNode } from './forest';
 
 type Placed = Record<Bucket, TreeNode[]>;
 

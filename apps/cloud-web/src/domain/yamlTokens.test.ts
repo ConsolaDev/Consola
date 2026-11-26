@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { type YamlToken, yamlTokens } from './yamlTokens';
+import { yamlTokens } from './yamlTokens';
+import type { YamlToken } from './yamlTokens';
 
 const kinds = (tokens: YamlToken[]) =>
   tokens.filter((token) => token.kind !== 'space').map((token) => [token.kind, token.text]);

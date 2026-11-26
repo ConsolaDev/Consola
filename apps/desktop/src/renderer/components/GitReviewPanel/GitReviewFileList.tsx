@@ -119,6 +119,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
             <div className="git-review-section-content">
               {staged.map(({ path, status }) => (
                 <button
+                  type="button"
                   key={path}
                   className="git-review-file-item"
                   onClick={() => handleFileClick(path)}
@@ -132,7 +133,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
                   </span>
                   <span
                     className={`git-review-file-item-status ${getStatusClass(status)}`}
-                    onClick={(e) => handleUnstageFile(e, path)}
+                    onClick={(e) => void handleUnstageFile(e, path)}
                     title="Remove approval"
                   >
                     {STATUS_LABELS[status]}
@@ -158,6 +159,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
             <div className="git-review-section-content">
               {changes.map(({ path, status }) => (
                 <button
+                  type="button"
                   key={path}
                   className="git-review-file-item"
                   onClick={() => handleFileClick(path)}
@@ -171,7 +173,7 @@ export const GitReviewFileList = memo(function GitReviewFileList({
                   </span>
                   <span
                     className={`git-review-file-item-status ${getStatusClass(status)}`}
-                    onClick={(e) => handleStageFile(e, path)}
+                    onClick={(e) => void handleStageFile(e, path)}
                     title="Approve"
                   >
                     {STATUS_LABELS[status]}

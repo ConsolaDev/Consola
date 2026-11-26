@@ -72,7 +72,7 @@ const writtenText = (output: Awaited<ReturnType<typeof build>>): string =>
     )
     .join('\n');
 
-const escaped = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const escaped = (text: string) => text.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
 
 /** Fails unless the build is refused for `importer`'s import of `source`. */
 const refusedNaming = async (entry: string, importer: string, source: string) => {
@@ -105,7 +105,7 @@ describe('serverSdkGuard, in the package build', () => {
     it(`fails a build whose file imports ${source}, naming the file`, {
       timeout: BUILD_TIMEOUT,
     }, async () => {
-      const entry = join(root, `import-${source.replace(/\W/g, '-')}.ts`);
+      const entry = join(root, `import-${source.replaceAll(/\W/g, '-')}.ts`);
       writeFileSync(entry, `import * as sdk from '${source}';\nexport default sdk;\n`);
       await refusedNaming(entry, entry, source);
     });

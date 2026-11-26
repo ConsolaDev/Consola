@@ -1,13 +1,8 @@
-import { type FormEvent, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { checkFactoryName, FACTORY_NAME_MAX, isMove, owningTeam } from '../domain/factories';
+import type { Factory } from '../domain/factories';
 import {
-  checkFactoryName,
-  type Factory,
-  FACTORY_NAME_MAX,
-  isMove,
-  owningTeam,
-} from '../domain/factories';
-import {
-  type FactoryFormMessages,
   MOVE_HINT,
   messageForFactoryProblem,
   messagesForFactoryChange,
@@ -15,6 +10,7 @@ import {
   NO_OTHER_TEAM,
   teamLabel,
 } from '../domain/factoryMessages';
+import type { FactoryFormMessages } from '../domain/factoryMessages';
 import type { Team } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { factoriesService } from '../services/factories';

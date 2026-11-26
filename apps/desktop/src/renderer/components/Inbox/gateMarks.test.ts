@@ -32,7 +32,7 @@ function entry(id: string, url: string, overrides: Partial<RunListEntry> = {}): 
     updatedAt: '2026-11-22T10:00:00.000Z',
     kind: 'agent',
     ...overrides,
-  } as RunListEntry;
+  };
 }
 
 const gateRun = (id: string, url: string, overrides: Partial<RunListEntry> = {}) =>

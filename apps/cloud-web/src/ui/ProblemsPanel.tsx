@@ -1,6 +1,7 @@
 import { Check, ChevronRight, CircleAlert, CornerDownRight } from 'lucide-react';
 import { CELL_FOUND_PROBLEMS, CHECK_UNAVAILABLE, problemsCount } from '../domain/factoryMessages';
-import { type FactoryProblem, messageParts, problemPath } from '../domain/factoryProblems';
+import { messageParts, problemPath } from '../domain/factoryProblems';
+import type { FactoryProblem } from '../domain/factoryProblems';
 
 /**
  * The files' problems, under the editor: a head that says how many there are and folds the list,

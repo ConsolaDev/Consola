@@ -1,4 +1,5 @@
-import { worstStatus, type Attention } from '../../shared/attention';
+import { worstStatus } from '../../shared/attention';
+import type { Attention } from '../../shared/attention';
 import type { Entry, EntryKey } from './entry';
 
 export interface TreeNode {

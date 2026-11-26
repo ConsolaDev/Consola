@@ -1,66 +1,73 @@
-import { Check, FileCode2, FilePlus, FolderOpen, X } from 'lucide-react';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  type Factory,
-  type FactoryRead,
-  type FactoryVersion,
-  fileGroups,
-  firstFile,
-  listedPaths,
-} from '../domain/factories';
-import type { checkFactory } from '../domain/factoryCheck';
+import { Check, FileCode2, FolderOpen, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
+import { fileGroups, firstFile } from '../domain/factories';
+import type { Factory, FactoryRead, FactoryVersion } from '../domain/factories';
+import type { factoryCheckOf } from '../domain/factoryCheck';
 import {
   afterSave,
   broughtIn,
+  changeSummary,
   contentOf,
+  discarded,
   draftOf,
-  type FactoryDraft,
+  fileMarks,
   filesOf,
+  hasWork,
+  heldPaths,
   isChanged,
-  isSaved,
+  pathMoves,
   pathsOf,
+  restoreBlocker,
   withEdit,
-  withFile,
-  withoutEdits,
-  withoutFile,
+  withFileAdded,
+  withRemoved,
+  withRenamed,
   withRestored,
+  withSkillRemoved,
+  withSkillRenamed,
 } from '../domain/factoryDraft';
+import type { FactoryDraft } from '../domain/factoryDraft';
 import {
-  addedLine,
+  bodyLine,
+  checkNaming,
+  FACTORY_YML_SKELETON,
+  nameFactsOf,
+  namingStart,
+  skeletonFor,
+} from '../domain/factoryKinds';
+import type { NamingTarget } from '../domain/factoryKinds';
+import {
   bringInLabel,
   broughtInLine,
+  changeLine,
   DEFINITION_BANNER_TEXT,
   DEFINITION_BANNER_TITLE,
-  deletedLine,
   discardQuestion,
   FACTORY_GONE,
   FACTORY_PAGE_LABELS,
   fixToSave,
   messageForFactoriesState,
   messageForSave,
-  NEW_FILE,
+  NEW_LABELS,
   NO_FILES,
   NO_FILES_HINT,
   problemsCount,
+  removedSaid,
+  restoredSaid,
   savedWords,
   versionMovedLine,
 } from '../domain/factoryMessages';
 import {
-  type FactoryProblem,
   ownProblems,
   problemCounts,
   problemOf,
   problemPath,
   sortedProblems,
 } from '../domain/factoryProblems';
-import {
-  closeTab,
-  type FactoryTabs,
-  keptTabs,
-  NO_TABS,
-  openTab,
-  tabsAfterDelete,
-} from '../domain/factoryTabs';
+import type { FactoryProblem } from '../domain/factoryProblems';
+import { closeTab, keptTabs, NO_TABS, openTab, renamedTabs } from '../domain/factoryTabs';
+import type { FactoryTabs } from '../domain/factoryTabs';
 import type { MyWorkspace } from '../domain/workspace';
 import { hideDefinitionBanner, isDefinitionBannerHidden } from '../services/definitionBanner';
 import { factoriesService } from '../services/factories';
@@ -74,11 +81,13 @@ import { useNow } from './usePoll';
 import './FactoryDefinition.css';
 
 /**
- * A factory's definition (`#/factories/<id>/definition`): the whole factory as files, to read it
- * and to change it in place. It takes the whole width beside the sidebar: a bar with the factory,
- * its version and Save; the banner, until hidden; then the files beside the editor, its tabs and
- * the problems under it. A file is edited, added (New file, in the list) or deleted (from its
- * row) here, each unsaved until Save sends the whole set; nothing is renamed.
+ * A factory's definition (`#/factories/<id>/definition`): the whole factory as files, where they
+ * are made and kept. It takes the whole width beside the sidebar: a bar with the factory, its
+ * version, what Save will do, and Save; the banner, until hidden; then the files beside the
+ * editor, its tabs and the problems under it. Files are added by kind (an automation, an agent, a
+ * skill, a file inside a skill, `factory.yml`), renamed and removed in the tree, and edited in the
+ * editor, all a draft until Save sends the whole set as the next version. A factory with no files
+ * offers the first ones where the editor would be.
  *
  * The files are read from the cell as the page opens (`GET /api/factories/{factoryId}`). A
  * factory the cell no longer shows the person reads the sidebar's list again (`onChanged`), which
@@ -154,7 +163,13 @@ export function FactoryDefinitionPage({
 }
 
 /** The checker, loaded late: it carries the YAML parser and the schema. */
-type Checker = { check: typeof checkFactory } | 'loading' | 'failed';
+type Checker = { check: typeof factoryCheckOf } | 'loading' | 'failed';
+
+/** A naming field open in the tree: what it makes or renames, and what is typed. */
+type Naming = { target: NamingTarget; text: string };
+
+/** Paths renamed in the draft, for the editor to move their kept states: old to new. */
+type EditorMoves = { seq: number; moves: Array<[string, string]> };
 
 /** How long the page waits after a keystroke before it checks the files again. */
 const CHECK_DELAY_MS = 220;
@@ -164,9 +179,6 @@ const MOMENT_MS = 1800;
 
 /** A newer version than the draft's, saved by someone else: `latest` once it is read. */
 type Moved = { latestVersion: number; latest: FactoryVersion | null };
-
-/** The file deleted last, as it was just before, for Undo: its text, and whether it was saved. */
-type Deleted = { path: string; content: string; saved: boolean };
 
 function Workbench({
   factory,
@@ -187,7 +199,7 @@ function Workbench({
   // What the person left here this session, if anything: their edits come back with them.
   const [start] = useState(() => {
     const kept = keptDefinition(workspace.id, factory.id);
-    const usable = kept && (isChanged(kept.draft) || kept.version.version === initial.version);
+    const usable = kept && (hasWork(kept.draft) || kept.version.version === initial.version);
     const version = usable ? kept.version : initial;
     const draft = usable ? kept.draft : draftOf(initial);
     const first = firstFile(fileGroups(filesOf(draft)));
@@ -219,18 +231,45 @@ function Workbench({
   const [problemsOpen, setProblemsOpen] = useState(true);
   const [cleared, setCleared] = useState(false);
   const [nudge, setNudge] = useState(0);
-  const [reveal, setReveal] = useState<{ path: string; line: number; seq: number } | null>(null);
+  const [reveal, setReveal] = useState<{
+    path: string;
+    line: number;
+    seq: number;
+    flash?: boolean;
+  } | null>(null);
+  // Every reveal gets a number of its own, so one is never taken for an earlier one.
+  const revealSeq = useRef(0);
   const [said, setSaid] = useState('');
-  const [adding, setAdding] = useState<string | null>(null);
-  const [deleted, setDeleted] = useState<Deleted | null>(null);
-  const [focusRow, setFocusRow] = useState<{ path: string; seq: number } | null>(null);
+  const [naming, setNaming] = useState<Naming | null>(null);
+  const [definedAutomations, setDefinedAutomations] = useState<string[]>([]);
+  const [editorMoves, setEditorMoves] = useState<EditorMoves | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const filterRef = useRef<HTMLInputElement>(null);
   const now = useNow(30_000);
 
   const paths = useMemo(() => pathsOf(draft), [draft]);
-  const changed = useMemo(() => new Set(draft.edits.keys()), [draft]);
+  const marks = useMemo(() => fileMarks(draft), [draft]);
+  const changed = useMemo(
+    () =>
+      new Set(
+        [...marks]
+          .filter(([, mark]) => mark.isNew || mark.changed || mark.renamedFrom !== null)
+          .map(([path]) => path),
+      ),
+    [marks],
+  );
+  const summary = useMemo(() => changeSummary(draft), [draft]);
+  const removals = useMemo(
+    () =>
+      draft.removed.map((entry) => ({
+        label: entry.label,
+        blockedBy: restoreBlocker(draft, entry.label),
+      })),
+    [draft],
+  );
+  const facts = useMemo(() => nameFactsOf(draft, definedAutomations), [draft, definedAutomations]);
+  const canAddFactoryYml = !heldPaths(draft).has('factory.yml');
   const problems = useMemo(
     () => sortedProblems(fromCell ?? checked, paths),
     [fromCell, checked, paths],
@@ -250,7 +289,7 @@ function Workbench({
   useEffect(() => {
     let live = true;
     import('../domain/factoryCheck').then(
-      (module) => live && setChecker({ check: module.checkFactory }),
+      (module) => live && setChecker({ check: module.factoryCheckOf }),
       () => live && setChecker('failed'),
     );
     return () => {
@@ -264,8 +303,13 @@ function Workbench({
     if (typeof checker !== 'object') return;
     const timer = window.setTimeout(
       () => {
-        const found = checker.check(filesOf(draft));
+        const { problems: found, definedAutomations: defined } = checker.check(filesOf(draft));
         setChecked(found);
+        setDefinedAutomations((current) =>
+          current.length === defined.length && current.every((name, at) => name === defined[at])
+            ? current
+            : defined,
+        );
         const count = ownProblems(found).length;
         if (lastOwn.current !== null && lastOwn.current > 0 && count === 0) setCleared(true);
         if (lastOwn.current !== null && lastOwn.current !== count) setSaid(problemsCount(count));
@@ -292,7 +336,8 @@ function Workbench({
   const listed = factory.latestVersion;
   useEffect(() => {
     if (listed <= version.version || saving === 'saving') return;
-    if (isChanged(draftRef.current)) {
+    // A draft with anything of the person's (a file under Removed included) is brought in, never replaced.
+    if (hasWork(draftRef.current)) {
       setMoved((current) =>
         current && current.latestVersion >= listed
           ? current
@@ -302,7 +347,7 @@ function Workbench({
     }
     let live = true;
     void factoriesService.loadFactory({ id: workspaceId }, factoryId).then((read) => {
-      if (!live || read.kind !== 'found' || isChanged(draftRef.current)) return;
+      if (!live || read.kind !== 'found' || hasWork(draftRef.current)) return;
       setVersion(read.version);
       setDraft(draftOf(read.version));
       setTabs((current) =>
@@ -323,39 +368,6 @@ function Workbench({
     setSaveError(null);
   }, []);
 
-  /** A new, empty file: open in front, the keyboard in it, unsaved until Save. */
-  const add = (path: string) => {
-    setDraft((current) => withFile(current, path));
-    setTabs((current) => openTab(current, path));
-    setAdding(null);
-    setDeleted((current) => (current?.path === path ? null : current));
-    setFromCell(null);
-    setSaveError(null);
-    setReveal((current) => ({ path, line: 1, seq: (current?.seq ?? 0) + 1 }));
-    setSaid(addedLine(path));
-  };
-
-  /** A file deleted until Save; the editor moves to a neighbour, and Undo puts it back. */
-  const remove = (path: string) => {
-    const content = contentOf(draft, path);
-    if (content === undefined) return;
-    setDeleted({ path, content, saved: isSaved(draft, path) });
-    setDraft((current) => withoutFile(current, path));
-    setTabs((current) => tabsAfterDelete(current, path, listedPaths(paths)));
-    setFromCell(null);
-    setSaveError(null);
-  };
-
-  const undoDelete = () => {
-    if (!deleted) return;
-    const { path, content } = deleted;
-    setDraft((current) => withRestored(current, path, content));
-    setTabs((current) => openTab(current, path));
-    setDeleted(null);
-    setFromCell(null);
-    setFocusRow((current) => ({ path, seq: (current?.seq ?? 0) + 1 }));
-  };
-
   const save = async () => {
     if (!canSave) return;
     const sent = draft;
@@ -370,7 +382,6 @@ function Workbench({
       case 'saved':
         setVersion(answer.version);
         setDraft((current) => afterSave(current, sent, answer.version));
-        setDeleted(null);
         setFromCell(null);
         setRolled(true);
         setSaving('saved');
@@ -445,42 +456,104 @@ function Workbench({
     }
     const result = broughtIn(draftRef.current, latestVersion);
     setVersion(latestVersion);
-    setDraft(result.draft);
-    setTabs((current) => keptTabs(current, pathsOf(result.draft)));
+    apply(() => result.draft);
     setMoved(null);
     setFromCell(null);
-    setDeleted(null);
-    setBrought(
-      broughtInLine(
-        latestVersion.version,
-        result.bothChanged,
-        result.goneThere,
-        result.deletedChanged,
-      ),
-    );
+    setBrought(broughtInLine(latestVersion.version, result));
+  };
+
+  /**
+   * A change to the set of files (an add, a rename, a removal, a restore, Discard): the tabs and
+   * the editor's kept states follow every file that moved, and a file no longer in the tree loses
+   * its tab.
+   */
+  const apply = (change: (current: FactoryDraft) => FactoryDraft): FactoryDraft => {
+    const before = draftRef.current;
+    const next = change(before);
+    if (next === before) return before;
+    draftRef.current = next;
+    const moves = pathMoves(before, next);
+    setDraft(next);
+    setTabs((current) => keptTabs(renamedTabs(current, moves), pathsOf(next)));
+    if (moves.size > 0) {
+      setEditorMoves((current) => ({ seq: (current?.seq ?? 0) + 1, moves: [...moves] }));
+    }
+    setFromCell(null);
+    setSaveError(null);
+    return next;
   };
 
   const discard = () => {
-    setDraft((current) => withoutEdits(current, [...current.edits.keys()]));
-    setTabs((current) =>
-      keptTabs(
-        current,
-        version.files.map((file) => file.path),
-      ),
-    );
-    setDeleted(null);
-    setFromCell(null);
+    apply(discarded);
+    setNaming(null);
     setConfirmDiscard(false);
-    setSaveError(null);
   };
 
   const open = (path: string) => setTabs((current) => openTab(current, path));
+
+  /** A file just made: in a tab, in front, with the caret at the start of its body. */
+  const openMade = (path: string, text: string) => {
+    open(path);
+    setReveal({ path, line: bodyLine(text), seq: ++revealSeq.current, flash: false });
+  };
+
+  const startNaming = (target: NamingTarget) => setNaming({ target, text: namingStart(target) });
+
+  /** Enter on a fine name: the file is made, or the file or skill renamed. */
+  const commitNaming = () => {
+    if (!naming) return;
+    const { target, text } = naming;
+    const check = checkNaming(target, text, facts);
+    if (!check.ok) return;
+    setNaming(null);
+    switch (target.type) {
+      case 'new':
+      case 'new-in-skill': {
+        const content = skeletonFor(target.type === 'new' ? target.kind : 'skill-file', text);
+        const made = apply((current) => withFileAdded(current, check.path, content));
+        if (pathsOf(made).includes(check.path)) openMade(check.path, content);
+        return;
+      }
+      case 'rename':
+        apply((current) => withRenamed(current, target.path, check.path));
+        return;
+      case 'rename-skill':
+        apply((current) => withSkillRenamed(current, target.skill, text));
+        return;
+    }
+  };
+
+  const addFactoryYml = () => {
+    setNaming(null);
+    apply((current) => withFileAdded(current, 'factory.yml', FACTORY_YML_SKELETON));
+    openMade('factory.yml', FACTORY_YML_SKELETON);
+  };
+
+  const remove = (path: string) => {
+    apply((current) => withRemoved(current, path));
+    setSaid(removedSaid(path));
+  };
+
+  const removeSkill = (skill: string) => {
+    apply((current) => withSkillRemoved(current, skill));
+    setSaid(removedSaid(`skills/${skill}/`));
+  };
+
+  const restore = (label: string) => {
+    apply((current) => withRestored(current, label));
+    setSaid(restoredSaid(label));
+  };
+
+  /** A reveal the editor acted on: let go, so an editor mounted later never acts on it again. */
+  const revealed = useCallback((seq: number) => {
+    setReveal((current) => (current?.seq === seq ? null : current));
+  }, []);
 
   const revealProblem = (problem: FactoryProblem, path: string) => {
     open(path);
     if (problem.line !== null) {
       const line = problem.line;
-      setReveal((current) => ({ path, line, seq: (current?.seq ?? 0) + 1 }));
+      setReveal({ path, line, seq: ++revealSeq.current });
     }
   };
 
@@ -511,6 +584,7 @@ function Workbench({
           </span>
           {saved && <span className="definition-version-saved">, {saved}</span>}
         </p>
+        {dirty && <p className="definition-changes">{changeLine(summary)}</p>}
         {dirty && saving !== 'saving' && (
           <button
             type="button"
@@ -570,7 +644,7 @@ function Workbench({
 
       {confirmDiscard && dirty && (
         <div className="definition-strip">
-          <p>{discardQuestion(changed.size)}</p>
+          <p>{discardQuestion(summary.files)}</p>
           <div className="definition-strip-actions">
             <button type="button" className="button" onClick={() => setConfirmDiscard(false)}>
               Keep editing
@@ -604,24 +678,6 @@ function Workbench({
           </button>
         </div>
       )}
-      {deleted && (
-        <div className="definition-strip" role="status">
-          <p>{deletedLine(deleted.path, deleted.saved)}</p>
-          <div className="definition-strip-actions">
-            <button type="button" className="button" onClick={undoDelete}>
-              Undo
-            </button>
-          </div>
-          <button
-            type="button"
-            className="definition-strip-close"
-            aria-label="Dismiss"
-            onClick={() => setDeleted(null)}
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-      )}
       {saveError && (
         <div className="definition-strip" data-tone="danger" role="alert">
           <p>{saveError}</p>
@@ -633,14 +689,20 @@ function Workbench({
           ref={filterRef}
           paths={paths}
           active={active}
-          changed={changed}
+          marks={marks}
           counts={counts}
-          adding={adding}
-          focusRow={focusRow}
+          removed={removals}
+          canAddFactoryYml={canAddFactoryYml}
+          naming={naming && { ...naming, check: checkNaming(naming.target, naming.text, facts) }}
           onOpen={open}
-          onAddingChange={setAdding}
-          onAdd={add}
-          onDelete={remove}
+          onStartNaming={startNaming}
+          onNamingText={(text) => setNaming((current) => current && { ...current, text })}
+          onCommitNaming={commitNaming}
+          onCancelNaming={() => setNaming(null)}
+          onAddFactoryYml={addFactoryYml}
+          onRemove={remove}
+          onRemoveSkill={removeSkill}
+          onRestore={restore}
         />
         <div className="editor-pane">
           <EditorTabs
@@ -650,47 +712,57 @@ function Workbench({
             onSelect={open}
             onClose={(path) => setTabs((current) => closeTab(current, path))}
           />
-          {paths.length === 0 ? (
-            <div className="definition-empty">
-              <FolderOpen size={20} aria-hidden="true" />
-              <p className="definition-empty-title">{NO_FILES}</p>
-              <p>{NO_FILES_HINT}</p>
-              {adding === null && (
-                <button
-                  type="button"
-                  className="button definition-empty-new"
-                  onClick={() => setAdding('')}
-                >
-                  <FilePlus size={14} aria-hidden="true" />
-                  {NEW_FILE}
-                </button>
-              )}
-            </div>
-          ) : active !== null && activeText !== undefined ? (
+          {active !== null && activeText !== undefined ? (
             <CodeEditor
               path={active}
               text={activeText}
               problems={activeProblems}
               reveal={reveal}
-              label={active}
+              moves={editorMoves}
               onChange={edit}
+              onRevealed={revealed}
             />
+          ) : paths.length === 0 ? (
+            <div className="definition-empty">
+              <FolderOpen size={20} aria-hidden="true" />
+              <p className="definition-empty-title">{NO_FILES}</p>
+              <p>{NO_FILES_HINT}</p>
+              <div className="definition-empty-actions">
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => startNaming({ type: 'new', kind: 'automation' })}
+                >
+                  {NEW_LABELS.automation}
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => startNaming({ type: 'new', kind: 'agent' })}
+                >
+                  {NEW_LABELS.agent}
+                </button>
+                {canAddFactoryYml && (
+                  <button type="button" className="button" onClick={addFactoryYml}>
+                    factory.yml
+                  </button>
+                )}
+              </div>
+            </div>
           ) : (
             <p className="editor-none">Choose a file to read it.</p>
           )}
-          {(paths.length > 0 || problems.length > 0) && (
-            <ProblemsPanel
-              problems={problems}
-              paths={paths}
-              open={problemsOpen}
-              cleared={cleared}
-              nudge={nudge}
-              fromCell={fromCell !== null}
-              checkFailed={checker === 'failed'}
-              onToggle={() => setProblemsOpen((shown) => !shown)}
-              onReveal={revealProblem}
-            />
-          )}
+          <ProblemsPanel
+            problems={problems}
+            paths={paths}
+            open={problemsOpen}
+            cleared={cleared}
+            nudge={nudge}
+            fromCell={fromCell !== null}
+            checkFailed={checker === 'failed'}
+            onToggle={() => setProblemsOpen((shown) => !shown)}
+            onReveal={revealProblem}
+          />
         </div>
       </div>
     </>

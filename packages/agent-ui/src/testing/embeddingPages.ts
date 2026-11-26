@@ -6,9 +6,9 @@ import { commands } from 'vite-plus/test/browser';
  */
 export interface EmbeddingPage {
   /** What the page carries without its rules: custom properties only (the desktop's tokens). */
-  readonly tokens: ReadonlyArray<string>;
+  readonly tokens: readonly string[];
   /** The page's rules, in the order it loads them. */
-  readonly rules: ReadonlyArray<string>;
+  readonly rules: readonly string[];
   /** The attributes of the element the page puts around the chat. */
   readonly around: Readonly<Record<string, string>>;
   /**

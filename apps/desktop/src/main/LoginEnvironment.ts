@@ -1,9 +1,5 @@
-import {
-  execFile,
-  execFileSync,
-  type ExecFileOptions,
-  type ExecFileSyncOptionsWithStringEncoding,
-} from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
+import type { ExecFileOptions, ExecFileSyncOptionsWithStringEncoding } from 'node:child_process';
 import * as os from 'node:os';
 import { keepLaunchClaudeConfigDir } from './test-mode';
 
@@ -20,7 +16,7 @@ import { keepLaunchClaudeConfigDir } from './test-mode';
 const PROBE_TIMEOUT_MS = 5000;
 
 /** A retry runs in the background, so it can afford to wait for a slow shell. */
-const RETRY_TIMEOUT_MS = 20000;
+const RETRY_TIMEOUT_MS = 20_000;
 
 /**
  * Pauses before the second and third retries; the first starts at once.

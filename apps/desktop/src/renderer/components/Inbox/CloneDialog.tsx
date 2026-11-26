@@ -53,6 +53,7 @@ export function CloneDialog() {
           <div className="clone-dialog-options">
             {containers.map((scope) => (
               <button
+                type="button"
                 key={scope.id}
                 className="clone-dialog-option"
                 onClick={() => void cloneRepo(workspaceId, item, scope.path)}
@@ -61,7 +62,11 @@ export function CloneDialog() {
                 <span className="clone-dialog-option-path">{scope.path}</span>
               </button>
             ))}
-            <button className="clone-dialog-option" onClick={() => void chooseFolder()}>
+            <button
+              type="button"
+              className="clone-dialog-option"
+              onClick={() => void chooseFolder()}
+            >
               <span className="clone-dialog-option-name">Choose a folder...</span>
               <span className="clone-dialog-option-path">
                 Becomes a new scope holding the clone
@@ -69,12 +74,12 @@ export function CloneDialog() {
             </button>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={dismiss}>
+            <button type="button" className="dialog-button-secondary" onClick={dismiss}>
               Cancel
             </button>
           </div>
           <Dialog.Close asChild>
-            <button className="dialog-close" aria-label="Close">
+            <button type="button" className="dialog-close" aria-label="Close">
               <X size={16} />
             </button>
           </Dialog.Close>

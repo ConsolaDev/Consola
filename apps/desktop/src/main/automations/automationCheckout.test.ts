@@ -8,7 +8,8 @@ import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { chainWorktreeStep, itemActionLaunchKey } from '../providers/launchWorkItem';
 import { HeadCheckoutError, WorktreeService } from '../WorktreeService';
-import { automationCheckoutPort, type AutomationCheckoutDeps } from './automationCheckout';
+import { automationCheckoutPort } from './automationCheckout';
+import type { AutomationCheckoutDeps } from './automationCheckout';
 
 const STUB_GH = path.resolve(__dirname, '../../../tests/fixtures/stub-gh/gh');
 
@@ -32,7 +33,7 @@ const workItem = { ...itemRef, provider: 'github' as const };
 const CLONE = '/code/catalog-portal';
 const CHECKOUT = '/worktrees/catalog-portal-pr-51-automation';
 
-function workspace(sessions: Partial<Session>[] = []): Workspace {
+function workspace(sessions: Array<Partial<Session>> = []): Workspace {
   return {
     id: 'ws-1',
     name: 'Sprocket',
@@ -55,7 +56,7 @@ function workspace(sessions: Partial<Session>[] = []): Workspace {
     sessions: sessions as Session[],
     createdAt: 0,
     updatedAt: 0,
-  } as Workspace;
+  };
 }
 
 function fakes(overrides: Partial<AutomationCheckoutDeps> = {}) {
@@ -127,8 +128,8 @@ describe('automationCheckoutPort', () => {
   });
 
   it('a session started by hand since refuses with StartedByHandError', async () => {
-    const since = new Date(1_000).toISOString();
-    const sessions: Partial<Session>[] = [
+    const since = new Date(1000).toISOString();
+    const sessions: Array<Partial<Session>> = [
       // The automation's own session, and one the person started before, do not count.
       {
         id: 'auto',
@@ -136,7 +137,7 @@ describe('automationCheckoutPort', () => {
         automation: { name: 'review-assigned-prs', runId: 'run-0' },
         workItem,
         workItemAction: 'Review',
-        createdAt: 2_000,
+        createdAt: 2000,
       },
       { id: 'old', name: 'Before', workItem, workItemAction: 'Review', createdAt: 500 },
     ];
@@ -151,7 +152,7 @@ describe('automationCheckoutPort', () => {
       name: 'My review',
       workItem,
       workItemAction: 'Review',
-      createdAt: 3_000,
+      createdAt: 3000,
     });
     const refused = automationCheckoutPort(d).prepare(byHand);
     await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
@@ -227,9 +228,9 @@ describe('automationCheckoutPort', () => {
 
   it('says why the head could not be fetched, and that nothing was read', async () => {
     const d = fakes({
-      syncCheckout: vi.fn(async () =>
-        Promise.reject(new HeadCheckoutError('gh: canned failure (STUB_GH_FAIL=1)')),
-      ),
+      syncCheckout: vi.fn(async () => {
+        throw new HeadCheckoutError('gh: canned failure (STUB_GH_FAIL=1)');
+      }),
     });
     await expect(automationCheckoutPort(d).prepare(request)).rejects.toThrow(
       'Could not bring the automation checkout to the head of sprocket/catalog-portal#51: gh: canned failure (STUB_GH_FAIL=1). Nothing was read; retry once it can be fetched.',
@@ -238,7 +239,11 @@ describe('automationCheckoutPort', () => {
 
   it('passes any other failure through with its own reason', async () => {
     const stuck = `fatal: '${CHECKOUT}' already exists`;
-    const d = fakes({ syncCheckout: vi.fn(async () => Promise.reject(new Error(stuck))) });
+    const d = fakes({
+      syncCheckout: vi.fn(async () => {
+        throw new Error(stuck);
+      }),
+    });
     const refused = automationCheckoutPort(d).prepare(request);
     await expect(refused).rejects.toThrow(stuck);
     await expect(refused).rejects.not.toThrow(/retry once it can be fetched/);

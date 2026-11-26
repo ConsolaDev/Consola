@@ -59,7 +59,7 @@ export function deriveFacets(
     FacetValue[]
   >;
   for (const session of sessions) {
-    for (const key of Object.keys(derived) as (keyof typeof derived)[]) {
+    for (const key of Object.keys(derived) as Array<keyof typeof derived>) {
       for (const value of facetValuesOf(session, key)) {
         const entry = derived[key].find((candidate) => candidate.value === value);
         if (entry) entry.count += 1;

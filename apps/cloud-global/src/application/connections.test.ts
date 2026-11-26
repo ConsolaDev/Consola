@@ -1,7 +1,8 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createInstallStateSigner } from '../adapters/github/installStateSigner.js';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import type { GitHubInstallation, InstallState } from '../domain/connections.js';
@@ -9,10 +10,10 @@ import type { Person, SignedIn } from '../domain/person.js';
 import {
   disconnectGitHub,
   finishGitHubInstall,
-  type InstallReturn,
   listConnections,
   startGitHubInstall,
 } from './connections.js';
+import type { InstallReturn } from './connections.js';
 import type { GitHubApp } from './ports.js';
 
 let db: Database;

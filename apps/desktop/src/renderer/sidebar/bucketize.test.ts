@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
-import { bucketize, type Bucket } from './bucketize';
-import { buildForest, type TreeNode } from './forest';
+import { bucketize } from './bucketize';
+import type { Bucket } from './bucketize';
+import { buildForest } from './forest';
+import type { TreeNode } from './forest';
 import { entry, ids, keyOf, node } from './entryFixtures';
 import type { WorkingObservation } from './workingExits';
 
@@ -12,8 +14,8 @@ function observation({
   workingSince = [],
 }: {
   lingering?: string[];
-  returnedAt?: [string, number][];
-  workingSince?: [string, number][];
+  returnedAt?: Array<[string, number]>;
+  workingSince?: Array<[string, number]>;
 }): WorkingObservation {
   return {
     lingering: new Set(lingering.map(keyOf)),
@@ -36,7 +38,7 @@ const EXPECTED: Record<Attention, Bucket> = {
 };
 
 describe('bucketize', () => {
-  it.each(Object.entries(EXPECTED) as [Attention, Bucket][])(
+  it.each(Object.entries(EXPECTED) as Array<[Attention, Bucket]>)(
     'puts a %s row in %s',
     (attention, bucket) => {
       const result = bucketize([node(entry('a', attention))]);

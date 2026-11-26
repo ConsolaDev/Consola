@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, Loader2, RefreshCw } from 'lucide-react';
-import { PROVIDER_META, type ProviderProbeResult } from '../../../shared/providers';
+import { PROVIDER_META } from '../../../shared/providers';
+import type { ProviderProbeResult } from '../../../shared/providers';
 import type { Workspace } from '../../../shared/workspace';
 import { providerBridge } from '../../services/providerBridge';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -179,8 +180,8 @@ export function ProviderBindingPanel({ workspace, onConnected }: ProviderBinding
               <>
                 {boundAccountMissing && (
                   <p className="github-section-error">
-                    The connected account {bound!.accountLogin} is no longer signed in. Sign in
-                    again or choose another account below.
+                    The connected account {bound.accountLogin} is no longer signed in. Sign in again
+                    or choose another account below.
                   </p>
                 )}
                 <p>Run this in your terminal:</p>

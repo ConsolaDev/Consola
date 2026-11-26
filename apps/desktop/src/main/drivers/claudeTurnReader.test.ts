@@ -78,7 +78,7 @@ describe('createClaudeTurnReader', () => {
     }
   });
 
-  it('joins a \\r\\n split between chunks', () => {
+  it(String.raw`joins a \r\n split between chunks`, () => {
     const line = RESULT_OK.replace(/\n/g, '\r\n');
     const { events, report } = readAll(line.slice(0, -1), line.slice(-1));
     expect(lines(events)).toEqual([]);

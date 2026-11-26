@@ -1,4 +1,5 @@
-import { type ElectronApplication, expect } from '@playwright/test';
+import { expect } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 
 /**
  * What keeps an end-to-end run's dialogs and downloads off the person's

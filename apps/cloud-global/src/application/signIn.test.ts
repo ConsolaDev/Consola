@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { mayCreateAccount, mayStartSession } from './signIn.js';

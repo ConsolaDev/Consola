@@ -47,7 +47,7 @@ export const MAX_SNOOZE_MINUTES = 43_200;
 export const SNOOZE_PRESET_MAX_MS = MAX_SNOOZE_MINUTES * MINUTE_MS;
 
 /** What a person who never opened Settings is offered. */
-export const DEFAULT_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
+export const DEFAULT_SNOOZE_PRESETS: readonly SnoozePresetSetting[] = [
   { kind: 'after', minutes: 60 },
   { kind: 'after', minutes: 180 },
   { kind: 'at', day: 'today', time: '18:00' },
@@ -55,7 +55,7 @@ export const DEFAULT_SNOOZE_PRESETS: ReadonlyArray<SnoozePresetSetting> = [
   { kind: 'at', day: 'monday', time: '09:00' },
 ];
 
-const PRESET_DAYS: ReadonlyArray<string> = [
+const PRESET_DAYS: ReadonlySet<string> = new Set<string>([
   'today',
   'tomorrow',
   'monday',
@@ -65,7 +65,7 @@ const PRESET_DAYS: ReadonlyArray<string> = [
   'friday',
   'saturday',
   'sunday',
-];
+]);
 
 const WEEKDAY_INDEX: Record<Weekday, number> = {
   sunday: 0,
@@ -96,7 +96,7 @@ export function isSnoozePresetSetting(value: unknown): value is SnoozePresetSett
   if (candidate.kind === 'at') {
     return (
       typeof candidate.day === 'string' &&
-      PRESET_DAYS.includes(candidate.day) &&
+      PRESET_DAYS.has(candidate.day) &&
       typeof candidate.time === 'string' &&
       TIME_PATTERN.test(candidate.time)
     );
@@ -124,8 +124,8 @@ function copyPreset(setting: SnoozePresetSetting): SnoozePresetSetting {
 
 /** Whether two preset lists are the same, in the same order. */
 export function snoozePresetsEqual(
-  a: ReadonlyArray<SnoozePresetSetting>,
-  b: ReadonlyArray<SnoozePresetSetting>,
+  a: readonly SnoozePresetSetting[],
+  b: readonly SnoozePresetSetting[],
 ): boolean {
   return a.length === b.length && a.every((setting, i) => presetEqual(setting, b[i]));
 }
@@ -179,7 +179,7 @@ export interface ResolvedSnoozePreset {
 
 /** The snooze menu: soonest first, a passed "today" left out, one row per wake minute. */
 export function resolveSnoozePresets(
-  presets: ReadonlyArray<SnoozePresetSetting>,
+  presets: readonly SnoozePresetSetting[],
   now: number,
   locale?: string,
 ): ResolvedSnoozePreset[] {

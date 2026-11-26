@@ -3,7 +3,6 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { getDriver } from './index';
-import type { HarnessDriverId } from '../../shared/types';
 import { getDriverDescriptor } from '../../shared/constants';
 import { CodexDriver } from './CodexDriver';
 import { createCodexThread } from './codexAppServer';
@@ -20,7 +19,7 @@ beforeEach(() => {
 afterEach(() => {
   fs.rmSync(configDir, { recursive: true, force: true });
 });
-const driver = () => getDriver('codex' as HarnessDriverId);
+const driver = () => getDriver('codex');
 const config = () => ({ binaryPath, configDir, extraArgs: [] as string[] });
 const launch = (resume = false) => ({ sessionId, resume, cwd: configDir });
 
@@ -68,7 +67,7 @@ describe('Codex harness', () => {
         .map((record) => JSON.stringify(record))
         .join('\n') + '\n{"partial":',
     );
-    expect(await codex.readFirstPrompt!(config(), sessionId)).toBe('Fix the parser');
+    expect(await codex.readFirstPrompt(config(), sessionId)).toBe('Fix the parser');
   });
 
   it('reads a tab’s conversation from its thread’s rollout, and nothing for a tab with no thread', async () => {
@@ -118,10 +117,10 @@ describe('Codex harness', () => {
   it('retries missing transcripts and follows conversation switches into archived rollouts', async () => {
     const codex = new CodexDriver();
     await codex.buildSessionArgs(config(), launch());
-    expect(await codex.readFirstPrompt!(config(), sessionId)).toBeNull();
+    expect(await codex.readFirstPrompt(config(), sessionId)).toBeNull();
     const next = '33333333-3333-4333-8333-333333333333';
     codex.createOutputObserver(config(), sessionId)(`\x1b]0;${next.slice(0, 29)}...\x07`);
-    expect(await codex.readFirstPrompt!(config(), sessionId)).toBeNull();
+    expect(await codex.readFirstPrompt(config(), sessionId)).toBeNull();
     const directory = path.join(configDir, 'archived_sessions');
     fs.mkdirSync(directory);
     fs.writeFileSync(
@@ -131,12 +130,10 @@ describe('Codex harness', () => {
         payload: { type: 'user_message', message: 'Investigate ' + 'a'.repeat(100) },
       }) + '\n',
     );
-    expect(await codex.readFirstPrompt!(config(), sessionId)).toBe(
-      'Investigate ' + 'a'.repeat(100),
-    );
-    expect(await codex.readFirstPrompt!(config(), '../invalid')).toBeNull();
+    expect(await codex.readFirstPrompt(config(), sessionId)).toBe('Investigate ' + 'a'.repeat(100));
+    expect(await codex.readFirstPrompt(config(), '../invalid')).toBeNull();
     expect(
-      await codex.readFirstPrompt!(
+      await codex.readFirstPrompt(
         { ...config(), configDir: path.join(configDir, 'other-profile') },
         sessionId,
       ),
@@ -144,7 +141,7 @@ describe('Codex harness', () => {
   });
 
   it('is available in settings and routes to its own driver', () => {
-    expect(getDriverDescriptor('codex' as HarnessDriverId)).toMatchObject({
+    expect(getDriverDescriptor('codex')).toMatchObject({
       id: 'codex',
       available: true,
       configDirEnvVar: 'CODEX_HOME',

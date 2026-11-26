@@ -1,4 +1,5 @@
-import { isWorkspaceRole, type WorkspaceRole } from '@consola/cloud-contract';
+import { isWorkspaceRole } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '@consola/cloud-contract';
 
 /**
  * A stored membership's role, read back only when it is one of the contract's

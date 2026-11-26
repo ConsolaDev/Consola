@@ -1,4 +1,5 @@
-import { readOutboxMessage, type Region } from '@consola/cloud-contract';
+import { readOutboxMessage } from '@consola/cloud-contract';
+import type { Region } from '@consola/cloud-contract';
 import { retryDelayMs } from '../domain/outbox.js';
 import type {
   CellDelivery,

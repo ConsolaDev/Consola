@@ -13,7 +13,6 @@ import {
   House,
   Leaf,
   Lightbulb,
-  type LucideIcon,
   Moon,
   Mountain,
   Music,
@@ -25,13 +24,10 @@ import {
   Terminal,
   Zap,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { CSSProperties } from 'react';
-import {
-  emojiOf,
-  type WorkspaceIcon as Icon,
-  type WorkspaceSymbol,
-  workspaceInitial,
-} from '../domain/workspaceIcons';
+import { emojiOf, workspaceInitial } from '../domain/workspaceIcons';
+import type { WorkspaceIcon as Icon, WorkspaceSymbol } from '../domain/workspaceIcons';
 
 /** Each symbol as the desktop app draws it (`components/WorkspaceIcon.tsx`), from the same set. */
 const SYMBOLS: Record<WorkspaceSymbol, LucideIcon> = {

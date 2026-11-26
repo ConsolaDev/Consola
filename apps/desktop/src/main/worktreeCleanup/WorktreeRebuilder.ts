@@ -2,7 +2,8 @@ import type { Session, Workspace } from '../../shared/workspace';
 import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 import { describeError } from '../describeError';
 import type { RestoreResult } from '../WorktreeService';
-import { lockKey, type PathLock } from './PathLock';
+import { lockKey } from './PathLock';
+import type { PathLock } from './PathLock';
 
 export interface RebuilderDeps {
   lock: Pick<PathLock, 'run' | 'markPrepared'>;

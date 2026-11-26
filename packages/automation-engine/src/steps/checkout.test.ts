@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  parseAutomationEntry,
-  PR_ITEM_NEEDS_PRS,
-  type Automation,
-  type RunRecord,
-  type StepsAutomation,
-} from '@consola/factory-spec';
+import { parseAutomationEntry, PR_ITEM_NEEDS_PRS } from '@consola/factory-spec';
+import type { Automation, RunRecord, StepsAutomation } from '@consola/factory-spec';
 import { entryCheckoutKind, entryReadsItems, prCheckoutProblem, runCheckoutKind } from './checkout';
 import type { RunDefinition } from './definition';
 

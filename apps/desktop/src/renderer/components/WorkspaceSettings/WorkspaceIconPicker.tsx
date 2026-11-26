@@ -5,10 +5,10 @@ import {
   WORKSPACE_EMOJIS,
   WORKSPACE_SYMBOLS,
   isWorkspaceImageIcon,
-  type WorkspaceIconValue,
-  type WorkspaceImageIcon,
 } from '../../../shared/workspaceIcons';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import type { WorkspaceIconValue, WorkspaceImageIcon } from '../../../shared/workspaceIcons';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { prepareWorkspaceIcon } from '../../utils/workspaceIconUpload';
 

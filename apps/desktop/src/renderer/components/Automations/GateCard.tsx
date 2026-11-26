@@ -40,8 +40,9 @@ export function GateCard({ runId, step, now }: { runId: string; step: StepRun; n
         if (request === requests.current) setRead({ state: 'ready', view });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setRead({ state: 'failed', reason: ipcErrorMessage(failure) });
+        }
       },
     );
     return () => {
@@ -50,12 +51,13 @@ export function GateCard({ runId, step, now }: { runId: string; step: StepRun; n
   }, [runId, step.id, step.status, step.gate?.decision]);
 
   if (read.state === 'loading') return <p className="automations-hint">Reading the gate…</p>;
-  if (read.state === 'failed')
+  if (read.state === 'failed') {
     return (
       <p className="automations-error" role="alert">
         Could not read this gate: {read.reason}
       </p>
     );
+  }
   const { view } = read;
   if (!view) return null;
   const waiting = step.status === 'waiting' && !view.answered;

@@ -3,7 +3,6 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import {
-  type AgentWorkspace,
   closeAgentWorkspace,
   closingOnFailure,
   inPage,
@@ -12,8 +11,11 @@ import {
   openSession,
   seedWorkspace,
 } from './helpers/agentWorkspace';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
-import { type AgentClient, connectAgent } from './helpers/sessionMcp';
+import type { AgentWorkspace } from './helpers/agentWorkspace';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
+import { connectAgent } from './helpers/sessionMcp';
+import type { AgentClient } from './helpers/sessionMcp';
 import { afterNote, openTab, refIn, UNTRUSTED_NOTE } from './helpers/toolAnswers';
 
 /**

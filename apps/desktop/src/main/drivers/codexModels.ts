@@ -34,7 +34,7 @@ export function listCodexModels(
   cwd: string,
   env: NodeJS.ProcessEnv,
   extraArgs: string[] = [],
-  timeoutMs = 15000,
+  timeoutMs = 15_000,
 ): Promise<HarnessModel[]> {
   return new Promise((resolve, reject) => {
     const child = spawn(binary, ['app-server', ...codexModelConfigArgs(extraArgs)], {
@@ -99,7 +99,11 @@ export function listCodexModels(
         pending = pending.slice(newline + 1);
         if (!line.trim()) continue;
         try {
-          const message = JSON.parse(line);
+          const message = JSON.parse(line) as {
+            id?: unknown;
+            error?: unknown;
+            result?: unknown;
+          } | null;
           if (message?.id !== requestId) continue;
           if (message.error) {
             finish(
@@ -110,8 +114,9 @@ export function listCodexModels(
             continue;
           }
           if (requestId === 1) {
-            if (!message.result || typeof message.result !== 'object')
+            if (!message.result || typeof message.result !== 'object') {
               throw new Error('Missing initialization');
+            }
             send(undefined, 'initialized', {});
             nextPage();
             continue;

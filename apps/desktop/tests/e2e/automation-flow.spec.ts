@@ -1,4 +1,5 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import { assignedReviewsGatedEntry } from '@consola/automation-engine';
 import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { execFileSync } from 'node:child_process';
@@ -508,8 +509,9 @@ async function runsOf(flow: Flow, automation: string): Promise<RunRecord[]> {
 /** `automation`'s one run, read whole from main. */
 async function theRun(flow: Flow, automation: string): Promise<RunRecord> {
   const runs = await runsOf(flow, automation);
-  if (runs.length !== 1)
+  if (runs.length !== 1) {
     throw new Error(`Expected one run of ${automation}, found ${runs.length}.`);
+  }
   return runs[0];
 }
 
@@ -577,8 +579,9 @@ test('a review loop runs round by round, waits for you at its gate, and survives
     // The waiting gate opens itself: its question, its two choices, then Reject.
     const card = panel.getByRole('region', { name: 'Gate decide' });
     await expect(card).toContainText('Publish it?');
-    for (const choice of ['Publish', 'Hold', 'Reject'])
+    for (const choice of ['Publish', 'Hold', 'Reject']) {
       await expect(card.getByRole('button', { name: choice, exact: true })).toBeVisible();
+    }
 
     // A restart while it waits: the same profile, and the run comes back as it was.
     await flow.app.close();

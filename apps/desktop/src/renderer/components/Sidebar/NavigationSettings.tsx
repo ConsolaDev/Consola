@@ -1,4 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Cpu, FolderGit2 } from 'lucide-react';
 import { SIDEBAR_DENSITIES, isSidebarDensity, useSettingsStore } from '../../stores/settingsStore';

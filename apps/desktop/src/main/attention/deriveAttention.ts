@@ -59,8 +59,9 @@ export function deriveAttention({
   // it back. A new question cannot hide here, because entering one ends the
   // snooze before anything derives. An open run suspends the snooze, as it
   // prevents settling: the run's result is the person's to see.
-  if (!heldByOpenRun && record?.snoozedUntil !== undefined && record.snoozedUntil > now)
+  if (!heldByOpenRun && record?.snoozedUntil !== undefined && record.snoozedUntil > now) {
     return 'snoozed';
+  }
   const settled =
     !heldByOpenRun && record?.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
   // A finish nobody has looked at. It always belongs to the current lifetime:

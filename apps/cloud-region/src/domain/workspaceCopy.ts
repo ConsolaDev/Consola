@@ -1,4 +1,5 @@
-import { FIRST_SEQUENCE, type WorkspaceChange, type WorkspaceRole } from '@consola/cloud-contract';
+import { FIRST_SEQUENCE } from '@consola/cloud-contract';
+import type { WorkspaceChange, WorkspaceRole } from '@consola/cloud-contract';
 
 /**
  * The cell's copy of a workspace: that it exists, who its members are and their roles, kept from

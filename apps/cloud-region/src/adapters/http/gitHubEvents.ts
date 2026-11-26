@@ -2,17 +2,15 @@ import {
   GITHUB_EVENT_ANSWER,
   GITHUB_EVENT_DELIVERY_MAX_BYTES,
   GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
-  type GitHubEventMessage,
 } from '@consola/cloud-contract';
+import type { GitHubEventMessage } from '@consola/cloud-contract';
 import { OpenAPIHono } from '@hono/zod-openapi';
 import type { Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { createMiddleware } from 'hono/factory';
 import type { DeliveryVerifier, GitHubEventStore, RunnerChannel } from '../../application/ports.js';
-import {
-  type GitHubEventAnswer,
-  receiveGitHubEvent,
-} from '../../application/receiveGitHubEvent.js';
+import { receiveGitHubEvent } from '../../application/receiveGitHubEvent.js';
+import type { GitHubEventAnswer } from '../../application/receiveGitHubEvent.js';
 import type { Region } from '../../domain/region.js';
 import { postGitHubEventDelivery } from './contract.js';
 import { hasMediaType } from './outbox.js';

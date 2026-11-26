@@ -17,7 +17,8 @@ import type {
   WorkspaceCopies,
 } from '../../application/ports.js';
 import type { Region } from '../../domain/region.js';
-import { type CellEnv, requireCaller } from './caller.js';
+import { requireCaller } from './caller.js';
+import type { CellEnv } from './caller.js';
 import { cloudSessionRoutes } from './cloudSessions.js';
 import { getHealth, getMe } from './contract.js';
 import { factoryRoutes } from './factories.js';

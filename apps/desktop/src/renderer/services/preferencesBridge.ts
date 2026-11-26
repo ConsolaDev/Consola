@@ -1,5 +1,6 @@
 import type { TerminalLinkRule } from '../../shared/browser';
-import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
+import { DEFAULT_PREFERENCES } from '../../shared/preferences';
+import type { Preferences } from '../../shared/preferences';
 import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 import type { SnoozePresetSetting } from '../../shared/snooze';
 

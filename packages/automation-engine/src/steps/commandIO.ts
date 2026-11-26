@@ -3,12 +3,8 @@
  * Node executor (`node/runCommand`) spawns, and the engine reads the files
  * through `RunFolderPort`.
  */
-import {
-  coerceOutput,
-  describeOutputType,
-  type OutputType,
-  type OutputValue,
-} from '@consola/factory-spec';
+import { coerceOutput, describeOutputType } from '@consola/factory-spec';
+import type { OutputType, OutputValue } from '@consola/factory-spec';
 import { withoutGitHooks, withoutRepositoryOverrides } from '../gitEnv';
 import type { CommandResult } from '../ports';
 

@@ -746,17 +746,14 @@ export type IssueHeader = z.infer<typeof issueHeader> & { viewer: Actor };
 
 export function parsePullRequestHeader(raw: unknown): PullRequestHeader {
   const reply = strict(pullRequestReply, raw, 'pull request');
-  const item = reply.data.repository?.pullRequest as
-    | z.infer<typeof pullRequestHeader>
-    | null
-    | undefined;
+  const item = reply.data.repository?.pullRequest;
   if (!item) missing('pr');
   return { ...item, viewer: reply.data.viewer };
 }
 
 export function parseIssueHeader(raw: unknown): IssueHeader {
   const reply = strict(issueReply, raw, 'issue');
-  const item = reply.data.repository?.issue as z.infer<typeof issueHeader> | null | undefined;
+  const item = reply.data.repository?.issue;
   if (!item) missing('issue');
   return { ...item, viewer: reply.data.viewer };
 }
@@ -838,8 +835,9 @@ function reviewersOf(header: PullRequestHeader): WorkItemReviewer[] {
   const authorLogin = header.author?.login;
   const reviewers = new Map<string, WorkItemReviewer>();
   for (const review of header.latestReviews.nodes) {
-    if (review.state === 'PENDING' || !review.author || review.author.login === authorLogin)
+    if (review.state === 'PENDING' || !review.author || review.author.login === authorLogin) {
       continue;
+    }
     reviewers.set(`user:${review.author.login}`, {
       who: person(review.author),
       isTeam: false,

@@ -2,8 +2,10 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
 import { AUTOMATION_NAME_PATTERN } from './names';
-import { MANUAL_IS_A_WORD, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
-import { parseToolRef, type RunTarget } from './runTarget';
+import { MANUAL_IS_A_WORD, parsePollTrigger } from './poll';
+import type { ManualTrigger, PollTrigger } from './poll';
+import { parseToolRef } from './runTarget';
+import type { RunTarget } from './runTarget';
 import { ENTRY_PERMISSIONS_REASON } from './permissions';
 import { ENTRY_SECRETS_REASON } from './secrets';
 import { ENTRY_USES_REASON, WITH_IS_A_MAPPING } from './uses';
@@ -13,9 +15,9 @@ import {
   LATER_KEYS,
   laterKeyMessage,
   stepsSchema,
-  type StepEntry,
   ENVIRONMENT_IN_AGENT_FILE,
 } from './steps';
+import type { StepEntry } from './steps';
 import { branchPlaceholderNames } from './branchName';
 import {
   isItemCheckout,
@@ -27,9 +29,8 @@ import {
   parseRetry,
   REPO_ENTRY_SHAPE,
   REPO_PATTERN,
-  type EntryCheckout,
-  type Fail,
 } from './flow';
+import type { EntryCheckout, Fail } from './flow';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -274,8 +275,9 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
 
   let parsed: Trigger | null | undefined;
   if (kind === 'cron') {
-    if (typeof on.cron !== 'string')
+    if (typeof on.cron !== 'string') {
       return fail('Expected a quoted cron expression, e.g. "0 9 * * *".', ['cron']);
+    }
     const problem = cronError(on.cron);
     if (problem) return fail(problem, ['cron']);
     parsed = { kind: 'cron', cron: on.cron.trim() };
@@ -336,7 +338,7 @@ const appliesToSchema = z.unknown().transform((written, ctx): Array<'pr' | 'issu
   const expected = 'Expected `pr`, `issue` or both.';
   if (!Array.isArray(written) || written.length === 0) return fail(expected);
   const kinds: Array<'pr' | 'issue'> = [];
-  for (const kind of written) {
+  for (const kind of written as unknown[]) {
     if (kind !== 'pr' && kind !== 'issue') return fail(expected);
     if (kinds.includes(kind)) return fail(`\`${kind}\` is listed twice.`);
     kinds.push(kind);
@@ -355,8 +357,9 @@ const runSchema = z.unknown().transform((run, ctx): RunTarget => {
       `\`run:\` is an object now: write \`${run.replacement()}\`, or \`run: { prompt: "…" }\` for a prompt of its own.`,
     );
   }
-  if (!isRecord(run))
+  if (!isRecord(run)) {
     return fail('Expected `run:` to be an object with one of `action`, `prompt` or `tool`.');
+  }
 
   const unknown = Object.keys(run).filter(
     (key) => !(RUN_KEYS as readonly string[]).includes(key) && key !== 'with',
@@ -380,10 +383,11 @@ const runSchema = z.unknown().transform((run, ctx): RunTarget => {
 
   if (kind === 'tool') {
     const ref = typeof run.tool === 'string' ? parseToolRef(run.tool) : null;
-    if (!ref)
+    if (!ref) {
       return fail(`${JSON.stringify(run.tool)} is not a tool reference (namespace#tool).`, [
         'tool',
       ]);
+    }
     // Left out, a tool takes no arguments; written, `with:` is their mapping, never an empty value standing for none.
     const args = run.with === undefined ? {} : run.with;
     if (!isRecord(args)) return fail(WITH_IS_A_MAPPING, ['with']);
@@ -580,8 +584,9 @@ function automationEntrySchema() {
           ? 'A schedule has no item to run on.'
           : 'This automation has no item to run on.';
       const needsScope = () => {
-        if (!entry.scope)
+        if (!entry.scope) {
           issue('scope', `Say where this runs: \`scope: <one of the workspace’s scopes>\`. ${why}`);
+        }
       };
       if (trigger.kind === 'manual' && entry.applies_to && entry.scope && run?.kind !== 'tool') {
         issue(
@@ -593,8 +598,9 @@ function automationEntrySchema() {
 
       // What a run of `steps:` has, one per run: on a single `run:` they say where they go.
       if (run) {
-        for (const key of ['checkout', 'budget', 'on_failure'] as const)
+        for (const key of ['checkout', 'budget', 'on_failure'] as const) {
           if (entry[key] !== undefined) issue(key, `\`${key}\` goes with \`steps:\`.`);
+        }
       }
       if (steps && isItemCheckout(entry.checkout)) {
         // Items that are never pull requests: none, a keyed poll's, or a run on demand's that names no `pr`.
@@ -611,9 +617,9 @@ function automationEntrySchema() {
         const names = branchPlaceholderNames(entry.checkout.branch);
         const atBranch = (message: string) =>
           ctx.addIssue({ code: 'custom', path: ['checkout', 'branch'], message });
-        if (noItem && names.some((name) => name === 'item.key' || name === 'item.number'))
+        if (noItem && names.some((name) => name === 'item.key' || name === 'item.number')) {
           atBranch(BRANCH_NEEDS_AN_ITEM);
-        else if (keyed && names.includes('item.number')) atBranch(BRANCH_NEEDS_A_NUMBER);
+        } else if (keyed && names.includes('item.number')) atBranch(BRANCH_NEEDS_A_NUMBER);
       }
 
       if (steps) {

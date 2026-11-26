@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
-import { useHarnessStore, type Harness } from '../../stores/harnessStore';
+import { useHarnessStore } from '../../stores/harnessStore';
+import type { Harness } from '../../stores/harnessStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { HarnessCard } from './HarnessCard';
 import { AddHarnessWizard } from './AddHarnessWizard';

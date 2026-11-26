@@ -1,6 +1,8 @@
 import { LineCounter, isMap, isSeq, parseDocument } from 'yaml';
-import { formatPath, issuePath, toIssue, type FactorySpecIssue } from './issues';
-import { automationSchema, type Automation } from './schema';
+import { formatPath, issuePath, toIssue } from './issues';
+import type { FactorySpecIssue } from './issues';
+import { automationSchema } from './schema';
+import type { Automation } from './schema';
 import { documentValue } from './yamlValue';
 
 export type AutomationEntryResult =

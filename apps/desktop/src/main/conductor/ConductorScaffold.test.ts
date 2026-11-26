@@ -65,7 +65,7 @@ describe('scaffold', () => {
   });
 
   it('rejects names that would escape the conductor directory', async () => {
-    for (const bad of ['../evil', 'a/b', 'a\\b', '.hidden', '']) {
+    for (const bad of ['../evil', 'a/b', String.raw`a\b`, '.hidden', '']) {
       await expect(scaffold(scopeDir, bad, 'k', 'ws')).rejects.toThrow(/Invalid conductor name/);
     }
     expect(CONDUCTOR_NAME_PATTERN.test('ok-name.v2_x')).toBe(true);

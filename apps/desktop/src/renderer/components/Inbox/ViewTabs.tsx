@@ -1,6 +1,7 @@
 // src/renderer/components/Inbox/ViewTabs.tsx
 import { useRef } from 'react';
-import { INBOX_VIEWS, type InboxViewId } from '../../../shared/inboxViews';
+import { INBOX_VIEWS } from '../../../shared/inboxViews';
+import type { InboxViewId } from '../../../shared/inboxViews';
 
 interface ViewTabsProps {
   active: InboxViewId;
@@ -44,6 +45,7 @@ export function ViewTabs({ active, counts, onSelect, panelId }: ViewTabsProps) {
     <div className="inbox-view-tabs" role="tablist" aria-label="Inbox views">
       {INBOX_VIEWS.map(({ id, label }, index) => (
         <button
+          type="button"
           key={id}
           ref={(element) => {
             tabRefs.current[id] = element;

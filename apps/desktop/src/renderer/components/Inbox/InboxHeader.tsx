@@ -60,10 +60,16 @@ export function InboxHeader({
         ) : (
           <span className="inbox-meta-age">updated {formatAge(snapshot?.fetchedAt ?? 0)}</span>
         )}
-        <button className="inbox-refresh" aria-label="Refresh inbox" onClick={onRefresh}>
+        <button
+          type="button"
+          className="inbox-refresh"
+          aria-label="Refresh inbox"
+          onClick={onRefresh}
+        >
           <RefreshCw size={13} />
         </button>
         <button
+          type="button"
           className="inbox-refresh inbox-settings-button"
           aria-label="Workspace settings"
           title="Workspace settings"

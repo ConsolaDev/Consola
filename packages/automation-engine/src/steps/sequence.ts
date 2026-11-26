@@ -1,7 +1,6 @@
 import {
   CHECKOUT_CHANGES_REF,
   evaluateExpression,
-  type Expr,
   expressionPaths,
   flatSteps,
   leafSteps,
@@ -9,13 +8,16 @@ import {
   parseReadRef,
   templatePaths,
   usesTexts,
-  type ExprValue,
-  type PathExpr,
-  type RepeatStep,
-  type Step,
-  type StepEntry,
-  type StepRun,
-  type StepRunStatus,
+} from '@consola/factory-spec';
+import type {
+  Expr,
+  ExprValue,
+  PathExpr,
+  RepeatStep,
+  Step,
+  StepEntry,
+  StepRun,
+  StepRunStatus,
 } from '@consola/factory-spec';
 
 /*
@@ -129,8 +131,9 @@ function dependenciesOf(
   const item: string[] = [];
   if (condition) {
     for (const path of expressionPaths(condition)) {
-      if (path.kind === 'output')
+      if (path.kind === 'output') {
         conditions.push({ path: path.text, step: path.step, name: path.output });
+      }
     }
   }
   const reads: Reference[] = [];
@@ -218,7 +221,7 @@ function untypedItemSkip(
 }
 
 /** Work under way: a leaf's row in line or running (a loop's own `running` row is not). */
-const ACTIVE: readonly StepRunStatus[] = ['queued', 'running'];
+const ACTIVE: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>(['queued', 'running']);
 
 /**
  * The run's next move, over its entries in record order (`flatSteps`).
@@ -255,10 +258,11 @@ export function advanceSteps(input: {
   if (
     input.records.some(
       (record) =>
-        (ACTIVE.includes(record.status) && record.kind !== 'repeat') || record.status === 'waiting',
+        (ACTIVE.has(record.status) && record.kind !== 'repeat') || record.status === 'waiting',
     )
-  )
+  ) {
     return { kind: 'wait' };
+  }
 
   const flat = flatSteps(entries);
   /** The loop a leaf is inside, when it is. */
@@ -312,8 +316,9 @@ export function advanceSteps(input: {
     let condition: Expr | undefined;
     if (step.if !== undefined) {
       const parsed = parseExpression(step.if);
-      if (!parsed.ok)
+      if (!parsed.ok) {
         return failStep(step.id, `if: ${step.if} could not be read: ${parsed.problem}`);
+      }
       condition = parsed.expr;
     }
     const deps = dependenciesOf(step, condition);
@@ -333,10 +338,11 @@ export function advanceSteps(input: {
     const absentCondition = deps.conditions.find(
       (ref) => recorded(now.get(ref.step), ref.name ?? '', false) === undefined,
     );
-    if (absentCondition)
+    if (absentCondition) {
       return skip(
         noValue(absentCondition.path, absentCondition.step, now.get(absentCondition.step)),
       );
+    }
 
     if (condition) {
       const untyped = untypedItem ? untypedItemSkip(condition, itemValue) : undefined;
@@ -398,18 +404,20 @@ export function advanceSteps(input: {
       if (admitted === 'skipped') {
         for (const inner of block.steps) {
           const innerRow = now.get(inner.id);
-          if (innerRow)
+          if (innerRow) {
             update(innerRow, {
               id: inner.id,
               status: 'skipped',
               skipped: `the loop \`${block.id}\` was skipped`,
             });
+          }
         }
         return null;
       }
       if (admitted !== 'go') return admitted;
-      if (budget && spent)
+      if (budget && spent) {
         return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+      }
       return { kind: 'round', blockId: block.id, round: 1, updates };
     }
     // Ended (completed, skipped, reported or failed): passed over, its steps with it.
@@ -423,8 +431,9 @@ export function advanceSteps(input: {
     // The round is over: `until`, over the latest records. A path with no value is not met.
     const k = row.round ?? 1;
     const parsed = parseExpression(block.until);
-    if (!parsed.ok)
+    if (!parsed.ok) {
       return failStep(block.id, `until: ${block.until} could not be read: ${parsed.problem}`);
+    }
     const verdict = evaluateExpression(parsed.expr, pathValue);
     if (verdict.ok && verdict.value) {
       update(row, { id: block.id, status: 'completed', note: `clean after round ${k}` });
@@ -449,8 +458,9 @@ export function advanceSteps(input: {
       }
     }
     if (k < block.max) {
-      if (budget && spent)
+      if (budget && spent) {
         return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+      }
       return { kind: 'round', blockId: block.id, round: k + 1, updates };
     }
     // Out of rounds: `on_exhausted`.
@@ -503,7 +513,7 @@ export function advanceSteps(input: {
 }
 
 /** What a run had not reached: not started, or waiting for a slot. */
-const OPEN: readonly StepRunStatus[] = ['pending', 'queued'];
+const OPEN: ReadonlySet<StepRunStatus> = new Set<StepRunStatus>(['pending', 'queued']);
 
 /**
  * `then: stop`: the first completed step that says it, with a row after it
@@ -523,7 +533,7 @@ function stopAfter(entries: readonly StepEntry[], records: StepRun[]): Advance |
     const note = `the run stopped after \`${step.id}\``;
     const later = flat
       .slice(index + 1)
-      .filter(({ step: after }) => OPEN.includes(byId.get(after.id)?.status as StepRunStatus))
+      .filter(({ step: after }) => OPEN.has(byId.get(after.id)?.status as StepRunStatus))
       .map(({ step: after }): StepUpdate => ({ id: after.id, status: 'not-run', note }));
     const loopRow = block && byId.get(block.id);
     const inRound = block !== undefined && loopRow?.status === 'running';
@@ -559,7 +569,7 @@ export function notRunAfter(
   return flat
     .slice(from + 1)
     .filter(({ step }) =>
-      OPEN.includes(records.find((record) => record.id === step.id)?.status as StepRunStatus),
+      OPEN.has(records.find((record) => record.id === step.id)?.status as StepRunStatus),
     )
     .map(({ step }) => ({ id: step.id, status: 'not-run' as const }));
 }

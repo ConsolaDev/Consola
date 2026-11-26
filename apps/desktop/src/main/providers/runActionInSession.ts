@@ -1,5 +1,6 @@
 import type { RunActionInSessionResult } from '../../shared/types';
-import { actionConversation, type ActionConversation } from '../../shared/workItemActions';
+import { actionConversation } from '../../shared/workItemActions';
+import type { ActionConversation } from '../../shared/workItemActions';
 import { renderActionPrompt, substitutePlaceholders } from '../../shared/workItemPrompt';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { GitProviderId } from '../../shared/providers';
@@ -44,8 +45,9 @@ export async function runActionInSession(
 ): Promise<RunActionInSessionResult> {
   const workspace = deps.getWorkspace(workspaceId);
   if (!workspace) return { ok: false, message: `Unknown workspace: ${workspaceId}` };
-  if (!workspace.provider)
+  if (!workspace.provider) {
     return { ok: false, message: 'This workspace has no provider account bound.' };
+  }
   const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
   if (!session) return { ok: false, message: 'That session no longer exists.' };
   const ref = session.workItem;

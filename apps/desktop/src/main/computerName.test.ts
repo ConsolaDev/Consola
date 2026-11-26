@@ -24,7 +24,9 @@ describe('createComputerNameReader', () => {
 
   it('falls back to the host name without .local when scutil fails or says nothing', async () => {
     const failing = reader({
-      run: vi.fn<Deps['run']>(async () => Promise.reject(new Error('not set'))),
+      run: vi.fn<Deps['run']>(async () => {
+        throw new Error('not set');
+      }),
     });
     expect(await failing.read()).toBe('sprocket-studio');
 

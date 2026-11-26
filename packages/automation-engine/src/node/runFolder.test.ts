@@ -167,8 +167,9 @@ describe('RunFolder', () => {
   });
 
   it("sweeps runs history no longer names, never another workspace's", () => {
-    for (const run of ['keep', 'drop'])
+    for (const run of ['keep', 'drop']) {
       folder.writeArtifact('ws', run, 'review', 1, 'handover', 'x');
+    }
     folder.writeArtifact('other', 'drop', 'review', 1, 'handover', 'x');
     folder.sweep('ws', new Set(['keep']));
     expect(fs.readdirSync(path.join(tmp, 'ws', 'runs'))).toEqual(['keep']);
@@ -266,8 +267,9 @@ describe('RunFolder', () => {
     });
 
     it('checkFiles refuses a name that is not a token', () => {
-      for (const bad of ['../x', 'a/b', '', 'A', '.', '-x'])
+      for (const bad of ['../x', 'a/b', '', 'A', '.', '-x']) {
         expect(() => folder.checkFiles('ws', bad)).toThrow();
+      }
       expect(() => folder.checkFiles('../ws', 'a')).toThrow();
       expect(fs.existsSync(path.join(tmp, 'x'))).toBe(false);
     });
@@ -293,8 +295,9 @@ describe('RunFolder', () => {
 
     it('latestAttempt is the highest numbered folder, null when the step has none', () => {
       expect(folder.latestAttempt('ws', 'r1', 'review')).toBeNull();
-      for (const attempt of [1, 2, 10])
+      for (const attempt of [1, 2, 10]) {
         folder.writeArtifact('ws', 'r1', 'review', attempt, 'handover', 'x');
+      }
       expect(folder.latestAttempt('ws', 'r1', 'review')).toBe(10);
       expect(folder.latestAttempt('ws', 'r1', 'other')).toBeNull();
     });
@@ -311,8 +314,9 @@ describe('RunFolder', () => {
     });
 
     it('sweepChecks removes the folders of names not kept, and nothing under runs/', () => {
-      for (const name of ['keep', 'drop'])
+      for (const name of ['keep', 'drop']) {
         folder.ensureEmptyFile(folder.checkFiles('ws', name).stdout);
+      }
       folder.writeArtifact('ws', 'r1', 'review', 1, 'handover', 'x');
       folder.sweepChecks('ws', new Set(['keep']));
       expect(fs.readdirSync(path.join(tmp, 'ws', 'checks'))).toEqual(['keep']);
@@ -383,7 +387,7 @@ describe('RunFolder', () => {
         { 'incident-triage': [{ path: '../SKILL.md', bytes: bytes('x') }] },
         { 'incident-triage': [{ path: '/etc/SKILL.md', bytes: bytes('x') }] },
         { 'incident-triage': [{ path: 'refs/./a.md', bytes: bytes('x') }] },
-        { 'incident-triage': [{ path: 'refs\\a.md', bytes: bytes('x') }] },
+        { 'incident-triage': [{ path: String.raw`refs\a.md`, bytes: bytes('x') }] },
         { 'incident-triage': [{ path: '', bytes: bytes('x') }] },
         // A good skill beside a bad one: the good one is not written either.
         { 'release-notes': one, 'incident-triage': [{ path: 'a/../../b', bytes: bytes('x') }] },

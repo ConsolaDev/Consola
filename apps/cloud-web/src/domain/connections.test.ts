@@ -12,14 +12,13 @@ import {
   avatarUrl,
   DAYS_AGO_SHOWN,
   GITHUB_RESULTS,
-  type GitHubConnection,
-  type GitHubResult,
   isSuccess,
   JUST_CONNECTED_MS,
   justConnectedId,
   readGitHubResult,
   whenConnected,
 } from './connections';
+import type { GitHubConnection, GitHubResult } from './connections';
 
 describe("a Connect's result", () => {
   it('is read when the page knows it', () => {

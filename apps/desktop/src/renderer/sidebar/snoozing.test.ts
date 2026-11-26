@@ -6,7 +6,7 @@ import { holdFor } from './openRowHold';
 import { settleOffer } from './settleRules';
 import { snoozeOffer } from './snoozeRules';
 
-const placedOf = (...entries: ReturnType<typeof entry>[]) =>
+const placedOf = (...entries: Array<ReturnType<typeof entry>>) =>
   bucketize(entries.map((one) => node(one)));
 
 describe('the Snoozed shelf', () => {

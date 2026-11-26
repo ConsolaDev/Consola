@@ -205,11 +205,12 @@ export function FanOutDialog({ workspaceId, onClose }: FanOutDialogProps) {
             )}
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>
+            <button type="button" className="dialog-button-secondary" onClick={onClose}>
               {failed.length > 0 ? 'Close' : 'Cancel'}
             </button>
             {failed.length === 0 && (
               <button
+                type="button"
                 className="dialog-button-primary"
                 onClick={() => void submit()}
                 disabled={!canSubmit}

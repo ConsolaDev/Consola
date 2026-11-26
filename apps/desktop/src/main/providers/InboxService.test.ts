@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
 import type { Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
-import { InboxService, INBOX_REFRESH_INTERVAL_MS, type InboxServiceDeps } from './InboxService';
+import { InboxService, INBOX_REFRESH_INTERVAL_MS } from './InboxService';
+import type { InboxServiceDeps } from './InboxService';
 import { createStubDriver } from './stubDriver.test-helpers';
 
 const item51: InboxItem = {

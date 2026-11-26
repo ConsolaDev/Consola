@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { SquareTerminal } from 'lucide-react';
 import type {
   LogTail,
@@ -35,8 +36,8 @@ import {
   variableRows,
   visibleTail,
   writeRows,
-  type StepTone,
 } from './stepDetail';
+import type { StepTone } from './stepDetail';
 
 /** What a log read said when the file's own cap cut it short. */
 export const LOG_CAPPED = 'The command wrote more than this; Consola kept the first 1 MB.';
@@ -90,8 +91,9 @@ export function StepDetail({
         if (request === requests.current) setDetail({ state: 'ready', value });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setDetail({ state: 'failed', reason: ipcErrorMessage(failure) });
+        }
       },
     );
     return () => {
@@ -570,8 +572,9 @@ function ArtifactsFact({
         if (request === requests.current) setOpen({ name, read: { state: 'ready', value } });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setOpen({ name, read: { state: 'failed', reason: ipcErrorMessage(failure) } });
+        }
       },
     );
   };
@@ -774,8 +777,9 @@ function Log({
         setAll({ state: 'idle' });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setAll({ state: 'failed', reason: ipcErrorMessage(failure) });
+        }
       },
     );
   };

@@ -1,13 +1,7 @@
-import {
-  fieldProblem,
-  isId,
-  isRecord,
-  isWholeNumber,
-  type ReadResult,
-  read,
-  refused,
-} from './read.js';
-import { isRegion, type Region } from './region.js';
+import { fieldProblem, isId, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
+import { isRegion } from './region.js';
+import type { Region } from './region.js';
 
 /**
  * How `cloud-global` passes one of GitHub's webhook events on to the cell of the workspace that
@@ -133,10 +127,12 @@ export function readGitHubEventMessage(value: unknown): ReadResult<GitHubEventMe
   const { workspaceId, region, deliveryId, event, installationId, payload } = value;
   if (!isId(workspaceId)) return refused("`workspaceId` is not a workspace's id");
   if (!isRegion(region)) return refused('`region` is not a region');
-  if (!isGitHubDeliveryId(deliveryId))
+  if (!isGitHubDeliveryId(deliveryId)) {
     return refused("`deliveryId` is not GitHub's id of a delivery");
-  if (!isGitHubEventName(event))
+  }
+  if (!isGitHubEventName(event)) {
     return refused("`event` is not the name of one of GitHub's events");
+  }
   if (!isWholeNumber(installationId) || installationId < 1) {
     return refused('`installationId` is not a whole number from 1');
   }

@@ -68,7 +68,9 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
           setError('Failed to load diff');
         }
       })
-      .catch((err) => setError(err.message))
+      .catch((failure: unknown) =>
+        setError(failure instanceof Error ? failure.message : String(failure)),
+      )
       .finally(() => setIsLoading(false));
   }, [rootPath, relativePath, staged]);
 

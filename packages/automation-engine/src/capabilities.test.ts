@@ -142,8 +142,9 @@ describe('what an agent writing an entry is told', () => {
       env: ['CI'],
     });
     // Each file appears in the grammar as written, under its path.
-    for (const [file, text] of Object.entries(files))
+    for (const [file, text] of Object.entries(files)) {
       expect(grammar().grammar, file).toContain(`${file}:\n\n${text}`);
+    }
     // Under Call 9 a sandboxed agent cannot commit: Consola commits each step (the re-check's caveat).
     expect(files['agents/ui-bugfixer.md']).not.toContain('commit with');
     expect(files['agents/ui-bugfixer.md']).toContain(
@@ -376,8 +377,9 @@ describe('what an agent writing agent files and automation files is told', () =>
       expect(read.automations.length, example.title).toBeGreaterThan(0);
       expect(Object.keys(read.agents).length, example.title).toBeGreaterThan(0);
       // Each file appears in the grammar as written, under its path.
-      for (const [file, text] of Object.entries(example.files))
+      for (const [file, text] of Object.entries(example.files)) {
         expect(grammar().grammar, file).toContain(`${file}:\n\n${text}`);
+      }
 
       // Resolved on a workspace whose host answers every harness clean.
       const h = await stepsHarness({
@@ -542,8 +544,9 @@ describe('what an agent writing agent files and automation files is told', () =>
 
   it('teaches the folder, agent files, automation files and skills', () => {
     const text = grammar().grammar;
-    for (const section of ['The factory folder.', 'Agent files.', 'Automation files.', 'Skills.'])
+    for (const section of ['The factory folder.', 'Agent files.', 'Automation files.', 'Skills.']) {
       expect(text, section).toContain(`\n\n${section} `);
+    }
     // A step's agent is said where steps are: one of four, or beside a prompt or an action.
     expect(text).toContain('agent: <name>');
     expect(text).not.toContain('Each step has exactly one of prompt:, action: or run:.');
@@ -591,11 +594,13 @@ describe('what an agent writing an entry is told of secrets', () => {
       'GITHUB_ENTERPRISE_TOKEN',
       'at most 64 characters',
       'an agent file and an entry take none',
-    ])
+    ]) {
       expect(SECRETS_GRAMMAR, words).toContain(words);
+    }
     // What an agent is told never says where a value lives.
-    for (const where of ['keychain:', 'op://', 'env:<'])
+    for (const where of ['keychain:', 'op://', 'env:<']) {
       expect(SECRETS_GRAMMAR, where).not.toContain(where);
+    }
   });
 
   it("echoes the workspace's names and whether each is bound", () => {
@@ -685,8 +690,9 @@ describe('what an agent writing automations is told of servers and calls (5a-2 T
 
   it('holds both paragraphs and both examples, once each', () => {
     const text = grammar().grammar;
-    for (const part of [SERVERS_GRAMMAR, USES_GRAMMAR, SERVERS_EXAMPLE, USES_EXAMPLE])
+    for (const part of [SERVERS_GRAMMAR, USES_GRAMMAR, SERVERS_EXAMPLE, USES_EXAMPLE]) {
       expect(text.split(part)).toHaveLength(2);
+    }
     for (const words of [
       'consola is reserved',
       'at most 20',
@@ -700,8 +706,9 @@ describe('what an agent writing automations is told of servers and calls (5a-2 T
       'ask again',
       'consola_save_automation writes entries, not mcpServers:',
       "An agent file's mcpServers: names its harness's servers, not these.",
-    ])
+    ]) {
       expect(SERVERS_GRAMMAR, words).toContain(words);
+    }
     for (const words of [
       'uses: <server>#<tool>',
       'Consola reads none of it',
@@ -713,8 +720,9 @@ describe('what an agent writing automations is told of servers and calls (5a-2 T
       'is never repeated by Consola',
       'prompt or selector takes only trusted values',
       'run: { tool: consola#<tool>, with: … } keeps working',
-    ])
+    ]) {
       expect(USES_GRAMMAR, words).toContain(words);
+    }
     expect(text).toContain('connections/ once connection manifests arrive');
     expect(text).not.toContain('environments/, connections/ and evals/ are read from later slices');
   });
@@ -791,8 +799,9 @@ describe('what an agent writing automations is told of servers and calls (5a-2 T
     const grammarText = told.grammar;
     // The grammar's own example names T0SPROCKET and the header's shape; nothing else in the answer does.
     const rest = text.split(JSON.stringify(grammarText).slice(1, -1)).join('');
-    for (const value of ['T0SPROCKET', 'Bearer', 'keychain:slack', 'the keychain (consola'])
+    for (const value of ['T0SPROCKET', 'Bearer', 'keychain:slack', 'the keychain (consola']) {
       expect(rest, value).not.toContain(value);
+    }
   });
 });
 

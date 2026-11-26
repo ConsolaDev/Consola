@@ -165,7 +165,7 @@ async function databaseTables(): Promise<Tables> {
     const result = (await db.execute(
       sql`select table_schema, table_name, column_name from information_schema.columns
           where table_schema not in ('pg_catalog', 'information_schema', 'drizzle')`,
-    )) as { rows: { table_schema: string; table_name: string; column_name: string }[] };
+    )) as { rows: Array<{ table_schema: string; table_name: string; column_name: string }> };
     const tables: Tables = {};
     for (const row of result.rows) {
       const name =

@@ -180,7 +180,7 @@ function item(number: number, title: string, overrides: Partial<InboxItem> = {})
     commentCount: 2,
     additions: changed.reduce((sum, f) => sum + f.additions, 0),
     deletions: changed.reduce((sum, f) => sum + f.deletions, 0),
-    updatedAt: new Date(now - number * 12000).toISOString(),
+    updatedAt: new Date(now - number * 12_000).toISOString(),
     url: '#sample-pr',
     ...overrides,
   };
@@ -359,7 +359,7 @@ export function details(item: InboxItem, viewer: string): WorkItemDetails {
   const reviewer = item.roles.includes('author') ? 'sam' : viewer;
   const failed = item.checks?.failed || 0;
   const pending = item.checks?.pending || 0;
-  const head = ((number * 0x9e3779b1) >>> 0).toString(16).padStart(8, '0').repeat(5);
+  const head = ((number * 0x9e_37_79_b1) >>> 0).toString(16).padStart(8, '0').repeat(5);
   const post = (id: string, login: string, text: string, minutesAgo: number): WorkItemPost => ({
     id,
     author: person(login),

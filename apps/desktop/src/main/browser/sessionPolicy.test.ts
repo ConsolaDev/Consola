@@ -1,23 +1,22 @@
 import { EventEmitter } from 'node:events';
 import type { DownloadItem, Session, WebContents } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
+import { browserPartitionFor } from '../../shared/browser';
+import type { BrowserTab } from '../../shared/browser';
 import {
   clearBrowsingData,
   configurePartition,
   decideDownload,
   decidePermission,
   downloadDialogTitle,
-  type DownloadFacts,
-  type DownloadPlaces,
   downloadRefusal,
-  type DownloadSource,
   downloadSource,
   gateDownloads,
   isInvited,
   partitionFor,
   QUIET_SESSION,
 } from './sessionPolicy';
+import type { DownloadFacts, DownloadPlaces, DownloadSource } from './sessionPolicy';
 import { SessionDownloads } from './downloadGate';
 import { PERSON_INPUT_GUARD_MS } from './PersonInput';
 
@@ -177,7 +176,7 @@ describe('SessionDownloads', () => {
     const { download, press, wait } = world();
     press('t1');
     download('t1').item.saved();
-    wait(1_000);
+    wait(1000);
     // Still within the guard, but the input is spent.
     const second = download('t1');
     expect(second.decision).toBe('allow');

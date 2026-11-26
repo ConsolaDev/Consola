@@ -1,7 +1,9 @@
 import type { AttentionRecord } from './attention';
 import type { TerminalLinkRule } from './browser';
-import { DEFAULT_WORKTREE_CLEANUP_RULES, type WorktreeCleanupRules } from './worktreeCleanup';
-import { DEFAULT_SNOOZE_PRESETS, type SnoozePresetSetting } from './snooze';
+import { DEFAULT_WORKTREE_CLEANUP_RULES } from './worktreeCleanup';
+import type { WorktreeCleanupRules } from './worktreeCleanup';
+import { DEFAULT_SNOOZE_PRESETS } from './snooze';
+import type { SnoozePresetSetting } from './snooze';
 
 /**
  * Preferences main itself has to read. The renderer's settings live in

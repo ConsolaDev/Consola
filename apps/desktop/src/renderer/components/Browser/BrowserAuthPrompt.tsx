@@ -1,4 +1,5 @@
-import { useId, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useId, useState } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 import type { BrowserAuthRequestMessage } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
 import { dropAuthRequest } from '../../stores/browserAuthStore';

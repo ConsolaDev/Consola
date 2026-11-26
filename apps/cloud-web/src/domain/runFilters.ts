@@ -1,13 +1,5 @@
-import {
-  BACKGROUND_TRIGGERS,
-  isPhase,
-  isRunTrigger,
-  PHASES,
-  type Phase,
-  RUN_TRIGGERS,
-  type RunFacets,
-  type RunTrigger,
-} from './runs';
+import { BACKGROUND_TRIGGERS, isPhase, isRunTrigger, PHASES, RUN_TRIGGERS } from './runs';
+import type { Phase, RunFacets, RunTrigger } from './runs';
 
 /**
  * What the Runs list is narrowed to. The address holds it (`#/runs?…`, `queryOfFilters`), so a
@@ -203,10 +195,10 @@ export function automationsOffered(
  * The factories the picker offers, under the team that owns each, the teams by name; a factory
  * whose team the person does not see sits in a group of its own (`team: null`) at the end.
  */
-export function factoriesByTeam(facets: RunFacets): {
+export function factoriesByTeam(facets: RunFacets): Array<{
   team: { id: string; name: string } | null;
   factories: RunFacets['factories'];
-}[] {
+}> {
   const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
   const teams = [...facets.teams].sort(byName);
   const groups = teams

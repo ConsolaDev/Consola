@@ -1,6 +1,7 @@
 import type { EntryKey } from './entry';
 import { visibleNodes } from './fold';
-import { aggregateAttention, type TreeNode } from './forest';
+import { aggregateAttention } from './forest';
+import type { TreeNode } from './forest';
 
 export interface TreeView {
   /** Whether the tree is showing only its pinned children. */

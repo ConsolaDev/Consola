@@ -16,8 +16,8 @@ import {
   matchWorkspaceShortcut,
   OPEN_IN_SHORTCUT_LABELS,
   SIDE_PANEL_SHORTCUT_LABELS,
-  type KeyChord,
 } from './shortcuts';
+import type { KeyChord } from './shortcuts';
 
 function chord(key: string, mods: Partial<KeyChord> = {}): KeyChord {
   return { key, meta: false, ctrl: false, shift: false, alt: false, ...mods };

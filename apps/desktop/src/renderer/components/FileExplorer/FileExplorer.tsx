@@ -46,11 +46,13 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
     fileBridge
       .listDirectory(rootPath)
       .then(setRootChildren)
-      .catch((err) => setError(err.message))
+      .catch((failure: unknown) =>
+        setError(failure instanceof Error ? failure.message : String(failure)),
+      )
       .finally(() => setIsLoading(false));
 
     // Refresh git status when root path changes
-    refreshGitStatus(rootPath);
+    void refreshGitStatus(rootPath);
   }, [rootPath, refreshGitStatus, clearGitStatus]);
 
   if (!rootPath) {
@@ -67,6 +69,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
             <button
+              type="button"
               className={`file-explorer-view-btn ${viewMode === 'files' ? 'active' : ''}`}
               onClick={() => setViewMode('files')}
               aria-label="Files view"
@@ -85,6 +88,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
             <button
+              type="button"
               className={`file-explorer-view-btn ${viewMode === 'git' ? 'active' : ''} ${!isGitRepo ? 'disabled' : ''}`}
               onClick={() => isGitRepo && setViewMode('git')}
               disabled={!isGitRepo}

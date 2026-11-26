@@ -12,19 +12,20 @@ import {
   Language,
   syntaxHighlighting,
 } from '@codemirror/language';
-import { type Diagnostic, setDiagnostics } from '@codemirror/lint';
+import { setDiagnostics } from '@codemirror/lint';
+import type { Diagnostic } from '@codemirror/lint';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
 import {
   Annotation,
+  Compartment,
   EditorState,
-  type Extension,
   RangeSet,
   StateEffect,
   StateField,
 } from '@codemirror/state';
+import type { Extension } from '@codemirror/state';
 import {
   Decoration,
-  type DecorationSet,
   drawSelection,
   EditorView,
   GutterMarker,
@@ -35,6 +36,7 @@ import {
   keymap,
   lineNumbers,
 } from '@codemirror/view';
+import type { DecorationSet } from '@codemirror/view';
 import { tags as t } from '@lezer/highlight';
 import { GFM, parser as markdownParser } from '@lezer/markdown';
 import { useEffect, useRef } from 'react';
@@ -46,36 +48,51 @@ import { useEffect, useRef } from 'react';
  * quiet) and laid out in the app's monospace.
  *
  * Each file keeps its own editor state (its undo history, selection and scroll) while the person
- * moves between tabs, so switching back lands where they were. `problems` are drawn on their
- * lines: a wavy underline, its message on hover, and the line's number in the danger colour.
- * `reveal` scrolls to a line, puts the caret there and lights the line once, as a problem asks.
+ * moves between tabs, so switching back lands where they were. A renamed file's state moves with
+ * it (`moves`), its language and label following the new name, and every change is reported for
+ * the file shown, so typing after a rename edits the file where it is now. `problems` are drawn
+ * on their lines: a wavy underline, its message on hover, and the line's number in the danger
+ * colour. `reveal` scrolls to a line, puts the caret there and lights the line once, as a problem
+ * asks; a new file asks without the light, for its caret.
  *
- * The text is someone's: CodeMirror shows it as text, never markup.
+ * The text is someone's: CodeMirror shows it as text, never markup. The file's path labels it.
  */
 export function CodeEditor({
   path,
   text,
   problems,
   reveal,
-  label,
+  moves,
   onChange,
+  onRevealed,
 }: {
   path: string;
   text: string;
   /** This file's problems that have a line: drawn on it. */
-  problems: readonly { line: number; message: string }[];
-  /** A line to bring into view and light once; a new `seq` asks again. */
-  reveal: { path: string; line: number; seq: number } | null;
-  label: string;
+  problems: ReadonlyArray<{ line: number; message: string }>;
+  /** A line to bring into view, lit once unless `flash` is false; a new `seq` asks again. */
+  reveal: { path: string; line: number; seq: number; flash?: boolean } | null;
+  /** Files renamed since the last `seq`: old path to new. */
+  moves: { seq: number; moves: ReadonlyArray<readonly [string, string]> } | null;
   onChange: (path: string, text: string) => void;
+  /** A reveal was acted on: the page lets it go, so an editor mounted later never acts on it. */
+  onRevealed: (seq: number) => void;
 }) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
   const states = useRef(new Map<string, EditorState>());
   const shown = useRef<string | null>(null);
-  const revealed = useRef(0);
+  const movedSeq = useRef(0);
+  const revealedSeq = useRef(0);
+  const flashTimer = useRef<number | undefined>(undefined);
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onRevealedRef = useRef(onRevealed);
+  onRevealedRef.current = onRevealed;
+  // Every change is the file shown's: the view holds one file's state at a time.
+  const report = useRef((next: string) => {
+    if (shown.current !== null) onChangeRef.current(shown.current, next);
+  });
 
   // The view, made once; each file's state is swapped in below.
   useEffect(() => {
@@ -87,10 +104,23 @@ export function CodeEditor({
       made.destroy();
       view.current = null;
       shown.current = null;
-      // A new view answers the request standing, as React's strict mode remakes it at once.
-      revealed.current = 0;
     };
   }, []);
+
+  // Renamed files: each kept state moves to its new path, and the one shown follows in place.
+  useEffect(() => {
+    if (!moves || moves.seq === movedSeq.current) return;
+    movedSeq.current = moves.seq;
+    const moving = moves.moves.map(([from, to]) => [to, states.current.get(from)] as const);
+    for (const [from] of moves.moves) states.current.delete(from);
+    for (const [to, state] of moving) if (state) states.current.set(to, retargeted(state, to));
+    const current = view.current;
+    const shownMove = moves.moves.find(([from]) => from === shown.current);
+    if (current && shownMove) {
+      shown.current = shownMove[1];
+      current.dispatch({ effects: retargetEffects(shownMove[1]) });
+    }
+  }, [moves]);
 
   // The file shown, and its text when it changes from outside (a newer version brought in).
   useEffect(() => {
@@ -102,10 +132,7 @@ export function CodeEditor({
       const state =
         kept && kept.doc.toString() === text
           ? kept
-          : EditorState.create({
-              doc: text,
-              extensions: extensionsFor(path, label, (next) => onChangeRef.current(path, next)),
-            });
+          : EditorState.create({ doc: text, extensions: extensionsFor(path, report.current) });
       current.setState(state);
       shown.current = path;
     } else if (current.state.doc.toString() !== text) {
@@ -114,7 +141,7 @@ export function CodeEditor({
         annotations: [fromOutside.of(true)],
       });
     }
-  }, [path, text, label]);
+  }, [path, text]);
 
   // The file's problems, on their lines. Drawn again for each state swapped in.
   useEffect(() => {
@@ -140,29 +167,35 @@ export function CodeEditor({
     current.dispatch({ effects: setProblemLines.of([...lines]) });
   }, [path, problems]);
 
-  // A line to reveal: scrolled to, the caret put there, lit once. Each request is answered once,
-  // so coming back to its file later neither moves the caret nor takes the keyboard again.
+  // A line to reveal: scrolled to, the caret put there, lit once. Each reveal acts once, so coming
+  // back to its file (a tab, a rename back) keeps the place the person left there.
   useEffect(() => {
     const current = view.current;
-    if (!current || !reveal || reveal.path !== path || reveal.seq === revealed.current) return;
-    revealed.current = reveal.seq;
+    if (!current || !reveal || reveal.path !== path || reveal.seq === revealedSeq.current) return;
+    revealedSeq.current = reveal.seq;
+    onRevealedRef.current(reveal.seq);
     const { doc } = current.state;
     const line = doc.line(Math.min(Math.max(reveal.line, 1), doc.lines));
-    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const lit =
+      reveal.flash !== false && !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     current.dispatch({
       selection: { anchor: line.from },
       effects: [
         EditorView.scrollIntoView(line.from, { y: 'center' }),
-        ...(reduce ? [] : [flashLine.of(line.from)]),
+        ...(lit ? [flashLine.of(line.from)] : []),
       ],
     });
     current.focus();
-    if (reduce) return;
-    const timer = window.setTimeout(() => {
+    if (!lit) return;
+    // The light goes out on its own time, not the effect's: the page lets the reveal go at once,
+    // which runs this effect again, and a light left on would replay as its line is redrawn.
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => {
       view.current?.dispatch({ effects: flashLine.of(null) });
     }, FLASH_MS);
-    return () => window.clearTimeout(timer);
   }, [reveal, path]);
+
+  useEffect(() => () => window.clearTimeout(flashTimer.current), []);
 
   return <div ref={host} className="code-editor" />;
 }
@@ -343,7 +376,22 @@ function languageFor(path: string): Extension {
   return [];
 }
 
-function extensionsFor(path: string, label: string, onChange: (text: string) => void): Extension[] {
+/** What a file's name decides in its state, swapped when it is renamed: its language and label. */
+const languageSlot = new Compartment();
+const labelSlot = new Compartment();
+
+const labelFor = (path: string) => EditorView.contentAttributes.of({ 'aria-label': path });
+
+function retargetEffects(path: string): Array<StateEffect<unknown>> {
+  return [languageSlot.reconfigure(languageFor(path)), labelSlot.reconfigure(labelFor(path))];
+}
+
+/** A kept state for the file it now names. */
+function retargeted(state: EditorState, path: string): EditorState {
+  return state.update({ effects: retargetEffects(path) }).state;
+}
+
+function extensionsFor(path: string, onChange: (text: string) => void): Extension[] {
   return [
     lineNumbers(),
     highlightActiveLineGutter(),
@@ -355,14 +403,14 @@ function extensionsFor(path: string, label: string, onChange: (text: string) => 
     search({ top: true }),
     indentUnit.of('  '),
     EditorState.tabSize.of(2),
-    languageFor(path),
+    languageSlot.of(languageFor(path)),
     syntaxHighlighting(shading),
     look,
     flashField,
     problemLinesField,
     // ⌘S is the page's: it listens on the window, whatever has the keyboard.
     keymap.of([...searchKeymap, ...historyKeymap, ...defaultKeymap, indentWithTab]),
-    EditorView.contentAttributes.of({ 'aria-label': label }),
+    labelSlot.of(labelFor(path)),
     EditorView.updateListener.of((update) => {
       if (!update.docChanged) return;
       if (update.transactions.some((transaction) => transaction.annotation(fromOutside))) return;

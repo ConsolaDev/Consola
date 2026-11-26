@@ -119,8 +119,9 @@ export function settleAndVerify(
 ): SettleResult {
   const memento = settleSession(workspace, sessionId, ledger, now);
   const attention = derive();
-  if (Object.keys(memento).every((id) => attention.get(id) === 'settled'))
+  if (Object.keys(memento).every((id) => attention.get(id) === 'settled')) {
     return { settled: true, memento };
+  }
   ledger.restore(memento);
   return { settled: false, memento: {} };
 }

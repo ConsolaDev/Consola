@@ -1,10 +1,9 @@
-import {
-  isAgentRunPreview,
-  isStepsRunPreview,
-  type RunRecord,
-  type StepRun,
-  type StepRunStatus,
-  type StepsRunPreview,
+import { isAgentRunPreview, isStepsRunPreview } from '../../../shared/automations';
+import type {
+  RunRecord,
+  StepRun,
+  StepRunStatus,
+  StepsRunPreview,
 } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { callRetryWarning } from './callWords';
@@ -15,8 +14,8 @@ import {
   formatElapsed,
   rejectedAfterStart,
   rejectedAtGate,
-  type RunFacts,
 } from './presentation';
+import type { RunFacts } from './presentation';
 
 /**
  * What a run's own page shows, as a CI service shows one run of a pipeline:
@@ -91,7 +90,7 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
   const here = stopPoint(run, keys, agent);
   const at = keys.indexOf(here.key);
   const open = !ENDED.has(run.status);
-  const time = (iso: string | undefined) => (iso ? Date.parse(iso) : NaN);
+  const time = (iso: string | undefined) => (iso ? Date.parse(iso) : Number.NaN);
   const created = time(run.createdAt);
   const approved = time(run.approvedAt);
   const started = time(run.startedAt);
@@ -106,11 +105,14 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
     // Where the run is now, the stage runs to now; where it ended, to its end.
     const until = (otherwise: number) => (isHere ? (open ? nowMs : finished) : otherwise);
     let ms: number | null = null;
-    if (key === 'preview') ms = isHere ? span(created, until(NaN)) : null;
+    if (key === 'preview') ms = isHere ? span(created, until(Number.NaN)) : null;
     // A tool run starts the moment it is approved, so its start ends the wait for an older record too.
-    if (key === 'approval') ms = span(created, until(firstOf(approved, agent ? NaN : started)));
-    if (key === 'queue')
-      ms = span(firstOf(approved, run.mode === 'confirm' ? NaN : created), until(started));
+    if (key === 'approval') {
+      ms = span(created, until(firstOf(approved, agent ? Number.NaN : started)));
+    }
+    if (key === 'queue') {
+      ms = span(firstOf(approved, run.mode === 'confirm' ? Number.NaN : created), until(started));
+    }
     if (key === 'run') ms = span(started, until(finished));
     return { key, state, ms };
   });
@@ -145,7 +147,7 @@ function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
     const state = stepStageState(step, open);
     const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
     const live = step.status === 'running' || step.status === 'queued';
-    const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
+    const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : Number.NaN;
     stages.push({
       key: 'step',
       state,
@@ -288,8 +290,9 @@ export function stopOffered(run: Pick<RunFacts, 'status'>): boolean {
  */
 export function leadDetail(run: RunFacts, now: Date, place: number | undefined): string {
   if (run.status === 'running') return `for ${formatDuration(run, now) ?? '0s'}`;
-  if (run.status === 'queued')
+  if (run.status === 'queued') {
     return place !== undefined ? `${place} in line` : formatAgo(run.createdAt, now);
+  }
   if (run.status === 'needs-approval') return `asked ${formatAgo(run.createdAt, now)}`;
   if (run.status === 'waiting') {
     const waiting = run.steps?.find((step) => step.status === 'waiting');
@@ -422,8 +425,9 @@ function stopPoint(
       if (has('approval') && !agent && !run.startedAt) return { key: 'preview', state: 'passed' };
       return { key: last, state: 'passed' };
     case 'failed':
-      if (run.startedAt || (!has('approval') && !has('preview') && !has('queue')))
+      if (run.startedAt || (!has('approval') && !has('preview') && !has('queue'))) {
         return { key: last, state: 'failed' };
+      }
       if (agent) {
         return run.approvedAt || !has('approval')
           ? { key: 'queue', state: 'failed' }
@@ -449,7 +453,7 @@ export function foundNothingToDo(run: RunRecord): boolean {
 }
 
 function firstOf(...values: number[]): number {
-  return values.find((value) => Number.isFinite(value)) ?? NaN;
+  return values.find((value) => Number.isFinite(value)) ?? Number.NaN;
 }
 
 function span(from: number, to: number): number | null {
@@ -463,7 +467,7 @@ export function workedMs(run: RunFacts, now: Date): number | null {
     ? Date.parse(run.finishedAt)
     : run.status === 'running'
       ? now.getTime()
-      : NaN;
+      : Number.NaN;
   return span(Date.parse(run.startedAt), end);
 }
 
@@ -527,8 +531,9 @@ export function runNotes(run: RunFacts, history: RunFacts[]): RunNote[] {
       notes.push({ tone: 'bad', text: `${failures} failures in a row` });
     } else {
       const passes = leading('completed');
-      if (passes >= 3)
+      if (passes >= 3) {
         notes.push({ tone: 'neutral', text: `First failure after ${passes} passing runs` });
+      }
     }
   }
   return notes;
@@ -564,14 +569,16 @@ export function durationAgainstUsual(
     others.length % 2 === 1 ? others[middle] : (others[middle - 1] + others[middle]) / 2;
   const usual = formatElapsed(median);
   // Under two seconds either way is the same run to a person.
-  if (Math.abs(mine - median) < 2000 || median === 0)
+  if (Math.abs(mine - median) < 2000 || median === 0) {
     return { text: `usual ${usual}`, tone: 'usual' };
+  }
   const ratio = mine / median;
-  if (ratio >= 1.5)
+  if (ratio >= 1.5) {
     return {
       text: `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}× its usual ${usual}`,
       tone: 'slow',
     };
+  }
   if (ratio <= 0.67) return { text: `faster than its usual ${usual}`, tone: 'fast' };
   return { text: `usual ${usual}`, tone: 'usual' };
 }
@@ -589,8 +596,9 @@ export function adjacentRuns(
 /** The tools a run's steps called, most-called first, as "Read 12 · Bash 6". */
 export function toolCounts(entries: ConversationEntry[]): Array<{ tool: string; count: number }> {
   const counts = new Map<string, number>();
-  for (const entry of entries)
+  for (const entry of entries) {
     if (entry.kind === 'step') counts.set(entry.tool, (counts.get(entry.tool) ?? 0) + 1);
+  }
   return [...counts]
     .map(([tool, count]) => ({ tool, count }))
     .sort((a, b) => b.count - a.count || a.tool.localeCompare(b.tool));
@@ -640,12 +648,12 @@ export function stepTimeline(
   });
   const start = firstOf(
     Date.parse(run.startedAt ?? ''),
-    stamps.length > 0 ? Math.min(...stamps) : NaN,
+    stamps.length > 0 ? Math.min(...stamps) : Number.NaN,
   );
   const end = firstOf(
     Date.parse(run.finishedAt ?? ''),
-    run.status === 'running' ? now.getTime() : NaN,
-    stamps.length > 0 ? Math.max(...stamps) : NaN,
+    run.status === 'running' ? now.getTime() : Number.NaN,
+    stamps.length > 0 ? Math.max(...stamps) : Number.NaN,
   );
   if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) return null;
   return { start, end };
@@ -668,7 +676,7 @@ export function stepBar(
     ? Date.parse(entry.endedAt)
     : state === 'running'
       ? now.getTime()
-      : NaN;
+      : Number.NaN;
   const ms = span(at, ended);
   const length = timeline.end - timeline.start;
   const clamp = (value: number) => Math.min(1, Math.max(0, value));
@@ -703,8 +711,9 @@ export function triggerStageWords(
     const label = isAgentRunPreview(run.result) ? run.result.item?.label : undefined;
     return { kicker: 'Inbox event', title: label ?? 'An item arrived', outcome: `Seen ${time}` };
   }
-  if (trigger.kind === 'poll')
+  if (trigger.kind === 'poll') {
     return { kicker: 'Check', title: 'Found by its check', outcome: `Checked ${time}` };
+  }
   if (trigger.by === 'agent') {
     return {
       kicker: 'Agent request',

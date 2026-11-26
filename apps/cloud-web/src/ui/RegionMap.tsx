@@ -1,4 +1,4 @@
-import { type CSSProperties, useMemo } from 'react';
+import { useMemo } from 'react';
 import { regionName } from '../domain/workspace';
 import { DOT_REGIONS, WORLD_DOTS } from './worldDots';
 
@@ -38,7 +38,7 @@ function pathOf(dots: Dot[]): string {
 }
 
 /** Each dot of a region with how long after the map appears it lights: from its middle out. */
-function ripple(dots: Dot[]): { dot: Dot; delay: number }[] {
+function ripple(dots: Dot[]): Array<{ dot: Dot; delay: number }> {
   const middle = {
     x: dots.reduce((sum, dot) => sum + dot.x, 0) / dots.length,
     y: dots.reduce((sum, dot) => sum + dot.y, 0) / dots.length,
@@ -79,7 +79,7 @@ export function RegionMap({ region }: { region: string }) {
             cx={dot.x}
             cy={dot.y}
             r={RADIUS}
-            style={{ animationDelay: `${delay}ms` } as CSSProperties}
+            style={{ animationDelay: `${delay}ms` }}
           />
         ))}
       </g>

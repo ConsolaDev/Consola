@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createWorkspaceRecord, type Workspace } from '../../../shared/workspace';
+import { createWorkspaceRecord } from '../../../shared/workspace';
+import type { Workspace } from '../../../shared/workspace';
 import { providerNavLabel } from './navLabels';
 
 /** Built from the real record factory so the fixture tracks the record shape. */

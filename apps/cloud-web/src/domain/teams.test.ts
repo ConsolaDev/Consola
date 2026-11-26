@@ -1,14 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { messageForTeamChange, messageForTeamProblem, messageForTeamsState } from './teamMessages';
-import {
-  addableTo,
-  checkTeamName,
-  isTeamProblem,
-  memberOf,
-  TEAM_NAME_MAX,
-  type Team,
-  type WorkspaceMember,
-} from './teams';
+import { addableTo, checkTeamName, isTeamProblem, memberOf, TEAM_NAME_MAX } from './teams';
+import type { Team, WorkspaceMember } from './teams';
 
 const ada: WorkspaceMember = {
   id: 'p-ada',

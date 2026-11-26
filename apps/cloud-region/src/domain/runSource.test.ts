@@ -1,4 +1,5 @@
-import { type Automation, parseFactory } from '@consola/factory-spec';
+import { parseFactory } from '@consola/factory-spec';
+import type { Automation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import type { FactoryFile } from './factory.js';
 import { sourceOf } from './runSource.js';
@@ -99,6 +100,6 @@ describe('sourceOf', () => {
   });
 
   it('is null when the files hold none the automation names', () => {
-    expect(sourceOf(automation('deploy'), [FILES[0] as FactoryFile], 1, 1)).toBeNull();
+    expect(sourceOf(automation('deploy'), [FILES[0]], 1, 1)).toBeNull();
   });
 });

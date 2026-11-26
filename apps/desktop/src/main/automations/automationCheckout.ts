@@ -1,10 +1,5 @@
-import {
-  StartedByHandError,
-  withoutGitHooks,
-  type CheckoutPort,
-  type CheckoutRequest,
-  type PreparedCheckout,
-} from '@consola/automation-engine';
+import { StartedByHandError, withoutGitHooks } from '@consola/automation-engine';
+import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from '@consola/automation-engine';
 import type { WorkItemRef } from '../../shared/workItems';
 import type { Session, Workspace } from '../../shared/workspace';
 import {
@@ -14,12 +9,8 @@ import {
 } from '../providers/launchWorkItem';
 import { HeadCheckoutError } from '../WorktreeService';
 import { toWorkItemRef } from './engineViews';
-import {
-  findStartedByHand,
-  launchedWithFullTools,
-  missingCloneMessage,
-  type ItemWorktreeDeps,
-} from './launchAgentRun';
+import { findStartedByHand, launchedWithFullTools, missingCloneMessage } from './launchAgentRun';
+import type { ItemWorktreeDeps } from './launchAgentRun';
 
 export interface AutomationCheckoutDeps
   extends Pick<ItemWorktreeDeps, 'resolveDriver' | 'resolveRepo' | 'composeEnv'> {

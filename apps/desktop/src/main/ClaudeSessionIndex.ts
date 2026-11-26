@@ -154,7 +154,7 @@ export async function readFirstUserPrompt(
         message?: { content?: unknown };
       };
       try {
-        record = JSON.parse(line);
+        record = JSON.parse(line) as typeof record;
       } catch {
         continue;
       }
@@ -316,8 +316,8 @@ export async function readConversation(
   const file = findSessionFile(sessionId, configDir);
   if (!file) return null;
 
-  const since = window.since ? Date.parse(window.since) : NaN;
-  const until = window.until ? Date.parse(window.until) : NaN;
+  const since = window.since ? Date.parse(window.since) : Number.NaN;
+  const until = window.until ? Date.parse(window.until) : Number.NaN;
   const conversation = new ConversationBuilder();
   // Each tool call waits here for its result, which says when it ended and whether it failed.
   const awaitingResult = new Map<string, Extract<ConversationEntry, { kind: 'step' }>>();
@@ -336,7 +336,7 @@ export async function readConversation(
         message?: { content?: unknown };
       };
       try {
-        record = JSON.parse(line);
+        record = JSON.parse(line) as typeof record;
       } catch {
         continue;
       }
@@ -344,7 +344,7 @@ export async function readConversation(
       if (record.type !== 'user' && record.type !== 'assistant') continue;
 
       const at = typeof record.timestamp === 'string' ? record.timestamp : undefined;
-      const time = at ? Date.parse(at) : NaN;
+      const time = at ? Date.parse(at) : Number.NaN;
       if (!Number.isNaN(time)) {
         if (!Number.isNaN(since) && time < since) continue;
         if (!Number.isNaN(until) && time > until) continue;

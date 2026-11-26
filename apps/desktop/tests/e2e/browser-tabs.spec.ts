@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { showBrowser } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * The in-app browser's tabs: the strip, links that want a new tab, and the
@@ -45,7 +46,7 @@ async function seed(page: Page, root: string): Promise<Seeded> {
         accentColor: '#555555',
       });
       const addSession = async (
-        workspace: { id: string; scopes: { id: string }[] },
+        workspace: { id: string; scopes: Array<{ id: string }> },
         name: string,
         instanceId: string,
       ) => {

@@ -1,14 +1,6 @@
+import { isTeamProblem } from '../domain/teams';
+import type { TeamChange, TeamsState, WorkspaceMember } from '../domain/teams';
 import {
-  isTeamProblem,
-  type TeamChange,
-  type TeamsState,
-  type WorkspaceMember,
-} from '../domain/teams';
-import {
-  type CellApi,
-  type CellDeps,
-  type CellRefusal,
-  type CellSession,
   codeOf,
   createCellSession,
   PENDING,
@@ -17,6 +9,7 @@ import {
   SWITCHED,
   UNAVAILABLE,
 } from './cell';
+import type { CellApi, CellDeps, CellRefusal, CellSession } from './cell';
 
 /*
  * A workspace's teams, from its regional cell (`cell.ts`: the token, the address, the states a
@@ -41,6 +34,30 @@ export type TeamsService = {
   ): Promise<TeamChange>;
 };
 
+/** What a change's answer comes to, for the statuses every change shares. */
+function changeOf(answer: { error?: unknown; response: Response } | CellRefusal): TeamChange {
+  if ('kind' in answer) return answer;
+  const { status } = answer.response;
+  const code = codeOf(answer.error);
+  if (status >= 200 && status < 300) return CHANGED;
+  if (status === 400 && code === 'invalid_team') {
+    const problems = (answer.error as { problems?: unknown }).problems;
+    return {
+      kind: 'invalid',
+      problems: Array.isArray(problems) ? problems.filter(isTeamProblem) : [],
+    };
+  }
+  if (status === 403 && code === 'not_allowed') return { kind: 'not-allowed' };
+  if (status === 404 && code === 'team_not_found') return { kind: 'not-found' };
+  if (status === 409) {
+    if (code === 'name_taken') return { kind: 'name-taken' };
+    if (code === 'first_team') return { kind: 'first-team' };
+    if (code === 'not_a_workspace_member') return { kind: 'not-a-member' };
+    if (code === 'workspace_pending') return PENDING;
+  }
+  return UNAVAILABLE;
+}
+
 /**
  * The teams service. The page uses `teamsService`, on the page's way to its cell; a test builds
  * its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin to
@@ -49,30 +66,6 @@ export type TeamsService = {
 export function createTeamsService(deps: CellDeps & { session?: CellSession } = {}): TeamsService {
   const session = deps.session ?? createCellSession(deps);
   const { api, onCell } = session;
-
-  /** What a change's answer comes to, for the statuses every change shares. */
-  function changeOf(answer: { error?: unknown; response: Response } | CellRefusal): TeamChange {
-    if ('kind' in answer) return answer;
-    const { status } = answer.response;
-    const code = codeOf(answer.error);
-    if (status >= 200 && status < 300) return CHANGED;
-    if (status === 400 && code === 'invalid_team') {
-      const problems = (answer.error as { problems?: unknown }).problems;
-      return {
-        kind: 'invalid',
-        problems: Array.isArray(problems) ? problems.filter(isTeamProblem) : [],
-      };
-    }
-    if (status === 403 && code === 'not_allowed') return { kind: 'not-allowed' };
-    if (status === 404 && code === 'team_not_found') return { kind: 'not-found' };
-    if (status === 409) {
-      if (code === 'name_taken') return { kind: 'name-taken' };
-      if (code === 'first_team') return { kind: 'first-team' };
-      if (code === 'not_a_workspace_member') return { kind: 'not-a-member' };
-      if (code === 'workspace_pending') return PENDING;
-    }
-    return UNAVAILABLE;
-  }
 
   /** Runs a change on the cell, answering how it went, and never throwing. */
   async function change(

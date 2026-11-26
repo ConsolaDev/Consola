@@ -1,10 +1,5 @@
-import {
-  type CreateWorkspaceAnswer,
-  type SwitchWorkspaceAnswer,
-  WORKSPACE_NAME_MAX,
-  WORKSPACE_SLUG_MAX,
-  type WorkspaceProblem,
-} from './workspace';
+import { WORKSPACE_NAME_MAX, WORKSPACE_SLUG_MAX } from './workspace';
+import type { CreateWorkspaceAnswer, SwitchWorkspaceAnswer, WorkspaceProblem } from './workspace';
 import type { SetIconAnswer } from './workspaceIcons';
 
 const NEEDS_VERIFIED_EMAIL = 'Consola Cloud needs a Google account with a verified email address.';

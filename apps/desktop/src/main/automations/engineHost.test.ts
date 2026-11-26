@@ -11,10 +11,10 @@ import {
   AutomationService,
   RunFolder,
   RunStore,
-  type RunHistory,
-  type WorkspaceView,
 } from '@consola/automation-engine';
-import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
+import type { RunHistory, WorkspaceView } from '@consola/automation-engine';
+import { consolaTools } from '../tools/consolaTools';
+import type { ConsolaToolDeps } from '../tools/consolaTools';
 import { ToolRegistry } from '../tools/Tool';
 
 /*
@@ -214,11 +214,7 @@ describe("the runner against Consola's real tools", () => {
     expect(capabilities.harness).toEqual({ name: 'Claude', canRunAgents: true });
 
     // Unbound, on a harness that cannot run agent entries.
-    const other = await runner(
-      { ...bound(), provider: undefined } as WorkspaceView,
-      SWEEPING,
-      CODEX,
-    );
+    const other = await runner({ ...bound(), provider: undefined }, SWEEPING, CODEX);
     const theirs = other.service.capabilities('ws-1');
     expect(theirs.triggers.connections[0].bound).toBe(false);
     expect(theirs.harness).toEqual({

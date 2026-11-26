@@ -91,15 +91,15 @@ function findLineNumber(
 
       // Common patterns for line number attributes
       const dataLine = element.getAttribute('data-line-number');
-      if (dataLine) return parseInt(dataLine, 10);
+      if (dataLine) return Number.parseInt(dataLine, 10);
 
       const dataLineNum = element.getAttribute('data-line');
-      if (dataLineNum) return parseInt(dataLineNum, 10);
+      if (dataLineNum) return Number.parseInt(dataLineNum, 10);
 
       // Check for line number in class name (e.g., "line-5")
       const lineClass = Array.from(element.classList).find((c) => c.startsWith('line-'));
       if (lineClass) {
-        const num = parseInt(lineClass.replace('line-', ''), 10);
+        const num = Number.parseInt(lineClass.replace('line-', ''), 10);
         if (!Number.isNaN(num)) return num;
       }
 
@@ -107,7 +107,7 @@ function findLineNumber(
       if (element.classList.contains('linenumber')) {
         const text = element.textContent?.trim();
         if (text) {
-          const num = parseInt(text, 10);
+          const num = Number.parseInt(text, 10);
           if (!Number.isNaN(num)) return num;
         }
       }
@@ -126,7 +126,7 @@ function findLineNumber(
         if (lineNumSibling) {
           const text = lineNumSibling.textContent?.trim();
           if (text) {
-            const num = parseInt(text, 10);
+            const num = Number.parseInt(text, 10);
             if (!Number.isNaN(num)) return num;
           }
         }
@@ -138,7 +138,7 @@ function findLineNumber(
         if (diffLineNumSibling) {
           const text = diffLineNumSibling.textContent?.trim();
           if (text) {
-            const num = parseInt(text, 10);
+            const num = Number.parseInt(text, 10);
             if (!Number.isNaN(num)) return num;
           }
         }
@@ -172,7 +172,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
         if (lineNumEl) {
           const text = lineNumEl.textContent?.trim();
           if (text) {
-            const num = parseInt(text, 10);
+            const num = Number.parseInt(text, 10);
             if (!Number.isNaN(num)) return num;
           }
         }
@@ -182,7 +182,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
         if (diffLineNumEl) {
           const text = diffLineNumEl.textContent?.trim();
           if (text) {
-            const num = parseInt(text, 10);
+            const num = Number.parseInt(text, 10);
             if (!Number.isNaN(num)) return num;
           }
         }
@@ -190,7 +190,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
 
       // Check for row-level line number attribute
       const dataLine = element.getAttribute('data-line-number');
-      if (dataLine) return parseInt(dataLine, 10);
+      if (dataLine) return Number.parseInt(dataLine, 10);
     }
 
     current = current.parentNode;
@@ -238,7 +238,7 @@ function getSelectionLineRange(
         // Get the first visible line number
         const firstLineNum = lineNumEls[0].textContent?.trim();
         if (firstLineNum) {
-          const num = parseInt(firstLineNum, 10);
+          const num = Number.parseInt(firstLineNum, 10);
           if (!Number.isNaN(num)) {
             startLine = startLine ?? num;
             // Count the actual lines in selection

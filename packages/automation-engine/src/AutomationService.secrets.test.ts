@@ -1,12 +1,8 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { createHash } from 'node:crypto';
-import {
-  automationVersion,
-  parseFactorySpec,
-  stableStringify,
-  type StepRun,
-} from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import type { StepRun } from '@consola/factory-spec';
 import { listDefinition } from './AutomationService';
 import { describe, expect, it, vi } from 'vitest';
 import type { RunSecrets } from './secrets/runSecrets';
@@ -14,13 +10,8 @@ import { SecretReadError } from './secrets/secretsPort';
 import { NO_SECRETS } from './secrets/unbound';
 import { INTERRUPTED_COMMAND } from './steps/recover';
 import { maskFormsOf } from './secrets/values';
-import {
-  BIND_HINT,
-  stepsHarness,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { BIND_HINT, stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 const HOUR = 60 * 60 * 1000;
 const NAME = 'page';
@@ -234,15 +225,17 @@ describe('an entry whose secrets are not all bound', () => {
       JSON.stringify(h.service.capabilities(WORKSPACE_ID)),
       JSON.stringify(h.service.list(WORKSPACE_ID)),
     ];
-    for (const text of told)
+    for (const text of told) {
       for (const where of [
         PAGER_BINDING.label,
         TRACKER_BINDING.label,
         'consola/ws-1/personal',
         'op://',
         'keychain:',
-      ])
+      ]) {
         expect(text).not.toContain(where);
+      }
+    }
   });
 
   it('tells an agent no more once a check and a step failed to read, while the person sees where (review S1)', async () => {
@@ -254,8 +247,9 @@ describe('an entry whose secrets are not all bound', () => {
       yaml,
       secrets: { bindings: { PAGER_TOKEN: PAGER_BINDING, TRACKER_TOKEN: TRACKER_BINDING } },
     });
-    for (const automation of parseFactorySpec(yaml).automations)
+    for (const automation of parseFactorySpec(yaml).automations) {
       h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
+    }
     await h.service.reload(WORKSPACE_ID);
     // The grammar is static prose (slice 3-B's sandbox words name the keychain as where sign-ins live).
     const grammarBefore = h.service.capabilities(WORKSPACE_ID).grammar;
@@ -297,8 +291,9 @@ describe('an entry whose secrets are not all bound', () => {
       'no such item',
     ];
     for (const text of told) for (const where of words) expect(text).not.toContain(where);
-    for (const where of words.filter((word) => word !== 'keychain'))
+    for (const where of words.filter((word) => word !== 'keychain')) {
       expect(grammar).not.toContain(where);
+    }
   });
 });
 
@@ -325,8 +320,9 @@ const CHAIN = file(entryOf('chain', TRIAGE, PAGE, POST, TIDY));
 /** Started on `yaml`, its entries accepted, so a person's Run now goes straight in line. */
 async function accepted(yaml: string, options: StepsHarnessOptions = {}): Promise<StepsHarness> {
   const h = await stepsHarness({ yaml, secrets: BOUND, ...options });
-  for (const automation of parseFactorySpec(yaml).automations)
+  for (const automation of parseFactorySpec(yaml).automations) {
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
+  }
   await h.service.reload(WORKSPACE_ID);
   return h;
 }
@@ -360,8 +356,9 @@ describe("a run's secrets", () => {
     expect(h.world.secrets.resolvedAt).toEqual([0]);
     expect(h.world.launches).toHaveLength(1);
     const launched = JSON.stringify(h.world.launches[0]);
-    for (const form of [...maskFormsOf(PAGER_VALUE), ...maskFormsOf(TRACKER_VALUE)])
+    for (const form of [...maskFormsOf(PAGER_VALUE), ...maskFormsOf(TRACKER_VALUE)]) {
       expect(launched).not.toContain(form);
+    }
   });
 
   it('gives each command only its own, every mask on each, and says so in its files and record', async () => {
@@ -375,9 +372,11 @@ describe("a run's secrets", () => {
     const post = h.world.commands[1];
     expect(post.spec.env.TRACKER_TOKEN).toBe(TRACKER_VALUE);
     expect('PAGER_TOKEN' in post.spec.env).toBe(false);
-    for (const spec of [page.spec, post.spec])
-      for (const form of [...maskFormsOf(PAGER_VALUE), ...maskFormsOf(TRACKER_VALUE), 'gho_stub'])
+    for (const spec of [page.spec, post.spec]) {
+      for (const form of [...maskFormsOf(PAGER_VALUE), ...maskFormsOf(TRACKER_VALUE), 'gho_stub']) {
         expect(spec.secrets).toContain(form);
+      }
+    }
     await post.end();
     const tidy = h.world.commands[2];
     expect(Object.keys(tidy.spec.env)).not.toContain('PAGER_TOKEN');
@@ -594,8 +593,9 @@ describe("a value's printed forms", () => {
       step.error ?? '',
       ...h.notices.map((notice) => `${notice.title}\n${notice.body}`),
     ];
-    for (const text of everything)
+    for (const text of everything) {
       for (const form of maskFormsOf(PAGER_VALUE)) expect(text).not.toContain(form);
+    }
     expect(fs.readFileSync(attemptFile(h, runId, 'page', 'stdout.log'), 'utf8')).toContain('***');
     expect(fs.readFileSync(attemptFile(h, runId, 'page', 'stderr.log'), 'utf8')).toContain('***');
   });
@@ -641,8 +641,9 @@ describe("a value's printed forms", () => {
       error: INTERRUPTED_COMMAND,
     });
     expect(fs.readFileSync(out, 'utf8')).toBe('');
-    for (const text of filesUnder(again.folder.runDir(WORKSPACE_ID, runId)).values())
+    for (const text of filesUnder(again.folder.runDir(WORKSPACE_ID, runId)).values()) {
       for (const form of maskFormsOf(PAGER_VALUE)) expect(text).not.toContain(form);
+    }
   });
 
   it('leave nothing of one a crash cut off, with no quit to let go of anything (review S2)', async () => {
@@ -793,8 +794,9 @@ describe("a check's secrets", () => {
     });
     const told = [checkView(h).error ?? '', ...h.notices.map((notice) => notice.title)];
     expect(checkView(h).error).toContain('***');
-    for (const text of told)
+    for (const text of told) {
       for (const form of maskFormsOf(TRACKER_VALUE)) expect(text).not.toContain(form);
+    }
 
     // A first good check baselines; the next fires what it finds, with the value masked in its item.
     await checkNow(h);
@@ -818,11 +820,12 @@ describe("a check's secrets", () => {
       await checkNow(h);
       await endCheck(h, { stdout: items('a') });
       expect(checkView(h).fired).toBe(1);
-      if (rebind)
+      if (rebind) {
         h.world.secrets.bindings.set('TRACKER_TOKEN', {
           ...TRACKER_BINDING,
           ref: 'op://Ops/Tracker2/credential',
         });
+      }
       await h.service.reload(WORKSPACE_ID);
       await checkNow(h);
       await endCheck(h, { stdout: items('a', 'b') });
@@ -1027,7 +1030,8 @@ describe("a run's secrets, with slice 3's loops, gates and retry waits (the merg
       attempt: 2,
     });
     expect(fs.readFileSync(out, 'utf8')).toBe('');
-    for (const text of filesUnder(again.folder.runDir(WORKSPACE_ID, runId)).values())
+    for (const text of filesUnder(again.folder.runDir(WORKSPACE_ID, runId)).values()) {
       for (const form of maskFormsOf(PAGER_VALUE)) expect(text).not.toContain(form);
+    }
   });
 });

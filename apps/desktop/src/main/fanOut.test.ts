@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fanOut, type FanOutDeps } from './fanOut';
+import { fanOut } from './fanOut';
+import type { FanOutDeps } from './fanOut';
 import type { Group, Session, Workspace } from '../shared/workspace';
 
 const workspace = {
@@ -127,9 +128,7 @@ describe('fanOut', () => {
 
     await fanOut(deps, intent);
 
-    const ids = launchSession.mock.calls.map(
-      (call) => (call[1] as { instanceId: string }).instanceId,
-    );
+    const ids = launchSession.mock.calls.map((call) => call[1].instanceId);
     expect(new Set(ids).size).toBe(3);
     for (const id of ids) {
       expect(id).toMatch(/^workspace-ws-1-session-/);

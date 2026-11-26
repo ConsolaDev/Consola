@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { terminalBridge } from '../services/terminalBridge';
-import { deriveTerminalStatus, type TerminalStatus } from '../../shared/terminalStatus';
+import { deriveTerminalStatus } from '../../shared/terminalStatus';
+import type { TerminalStatus } from '../../shared/terminalStatus';
 
 /**
  * Per-session terminal state.

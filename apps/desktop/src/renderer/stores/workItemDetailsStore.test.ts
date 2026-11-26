@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkItemDetails } from '../../shared/workItemDetails';
-import { INBOX_REFRESH_INTERVAL_MS, type WorkItemRef } from '../../shared/workItems';
+import { INBOX_REFRESH_INTERVAL_MS } from '../../shared/workItems';
+import type { WorkItemRef } from '../../shared/workItems';
 
 vi.mock('../services/inboxBridge', () => ({
   inboxBridge: { getDetails: vi.fn() },
@@ -11,10 +12,10 @@ import {
   DETAILS_REFRESH_MS,
   MAX_UNWATCHED_DETAILS,
   MERGE_STATE_POLL_MS,
-  type DetailsTarget,
   detailsKey,
   useWorkItemDetailsStore,
 } from './workItemDetailsStore';
+import type { DetailsTarget } from './workItemDetailsStore';
 
 const getDetails = vi.mocked(inboxBridge.getDetails);
 const MINUTE = 60_000;
@@ -227,10 +228,10 @@ describe('workItemDetailsStore', () => {
     // before the poll their unknown mergeability asks for.
     getDetails.mockResolvedValueOnce(details({ mergeState: 'UNKNOWN' }));
     await load(target);
-    vi.advanceTimersByTime(DETAILS_REFRESH_MS - 1_000);
+    vi.advanceTimersByTime(DETAILS_REFRESH_MS - 1000);
     watch();
     const recheck = deferred();
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(getDetails).toHaveBeenCalledTimes(2);
 
     // The poll would fall due while the re-check runs. The re-check's own
@@ -329,9 +330,9 @@ describe('workItemDetailsStore', () => {
     await load(target, { force: true });
     expect(getDetails).toHaveBeenCalledTimes(2);
 
-    await vi.advanceTimersByTimeAsync(DETAILS_REFRESH_MS - 1_000);
+    await vi.advanceTimersByTimeAsync(DETAILS_REFRESH_MS - 1000);
     expect(getDetails).toHaveBeenCalledTimes(2);
-    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(1000);
     expect(getDetails).toHaveBeenCalledTimes(3);
   });
 
@@ -343,7 +344,7 @@ describe('workItemDetailsStore', () => {
     watch(item(1));
     await vi.advanceTimersByTimeAsync(0);
     for (let number = 2; number <= 22; number++) {
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1000);
       await load(item(number));
     }
     expect(MAX_UNWATCHED_DETAILS).toBe(20);
@@ -358,14 +359,14 @@ describe('workItemDetailsStore', () => {
     const has = (number: number) =>
       useWorkItemDetailsStore.getState().entries[detailsKey(item(number))]?.details !== undefined;
     for (let number = 1; number <= 20; number++) {
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1000);
       await load(item(number));
     }
     // The oldest answer is read again, and that read fails.
-    vi.advanceTimersByTime(1_000);
+    vi.advanceTimersByTime(1000);
     getDetails.mockRejectedValueOnce(new Error('rate limited'));
     await load(item(1), { force: true });
-    vi.advanceTimersByTime(1_000);
+    vi.advanceTimersByTime(1000);
     await load(item(21));
     expect(has(1)).toBe(true);
     expect(has(2)).toBe(false);
@@ -382,13 +383,13 @@ describe('workItemDetailsStore', () => {
     const has = (number: number) =>
       useWorkItemDetailsStore.getState().entries[detailsKey(item(number))]?.details !== undefined;
     for (let number = 1; number <= 20; number++) {
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1000);
       await load(item(number));
     }
     // The oldest is being read again when the 21st lands.
     const reread = deferred();
     const pending = load(item(1), { force: true });
-    vi.advanceTimersByTime(1_000);
+    vi.advanceTimersByTime(1000);
     await load(item(21));
     expect(has(1)).toBe(true);
     expect(has(2)).toBe(false);
@@ -398,7 +399,7 @@ describe('workItemDetailsStore', () => {
     await pending;
     const release = watch(item(3));
     for (const number of [22, 23]) {
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1000);
       await load(item(number));
     }
     expect(has(3)).toBe(true);
@@ -411,7 +412,7 @@ describe('workItemDetailsStore', () => {
   it('a failed forced read answers with its failure, though the cache then drops the item', async () => {
     const item = (number: number): DetailsTarget => ({ ...target, ref: { ...ref, number } });
     for (let number = 1; number <= 20; number++) {
-      vi.advanceTimersByTime(1_000);
+      vi.advanceTimersByTime(1000);
       await load(item(number));
     }
     // A read that ends is the newest read, so the cache drops another item

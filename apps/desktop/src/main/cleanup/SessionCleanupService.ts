@@ -13,16 +13,13 @@ import { describeError } from '../describeError';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { PullRequestLookup, PullRequestState } from '../providers/pullRequests';
 import type { SessionRemover } from '../SessionRemover';
-import { type ToolScope, workspacesInScope } from '../tools/Tool';
+import { workspacesInScope } from '../tools/Tool';
+import type { ToolScope } from '../tools/Tool';
 import type { WorktreeService } from '../WorktreeService';
 import type { ResolvedPullRequest, WorktreeCleanupService } from '../worktreeCleanup';
 import { judge } from '../worktreeCleanup/policy';
-import {
-  type Attribution,
-  judgeLookup,
-  PullRequestResolver,
-  toFact,
-} from '../worktreeCleanup/PullRequestResolver';
+import { judgeLookup, PullRequestResolver, toFact } from '../worktreeCleanup/PullRequestResolver';
+import type { Attribution } from '../worktreeCleanup/PullRequestResolver';
 
 /**
  * Finding and removing sessions whose pull request is finished, and deleting
@@ -148,8 +145,9 @@ export class SessionCleanupService {
       const removal = await this.planDelete(scope, sessionId);
       const { removed, failed, nowBusy } = await this.execute([removal], 'tool-delete');
       if (failed.length > 0) throw new Error(failed[0].error ?? 'Delete failed.');
-      if (nowBusy.length > 0)
+      if (nowBusy.length > 0) {
         throw new Error(`"${removal.session.name}" became busy; it was not deleted.`);
+      }
       return removed[0];
     });
   }
@@ -275,7 +273,7 @@ export class SessionCleanupService {
             ),
           );
         } else if (!attribution) {
-          if (requested)
+          if (requested) {
             skipped.push(
               skip(
                 workspace,
@@ -284,6 +282,7 @@ export class SessionCleanupService {
                 'No pull request is linked to this session or its worktree branch.',
               ),
             );
+          }
         } else if (scope.excludeSessionIds.includes(session.id)) {
           skipped.push(skip(workspace, session, 'caller', 'This is the session that asked.'));
         } else if (session.kind === 'conductor') {
@@ -316,10 +315,12 @@ export class SessionCleanupService {
 
     const judged = judgeLookup(lookup);
     if (judged.kind === 'failed') return kept('lookup-failed', judged.error);
-    if (judged.kind === 'none')
+    if (judged.kind === 'none') {
       return kept('no-pr', `No pull request has ${describeQuery(query)}.`);
-    if (judged.kind === 'open')
+    }
+    if (judged.kind === 'open') {
       return kept('pr-open', `#${judged.pr.number} is still open.`, judged.pr);
+    }
     const pr = judged.pr;
     if (!options.prStates.includes(pr.status as StalePrStatus)) {
       return kept('pr-state-excluded', `#${pr.number} is ${pr.status}.`, pr);

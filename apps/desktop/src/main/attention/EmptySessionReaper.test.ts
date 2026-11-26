@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
-import { NEW_SESSION_NAME, type Session, type Workspace } from '../../shared/workspace';
+import { NEW_SESSION_NAME } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { BrowserService } from '../browser/BrowserService';
 import { BrowserStateStore } from '../browser/BrowserStateStore';
@@ -25,7 +26,7 @@ let transcripts: Map<string, boolean | null>;
 let removed: string[];
 let reads: string[];
 /** Each session's browser tabs; a `null` entry cannot be read. No entry: no tabs. */
-let tabs: Map<string, { url: string; openedBy: 'person' | 'agent' }[] | null>;
+let tabs: Map<string, Array<{ url: string; openedBy: 'person' | 'agent' }> | null>;
 
 function reaper(overrides: Partial<ConstructorParameters<typeof EmptySessionReaper>[0]> = {}) {
   return new EmptySessionReaper({

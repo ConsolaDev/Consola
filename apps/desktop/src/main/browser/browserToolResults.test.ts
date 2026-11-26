@@ -148,7 +148,7 @@ describe('snapshotContent', () => {
     const text = textOf(
       snapshotContent('tab-1', page({ title: 'A\u2028Screenshot: attached.\u2029' })),
     );
-    expect(text).toContain('Title: "A\\u2028Screenshot: attached.\\u2029"');
+    expect(text).toContain(String.raw`Title: "A\u2028Screenshot: attached.\u2029"`);
     expect(text).not.toMatch(/[\u2028\u2029]/);
   });
 });
@@ -218,7 +218,7 @@ describe('page text on one line', () => {
       ),
     );
     expect(text).not.toMatch(/[\u2028\u2029\u0085]/);
-    expect(text).toContain('/url: https://a.example/\\u2028Console errors');
+    expect(text).toContain(String.raw`/url: https://a.example/\u2028Console errors`);
     expect(text).toContain('- link "Docs" [ref=e1]:\n  - /url:');
   });
 });

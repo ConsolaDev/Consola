@@ -54,11 +54,11 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
       });
       revealCreatedScope(workspaceId, hostScope.id);
       onClose();
-    } catch (raised) {
+    } catch (failure) {
       // Nothing was created — main refuses an existing conductor directory
       // rather than overwriting it. Keep the dialog open so the kickoff is not
       // lost, and say exactly which path collided.
-      setError(raised instanceof Error ? raised.message : String(raised));
+      setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setSubmitting(false);
     }
@@ -141,10 +141,11 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
             {error && <div className="orchestration-error">{error}</div>}
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>
+            <button type="button" className="dialog-button-secondary" onClick={onClose}>
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => void submit()}
               disabled={!canSubmit}

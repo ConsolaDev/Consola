@@ -218,14 +218,15 @@ export function installGuestPolicy(
     // Applied to the real objects: Electron reads both after this event.
     const { webPreferences: allowed } = decision;
     for (const key of Object.keys(webPreferences)) {
-      if (!Object.prototype.hasOwnProperty.call(allowed, key))
+      if (!Object.prototype.hasOwnProperty.call(allowed, key)) {
         delete (webPreferences as Record<string, unknown>)[key];
+      }
     }
     Object.assign(webPreferences, allowed);
     // The element's `preload` attribute reaches Electron through `params`,
     // not the preferences: taken off there too.
     delete (params as { preload?: string }).preload;
-    deps.prepare(params.partition as string);
+    deps.prepare(params.partition);
   });
 
   host.on('did-attach-webview', (_event, guest) => {

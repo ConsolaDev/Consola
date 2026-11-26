@@ -1,16 +1,11 @@
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import {
-  exhaustedWindows,
-  type HarnessLimits,
-  harnessLimitedUntil,
-  limitResetAt,
-  type SessionUsageLimit,
-  type UsageLimitsState,
-} from '../../shared/usageLimits';
+import { exhaustedWindows, harnessLimitedUntil, limitResetAt } from '../../shared/usageLimits';
+import type { HarnessLimits, SessionUsageLimit, UsageLimitsState } from '../../shared/usageLimits';
 import type { Session, Workspace } from '../../shared/workspace';
 import { findSessionById, findSessionByInstanceId } from '../attention';
 import type { Snoozer } from '../attention/Snoozer';
-import { type ArmedTimer, armAt } from '../attention/wakeTimer';
+import { armAt } from '../attention/wakeTimer';
+import type { ArmedTimer } from '../attention/wakeTimer';
 import type { HarnessConfig, HarnessDriver } from '../drivers';
 import type { JsonStateFile } from '../state/JsonStateFile';
 import type { HarnessLimitsCache } from './HarnessLimitsCache';
@@ -113,8 +108,9 @@ export class UsageLimitService {
 
   public state(): UsageLimitsState {
     const sessions: UsageLimitsState['sessions'] = {};
-    for (const [sessionId, { conversationId: _c, newStop: _n, ...limit }] of this.sessions)
+    for (const [sessionId, { conversationId: _c, newStop: _n, ...limit }] of this.sessions) {
       sessions[sessionId] = limit;
+    }
     return { sessions, harnesses: Object.fromEntries(this.harnesses) };
   }
 
@@ -246,7 +242,7 @@ export class UsageLimitService {
     // Superseded while the CLI was asked: a later stop learns for itself.
     if (!limit || limit.stoppedAt !== stoppedAt) return;
     const resetsAt = limitResetAt(limits, { now, stoppedAt, model });
-    if (resetsAt === undefined)
+    if (resetsAt === undefined) {
       this.explain(
         session,
         !limits.available
@@ -255,6 +251,7 @@ export class UsageLimitService {
             ? 'no window is used up'
             : 'a used-up window has no reset time',
       );
+    }
     const next: StoredLimit = { ...limit };
     if (resetsAt !== undefined) next.resetsAt = resetsAt;
     else delete next.resetsAt;
@@ -319,7 +316,7 @@ export class UsageLimitService {
       targets.map(async (target) => {
         const known = await this.deps.cache.fresh(target.driver, target.config, {
           maxAgeMs: 60_000,
-          waitMs: 3_000,
+          waitMs: 3000,
         });
         if (known) this.noteHarness(target.harnessId, known.limits, this.now());
       }),
@@ -422,8 +419,9 @@ function normalize(value: unknown): StoredLimit | null {
     conversationId: row.conversationId,
     newStop: row.newStop === true,
   };
-  if (typeof row.resetsAt === 'number' && Number.isFinite(row.resetsAt))
+  if (typeof row.resetsAt === 'number' && Number.isFinite(row.resetsAt)) {
     limit.resetsAt = row.resetsAt;
+  }
   if (typeof row.window === 'string') limit.window = row.window;
   return limit;
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  type BindingRef,
   ENV_REFERENCE_WORDS,
   formatReference,
   KEYCHAIN_ACCOUNT_WORDS,
@@ -11,6 +10,7 @@ import {
   referenceFromInput,
   referenceLabel,
 } from './references';
+import type { BindingRef } from './references';
 
 describe('the words', () => {
   it('are the plan’s, verbatim', () => {

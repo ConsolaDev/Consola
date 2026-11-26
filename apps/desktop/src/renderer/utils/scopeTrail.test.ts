@@ -42,8 +42,8 @@ describe('scopeTrail', () => {
   });
 
   it('reads Windows separators the same way', () => {
-    const winRoot = scope('root', 'sprocket', 'C:\\dev\\sprocket');
-    const winApi = scope('api', 'api', 'C:\\dev\\sprocket\\apps\\api');
+    const winRoot = scope('root', 'sprocket', String.raw`C:\dev\sprocket`);
+    const winApi = scope('api', 'api', String.raw`C:\dev\sprocket\apps\api`);
     expect(scopeTrail([winRoot, winApi], winApi)).toEqual({
       parent: 'sprocket',
       label: 'apps/api',

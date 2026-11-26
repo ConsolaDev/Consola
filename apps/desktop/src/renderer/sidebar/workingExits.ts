@@ -1,6 +1,7 @@
 import type { Attention } from '../../shared/attention';
 import type { EntryKey } from './entry';
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf } from './forest';
+import type { TreeNode } from './forest';
 
 /**
  * How long a tree that stopped on its own stays in Working. A turn often ends
@@ -8,7 +9,7 @@ import { aggregateAttention, membersOf, type TreeNode } from './forest';
  * and a row that leaves Working and comes straight back has moved twice for
  * nothing.
  */
-export const EXIT_GRACE_MS = 2_000;
+export const EXIT_GRACE_MS = 2000;
 
 /** What the list has seen trees do in Working, by root key. */
 export interface WorkingObservation {
@@ -67,7 +68,7 @@ export function createWorkingExits() {
         if (attention === 'working') {
           // Back before its grace ran out: it never left.
           if (state) state.deadline = null;
-          else
+          else {
             inWorking.set(key, {
               // Seen starting now, or already running when first seen.
               since: known?.has(key)
@@ -75,6 +76,7 @@ export function createWorkingExits() {
                 : Math.max(...membersOf(root).map((entry) => entry.activityAt)),
               deadline: null,
             });
+          }
           continue;
         }
         if (!state) continue;

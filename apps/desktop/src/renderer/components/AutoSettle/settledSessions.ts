@@ -19,8 +19,9 @@ export function settledSessionsFor(
   for (const id of pendingIds) {
     for (const workspace of workspaces) {
       const session = workspace.sessions.find((candidate) => candidate.id === id);
-      if (session)
+      if (session) {
         found.push({ id, name: session.name || 'Untitled session', workspaceName: workspace.name });
+      }
     }
   }
   return found;

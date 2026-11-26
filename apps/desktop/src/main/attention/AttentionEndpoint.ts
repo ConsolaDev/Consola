@@ -23,7 +23,7 @@ export type ParseHookEvent = (body: unknown) => AttentionSignal | null;
 export type BeforeAnswer = (body: unknown) => Promise<void>;
 
 /** The longest a hook's answer waits on `BeforeAnswer`: the CLI is waiting too. */
-export const BEFORE_ANSWER_LIMIT_MS = 3_000;
+export const BEFORE_ANSWER_LIMIT_MS = 3000;
 
 interface Registration {
   instanceId: string;

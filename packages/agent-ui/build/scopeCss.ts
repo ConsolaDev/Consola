@@ -1,4 +1,5 @@
-import postcss, { type AtRule, type Node, type PluginCreator, type Root, type Rule } from 'postcss';
+import postcss from 'postcss';
+import type { AtRule, Node, PluginCreator, Root, Rule } from 'postcss';
 
 /** The element `AgentChat` renders: t3's CSS applies only inside it. */
 export const SCOPE_CLASS = 'consola-agent-ui';
@@ -163,7 +164,7 @@ export const SVG_PRESENTATION_ATTRIBUTES = [
  * code block (`<ol start="3">`) too. Obsolete attributes t3 never renders are left out
  * (AGENTS.md, "The page's CSS").
  */
-export const ATTRIBUTE_STYLED: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
+export const ATTRIBUTE_STYLED: ReadonlyArray<readonly [string, readonly string[]]> = [
   ['[hidden]', ['display', 'content-visibility']],
   ['[dir]', ['direction', 'unicode-bidi']],
   ['[lang]', ['-webkit-locale']],
@@ -227,10 +228,10 @@ export const GUARDED_PSEUDO_ELEMENTS = [
  */
 export const compact = (selector: string) =>
   selector
-    .replace(/\s+/g, ' ')
-    .replace(/\s*,\s*/g, ',')
-    .replace(/\(\s+/g, '(')
-    .replace(/\s+\)/g, ')')
+    .replaceAll(/\s+/g, ' ')
+    .replaceAll(/\s*,\s*/g, ',')
+    .replaceAll(/\(\s+/g, '(')
+    .replaceAll(/\s+\)/g, ')')
     .trim();
 
 /** Whether a rule is the guard's: each of its selectors starts with `GUARDED`, or is the root's. */
@@ -254,7 +255,7 @@ const STAYS_OUTSIDE = /^(?:-[a-z]+-)?(?:charset|import|namespace|property|font-f
 export const scopeSelector = (selector: string): string => {
   const trimmed = selector.trim();
   if (trimmed.includes(`.${SCOPE_CLASS}`)) return trimmed;
-  const ownDark = trimmed.replace(DARK_CLASS, OWN_DARK);
+  const ownDark = trimmed.replaceAll(DARK_CLASS, OWN_DARK);
   if (DOCUMENT_SELECTOR.test(ownDark)) return ownDark.replace(DOCUMENT_SELECTOR, AS_DOCUMENT);
   return `${INSIDE} ${ownDark}`;
 };
@@ -290,7 +291,7 @@ const completeRollback = (
   rule: Rule,
   prefix: string,
   value: string,
-  registered: ReadonlyArray<string>,
+  registered: readonly string[],
 ): Rule => {
   const own = rule.nodes.filter((node) => node.type === 'decl').map((decl) => decl.clone());
   for (const name of registered) rule.append({ prop: name, value });
@@ -316,7 +317,7 @@ const completeRollback = (
  * (`completeRollback`), then a rule for each attribute that styles the element carrying it
  * (`ATTRIBUTE_STYLED`), which lets those properties fall through to the attribute's style.
  */
-const completeFloor = (reset: AtRule, registered: ReadonlyArray<string>) => {
+const completeFloor = (reset: AtRule, registered: readonly string[]) => {
   const floor = reset.nodes?.find(
     (node): node is Rule => node.type === 'rule' && compact(node.selector) === compact(FLOOR),
   );
@@ -392,7 +393,9 @@ export const scopeCss: PluginCreator<void> = () => ({
     if (insideKeyframes(rule)) return;
     const scoped = nestedInRule(rule)
       ? rule.selectors.map((selector) =>
-          selector.includes(`.${SCOPE_CLASS}`) ? selector : selector.replace(DARK_CLASS, OWN_DARK),
+          selector.includes(`.${SCOPE_CLASS}`)
+            ? selector
+            : selector.replaceAll(DARK_CLASS, OWN_DARK),
         )
       : rule.selectors.map(scopeSelector);
     if (scoped.join() !== rule.selectors.join()) rule.selectors = scoped;

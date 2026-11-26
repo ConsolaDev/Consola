@@ -5,9 +5,8 @@ import {
   renderTemplate,
   secretPathProblem,
   templatePaths,
-  type TemplatePart,
-  type TemplatePath,
 } from './template';
+import type { TemplatePart, TemplatePath } from './template';
 
 function parts(text: string): TemplatePart[] {
   const result = parseTemplate(text);

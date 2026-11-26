@@ -96,11 +96,11 @@ export function parseGateBody(
           ref.previous ||
           !STEP_ID_PATTERN.test(ref.step) ||
           !ARTIFACT_NAME_PATTERN.test(ref.name)
-        )
+        ) {
           bad(SHOW_ENTRY, ['show']);
-        else if (show.includes(entry as string))
+        } else if (show.includes(entry as string)) {
           bad(`\`${entry as string}\` is listed twice.`, ['show']);
-        else show.push(entry as string);
+        } else show.push(entry as string);
       }
     }
   }
@@ -167,17 +167,19 @@ export function parseRepeatHeader(
   }
   const max = value.max;
   if (!('max' in value)) bad(REPEAT_NO_MAX);
-  else if (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > MAX_ROUNDS)
+  else if (typeof max !== 'number' || !Number.isInteger(max) || max < 1 || max > MAX_ROUNDS) {
     bad(REPEAT_MAX, ['max']);
+  }
   const until = value.until;
-  if (typeof until !== 'string' || !until.trim())
+  if (typeof until !== 'string' || !until.trim()) {
     bad(REPEAT_UNTIL, 'until' in value ? ['until'] : []);
-  else if (until.length > MAX_IF_LENGTH)
+  } else if (until.length > MAX_IF_LENGTH) {
     bad(`An \`until\` is at most ${MAX_IF_LENGTH} characters.`, ['until']);
-  else {
+  } else {
     const parsed = parseExpression(until);
-    if (!parsed.ok)
+    if (!parsed.ok) {
       bad(`Cannot read this \`until\`: ${parsed.problem.replace(/\.$/, '')}.`, ['until']);
+    }
   }
   if (!ok || typeof max !== 'number' || typeof until !== 'string') return undefined;
   return { max, until };
@@ -356,8 +358,9 @@ function parseRunOwnedCheckout(
   }
   if (from !== undefined) {
     if (from === 'item') refuse(FROM_ITEM, 'from');
-    else if (typeof from !== 'string' || from.includes('{{') || refFormatProblem(from) !== null)
+    else if (typeof from !== 'string' || from.includes('{{') || refFormatProblem(from) !== null) {
       refuse(FROM_SHAPE, 'from');
+    }
   }
   if (!ok) return undefined;
   return {

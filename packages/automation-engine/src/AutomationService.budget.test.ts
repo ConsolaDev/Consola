@@ -1,18 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import {
-  automationVersion,
-  leafSteps,
-  parseFactorySpec,
-  type RunRecord,
-  type StepRun,
-} from '@consola/factory-spec';
-import {
-  stepsHarness,
-  turnReport,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { automationVersion, leafSteps, parseFactorySpec } from '@consola/factory-spec';
+import type { RunRecord, StepRun } from '@consola/factory-spec';
+import { stepsHarness, turnReport, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /** One `- name:` entry: its head lines as given, then `steps:` with each item's lines. */
 function entry(name: string, head: string, ...steps: string[]): string {
@@ -51,8 +41,9 @@ const MINUTE = 60_000;
 /** Accept every entry in `yaml` at its version, as a person approving each once would. */
 function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
-    if (leafSteps(automation.steps ?? []).some((step) => step.kind === 'agent' && step.action))
+    if (leafSteps(automation.steps ?? []).some((step) => step.kind === 'agent' && step.action)) {
       throw new Error('no action steps here');
+    }
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
   }
 }

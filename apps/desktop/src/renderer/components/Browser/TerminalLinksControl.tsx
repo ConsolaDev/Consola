@@ -3,7 +3,7 @@ import type { TerminalLinkRule } from '../../../shared/browser';
 import { preferencesBridge } from '../../services/preferencesBridge';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 
-const RULES: { rule: TerminalLinkRule; label: string }[] = [
+const RULES: Array<{ rule: TerminalLinkRule; label: string }> = [
   { rule: 'local', label: 'Local addresses open in Consola' },
   { rule: 'all', label: 'Every link opens in Consola' },
   { rule: 'never', label: 'Every link opens in the system browser' },

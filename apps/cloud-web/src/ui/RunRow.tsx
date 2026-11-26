@@ -1,7 +1,8 @@
 import { ChevronRight, CircleDot, Factory, GitPullRequest, Link2 } from 'lucide-react';
 import { useId } from 'react';
 import { NO_CHILDREN_WORDS } from '../domain/runMessages';
-import { type RunSummary, starterOf } from '../domain/runs';
+import { starterOf } from '../domain/runs';
+import type { RunSummary } from '../domain/runs';
 import { hashOfRun } from '../domain/runsRoute';
 import {
   agoInWords,

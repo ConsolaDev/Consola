@@ -267,8 +267,9 @@ automations:
         automation: 'investigate',
       },
     ]);
-    for (const value of [...result.automations, ...result.issues])
+    for (const value of [...result.automations, ...result.issues]) {
       expect(Object.prototype.hasOwnProperty.call(value, 'file')).toBe(false);
+    }
   });
 
   it('adds no file to what it returns, issues included', () => {
@@ -277,8 +278,9 @@ automations:
     );
     expect(result.automations).toHaveLength(1);
     expect(result.issues).toHaveLength(1);
-    for (const value of [...result.automations, ...result.issues])
+    for (const value of [...result.automations, ...result.issues]) {
       expect(Object.prototype.hasOwnProperty.call(value, 'file')).toBe(false);
+    }
   });
 });
 

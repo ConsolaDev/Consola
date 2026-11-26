@@ -13,12 +13,11 @@ import {
   sessionHoldsRetry,
   settleBetweenSteps,
   settleRunClone,
-  type RunCheckoutPort,
-  type SettleResult,
-  type StepProcesses,
 } from '@consola/automation-engine';
+import type { RunCheckoutPort, SettleResult, StepProcesses } from '@consola/automation-engine';
 import type { Session, Workspace } from '../../shared/workspace';
-import { ProcessCwdIndex, type ProcessSnapshot } from '../worktreeCleanup/ProcessCwdIndex';
+import { ProcessCwdIndex } from '../worktreeCleanup/ProcessCwdIndex';
+import type { ProcessSnapshot } from '../worktreeCleanup/ProcessCwdIndex';
 import { launchedWithFullTools } from './launchAgentRun';
 
 /** What the desktop's run-owned checkout port is built from (slice 3-B Task 18, Calls 1, 8, 12). */
@@ -67,7 +66,7 @@ export interface RunOwnedCheckoutDeps {
 }
 
 /** How long a step's own processes get to end after SIGTERM (Call 8). */
-export const STEP_PROCESS_GRACE_MS = 2_000;
+export const STEP_PROCESS_GRACE_MS = 2000;
 
 /** Words for a run whose repository is not cloned here (slice 1's, for a repository rather than an item). */
 export function notClonedMessage(repo: string): string {
@@ -110,11 +109,12 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     }
     const { agents, shells } = deps.liveTerminals();
     const found = ProcessCwdIndex.inTree(snapshot, dir, new Set(agents), new Set(shells));
-    if (found.kind === 'unknown')
+    if (found.kind === 'unknown') {
       return {
         kind: 'unknown',
         why: "the working directories of this Mac's processes could not be read",
       };
+    }
     return found;
   };
 
@@ -156,11 +156,13 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     const held = holder(dir);
     if (held) return sessionHoldsRetry(held.name);
     const found = await lookIn(dir);
-    if (found.kind === 'unknown')
+    if (found.kind === 'unknown') {
       return `Consola couldn't check for processes left in the checkout: ${found.why}`;
+    }
     if (found.kind === 'present') {
-      if (who !== undefined)
+      if (who !== undefined) {
         return `\`${who}\`, opened by you, left a process running in this run's checkout`;
+      }
       const [first] = found.processes;
       return `a process outside Consola's sessions is running in this run's checkout (${first.command}, pid ${first.pid}); end it, then retry`;
     }
@@ -241,10 +243,11 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
       deps.underLock(dir, async () => {
         if (fs.existsSync(dir)) return;
         const { rebuilt } = await deps.restoreAt(dir);
-        if (!rebuilt)
+        if (!rebuilt) {
           throw new Error(
             `${dir} is gone and nothing records how to rebuild it, so Consola will not make it anew`,
           );
+        }
       }),
   };
 }

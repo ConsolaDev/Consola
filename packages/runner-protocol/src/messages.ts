@@ -1,14 +1,4 @@
 import {
-  type FactoriesAnswer,
-  type FactoriesRequest,
-  type GitHubEventAck,
-  type GitHubEventNotice,
-  type GitHubStepToken,
-  type GitHubStepTokenRefused,
-  type GitHubStepTokenRequest,
-  type RunAnswered,
-  type RunRecordMessage,
-  type RunRefused,
   readFactoriesAnswer,
   readFactoriesRequest,
   readGitHubEventAck,
@@ -20,17 +10,22 @@ import {
   readRunRecordMessage,
   readRunRefused,
 } from './automationMessages.js';
-import {
-  fieldProblem,
-  isId,
-  isOneOf,
-  isRecord,
-  type ReadResult,
-  read,
-  readList,
-  refused,
-} from './read.js';
-import { isRepository, type Repository } from './repository.js';
+import type {
+  FactoriesAnswer,
+  FactoriesRequest,
+  GitHubEventAck,
+  GitHubEventNotice,
+  GitHubStepToken,
+  GitHubStepTokenRefused,
+  GitHubStepTokenRequest,
+  RunAnswered,
+  RunRecordMessage,
+  RunRefused,
+} from './automationMessages.js';
+import { fieldProblem, isId, isOneOf, isRecord, read, readList, refused } from './read.js';
+import type { ReadResult } from './read.js';
+import { isRepository } from './repository.js';
+import type { Repository } from './repository.js';
 
 /**
  * The most one message's JSON may be on the runner's socket, in bytes of UTF-8: both sides refuse
@@ -46,7 +41,7 @@ export function isHarness(value: unknown): value is Harness {
   return typeof value === 'string' && (HARNESSES as readonly string[]).includes(value);
 }
 
-const LOCAL_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /**
  * The origin a session's host listens on, as `exposePort` gives it: an `https:` origin, or an
@@ -65,7 +60,7 @@ export function isHostUrl(value: unknown): value is string {
   // `origin` leaves out user info, path, query and fragment, so only the bare origin equals it.
   if (url.origin !== value) return false;
   if (url.protocol === 'https:') return true;
-  return url.protocol === 'http:' && LOCAL_HOSTS.includes(url.hostname);
+  return url.protocol === 'http:' && LOCAL_HOSTS.has(url.hostname);
 }
 
 /** How a session's sandbox ended, as far as the runner reports it. */

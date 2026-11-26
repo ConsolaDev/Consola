@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ArrowRight,
   Bell,
@@ -19,8 +20,8 @@ import {
   UserCheck,
   Wrench,
   Zap,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';

@@ -3,7 +3,8 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, beforeEach, inject, vi } from 'vite-plus/test';
 import { page, server } from 'vite-plus/test/browser';
 import type { AgentChatProps } from '../index.ts';
-import { HOST_SESSION_KEY, type HostSession, type ProvidedHost } from './hostSessionKey.ts';
+import { HOST_SESSION_KEY } from './hostSessionKey.ts';
+import type { HostSession, ProvidedHost } from './hostSessionKey.ts';
 
 declare global {
   var IS_REACT_ACT_ENVIRONMENT: boolean | undefined;

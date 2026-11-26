@@ -5,15 +5,10 @@ import {
   DEFAULT_WORKTREE_CLEANUP_RULES,
   describeTrigger,
   normalizeRules,
-  type WorktreeCleanupRules,
 } from '../../shared/worktreeCleanup';
-import {
-  type DiskFacts,
-  judge,
-  type JudgeRequest,
-  QUIET_PERIOD_MS,
-  type UserFacts,
-} from './policy';
+import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
+import { judge, QUIET_PERIOD_MS } from './policy';
+import type { DiskFacts, JudgeRequest, UserFacts } from './policy';
 
 const NOW = 10 * 24 * 60 * 60_000;
 const DAY = 24 * 60 * 60_000;

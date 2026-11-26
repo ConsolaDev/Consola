@@ -1,31 +1,17 @@
-import {
-  type KeyboardEvent,
-  type MouseEvent,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from 'react';
-import {
-  type DragMoveEvent,
-  useDndContext,
-  useDndMonitor,
-  useDraggable,
-  useDroppable,
-} from '@dnd-kit/core';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent, MouseEvent, ReactNode } from 'react';
+import { useDndContext, useDndMonitor, useDraggable, useDroppable } from '@dnd-kit/core';
+import type { DragMoveEvent } from '@dnd-kit/core';
 import * as Tabs from '@radix-ui/react-tabs';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Maximize2, Minimize2, Plus, X } from 'lucide-react';
-import {
-  type DraggedTab,
-  type DropZone,
-  draggedTabOf,
-  insertionIndex,
-} from '../../sidePanel/dropTarget';
-import { NEW_TAB, type GroupPosition, type TabGroupNode, type TabId } from '../../sidePanel/layout';
+import { draggedTabOf, insertionIndex } from '../../sidePanel/dropTarget';
+import type { DraggedTab, DropZone } from '../../sidePanel/dropTarget';
+import { NEW_TAB } from '../../sidePanel/layout';
+import type { GroupPosition, TabGroupNode, TabId } from '../../sidePanel/layout';
 import { markDots } from '../../sidePanel/marks';
-import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
+import { tabKind } from '../../sidePanel/tabKinds';
+import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer } from './dragPointer';
 import {

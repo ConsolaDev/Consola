@@ -1,4 +1,5 @@
-import { expect, test, type ElectronApplication } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -8,10 +9,10 @@ import { launchElectron } from './helpers/electron';
 /** Answer the next native folder dialogs with these folders, as if picked by hand. */
 async function stubFolderDialog(app: ElectronApplication, folders: string[]) {
   await app.evaluate(({ dialog }, filePaths) => {
-    dialog.showOpenDialog = (async () => ({
+    dialog.showOpenDialog = async () => ({
       canceled: false,
       filePaths,
-    })) as typeof dialog.showOpenDialog;
+    });
   }, folders);
 }
 

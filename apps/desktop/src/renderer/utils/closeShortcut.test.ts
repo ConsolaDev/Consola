@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { type CloseState, closeTarget } from './closeShortcut';
+import { closeTarget } from './closeShortcut';
+import type { CloseState } from './closeShortcut';
 
 /**
  * A session pane with nothing else open, the Files tab in front on screen

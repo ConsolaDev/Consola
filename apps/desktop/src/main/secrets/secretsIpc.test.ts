@@ -5,7 +5,8 @@ import { PERSONAL_FACTORY } from '@consola/automation-engine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../shared/constants';
 import { JsonStateFile } from '../state/JsonStateFile';
-import { BindingsStore, type SecretBindingsFile } from './BindingsStore';
+import { BindingsStore } from './BindingsStore';
+import type { SecretBindingsFile } from './BindingsStore';
 import { secretPrograms } from './programs';
 import { REFERENCE_WORDS } from './references';
 import { registerSecretsIpc, removeSecretsIpc, SECRETS_CHANNELS } from './secretsIpc';
@@ -60,7 +61,7 @@ function wire(ids: string[] = ['ws-1', 'ws-2']) {
   };
   const loginEnv = vi.fn(async (): Promise<NodeJS.ProcessEnv> => ({ PATH: '/usr/bin:/bin' }));
   registerSecretsIpc({
-    ipc: ipc as never,
+    ipc,
     workspaces,
     bindings,
     runner: automations,
@@ -78,7 +79,7 @@ describe('Settings › Secrets channels', () => {
     expect([...SECRETS_CHANNELS].sort()).toEqual(
       [IPC_CHANNELS.SECRETS_LIST, IPC_CHANNELS.SECRETS_BIND, IPC_CHANNELS.SECRETS_UNBIND].sort(),
     );
-    removeSecretsIpc(ipc as never);
+    removeSecretsIpc(ipc);
     expect(removed.sort()).toEqual([...SECRETS_CHANNELS].sort());
   });
 

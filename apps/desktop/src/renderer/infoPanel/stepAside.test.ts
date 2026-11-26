@@ -6,8 +6,8 @@ import {
   infoPanelShown,
   keepAfter,
   toggledInfoPanel,
-  type InfoPanelRoom,
 } from './stepAside';
+import type { InfoPanelRoom } from './stepAside';
 
 /** The default window's session pane, with the sidebar shown. */
 const NARROW = 704;

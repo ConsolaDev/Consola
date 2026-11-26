@@ -1,20 +1,21 @@
 import { Fragment, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  type Active,
-  type Announcements,
   DndContext,
-  type DragEndEvent,
   DragOverlay,
   MouseSensor,
   useDndContext,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
+import type { Active, Announcements, DragEndEvent } from '@dnd-kit/core';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { type DropZone, draggedTabOf, splitEdge } from '../../sidePanel/dropTarget';
-import { groupPosition, groupsOf, type TabId, visibleGroups } from '../../sidePanel/layout';
-import { tabKind, type TabFacts } from '../../sidePanel/tabKinds';
+import { draggedTabOf, splitEdge } from '../../sidePanel/dropTarget';
+import type { DropZone } from '../../sidePanel/dropTarget';
+import { groupPosition, groupsOf, visibleGroups } from '../../sidePanel/layout';
+import type { TabId } from '../../sidePanel/layout';
+import { tabKind } from '../../sidePanel/tabKinds';
+import type { TabFacts } from '../../sidePanel/tabKinds';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import { dragPointer, pointerWithinNoted } from './dragPointer';
 import { focusTrigger, keyboardInPage, swallowHeldKeyRepeats } from './keyboardAfterClose';

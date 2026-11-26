@@ -1,6 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { CdpRelay, type CdpRelayOptions, DEVTOOLS_OPEN_MESSAGE, type RelayGuest } from './CdpRelay';
+import { CdpRelay, DEVTOOLS_OPEN_MESSAGE } from './CdpRelay';
+import type { CdpRelayOptions, RelayGuest } from './CdpRelay';
 import { PAGE_SESSION_ID } from './cdpRelayProtocol';
 
 type Message = Record<string, unknown>;
@@ -164,7 +165,7 @@ describe('CdpRelay as Playwright’s transport', () => {
     const { fake, call } = open();
     expect(await call(1, 'Target.createTarget', { url: 'about:blank' })).toEqual({
       id: 1,
-      error: { code: -32000, message: expect.stringContaining('Target.createTarget') },
+      error: { code: -32_000, message: expect.stringContaining('Target.createTarget') },
     });
     expect(await call(2, 'Storage.getCookies', {})).toHaveProperty('error');
     expect(fake.commands).toEqual([]);
@@ -238,9 +239,9 @@ describe('CdpRelay as Playwright’s transport', () => {
     );
     expect(downloads).toHaveProperty('result', {});
     // A session id the page never announced gets nowhere.
-    expect(
-      await call(id++, 'Runtime.evaluate', { expression: '1' }, 'HOST-SESSION'),
-    ).toHaveProperty('error');
+    expect(await call(id, 'Runtime.evaluate', { expression: '1' }, 'HOST-SESSION')).toHaveProperty(
+      'error',
+    );
     expect(fake.commands).toEqual([]);
   });
 });

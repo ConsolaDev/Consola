@@ -3,7 +3,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { getDriverDescriptor } from '../../shared/constants';
-import type { HarnessDriverId } from '../../shared/types';
 import { AntigravityDriver, withTitleSettings } from './AntigravityDriver';
 import { getDriver } from './index';
 
@@ -29,11 +28,11 @@ afterEach(() => {
   fs.rmSync(configDir, { recursive: true, force: true });
 });
 
-const driver = () => getDriver('antigravity' as HarnessDriverId);
+const driver = () => getDriver('antigravity');
 const config = () => ({ binaryPath, configDir, extraArgs: [] as string[] });
 const launch = (resume = false) => ({ sessionId, resume, cwd: configDir });
 
-function writeTranscript(conversationId: string, lines: Record<string, unknown>[]): void {
+function writeTranscript(conversationId: string, lines: Array<Record<string, unknown>>): void {
   const dir = path.join(configDir, 'brain', conversationId, '.system_generated', 'logs');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(

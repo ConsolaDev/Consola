@@ -1,4 +1,5 @@
-import { type CellRefusal, messageForCellRefusal } from './cell';
+import { messageForCellRefusal } from './cell';
+import type { CellRefusal } from './cell';
 import type { RunApproval } from './runs';
 import { agoInWords } from './runWords';
 import type { WorkspaceMember } from './teams';

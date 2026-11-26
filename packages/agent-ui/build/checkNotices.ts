@@ -53,7 +53,7 @@ export const problemsIn = (notices: string): string[] => {
   return problems;
 };
 
-if (process.argv[1] === fileURLToPath(import.meta.url)) {
+if (process.argv[1] === import.meta.filename) {
   const file = fileURLToPath(new URL('../dist/THIRD-PARTY-NOTICES', import.meta.url));
   let notices: string;
   try {

@@ -52,7 +52,12 @@ export function InboxSectionGroup({
       className={`inbox-section ${collapsed ? 'collapsed' : ''}`}
       data-testid={`inbox-section-${section}`}
     >
-      <button className="inbox-section-toggle" aria-expanded={!collapsed} onClick={onToggle}>
+      <button
+        type="button"
+        className="inbox-section-toggle"
+        aria-expanded={!collapsed}
+        onClick={onToggle}
+      >
         {collapsed ? (
           <ChevronRight size={14} aria-hidden="true" />
         ) : (

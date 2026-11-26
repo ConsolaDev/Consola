@@ -94,13 +94,13 @@ test('adds an Antigravity harness in settings, launches a configured session, an
       '.terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider',
     );
     const sliderTop = () =>
-      slider.evaluate((element) => parseFloat((element as HTMLElement).style.top));
+      slider.evaluate((element) => Number.parseFloat((element as HTMLElement).style.top));
     await expect.poll(sliderTop).toBeGreaterThan(0);
     const bottom = await sliderTop();
     await page.locator('.terminal-surface .xterm-screen').hover();
     await page.mouse.wheel(0, -600);
     await expect.poll(sliderTop).toBeLessThan(bottom);
-    await page.mouse.wheel(0, 10000);
+    await page.mouse.wheel(0, 10_000);
     await expect.poll(sliderTop).toBe(bottom);
 
     // A tab can switch conversations via /new without restarting its PTY.

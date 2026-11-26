@@ -1,9 +1,5 @@
-import {
-  type ConnectAnswer,
-  type DisconnectAnswer,
-  type GitHubResult,
-  whenConnected,
-} from './connections';
+import { whenConnected } from './connections';
+import type { ConnectAnswer, DisconnectAnswer, GitHubResult } from './connections';
 
 const ON_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 const AT_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' });

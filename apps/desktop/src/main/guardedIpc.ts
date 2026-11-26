@@ -1,4 +1,5 @@
-import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain } from 'electron';
+import type { IpcMainEvent, IpcMainInvokeEvent } from 'electron';
 import { isTrustedSender } from './ipcSenderGuard';
 import { isConsolaContents } from './windowRegistry';
 
@@ -18,17 +19,19 @@ function trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
 // Handlers declare their own argument types, as they do on `ipcMain`, so the
 // rest parameters cannot be narrower than `any`.
 export const guardedIpc = {
-  // biome-ignore lint/suspicious/noExplicitAny: see above
+  // oxlint-disable-next-line typescript/no-explicit-any -- see above
   handle(channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => unknown): void {
     ipcMain.handle(channel, (event, ...args) => {
       if (!trusted(event)) throw new Error(`Refused ${channel}: caller is not a Consola window`);
+      // oxlint-disable-next-line typescript/no-unsafe-argument -- see above
       return listener(event, ...args);
     });
   },
-  // biome-ignore lint/suspicious/noExplicitAny: see above
+  // oxlint-disable-next-line typescript/no-explicit-any -- see above
   on(channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void): void {
     ipcMain.on(channel, (event, ...args) => {
       if (!trusted(event)) return;
+      // oxlint-disable-next-line typescript/no-unsafe-argument -- see above
       listener(event, ...args);
     });
   },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { parseFactorySpec, type RunItem, type StepsAutomation } from '@consola/factory-spec';
+import { parseFactorySpec } from '@consola/factory-spec';
+import type { RunItem, StepsAutomation } from '@consola/factory-spec';
 import type { RunDefinition } from '../steps/definition';
 import { runItemSource } from './itemSource';
 
@@ -7,8 +8,9 @@ const STEPS = '    steps:\n      - id: look\n        prompt: Look.\n';
 
 function definition(fields: string): RunDefinition {
   const parsed = parseFactorySpec(`version: 1\nautomations:\n  - name: a\n${fields}${STEPS}`);
-  if (parsed.issues.length > 0)
+  if (parsed.issues.length > 0) {
     throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+  }
   return { automation: parsed.automations[0] as StepsAutomation, version: 'v', actions: {} };
 }
 

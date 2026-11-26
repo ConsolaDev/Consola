@@ -254,7 +254,7 @@ export function useTerminal({
         setTerminalState(instanceId, { hasExited: snapshot.exited });
         terminal.focus();
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error('Failed to start terminal:', error);
         attached = true;
         terminal.write(

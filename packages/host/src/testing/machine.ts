@@ -115,7 +115,7 @@ const fakeCli = (name: string, record: string) =>
 export const writeFakeClis = (
   bin: string,
   record: string,
-  names: ReadonlyArray<string> = FAKE_CLIS,
+  names: readonly string[] = FAKE_CLIS,
 ) => {
   for (const name of names) {
     const script = join(bin, name);
@@ -142,7 +142,7 @@ export const readCalls = (record: string): CliCall[] =>
 const RECORD_COPY = process.env.CONSOLA_HOST_CLI_RECORD;
 
 /** Appends `calls` (or that none ran) to `RECORD_COPY`, each line headed by `label`. */
-export const copyRecord = (label: string, calls: ReadonlyArray<CliCall>) => {
+export const copyRecord = (label: string, calls: readonly CliCall[]) => {
   if (RECORD_COPY === undefined) return;
   const lines = calls.map((call) => `${label}\t${Object.values(call).join('\t')}\n`);
   appendFileSync(RECORD_COPY, lines.length > 0 ? lines.join('') : `${label}\t(no CLI ran)\n`);

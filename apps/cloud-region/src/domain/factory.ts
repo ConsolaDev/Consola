@@ -1,13 +1,8 @@
 import type { WorkspaceRole } from '@consola/cloud-contract';
-import {
-  type Automation,
-  type FactoryNotice,
-  type FactorySpecIssue,
-  MAX_FACTORY_TEXT_BYTES,
-  parseFactory,
-  storedFactoryFiles,
-} from '@consola/factory-spec';
-import { type Team, teamsSeenBy } from './team.js';
+import { MAX_FACTORY_TEXT_BYTES, parseFactory, storedFactoryFiles } from '@consola/factory-spec';
+import type { Automation, FactoryNotice, FactorySpecIssue } from '@consola/factory-spec';
+import { teamsSeenBy } from './team.js';
+import type { Team } from './team.js';
 
 /**
  * A workspace's factories, held in its region's cell: a name, the team that owns it, where its

@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
-import { initialsOf, type Me } from '../domain/me';
+import { initialsOf } from '../domain/me';
+import type { Me } from '../domain/me';
 
 /**
  * A person's picture, round, or their initials where they have none. It says nothing to a

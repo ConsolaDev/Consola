@@ -13,7 +13,10 @@ function innermostMessage(error: unknown): string | undefined {
       message = current.message;
     } else if (current instanceof AggregateError) {
       // A host with several addresses that all refuse rejects with one of these, unworded.
-      const first = current.errors.find((each) => each instanceof Error && each.message !== '');
+      const errors: unknown[] = current.errors;
+      const first = errors.find(
+        (each): each is Error => each instanceof Error && each.message !== '',
+      );
       if (first) message = first.message;
     }
     current = current.cause;

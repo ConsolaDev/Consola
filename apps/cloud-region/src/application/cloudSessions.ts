@@ -1,19 +1,15 @@
-import {
-  PASS_MAX_LIFETIME_SECONDS,
-  passClaims,
-  type SessionUpdate,
-} from '@consola/runner-protocol';
+import { PASS_MAX_LIFETIME_SECONDS, passClaims } from '@consola/runner-protocol';
+import type { SessionUpdate } from '@consola/runner-protocol';
 import type { Caller } from '../domain/caller.js';
 import {
   belongsToRunner,
   CELL_FAILURE_CODES,
-  type CloudSession,
   isEnded,
   readStartRequest,
   runnerFailure,
-  type StartRequest,
   transition,
 } from '../domain/cloudSession.js';
+import type { CloudSession, StartRequest } from '../domain/cloudSession.js';
 import type {
   CloudSessionChanges,
   CloudSessionPorts,

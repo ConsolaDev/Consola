@@ -43,12 +43,12 @@ export function secretTemplateReason(name?: string): string {
  * are unset (a workspace with no bound account), so those are refused too
  * (review M2); `GH_ENTERPRISE_TOKEN` already is, by `env:`'s `GH_` prefix.
  */
-const GH_IDENTITY_NAMES: readonly string[] = [
+const GH_IDENTITY_NAMES: ReadonlySet<string> = new Set<string>([
   'GH_TOKEN',
   'GH_HOST',
   'GITHUB_TOKEN',
   'GITHUB_ENTERPRISE_TOKEN',
-];
+]);
 const GH_IDENTITY =
   "Commands act as the workspace's bound GitHub account, whose token Consola puts in `GH_TOKEN` (decision 37). To act as another account, bind it to the workspace.";
 
@@ -65,16 +65,20 @@ export type SecretPlace = 'command' | 'server';
  * identity is a command's only: a server never gets the bound account's token, so it has none to override.
  */
 export function secretNameProblem(name: string, place: SecretPlace = 'command'): string | null {
-  if (name.startsWith('CONSOLA_'))
+  if (name.startsWith('CONSOLA_')) {
     return "`CONSOLA_` is Consola's own namespace; pick another name.";
+  }
   if (!ENV_NAME_PATTERN.test(name)) return PATTERN;
-  if (name.length > MAX_SECRET_NAME_LENGTH)
+  if (name.length > MAX_SECRET_NAME_LENGTH) {
     return `A secret's name is at most ${MAX_SECRET_NAME_LENGTH} characters.`;
-  if (place === 'command' && GH_IDENTITY_NAMES.includes(name)) return GH_IDENTITY;
-  if (name === 'CLAUDE_CONFIG_DIR')
+  }
+  if (place === 'command' && GH_IDENTITY_NAMES.has(name)) return GH_IDENTITY;
+  if (name === 'CLAUDE_CONFIG_DIR') {
     return "`CLAUDE_CONFIG_DIR` is the harness's own; a secret can't set it.";
-  if (isRefusedEnvName(name))
+  }
+  if (isRefusedEnvName(name)) {
     return `\`${name}\` is refused: a secret's name follows \`env:\`'s rules, and ${REFUSED_NAMES_LIST}, make a program run a value.`;
+  }
   return null;
 }
 
@@ -104,9 +108,9 @@ export function parseSecretNames(
     let problem: string | null;
     if (typeof name !== 'string') problem = PATTERN;
     else if (names.includes(name)) problem = `\`${name}\` is listed twice in \`secrets:\`.`;
-    else if (envNames.includes(name))
+    else if (envNames.includes(name)) {
       problem = `\`${name}\` is in both \`env:\` and \`secrets:\`; a value comes from one place.`;
-    else problem = secretNameProblem(name, place);
+    } else problem = secretNameProblem(name, place);
     if (problem === null) names.push(name as string);
     else {
       ok = false;
@@ -152,23 +156,27 @@ export function secretUsesOf(automation: Automation, servers?: Servers): SecretU
   const uses: SecretUse[] = [];
   for (const step of commandsAndCalls(automation)) {
     if (step.kind === 'run') {
-      for (const name of step.secrets ?? [])
+      for (const name of step.secrets ?? []) {
         uses.push({ name, automation: automation.name, step: step.id });
+      }
       continue;
     }
     const server = serverOf(step, servers);
     if (!server) continue;
-    for (const name of server.secrets ?? [])
+    for (const name of server.secrets ?? []) {
       uses.push({
         name,
         automation: automation.name,
         step: step.id,
         server: { name: step.server, transport: server.transport },
       });
+    }
   }
-  if (automation.trigger.kind === 'poll')
-    for (const name of automation.trigger.secrets ?? [])
+  if (automation.trigger.kind === 'poll') {
+    for (const name of automation.trigger.secrets ?? []) {
       uses.push({ name, automation: automation.name, check: true });
+    }
+  }
   return uses;
 }
 
@@ -188,7 +196,8 @@ export function secretNamesOf(
     const secrets = step.kind === 'run' ? step.secrets : serverOf(step, options.servers)?.secrets;
     for (const name of secrets ?? []) names.add(name);
   }
-  if (!options.runOnly && !options.dryRun && automation.trigger.kind === 'poll')
+  if (!options.runOnly && !options.dryRun && automation.trigger.kind === 'poll') {
     for (const name of automation.trigger.secrets ?? []) names.add(name);
+  }
   return [...names].sort();
 }

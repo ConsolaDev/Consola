@@ -6,34 +6,35 @@ import {
   CELL_TOKEN_ALGORITHM,
   CELL_TOKEN_KEYS_PATH,
   CELL_TOKEN_LIFETIME_SECONDS,
-  type CellTokenGrant,
   cellTokenClaims,
   GITHUB_EVENT_ANSWER,
   GITHUB_EVENT_DELIVERY_MEDIA_TYPE,
   GITHUB_EVENT_DELIVERY_PATH,
   GITHUB_EVENT_TYPE,
-  type GitHubEventMessage,
   OUTBOX_ANSWER,
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
-  type OutboxMessage,
   readOutOfOrderAnswer,
   WORKSPACE_ROLES,
-  type WorkspaceChange,
+} from '@consola/cloud-contract';
+import type {
+  CellTokenGrant,
+  GitHubEventMessage,
+  OutboxMessage,
+  WorkspaceChange,
 } from '@consola/cloud-contract';
 import {
-  type CellMessage,
   PASS_AUDIENCE,
   PASS_MAX_LIFETIME_SECONDS,
   PASS_TYPE,
   readCellMessage,
   readPassClaims,
 } from '@consola/runner-protocol';
+import type { CellMessage } from '@consola/runner-protocol';
 import { asc, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import {
-  type CompactJWSHeaderParameters,
   CompactSign,
   calculateJwkThumbprint,
   compactVerify,
@@ -41,23 +42,13 @@ import {
   exportJWK,
   exportSPKI,
   generateKeyPair,
-  type JSONWebKeySet,
-  type JWK,
-  type JWTHeaderParameters,
   importJWK,
   SignJWT,
 } from 'jose';
+import type { CompactJWSHeaderParameters, JSONWebKeySet, JWK, JWTHeaderParameters } from 'jose';
 import WebSocket from 'ws';
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  type MockInstance,
-  vi,
-} from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MockInstance } from 'vitest';
 import type { ZodType } from 'zod';
 import type { CellEnv } from './adapters/http/caller.js';
 import {
@@ -83,9 +74,10 @@ import {
   postGitHubEventDelivery,
   postTeam,
   putTeamMember,
-  type ROUTES,
 } from './adapters/http/contract.js';
-import { type Database, migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import type { ROUTES } from './adapters/http/contract.js';
+import { migrateDatabase, openDatabase } from './adapters/persistence/database.js';
+import type { Database } from './adapters/persistence/database.js';
 import { createDrizzleStores } from './adapters/persistence/stores.js';
 import {
   cloudSessions,
@@ -95,8 +87,10 @@ import {
 } from './adapters/persistence/tables.js';
 import { composeCell } from './compose.js';
 import { recordRun } from './application/runs.js';
-import { type CellConfig, loadConfig } from './config.js';
-import { NO_STEP_DETAIL, type RunWrite, type StepRecord } from './domain/run.js';
+import { loadConfig } from './config.js';
+import type { CellConfig } from './config.js';
+import { NO_STEP_DETAIL } from './domain/run.js';
+import type { RunWrite, StepRecord } from './domain/run.js';
 import { FIRST_TEAM_NAME } from './domain/team.js';
 
 /** `vi.waitFor` with a timeout in line with the suite's own, so a loaded machine does not flake. */
@@ -534,7 +528,7 @@ describe('every route', () => {
     ];
     expect(routes.length).toBeGreaterThan(2);
     for (const { method, path } of routes) {
-      const response = await app.request(path.replace(/:[^/]+/g, 'x'), {
+      const response = await app.request(path.replaceAll(/:[^/]+/g, 'x'), {
         method: method === 'ALL' ? 'GET' : method,
       });
       const route = `${method} ${path}`;
@@ -581,9 +575,10 @@ describe("a workspace's rows", () => {
     // A route added the way the cell's routes are: behind the check, scoped by its caller.
     const notes = new Hono<CellEnv>();
     notes.get('/', async (c) => {
+      // oxlint-disable-next-line typescript/no-unnecessary-type-assertion -- the Database type's raw results are `unknown`; a type argument cannot name the rows
       const result = (await db.execute(
         sql`select body from note where workspace_id = ${c.var.caller.workspaceId}`,
-      )) as unknown as { rows: { body: string }[] };
+      )) as unknown as { rows: Array<{ body: string }> };
       return c.json(result.rows.map((row) => row.body));
     });
     app.route('/api/notes', notes);
@@ -1326,7 +1321,7 @@ describe('factories', () => {
     expect(answer.status).toBe(400);
     const { error, issues } = answer.body as {
       error: string;
-      issues: { file?: string; line?: number; message: string }[];
+      issues: Array<{ file?: string; line?: number; message: string }>;
     };
     expect(error).toBe('invalid_files');
     expect(issues).toContainEqual(
@@ -1671,7 +1666,7 @@ describe('POST /api/github/events', () => {
     const statuses = await Promise.all(
       Array.from({ length: 4 }, async () => (await postEvent(delivery)).status),
     );
-    expect(statuses.sort()).toEqual([200, 200, 200, 201]);
+    expect(statuses.sort((a, b) => a - b)).toEqual([200, 200, 200, 201]);
     // A replay with another payload under the same delivery id changes nothing either.
     const replay = pullRequestOpened({ payload: { action: 'closed', installation: { id: 41 } } });
     expect(await passOn(replay)).toEqual({ status: 200, body: { recorded: true } });
@@ -2272,15 +2267,20 @@ const personsRequest = (id: string, factoryId: string, overrides: Partial<RunWri
 
 async function recordRuns(...runs: RunWrite[]) {
   const store = createDrizzleStores(db).runs;
-  for (const run of runs)
+  for (const run of runs) {
     expect([run.id, (await recordRun(store, 'acme', run)).kind]).toEqual([run.id, 'recorded']);
+  }
 }
 
 type RunListBody = {
-  runs: { id: string; phase: string; children: unknown; title: string }[];
+  runs: Array<{ id: string; phase: string; children: unknown; title: string }>;
   nextCursor: string | null;
   counts: Record<string, number>;
-  facets: { factories: { id: string }[]; teams: { id: string }[]; automations: unknown[] };
+  facets: {
+    factories: Array<{ id: string }>;
+    teams: Array<{ id: string }>;
+    automations: unknown[];
+  };
 };
 
 async function runsSeenBy(who: Partial<CellTokenGrant>, search = '') {

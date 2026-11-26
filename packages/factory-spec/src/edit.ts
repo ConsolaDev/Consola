@@ -1,6 +1,13 @@
 import { Document, isMap, isPair, isScalar, isSeq, parseDocument, YAMLSeq } from 'yaml';
 import { parseAutomationEntry } from './entry';
 
+/** `text` without the newlines it ends with. A loop: `\n+$` backtracks quadratically. */
+function withoutTrailingNewlines(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === '\n') end--;
+  return text.slice(0, end);
+}
+
 /**
  * `text` with one more automation at the end of its `automations` list, and
  * every other byte as the person wrote it.
@@ -16,13 +23,14 @@ import { parseAutomationEntry } from './entry';
  */
 export function appendAutomationEntry(text: string, entryYaml: string): string {
   const doc = parseDocument(text);
-  if (doc.errors.length > 0)
+  if (doc.errors.length > 0) {
     throw new Error(`factory.yml does not parse, so nothing was added: ${doc.errors[0].message}`);
+  }
   const entry = parseDocument(entryYaml);
   if (entry.errors.length > 0 || !isSeq(entry.contents) || entry.contents.items.length !== 1) {
     throw new Error('Expected exactly one automation, written as a list item.');
   }
-  const lines = entryYaml.replace(/\n+$/, '').split('\n');
+  const lines = withoutTrailingNewlines(entryYaml).split('\n');
   const before = automationsCount(doc);
   const result = splice(text, doc, lines);
   const after = parseDocument(result);
@@ -101,8 +109,9 @@ function automationsCount(doc: Document): number {
  */
 export function replaceAutomationEntry(text: string, name: string, entryYaml: string): string {
   const doc = parseDocument(text);
-  if (doc.errors.length > 0)
+  if (doc.errors.length > 0) {
     throw new Error(`factory.yml does not parse, so nothing was changed: ${doc.errors[0].message}`);
+  }
   const found = findEntry(text, doc, name);
   if (!found) throw new Error(`There is no automation named "${name}" in factory.yml.`);
   const entry = parseAutomationEntry(entryYaml);

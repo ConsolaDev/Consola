@@ -20,9 +20,8 @@ import {
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * The factory folder applies as a unit: from its first clean apply on, a
@@ -90,9 +89,11 @@ function acceptAll(h: StepsHarness): void {
   const read = parseFactory(factoryFilesOf(Object.fromEntries(h.texts())));
   for (const automation of read.automations) {
     const hashes: Record<string, string> = {};
-    for (const step of automation.steps ?? [])
-      if (step.kind === 'agent' && step.agent !== undefined)
+    for (const step of automation.steps ?? []) {
+      if (step.kind === 'agent' && step.agent !== undefined) {
         hashes[step.agent] = read.agents[step.agent].hash;
+      }
+    }
     h.store.accept(
       `${WORKSPACE_ID} ${automation.name}`,
       automationVersion(automation, stepsResolvedBody({}, hashes)),

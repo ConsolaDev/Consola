@@ -77,10 +77,10 @@ export function AutoSettleExplanation() {
             </div>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={showShelf}>
+            <button type="button" className="dialog-button-secondary" onClick={showShelf}>
               Show Settled
             </button>
-            <button className="dialog-button-primary" onClick={acknowledge}>
+            <button type="button" className="dialog-button-primary" onClick={acknowledge}>
               Got it
             </button>
           </div>

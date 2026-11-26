@@ -2,7 +2,7 @@ import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 /** Stream rollouts so reading does not load a whole conversation into memory. */
-async function* records(file: string): AsyncGenerator<any> {
+async function* records(file: string): AsyncGenerator<unknown> {
   const input = createReadStream(file, { encoding: 'utf8' });
   const lines = createInterface({ input, crlfDelay: Infinity });
   try {
@@ -21,13 +21,21 @@ async function* records(file: string): AsyncGenerator<any> {
   }
 }
 
+/** A parsed JSON value's fields, when it is an object. */
+function fieldsOf(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === 'object' && value !== null
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
 /**
  * The first real user message in a Codex rollout, outer whitespace trimmed.
  * Skips AGENTS.md and injected context. Null when there is none yet.
  */
 export async function readCodexFirstPrompt(rollout: string): Promise<string | null> {
-  for await (const record of records(rollout)) {
-    const payload = record?.payload;
+  for await (const line of records(rollout)) {
+    const record = fieldsOf(line);
+    const payload = fieldsOf(record?.payload);
     let texts: string[] = [];
     if (record?.type === 'event_msg' && payload?.type === 'user_message') {
       if (typeof payload.message === 'string') texts = [payload.message];
@@ -37,9 +45,10 @@ export async function readCodexFirstPrompt(rollout: string): Promise<string | nu
       payload.role === 'user' &&
       Array.isArray(payload.content)
     ) {
-      texts = payload.content
-        .filter((block: any) => block?.type === 'input_text' && typeof block.text === 'string')
-        .map((block: any) => block.text);
+      texts = payload.content.flatMap((item: unknown) => {
+        const block = fieldsOf(item);
+        return block?.type === 'input_text' && typeof block.text === 'string' ? [block.text] : [];
+      });
     }
     const prompt = texts
       .map((text) => text.trim())

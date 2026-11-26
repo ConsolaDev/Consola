@@ -1,20 +1,17 @@
-import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, type SQL, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, ilike, inArray, isNull, or, sql } from 'drizzle-orm';
+import type { SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/pg-core';
 import type { RunFilter, RunFound, RunStore } from '../../application/ports.js';
 import {
-  type CheckedRun,
   childCountsOf,
   movesBackwards,
   NO_RUNS,
-  type Phase,
-  type PhaseCounts,
   phaseOf,
   progressOf,
-  type RunSummary,
-  type RunWrite,
   requestPhase,
   stepRecordOf,
 } from '../../domain/run.js';
+import type { CheckedRun, Phase, PhaseCounts, RunSummary, RunWrite } from '../../domain/run.js';
 import type { RunAnswer } from '../../domain/runApproval.js';
 import type { Database } from './database.js';
 import { FOREIGN_KEY_VIOLATION, failedWith } from './sqlState.js';
@@ -183,7 +180,7 @@ const ofFactory = and(
 );
 
 /** `text` inside a LIKE pattern, its own `%`, `_` and `\` matched as themselves. */
-const likeText = (text: string) => text.replace(/[\\%_]/g, (c) => `\\${c}`);
+const likeText = (text: string) => text.replaceAll(/[\\%_]/g, (c) => `\\${c}`);
 
 /** The workspace's top-level runs the filter keeps, of every phase. */
 function kept(db: Executor, workspaceId: string, filter: RunFilter): SQL | undefined {

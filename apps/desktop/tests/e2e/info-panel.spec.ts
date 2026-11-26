@@ -90,7 +90,7 @@ test.describe('info panel', () => {
       [
         '#!/bin/sh',
         'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
-        'printf "Agent ready\\n"',
+        String.raw`printf "Agent ready\n"`,
         'exec sleep 300',
       ].join('\n'),
       { mode: 0o755 },
@@ -430,7 +430,7 @@ test.describe('info panel', () => {
       shell
         .locator('.xterm-rows > div')
         .evaluateAll((rows) => rows.map((row) => (row.textContent ?? '').trim()));
-    await input.pressSequentially("printf 'rea''dy\\n'; cat -v");
+    await input.pressSequentially(String.raw`printf 'rea''dy\n'; cat -v`);
     await page.keyboard.press('Enter');
     await expect.poll(shellLines, { timeout: 15_000 }).toContain('ready');
 
@@ -699,7 +699,7 @@ test.describe('info panel', () => {
     await standInClipboard();
     await folderRow('Worktree').click();
     // The click closes the card; it opens again to say so, for 1.5 s.
-    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1000 });
     expect(await copiedPaths()).toEqual([docs]);
     await expect(checkoutCardHint()).toHaveText('Click to copy the folder path');
 
@@ -912,7 +912,7 @@ test.describe('info panel', () => {
     await app.close();
     const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
-      workspaces: { name: string; sessions: Record<string, unknown>[] }[];
+      workspaces: Array<{ name: string; sessions: Array<Record<string, unknown>> }>;
     };
     const workspace = saved.workspaces.find((candidate) => candidate.name === 'Sprocket')!;
     const sibling = workspace.sessions.find((session) => session.name === 'Review notes')!;
@@ -1041,7 +1041,7 @@ test.describe('info panel', () => {
     );
     await expect(cardFolder).toHaveText(src);
     await folderRow('Main checkout').click();
-    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1_000 });
+    await expect(checkoutCardHint()).toHaveText('Copied the folder path', { timeout: 1000 });
     expect(await copiedPaths()).toEqual([src]);
   });
 

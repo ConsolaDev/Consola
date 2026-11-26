@@ -6,7 +6,8 @@ import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
-import { type AttentionLedgerStateFile, JsonAttentionLedger } from './AttentionLedger';
+import { JsonAttentionLedger } from './AttentionLedger';
+import type { AttentionLedgerStateFile } from './AttentionLedger';
 import { HookSignals } from './hookSignals';
 import { SessionSource } from './SessionSource';
 import { settleAndVerify } from './settling';
@@ -30,7 +31,7 @@ let workspace: Workspace;
 /** A conductor `p` with a child `k`, and a lone session `x`. */
 function build(sessions = defaultSessions()) {
   workspace = makeWorkspace({ id: 'w1', sessions });
-  terminals = new Map(sessions.map((session) => [session.instanceId, 'ready' as TerminalStatus]));
+  terminals = new Map(sessions.map((session) => [session.instanceId, 'ready']));
   hooks = new HookSignals();
   source = new SessionSource({
     getWorkspaces: () => [workspace],
@@ -286,7 +287,7 @@ describe('Snoozer waking early', () => {
     snoozer.snooze('w1', ['x'], T0 + DAY, { by: 'person' });
     status('inst-x', 'working');
     status('inst-x', 'ready');
-    vi.advanceTimersByTime(5_000);
+    vi.advanceTimersByTime(5000);
     expect(attention('x')).toBe('snoozed');
   });
 

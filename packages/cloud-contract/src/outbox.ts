@@ -1,14 +1,9 @@
-import {
-  fieldProblem,
-  isId,
-  isRecord,
-  isWholeNumber,
-  type ReadResult,
-  read,
-  refused,
-} from './read.js';
-import { isRegion, type Region } from './region.js';
-import { isWorkspaceRole, type WorkspaceRole } from './workspaceRole.js';
+import { fieldProblem, isId, isRecord, isWholeNumber, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
+import { isRegion } from './region.js';
+import type { Region } from './region.js';
+import { isWorkspaceRole } from './workspaceRole.js';
+import type { WorkspaceRole } from './workspaceRole.js';
 
 /**
  * The changes `cloud-global` tells a workspace's cell about, through its outbox: each message is
@@ -99,8 +94,9 @@ export function readOutboxMessage(value: unknown): ReadResult<OutboxMessage> {
 function readChange(value: unknown): ReadResult<WorkspaceChange> {
   if (!isRecord(value)) return refused('`change` is not an object');
   const { type } = value;
-  if (!isWorkspaceChangeType(type))
+  if (!isWorkspaceChangeType(type)) {
     return refused('`change.type` is not a change the contract names');
+  }
   const fields = fieldProblem(value, CHANGE_FIELDS[type], `the \`${type}\` change`);
   if (fields !== null) return refused(fields);
   if (type === 'workspace.created') return read({ type });

@@ -1,4 +1,5 @@
-import { type RefObject, useLayoutEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
+import type { RefObject } from 'react';
 import { branchSectionShown } from '../../infoPanel/branchLines';
 import { pullRequestSectionView } from '../../infoPanel/sessionPullRequest';
 import type { TabFacts } from '../../sidePanel/tabKinds';

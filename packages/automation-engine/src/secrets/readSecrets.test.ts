@@ -1,14 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { readSecrets, type SecretsRead } from './readSecrets';
-import {
-  PERSONAL_FACTORY,
-  SecretReadError,
-  type SecretBinding,
-  type SecretsPort,
-} from './secretsPort';
+import { readSecrets } from './readSecrets';
+import type { SecretsRead } from './readSecrets';
+import { PERSONAL_FACTORY, SecretReadError } from './secretsPort';
+import type { SecretBinding, SecretsPort } from './secretsPort';
 import { maskFormsOf } from './values';
 
-const A_VALUE = 'stub-a-secret-7f3a"\\back%slash';
+const A_VALUE = String.raw`stub-a-secret-7f3a"\back%slash`;
 const B_VALUE = 'stub-b-secret-9c1e+/= x';
 const LABELS: Record<string, string> = {
   A_TOKEN: 'the keychain (consola/ws-1/personal · A_TOKEN)',
@@ -179,22 +176,25 @@ describe('readSecrets', () => {
         'boom',
         'too short',
         'gave no value',
-      ])
+      ]) {
         expect(words).not.toContain(where);
+      }
     }
   });
 
   it('never words an error with a value it held', () => {
     const errors = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.error, outcome.told]));
     expect(errors.length).toBeGreaterThanOrEqual(6);
-    for (const error of errors)
+    for (const error of errors) {
       for (const value of [
         A_VALUE,
         B_VALUE,
         'q7x2z',
         ...maskFormsOf(A_VALUE),
         ...maskFormsOf(B_VALUE),
-      ])
+      ]) {
         expect(error).not.toContain(value);
+      }
+    }
   });
 });

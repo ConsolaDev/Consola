@@ -43,8 +43,9 @@ export function settleBatchMessage(result: SettleBatchResult, asked: number): st
   const removed = new Set(result.removed ?? []);
   if (removed.size === 0) return batchMessage(SETTLE, result, asked);
   // Everything asked for was deleted: nothing went to the shelf to speak of.
-  if (result.applied.length === asked && result.applied.every((id) => removed.has(id)))
+  if (result.applied.length === asked && result.applied.every((id) => removed.has(id))) {
     return `Removed ${sessions(removed.size)}: ${removed.size === 1 ? 'it' : 'they'} never had a message.`;
+  }
   const removal =
     removed.size === 1
       ? '1 never had a message, so it was removed.'
@@ -70,8 +71,9 @@ export async function unsettleManyWithUndo(
       ? `None of those ${sessionIds.length} sessions is settled.`
       : `Moved ${sessions(done)} back to the list.`;
   if (done === 0) showToast(message);
-  else
+  else {
     showToast(message, { label: 'Undo', run: () => void attentionBridge.restore(result.memento) });
+  }
 }
 
 /**
@@ -85,8 +87,9 @@ export async function deleteManyConfirmed(workspaceId: string, picked: Session[]
     !window.confirm(
       `Delete ${sessions(picked.length)}? This removes them and their chat history, and cannot be undone.`,
     )
-  )
+  ) {
     return;
+  }
   for (const session of picked) await deleteSessionCompletely(workspaceId, session);
   showToast(`Deleted ${sessions(picked.length)}.`);
 }

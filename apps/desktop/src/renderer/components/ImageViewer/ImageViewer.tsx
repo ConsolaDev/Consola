@@ -1,13 +1,5 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-  type KeyboardEvent,
-  type MouseEvent,
-  type PointerEvent,
-} from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { KeyboardEvent, MouseEvent, PointerEvent } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, ZoomIn, ZoomOut } from 'lucide-react';
 import {
@@ -23,10 +15,8 @@ import {
   wheelPixels,
   wheelZoomFactor,
   zoomTo,
-  type Frame,
-  type Point,
-  type View,
 } from './imageZoom';
+import type { Frame, Point, View } from './imageZoom';
 import './styles.css';
 
 export interface ViewedImage {

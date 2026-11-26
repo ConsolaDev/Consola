@@ -18,7 +18,7 @@ type PassCommands = {
 const commands = server.commands as unknown as PassCommands;
 
 /** The ticket each socket was opened with: one the host issued for a pass, never the pass. */
-const ticketsOf = (urls: ReadonlyArray<string>) =>
+const ticketsOf = (urls: readonly string[]) =>
   urls.map((url) => new URL(url).searchParams.get('wsTicket'));
 
 it('asks for a new pass when the host ends the connection at its pass’s expiry, and reconnects with it', async () => {

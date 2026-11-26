@@ -3,13 +3,16 @@ import type {
   AgentHarnessQuery,
   EntryAgentsView,
 } from '@consola/automation-engine';
-import { launchFieldsFor, type Harness } from '../../shared/harness';
+import { launchFieldsFor } from '../../shared/harness';
+import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
-import { getDriver, type HarnessDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
+import { getDriver, stepTurnProblem, toolPolicyProblem } from '../drivers';
+import type { HarnessDriver } from '../drivers';
 import { denyReadList } from '../drivers/claudeWriteAgent';
 import type { HarnessVersions } from '../drivers/harnessVersions';
 import { UNKNOWN_CLI_VERSION } from '../drivers/harnessVersions';
-import { type CompileHost, toHarnessConfig } from '../drivers/HarnessDriver';
+import { toHarnessConfig } from '../drivers/HarnessDriver';
+import type { CompileHost } from '../drivers/HarnessDriver';
 import type { HarnessCapabilitiesCache } from '../HarnessCapabilitiesCache';
 import type { McpServersCache, ServersAnswer } from './mcpServersCache';
 
@@ -122,12 +125,15 @@ export function agentHarnessRefusal(
   harnessId: string,
 ): string | null {
   const harness = harnesses.find((candidate) => candidate.id === harnessId);
-  if (!harness)
+  if (!harness) {
     return `\`${harnessId}\` is not one of Consola's harnesses: add it in Settings › Harnesses, or change \`harness:\``;
-  if (harness.archived)
+  }
+  if (harness.archived) {
     return `\`${harnessId}\` is archived: change \`harness:\` to a harness in use`;
-  if (!harness.enabled)
+  }
+  if (!harness.enabled) {
     return `\`${harnessId}\` is turned off: turn it on in Settings › Harnesses, or change \`harness:\``;
+  }
   return null;
 }
 
@@ -311,8 +317,9 @@ export function agentHarnessView(input: {
         : null,
   };
   // A write agent needs a driver that holds it to its environment, whatever else it says.
-  if (refusal === null && writes && (!driver.compileAgent || driver.agentRefusal !== undefined))
+  if (refusal === null && writes && (!driver.compileAgent || driver.agentRefusal !== undefined)) {
     return { ...answer, agentProblem: writeAgentsClaudeOnly(name) };
+  }
   if (refusal === null && driver.agentRefusal !== undefined) {
     return {
       ...answer,
@@ -358,11 +365,13 @@ export function agentHarnessView(input: {
     servers: reported,
     ...(writes && input.host ? { host: input.host(harness) } : {}),
   });
-  if (compiled.ok && writes && compiled.grants.tools !== tools)
+  if (compiled.ok && writes && compiled.grants.tools !== tools) {
     return { ...answer, agentProblem: writeAgentsClaudeOnly(name) };
+  }
   // The agent itself refused (a write agent's checkout, machine or settings): its harness's line.
-  if (!compiled.ok && compiled.about === 'agent')
+  if (!compiled.ok && compiled.about === 'agent') {
     return { ...answer, agentProblem: compiled.problem };
+  }
   if (compiled.ok) {
     // Each whole server's tools as this answer lists them: what a run's definition keeps for its approval card (review S1).
     const knownTools: Record<string, string[]> = {};

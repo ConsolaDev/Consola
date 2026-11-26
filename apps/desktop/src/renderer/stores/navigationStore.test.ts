@@ -33,8 +33,8 @@ import {
   SIDEBAR_WIDTH_DEFAULT,
   SIDEBAR_WIDTH_MAX,
   SIDEBAR_WIDTH_MIN,
-  type NavigationState,
 } from './navigationStore';
+import type { NavigationState } from './navigationStore';
 import { windowBridge } from '../services/windowBridge';
 
 /**

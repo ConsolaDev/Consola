@@ -7,7 +7,7 @@ describe('basename', () => {
   });
 
   it('names the last segment of a windows path', () => {
-    expect(basename('C:\\repos\\sprocket\\forum-admin')).toBe('forum-admin');
+    expect(basename(String.raw`C:\repos\sprocket\forum-admin`)).toBe('forum-admin');
   });
 
   it('ignores trailing separators, so a folder path still names its folder', () => {

@@ -1,4 +1,5 @@
-import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
+import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import type { RunHistory, StateFile } from './ports';
 import type { SeenRecord } from './seenRecord';
 import { isStepsRun, recoverAfterRestart } from './steps/recover';
@@ -72,8 +73,8 @@ export class RunStore {
         this.state = {
           lastFired: isRecord(stored.lastFired) ? stored.lastFired : {},
           accepted: isRecord(stored.accepted) ? stored.accepted : {},
-          seen: isRecord(stored.seen) ? (stored.seen as Record<string, SeenRecord>) : {},
-          added: isRecord(stored.added) ? (stored.added as unknown as Record<string, AddedBy>) : {},
+          seen: isRecord(stored.seen) ? stored.seen : {},
+          added: isRecord(stored.added) ? stored.added : {},
           revoked: isRecord(stored.revoked) ? stored.revoked : {},
         };
         if (stored.version === 1) migrating = Array.isArray(stored.runs) ? stored.runs : [];
@@ -283,8 +284,9 @@ export class RunStore {
     if (!run) throw new Error(`No run ${id}.`);
     const workspaceId = run.attribution?.workspaceId;
     // Nothing is mutated first: a run with no log cannot have its intent recorded.
-    if (!workspaceId)
+    if (!workspaceId) {
       throw new Error(`Run ${id} has no workspace, so its intent cannot be recorded.`);
+    }
     const before = { ...run };
     Object.assign(run, changes);
     if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;

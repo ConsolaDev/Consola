@@ -10,11 +10,8 @@ import {
   LATER_FOLDERS,
   replaceAutomationEntry,
 } from '@consola/factory-spec';
-import {
-  AutomationService,
-  type AutomationNotice,
-  type AutomationServiceDeps,
-} from '../AutomationService';
+import { AutomationService } from '../AutomationService';
+import type { AutomationNotice, AutomationServiceDeps } from '../AutomationService';
 import { itemKey } from '../inboxItems.test-helpers';
 import { RunFolder } from '../node/runFolder';
 import type {
@@ -36,12 +33,14 @@ import type {
   ServerGroup,
   WorkItemPort,
 } from '../ports';
-import { RunStore, type AutomationStateFile } from '../RunStore';
+import { RunStore } from '../RunStore';
+import type { AutomationStateFile } from '../RunStore';
 import type { ServerGroupsFile } from '../servers/serverGroups';
 import { memoryHistory } from '../runHistory.test-helpers';
 import type { SecretBinding, SecretsPort } from '../secrets/secretsPort';
 import { StartedByHandError } from '../support';
-import { FakeToolRegistry, type TestTool } from '../tools.test-helpers';
+import { FakeToolRegistry } from '../tools.test-helpers';
+import type { TestTool } from '../tools.test-helpers';
 import type {
   InboxItemView,
   ItemRef,
@@ -53,12 +52,8 @@ import type {
   WorkspaceView,
 } from '../views';
 import type { CheckoutRequest } from './checkout';
-import {
-  runOwnedDirName,
-  type RunCheckoutPort,
-  type SettleResult,
-  type StepProcesses,
-} from './runCheckout';
+import { runOwnedDirName } from './runCheckout';
+import type { RunCheckoutPort, SettleResult, StepProcesses } from './runCheckout';
 import { maskSecrets } from './commandIO';
 import type { StepToolAnswer } from './stepTools';
 
@@ -759,8 +754,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     const files = () => filesOf(workspaceId);
     // As the adapter's: a name that is no name is never a path.
     const automationFile = (name: string) => {
-      if (!AUTOMATION_NAME_PATTERN.test(name))
+      if (!AUTOMATION_NAME_PATTERN.test(name)) {
         throw new Error(`Not an automation name: ${JSON.stringify(name)}.`);
+      }
       return `automations/${name}.yaml`;
     };
     return {
@@ -943,8 +939,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                 ? { pgid: recordedGroup.pgid, startedAt: recordedGroup.startedAt }
                 : undefined,
             );
-            if (world.mcp.connectGate)
+            if (world.mcp.connectGate) {
               await Promise.race([world.mcp.connectGate, abortedOf(launch.signal)]);
+            }
             if (server.hang) await abortedOf(launch.signal);
             if (launch.signal.aborted) return { ok: false, reason: 'it was stopped' };
             if (server.refuse) return { ok: false, ...server.refuse };

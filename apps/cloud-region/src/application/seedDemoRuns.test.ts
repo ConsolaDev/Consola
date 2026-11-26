@@ -1,14 +1,19 @@
 import { readFileSync } from 'node:fs';
-import { cellTokenClaims, type WorkspaceRole } from '@consola/cloud-contract';
+import { cellTokenClaims } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { runs as runTable } from '../adapters/persistence/tables.js';
-import { admitClaims, type Caller } from '../domain/caller.js';
+import { admitClaims } from '../domain/caller.js';
+import type { Caller } from '../domain/caller.js';
 import { checkFactoryFiles } from '../domain/factory.js';
-import { OUTPUT_TAIL_MAX, PHASES, RUN_STATUSES, type StepRecord } from '../domain/run.js';
+import { OUTPUT_TAIL_MAX, PHASES, RUN_STATUSES } from '../domain/run.js';
+import type { StepRecord } from '../domain/run.js';
 import type { FactoryStore, RunStore, TeamStore, WorkspaceCopies } from './ports.js';
-import { listRuns, type RunsQuery, readRun } from './runs.js';
+import { listRuns, readRun } from './runs.js';
+import type { RunsQuery } from './runs.js';
 import { DEMO_FACTORY_FILES, seedDemoRuns } from './seedDemoRuns.js';
 
 let db: Database;
@@ -51,7 +56,7 @@ const MEMBERS = [
 
 /** Acme with four members in General, and a Platform team only Fay is in. */
 async function acme() {
-  const changes: Parameters<WorkspaceCopies['applyAfter']>[0]['change'][] = [
+  const changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']> = [
     { kind: 'open-workspace' },
     ...MEMBERS.map(([personId, role]) => ({ kind: 'put-member' as const, personId, role })),
   ];

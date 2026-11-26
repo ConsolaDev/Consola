@@ -6,7 +6,8 @@ import type { AttentionLedger } from './AttentionLedger';
 import type { HookInputs } from './hookSignals';
 import type { AttentionSource } from './AttentionSource';
 import { deriveAttention, effectiveStatus } from './deriveAttention';
-import { TurnSettle, type SettledStatus } from './turnSettle';
+import { TurnSettle } from './turnSettle';
+import type { SettledStatus } from './turnSettle';
 
 export interface SessionSourceDeps {
   getWorkspaces(): Workspace[];
@@ -139,8 +140,9 @@ export class SessionSource implements AttentionSource {
     const before = this.lastStatus.get(instanceId);
     this.lastStatus.set(instanceId, status);
     this.noticeHand(instanceId, status);
-    if (status !== 'exited' && (before === undefined || before === 'exited'))
+    if (status !== 'exited' && (before === undefined || before === 'exited')) {
       this.launched(instanceId);
+    }
     this.settle.observe(instanceId, status);
     this.refresh();
   }
@@ -261,8 +263,9 @@ export class SessionSource implements AttentionSource {
     if (!located) return;
     this.deps.ledger.markFinished(located.session.id, located.workspace.id, this.now());
     // Finishing under the person's eyes is not news: nothing was missed.
-    if (this.deps.isViewedInFocusedWindow?.(instanceId))
+    if (this.deps.isViewedInFocusedWindow?.(instanceId)) {
       this.deps.ledger.markSeen(located.session.id, this.now());
+    }
     this.refresh();
   }
 }

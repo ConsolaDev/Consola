@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
-import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
+import { JsonAttentionLedger } from './AttentionLedger';
+import type { AttentionLedgerStateFile } from './AttentionLedger';
 import { HookSignals } from './hookSignals';
 import { BACKGROUND_HOLD_MS, SessionSource } from './SessionSource';
 import { SETTLE_MS } from './turnSettle';
@@ -124,7 +125,7 @@ describe('SessionSource', () => {
     vi.advanceTimersByTime(SETTLE_MS);
     expect(ledger.get('a')?.lastActiveAt).toBe(ledger.get('a')?.finishedAt); // seeded from the finish, never advanced
     ledger.touch('a', 'w1', 9999);
-    clock = 20000;
+    clock = 20_000;
     status('working');
     status('ready');
     vi.advanceTimersByTime(SETTLE_MS);
@@ -173,10 +174,10 @@ describe('SessionSource with a run that finished its session', () => {
 
 describe('SessionSource with a session held by an open run', () => {
   it('passes the hold to the derivation: a settled session an open run uses is not settled', () => {
-    const settledLedger = {
-      ...ledger,
+    // The real ledger underneath (its methods live on its prototype), with get() answering a settled record.
+    const settledLedger = Object.assign(Object.create(ledger) as JsonAttentionLedger, {
       get: () => ({ sessionId: 'a', workspaceId: 'w1', lastActiveAt: 100, settledAt: 200 }),
-    } as unknown as JsonAttentionLedger;
+    });
     const workspace = makeWorkspace({
       id: 'w1',
       sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })],

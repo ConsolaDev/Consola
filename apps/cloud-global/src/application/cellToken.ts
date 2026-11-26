@@ -1,4 +1,5 @@
-import { cellTokenClaims, type Region } from '@consola/cloud-contract';
+import { cellTokenClaims } from '@consola/cloud-contract';
+import type { Region } from '@consola/cloud-contract';
 import type { SignedIn } from '../domain/person.js';
 import type { CellTokenKeySet, CellTokenSigner, MembershipStore } from './ports.js';
 

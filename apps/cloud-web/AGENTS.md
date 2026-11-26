@@ -29,15 +29,18 @@ The app is built in layers, and imports point inward only.
   factories (`factories.ts`: `Factory`, `checkFactoryName`, `checkNewFactory`,
   `newFactoryDraft`, `owningTeam`, `isMove`, `SOURCE_OPTIONS`,
   `FactoriesState`, `FactoryChange`, `FactoryRead`, `FactorySave`,
-  `fileGroups`, `listedPaths` and `firstFile`), what is wrong with a factory's files
-  (`factoryProblems.ts`: `FactoryProblem`, `problemOf`, `problemPath`,
-  `problemCounts`, `ownProblems`, `sortedProblems`, `messageParts`) and the
-  check that finds it as the person edits (`factoryCheck.ts`, factory-spec's
-  parser: see "Factories"), a person's changes over a version
-  (`factoryDraft.ts`: `FactoryDraft`, `draftOf`, `withEdit`, `withFile`,
-  `withoutFile`, `withRestored`, `filesOf`, `broughtIn`, `afterSave`), a new
-  file's path (`factoryNewFile.ts`: `checkNewFilePath`, `NEW_FILE_STARTS`,
-  `withStart`) and the files open as tabs (`factoryTabs.ts`), how
+  `fileGroups`, `listedFiles` and `firstFile`), what is wrong with a
+  factory's files (`factoryProblems.ts`: `FactoryProblem`, `problemOf`,
+  `problemPath`, `problemCounts`, `ownProblems`, `sortedProblems`,
+  `messageParts`) and the check that finds it as the person edits
+  (`factoryCheck.ts`, factory-spec's parser: see "Factories"), a person's
+  changes over a version (`factoryDraft.ts`: `FactoryDraft`, `draftOf`,
+  `withEdit`, `withFileAdded`, `withRenamed`, `withSkillRenamed`,
+  `withRemoved`, `withSkillRemoved`, `withRestored`, `discarded`, `filesOf`,
+  `fileMarks`, `changeSummary`, `pathMoves`, `broughtIn`, `afterSave`), the
+  kinds of file a factory holds, their names and skeletons
+  (`factoryKinds.ts`: `NAME_RULE`, `pathFor`, `skeletonFor`, `checkNaming`,
+  `NamingTarget`) and the files open as tabs (`factoryTabs.ts`), how
   the sidebar and the address name them (`factoryNav.ts`:
   `FACTORY_PAGES`, `factoryRouteOfHash`, `hashOfFactoryPage`,
   `factoryLanding`, the fold rules `isUnfolded` and `withFold`, and a tile's
@@ -279,40 +282,53 @@ desktop app draws its sidebar.
   its facts (its team, where its files come from), then the page. A factory
   the list no longer holds is gone, or now another team's, and the page says
   so.
-- **Factory definition** (`FactoryDefinitionPage`, CON-74) is a window onto
-  the whole factory as files and a quick change in place: a file is edited,
-  added and deleted here, never renamed. It takes the whole width beside the sidebar
+- **Factory definition** (`FactoryDefinitionPage`, CON-74, CON-133) is where
+  a factory's files are made and kept, in the browser, with no clone: files
+  are added, renamed, removed and edited here, all a draft until Save. It
+  stays at the level of files; forms over a file come later, on pages beside
+  it. It takes the whole width beside the sidebar
   (`factoryLayout`) and loads only when it opens (`React.lazy`), since it
   carries the editor. A bar (the factory, "Version N, saved <when>", "by
-  you" when it was the person, `savedWords`; Discard and Save), the banner
-  until it is hidden for good in this browser, then the files beside the
-  editor:
+  you" when it was the person, `savedWords`; what Save will do,
+  `changeLine`; Discard and Save), the banner until it is hidden for good in
+  this browser, then the files beside the editor:
   - **The files** (`FactoryFileTree`) as the folder holds them
-    (`fileGroups`), under a filter by path (`/` puts the keyboard there).
-    A file the person changed or added has a dot; its own problems a red
-    count.
-  - **Adding a file**: New file, beside the filter (or in the empty
-    editor of a factory with none), opens a field for its path in the list,
-    checked as the person types (`checkNewFilePath`), quietly, and in red
-    once Enter meets a problem. The rules are the cell's (`setIssues`: a
-    path inside the folder, its length, the file count, no path twice) and
-    factory-spec's (where `storedFactoryFiles` puts a file, the name
-    pattern), copied, since no app may import the cell and factory-spec is
-    the late chunk; each placement sentence is the parser's, word for word,
-    which `factoryNewFile.test.ts` holds. Automation and Agent fill
-    `automations/….yaml` or `agents/….md` around the name typed. Enter adds
-    an empty file, open in front with the keyboard in it; what it must hold
-    is the Problems panel's to say, before Save. The cell's answer on Save
-    stays the authority.
-  - **Deleting a file**: each row's delete button (under the pointer, on
-    the keyboard, on the open row) takes the file out until Save; the editor
-    moves to the tab beside it, else the file beside it in the list
-    (`tabsAfterDelete`), and the keyboard to the row beside it. A strip
-    offers Undo for the last one (`withRestored`, its text as it was), and
-    Discard brings every deleted file back.
+    (`fileGroups`): `factory.yml`, then `automations/`, `agents/` and
+    `skills/`, which always show, empty or not, a skill's files under the
+    skill. A filter by path (`/` puts the keyboard there) hides the folders
+    with no match. A file the person changed has a dot, one the saved
+    version lacks "new", one renamed "renamed" with its old path in the
+    title; its own problems a red count. A factory with no files shows its
+    empty folders, and offers New automation, New agent and `factory.yml`
+    where the editor would be.
+  - **New by kind, never by path** (`factoryKinds.ts`). The + at the tree's
+    top offers New automation, New agent, New skill, and `factory.yml` while
+    there is none; each format folder's + makes its kind, a skill's + a file
+    inside it. The person types a name in a field with the path's fixed
+    parts around it (`agents/ [reviewer] .md`), checked as it is typed
+    (`checkNaming`: the name rule, a path the draft holds or holds under
+    Removed, an automation `factory.yml` defines as the latest check read
+    it, a skill's file path as a factory path), with one sentence under it
+    (`nameSentence`). Enter makes the file from its kind's skeleton, which
+    passes the checker (an automation's is `on: manual`, so it never starts
+    a run by itself), and opens it in front with the caret in its body. The
+    name rule is a copy of factory-spec's, pinned by `factoryKinds.test.ts`
+    through the checker, so the page's bundle never loads factory-spec
+    early. Environments are not offered: a stored factory refuses them.
+  - **Rename and delete** from each file's ⋯, also on a right-click, and F2
+    and Delete on the row (`factory.yml` deletes only; a skill's `SKILL.md`
+    neither, its skill's ⋯ acting on the folder). A rename keeps the file's
+    text and its tab's place, and renaming it back leaves no change;
+    renaming a skill moves its folder and its `SKILL.md`'s `name:`, nothing
+    else (a reference elsewhere shows as a problem). A delete asks nothing:
+    the file, or the whole skill as one entry, waits under "Removed on save"
+    with the person's text, and Restore brings it back as it was (off, and
+    saying why, while a file holds a path it would take).
   - **The editor** (`CodeEditor`, CodeMirror 6) shows the files open as tabs
     (`EditorTabs`, `factoryTabs.ts`; closing one keeps its edits), each file
-    keeping its own undo history and place. YAML, and Markdown with YAML
+    keeping its own undo history and place, which follow it when it is
+    renamed (`pathMoves`); a change is always the shown file's, at the path
+    it has now. YAML, and Markdown with YAML
     front matter (from `@lezer/markdown` itself: CodeMirror's Markdown
     package brings HTML, CSS and JavaScript along), shaded in the run page's
     colours; its look is an `EditorView.theme` on the app's tokens.
@@ -328,15 +344,22 @@ desktop app draws its sidebar.
     the line once. Save stays off while any problem of the files' own
     stands; ⌘S then lights the panel's head and says why.
   - **Save** sends every file as the next version, from the version they
-    were read from (`POST /api/factories/{factoryId}/versions`). The cell
-    checks again and is the authority: what it finds that the page did not
-    (its limits on the set) shows in the same panel, "nothing was saved".
-    Someone else's save in between (`version_moved`, or a newer version the
-    sidebar's list read) is said in a strip with "Bring in version N"
-    (`broughtIn`): files the person did not touch take the newer text, theirs
-    stay (added and deleted ones too), and a file both changed is named, as
-    is one they deleted that the newer version changed. What the person does
-    while a save is on its way is kept (`afterSave`).
+    were read from (`POST /api/factories/{factoryId}/versions`), adds,
+    renames and removals being only a different set: no service, cell or
+    contract knows of them. The cell checks again and is the authority:
+    what it finds that the page did not (its limits on the set) shows in the
+    same panel, "nothing was saved". Someone else's save in between
+    (`version_moved`, or a newer version the sidebar's list read) is said in
+    a strip with "Bring in version N" (`broughtIn`), by one rule: what the
+    person did stands, and every file where it meets a change of theirs is
+    named. A file they did not touch takes the newer version (added and
+    removed files included); one both changed keeps the person's text; one
+    the person removed stays removed; one they only renamed takes the newer
+    text at its new name; a skill's folder renamed or removed takes the
+    newer version's files inside it along. What the person does while a
+    save is on its way is kept (`afterSave`), and what it removed leaves
+    "Removed on save". Discard returns to the saved version: new files go,
+    removed ones come back, renames are undone.
   - **Unsaved edits** stay in the page's memory per workspace and factory
     while the person moves around the dashboard (`factoryDrafts.ts`), with a
     dot on the sidebar's Factory definition row; closing or reloading the tab
@@ -835,6 +858,4 @@ They run in Node, so no test touches a DOM: a service takes the API's client
 as an argument (`loadMe(createApi({ fetch, baseUrl }))`, with an absolute
 `baseUrl`, since Node has no page to resolve `/api` against), and
 `signInRedirect.test.ts` stands in for `window` just for the test. Screens are
-checked by running the app (`pnpm dev:cloud`); what a screen offers in a given
-state can be checked as markup, with `react-dom/server`'s
-`renderToStaticMarkup` (`ui/FactoryFileTree.test.tsx`), which needs no DOM.
+checked by running the app (`pnpm dev:cloud`).

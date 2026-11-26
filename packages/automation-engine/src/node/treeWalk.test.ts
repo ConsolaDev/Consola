@@ -50,8 +50,9 @@ afterEach(() => {
 
 describe("the checkout's tree walk (3-B code review F4)", () => {
   it('reads no folder of the checkout synchronously, and still finds what it looks for', async () => {
-    for (let i = 0; i < 5; i++)
+    for (let i = 0; i < 5; i++) {
       fs.mkdirSync(path.join(dir, 'node_modules', `p${i}`, 'lib'), { recursive: true });
+    }
     fs.mkdirSync(path.join(dir, 'deep', 'er'), { recursive: true });
     fs.writeFileSync(path.join(dir, 'deep', 'er', '.git'), 'gitdir: /tmp/x\n');
     const readdirSync = vi.mocked(fs.readdirSync);

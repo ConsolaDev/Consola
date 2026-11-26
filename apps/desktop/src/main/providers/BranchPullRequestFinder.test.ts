@@ -5,9 +5,9 @@ import {
   ASK_SLACK_MS,
   BRANCH_LOOKUP_TTL_MS,
   BranchPullRequestFinder,
-  type BranchPullRequestFinderDeps,
   pickPullRequest,
 } from './BranchPullRequestFinder';
+import type { BranchPullRequestFinderDeps } from './BranchPullRequestFinder';
 import type { GitProviderDriver } from './GitProviderDriver';
 import type { PullRequestLookup, PullRequestQuery, PullRequestState } from './pullRequests';
 import { createStubDriver } from './stubDriver.test-helpers';

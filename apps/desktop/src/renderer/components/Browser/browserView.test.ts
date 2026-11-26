@@ -175,7 +175,7 @@ describe('nextShownError', () => {
 describe('retryDelayMs', () => {
   it('doubles from one second and stops at ten', () => {
     expect([0, 1, 2, 3, 4, 5, 20].map(retryDelayMs)).toEqual([
-      1_000, 2_000, 4_000, 8_000, 10_000, 10_000, 10_000,
+      1000, 2000, 4000, 8000, 10_000, 10_000, 10_000,
     ]);
     expect(RETRY_MAX_MS).toBe(10_000);
   });

@@ -33,8 +33,9 @@ export async function openRunCheckout(
   deps: OpenRunCheckoutDeps,
 ): Promise<void> {
   const cwd = run?.checkout?.kind === 'run-owned' ? run.checkout.cwd : undefined;
-  if (cwd === undefined || !deps.isManagedPath(cwd) || !isRealDirectory(cwd))
+  if (cwd === undefined || !deps.isManagedPath(cwd) || !isRealDirectory(cwd)) {
     throw new Error(NO_CHECKOUT_TO_OPEN);
+  }
   const failed = await deps.openPath(cwd);
   if (failed) throw new Error(`Could not open its folder: ${failed}`);
 }

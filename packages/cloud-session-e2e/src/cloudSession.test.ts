@@ -16,9 +16,11 @@
  * `/usr/bin:/bin`. A fake records its call and exits 1, so no CLI of the developer's can run; after
  * each test every recorded call must have seen that home and no config folder.
  */
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer as createHttpServer, type Server } from 'node:http';
+import { createServer as createHttpServer } from 'node:http';
+import type { Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -37,17 +39,15 @@ import {
 import { RUNNER_SECRET_VARIABLES } from '@consola/host/src/testing/localProvider.ts';
 import { loadReplay, REPLAY_TITLE, sendMessage } from '@consola/host/src/testing/replay.ts';
 import { connectHost } from '@consola/host/src/testing/t3Client.ts';
-import {
-  ORCHESTRATION_V2_WS_METHODS,
-  type OrchestrationV2ThreadStreamItem,
-  ThreadId,
-} from '@t3tools/contracts';
+import { ORCHESTRATION_V2_WS_METHODS, ThreadId } from '@t3tools/contracts';
+import type { OrchestrationV2ThreadStreamItem } from '@t3tools/contracts';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Option from 'effect/Option';
 import * as Stream from 'effect/Stream';
-import { calculateJwkThumbprint, exportJWK, type JWK, SignJWT } from 'jose';
+import { calculateJwkThumbprint, exportJWK, SignJWT } from 'jose';
+import type { JWK } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
   descendantsOf,
@@ -261,7 +261,7 @@ const chat = Effect.fn('chat')(function* (hostPort: number, pass: string, sessio
 }, Effect.scoped);
 
 /** Every secret the test made: none may show in what the cell or the runner printed. */
-const expectNothingSecretPrinted = (passes: ReadonlyArray<string>) => {
+const expectNothingSecretPrinted = (passes: readonly string[]) => {
   const { cell, runner, passPrivateKey } = current();
   const printed = [cell.stdout(), cell.stderr(), runner.stdout(), runner.stderr()].join('\n');
   for (const secret of [RUNNER_SECRET, String(passPrivateKey.d), ...passes]) {

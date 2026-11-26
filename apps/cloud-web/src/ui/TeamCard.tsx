@@ -2,14 +2,10 @@ import { DropdownMenu } from '@radix-ui/themes';
 import { Ellipsis, UserPlus, X } from 'lucide-react';
 import { useState } from 'react';
 import { firstTeamNote, messageForTeamChange } from '../domain/teamMessages';
-import {
-  addableTo,
-  memberOf,
-  type Team,
-  type TeamChange,
-  type WorkspaceMember,
-} from '../domain/teams';
-import { type MyWorkspace, roleName } from '../domain/workspace';
+import { addableTo, memberOf } from '../domain/teams';
+import type { Team, TeamChange, WorkspaceMember } from '../domain/teams';
+import { roleName } from '../domain/workspace';
+import type { MyWorkspace } from '../domain/workspace';
 import { teamsService } from '../services/teams';
 import { useSettingsMenuHost } from './SettingsDialog';
 import { TeamNameForm } from './TeamNameForm';

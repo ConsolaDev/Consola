@@ -1,4 +1,5 @@
-import { type Automation, type AutomationMode, flatSteps } from '@consola/factory-spec';
+import { flatSteps } from '@consola/factory-spec';
+import type { Automation, AutomationMode } from '@consola/factory-spec';
 import type { RunDecision } from '@consola/runner-protocol';
 import type { RunStatus } from './run.js';
 import type { Team } from './team.js';
@@ -43,8 +44,8 @@ export type RunAnswer = {
 
 /** What approving lets run: each command, and each agent step, as the definition writes them. */
 export type WillRun = {
-  commands: { step: string; command: string }[];
-  agents: { step: string; agent: string | null; prompt: string | null }[];
+  commands: Array<{ step: string; command: string }>;
+  agents: Array<{ step: string; agent: string | null; prompt: string | null }>;
 };
 
 /** A run's request to be approved, as its page shows it. */
@@ -90,8 +91,9 @@ export function willRun(automation: Automation | null): WillRun {
   const will: WillRun = { commands: [], agents: [] };
   for (const { step } of flatSteps(automation?.steps ?? [])) {
     if (step.kind === 'run') will.commands.push({ step: step.id, command: step.run });
-    else if (step.kind === 'agent')
+    else if (step.kind === 'agent') {
       will.agents.push({ step: step.id, agent: step.agent ?? null, prompt: step.prompt ?? null });
+    }
   }
   return will;
 }

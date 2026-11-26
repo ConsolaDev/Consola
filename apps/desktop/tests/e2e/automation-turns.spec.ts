@@ -1,4 +1,5 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -266,11 +267,12 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
     );
     const outputs =
       options.outputs === undefined ? { verdict: 'request-changes' } : options.outputs;
-    if (outputs !== null)
+    if (outputs !== null) {
       fs.writeFileSync(
         files.outputs,
         typeof outputs === 'string' ? outputs : JSON.stringify(outputs),
       );
+    }
     const handover = options.handover === undefined ? HANDOVER : options.handover;
     if (handover !== null) fs.writeFileSync(files.handover, handover);
     const binaryPath = writeStubClaude(base);
@@ -675,8 +677,9 @@ test("a step's turn reports: Consola's lines in its pane, cost per step and per 
     const reopen = steps.launches()[2];
     expect(reopen).toContain(` :: --resume ${session.claudeSessionId} `);
     expect(reopen).toContain(' --restricted');
-    for (const flag of [' -p ', '--output-format', '--verbose', '--max-turns'])
+    for (const flag of [' -p ', '--output-format', '--verbose', '--max-turns']) {
       expect(reopen).not.toContain(flag);
+    }
   } finally {
     await steps.close();
   }

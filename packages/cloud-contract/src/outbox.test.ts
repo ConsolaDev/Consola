@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  FIRST_SEQUENCE,
-  type OutboxMessage,
-  readOutboxMessage,
-  WORKSPACE_CHANGE_TYPES,
-} from './outbox.js';
+import { FIRST_SEQUENCE, readOutboxMessage, WORKSPACE_CHANGE_TYPES } from './outbox.js';
+import type { OutboxMessage } from './outbox.js';
 
 const created: OutboxMessage = {
   workspaceId: 'workspace-sprocket',

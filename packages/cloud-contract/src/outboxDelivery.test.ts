@@ -6,9 +6,9 @@ import {
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   OUTBOX_MESSAGE_TYPE,
-  type OutOfOrderAnswer,
   readOutOfOrderAnswer,
 } from './outboxDelivery.js';
+import type { OutOfOrderAnswer } from './outboxDelivery.js';
 
 const asSent = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
 

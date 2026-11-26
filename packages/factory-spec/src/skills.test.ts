@@ -5,8 +5,8 @@ import {
   parseSkill,
   SKILL_TEXT_EXTENSIONS,
   skillHash,
-  type SkillFileEntry,
 } from './skills';
+import type { SkillFileEntry } from './skills';
 
 type RegularFile = { path: string; bytes: Uint8Array };
 
@@ -292,7 +292,7 @@ describe('parseSkill', () => {
     expect(only([skill, bytes('a.bin', room - 10), bytes('b.bin', 11)])).toMatchObject(over);
   });
 
-  it.each(['../x', '/etc/passwd', 'a/../../b', 'a//b', 'a\\b', '.', '', 'a/\0b'])(
+  it.each(['../x', '/etc/passwd', 'a/../../b', 'a//b', String.raw`a\b`, '.', '', 'a/\0b'])(
     'refuses the path %j as not inside the folder',
     (path) => {
       expect(only([SKILL(), file(path, 'x')])).toMatchObject({

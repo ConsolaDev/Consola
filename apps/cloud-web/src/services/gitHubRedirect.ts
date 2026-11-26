@@ -1,4 +1,5 @@
-import { type GitHubResult, readGitHubResult } from '../domain/connections';
+import { readGitHubResult } from '../domain/connections';
+import type { GitHubResult } from '../domain/connections';
 
 /**
  * How the last Connect ended, as `cloud-global`'s callback named it in `?github=`, read once. It

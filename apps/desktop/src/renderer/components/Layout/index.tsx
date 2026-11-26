@@ -2,7 +2,8 @@ import { createQuickSession, openNewSessionDialog } from '../../utils/sessionAct
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
-import { useEffect, useRef, type CSSProperties } from 'react';
+import { useEffect, useRef } from 'react';
+import type { CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
 import { SidebarResizeHandle } from '../Sidebar/SidebarResizeHandle';
 import { AppHeader } from './AppHeader';
@@ -41,8 +42,9 @@ export function Layout() {
   // workspace, or, with none open, the workspace itself.
   const handleNewSession = () => {
     if (activeWorkspaceId) {
-      if (!useNewSessionDialogStore.getState().destination)
+      if (!useNewSessionDialogStore.getState().destination) {
         void createQuickSession(activeWorkspaceId);
+      }
     } else {
       void pickFoldersAndCreateWorkspace();
     }

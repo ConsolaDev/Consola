@@ -1,16 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, WebContents } from 'electron';
-import {
-  isAllowedPageUrl,
-  isBlankPageUrl,
-  MAX_TABS_PER_SESSION,
-  type BrowserHistoryEntry,
-  type BrowserSessionSnapshot,
-  type BrowserSnapshotMessage,
-  type BrowserTab,
-  type BrowserTabError,
-  type BrowserTabLive,
-  type SessionBrowser,
+import { isAllowedPageUrl, isBlankPageUrl, MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserSessionSnapshot,
+  BrowserSnapshotMessage,
+  BrowserTab,
+  BrowserTabError,
+  BrowserTabLive,
+  SessionBrowser,
 } from '../../shared/browser';
 import type { ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
@@ -378,8 +376,9 @@ export class BrowserService {
     const listeners = this.listenersFor(tabId, entry);
     for (const [event, listener] of listeners) guest.on(event as 'destroyed', listener);
     entry.unsubscribe = () => {
-      for (const [event, listener] of listeners)
+      for (const [event, listener] of listeners) {
         guest.removeListener(event as 'destroyed', listener);
+      }
     };
     this.guests.set(tabId, entry);
     // A sign-in this page raised while it was still unbound now has a tab.
@@ -492,6 +491,7 @@ export class BrowserService {
    */
   private applyLiveRule(changed: readonly string[] = []): void {
     const sessions = new Set(changed);
+    // oxlint-disable-next-line unicorn/prefer-array-some -- this.find is the service's tab lookup, not Array#find
     for (const tabId of this.pages.evaluate((id) => this.find(id) !== undefined)) {
       const found = this.find(tabId);
       this.destroyGuest(tabId);
@@ -867,8 +867,9 @@ export class BrowserService {
     timer.unref?.();
     pending.stop = () => {
       clearTimeout(timer);
-      for (const [event, listener] of listeners)
+      for (const [event, listener] of listeners) {
         guest.removeListener(event as 'destroyed', listener);
+      }
     };
     this.pending.set(guestId, pending);
   }

@@ -1,6 +1,7 @@
 import type { RunnerHello } from '@consola/runner-protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createCloudSessionStore } from '../adapters/persistence/cloudSessions.js';
 import type { CloudSession, CloudSessionStatus } from '../domain/cloudSession.js';
 import type { CloudSessionStore, RunnerUpdatePorts } from './ports.js';

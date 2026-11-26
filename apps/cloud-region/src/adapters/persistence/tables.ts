@@ -7,7 +7,8 @@
 
 import type { WorkspaceRole } from '@consola/cloud-contract';
 import type { GitHubEventFacts } from '@consola/runner-protocol';
-import { type SQLWrapper, sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
+import type { SQLWrapper } from 'drizzle-orm';
 import {
   bigint,
   boolean,
@@ -26,22 +27,20 @@ import {
 } from 'drizzle-orm/pg-core';
 import type { CellFailureCode, CloudSessionStatus } from '../../domain/cloudSession.js';
 import type { FactorySource } from '../../domain/factory.js';
-import { RUNNER_STATES, type RunnerState } from '../../domain/gitHubEvent.js';
-import { APPROVAL_DECISIONS, type ApprovalDecision } from '../../domain/runApproval.js';
-import {
-  PHASES,
-  type Phase,
-  RUN_KINDS,
-  RUN_STATUSES,
-  RUN_TRIGGERS,
-  type RequestFacts,
-  type RunItem,
-  type RunKind,
-  type RunStatus,
-  type RunTrigger,
-  type StepRecord,
-  WAITING_ON,
-  type WaitingOn,
+import { RUNNER_STATES } from '../../domain/gitHubEvent.js';
+import type { RunnerState } from '../../domain/gitHubEvent.js';
+import { APPROVAL_DECISIONS } from '../../domain/runApproval.js';
+import type { ApprovalDecision } from '../../domain/runApproval.js';
+import { PHASES, RUN_KINDS, RUN_STATUSES, RUN_TRIGGERS, WAITING_ON } from '../../domain/run.js';
+import type {
+  Phase,
+  RequestFacts,
+  RunItem,
+  RunKind,
+  RunStatus,
+  RunTrigger,
+  StepRecord,
+  WaitingOn,
 } from '../../domain/run.js';
 
 /**

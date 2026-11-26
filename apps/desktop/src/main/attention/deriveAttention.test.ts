@@ -7,7 +7,7 @@ import type { HookInputs } from './hookSignals';
 const TERMINALS: TerminalStatus[] = ['working', 'ready', 'needs-attention', 'exited'];
 const LAST_ACTIVE = 100;
 const FINISHED = 200;
-const NOW = 1_000;
+const NOW = 1000;
 
 // finished: none | at FINISHED. seen: none | before the finish | after it.
 // settled: none | before activity | exactly at activity | after it.

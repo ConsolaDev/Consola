@@ -68,7 +68,7 @@ const REFUSED_KEYS: Readonly<Record<string, string>> = {
   auth: SIGN_IN,
   timeout: 'Set `timeout:` on the step that calls it.',
 };
-const KEYS = ['command', 'args', 'env', 'url', 'headers', 'secrets', 'description'];
+const KEYS = new Set(['command', 'args', 'env', 'url', 'headers', 'secrets', 'description']);
 
 /**
  * Why a server has no `type:`, whatever it says: the key written says which
@@ -89,11 +89,11 @@ function typeRefusal(written: unknown): string {
 /** A header name: an HTTP token. */
 const HEADER_NAME_PATTERN = /^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/;
 /** Headers that carry a credential whatever else they hold. */
-const CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie'];
+const CREDENTIAL_HEADERS = new Set(['authorization', 'proxy-authorization', 'cookie']);
 /** An `env:` name that reads as a credential's (slice 3's list). */
 const CREDENTIAL_ENV_NAME = /TOKEN|SECRET|PASSWORD|CREDENTIAL/i;
 /** The hosts a plain `http://` URL may name: this machine's own. */
-const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -145,7 +145,7 @@ function parseServer(
   for (const key of Object.keys(raw)) {
     if (key === 'type') bad(typeRefusal(raw.type), [key]);
     else if (own(REFUSED_KEYS, key)) bad(REFUSED_KEYS[key], [key]);
-    else if (!KEYS.includes(key)) bad(`Unrecognized key in a server: \`${key}\`.`, [key]);
+    else if (!KEYS.has(key)) bad(`Unrecognized key in a server: \`${key}\`.`, [key]);
   }
   if ('command' in raw === 'url' in raw) {
     bad(EXACTLY_ONE);
@@ -155,9 +155,9 @@ function parseServer(
   const transport = 'command' in raw ? 'stdio' : 'http';
   let description: string | undefined;
   if ('description' in raw) {
-    if (typeof raw.description === 'string' && !/[\r\n]/.test(raw.description))
+    if (typeof raw.description === 'string' && !/[\r\n]/.test(raw.description)) {
       description = raw.description;
-    else bad('`description` is one line of text.', ['description']);
+    } else bad('`description` is one line of text.', ['description']);
   }
   const common = (secrets: string[] | null): ServerCommon => ({
     name,
@@ -188,8 +188,9 @@ function parseServer(
     return { ...common(secrets), transport, command, args, env };
   }
 
-  for (const key of ['args', 'env'])
+  for (const key of ['args', 'env']) {
     if (key in raw) bad(`\`${key}\` is for a server Consola starts (\`command\`).`, [key]);
+  }
   const url = readUrl(raw.url, bad);
   const secrets = secretsOf([]);
   const headers = readHeaders(raw.headers, secrets, bad);
@@ -259,19 +260,19 @@ function readEnv(
   }
   for (const [name, value] of Object.entries(raw)) {
     const at = ['env', name];
-    if (name.startsWith('CONSOLA_'))
+    if (name.startsWith('CONSOLA_')) {
       bad("`CONSOLA_` is Consola's own namespace; pick another name.", at);
-    else if (!ENV_NAME_PATTERN.test(name))
+    } else if (!ENV_NAME_PATTERN.test(name)) {
       bad('Use uppercase letters, digits and underscores, e.g. PR_NUMBER.', at);
-    else if (isRefusedEnvName(name))
+    } else if (isRefusedEnvName(name)) {
       bad(
         `\`${name}\` is refused: these names and prefixes are refused because they make a program run a value: ${REFUSED_ENV_LIST}.`,
         at,
       );
-    else if (typeof value !== 'string') bad(NUMBER_IN_QUOTES, at);
-    else if (value.includes('{{') || value.includes('${'))
+    } else if (typeof value !== 'string') bad(NUMBER_IN_QUOTES, at);
+    else if (value.includes('{{') || value.includes('${')) {
       bad("A server's `env:` is literal: name a secret in `secrets:` instead.", at);
-    else if (looksLikeCredential(name, value)) bad(CREDENTIAL, at);
+    } else if (looksLikeCredential(name, value)) bad(CREDENTIAL, at);
     else env[name] = value;
   }
   return env;
@@ -306,8 +307,7 @@ function readUrl(
     return null;
   }
   const allowed =
-    url.protocol === 'https:' ||
-    (url.protocol === 'http:' && LOOPBACK_HOSTS.includes(url.hostname));
+    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname));
   if (!allowed) {
     bad(words, ['url']);
     return null;
@@ -377,7 +377,7 @@ function secretRefsOf(value: string): string[] {
 
 function isCredentialHeader(name: string): boolean {
   const lower = name.toLowerCase();
-  return CREDENTIAL_HEADERS.includes(lower) || lower.endsWith('-api-key');
+  return CREDENTIAL_HEADERS.has(lower) || lower.endsWith('-api-key');
 }
 
 /** `sha256(stableStringify(definition))`, its first 16 hex: what the version of an entry using it holds (M9). */

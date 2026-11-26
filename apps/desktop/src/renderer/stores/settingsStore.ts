@@ -1,11 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import {
-  DEFAULT_INBOX_FILTER,
-  isInboxUpdatedFilter,
-  type InboxFilterState,
-  type InboxUpdatedFilter,
-} from '../components/Inbox/inboxFilters';
+import { DEFAULT_INBOX_FILTER, isInboxUpdatedFilter } from '../components/Inbox/inboxFilters';
+import type { InboxFilterState, InboxUpdatedFilter } from '../components/Inbox/inboxFilters';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 

@@ -2,7 +2,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { openFactoryFile, type OpenFactoryFileDeps } from './openFactoryFile';
+import { openFactoryFile } from './openFactoryFile';
+import type { OpenFactoryFileDeps } from './openFactoryFile';
 
 /*
  * Open on a factory file hands a path to the OS. A file of the folder can be
@@ -19,8 +20,9 @@ let folder: string;
 beforeEach(() => {
   base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-open-factory-')));
   folder = path.join(base, 'workspaces', 'ws-1');
-  for (const sub of ['agents', 'automations', 'skills/triage', 'environments', 'runs/r1', '.git'])
+  for (const sub of ['agents', 'automations', 'skills/triage', 'environments', 'runs/r1', '.git']) {
     fs.mkdirSync(path.join(folder, sub), { recursive: true });
+  }
 });
 
 afterEach(() => {

@@ -1,4 +1,5 @@
-import { fieldProblem, isId, isRecord, type ReadResult, read, refused } from './read.js';
+import { fieldProblem, isId, isRecord, read, refused } from './read.js';
+import type { ReadResult } from './read.js';
 
 /**
  * A line the sandbox's start script prints to the runner, before the host takes over. It is not

@@ -1,4 +1,5 @@
-import { useId, useImperativeHandle, useRef, useState, type KeyboardEvent, type Ref } from 'react';
+import { useId, useImperativeHandle, useRef, useState } from 'react';
+import type { KeyboardEvent, Ref } from 'react';
 import {
   Bold,
   Code,
@@ -11,16 +12,11 @@ import {
   ListTodo,
   TextQuote,
   Type,
-  type LucideIcon,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { MOD_KEY, isSubmitChord } from './inboxPresentation';
-import {
-  applyFormat,
-  insertSuggestion,
-  insertText,
-  type MarkdownFormat,
-  type TextEdit,
-} from './markdownEditing';
+import { applyFormat, insertSuggestion, insertText } from './markdownEditing';
+import type { MarkdownFormat, TextEdit } from './markdownEditing';
 import { WorkItemMarkdown } from './WorkItemDetailParts';
 
 export interface MarkdownEditorHandle {
@@ -212,7 +208,7 @@ export function MarkdownEditor({
             }
             placeholder={placeholder}
             value={value}
-            maxLength={65536}
+            maxLength={65_536}
             disabled={disabled}
             rows={rows}
             autoFocus={autoFocus}

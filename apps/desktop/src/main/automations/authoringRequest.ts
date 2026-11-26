@@ -15,8 +15,9 @@ export function parseAuthoringRequest(raw: unknown): AuthoringRequest {
   if (description.length > MAX_AUTHORING_DESCRIPTION) {
     throw new Error(`Keep the description under ${MAX_AUTHORING_DESCRIPTION} characters.`);
   }
-  if (scopeId !== undefined && typeof scopeId !== 'string')
+  if (scopeId !== undefined && typeof scopeId !== 'string') {
     throw new Error('Scope id must be text.');
+  }
   const request: AuthoringRequest = { workspaceId, description };
   if (scopeId !== undefined) request.scopeId = scopeId;
   if (basis !== undefined) request.basis = parseBasis(basis);

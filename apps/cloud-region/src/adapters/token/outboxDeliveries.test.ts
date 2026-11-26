@@ -3,20 +3,18 @@ import {
   cellTokenClaims,
   GITHUB_EVENT_TYPE,
   OUTBOX_MESSAGE_TYPE,
-  type OutboxMessage,
 } from '@consola/cloud-contract';
+import type { OutboxMessage } from '@consola/cloud-contract';
 import {
   CompactSign,
-  type CompactJWSHeaderParameters,
   calculateJwkThumbprint,
   createLocalJWKSet,
   exportJWK,
   exportSPKI,
   generateKeyPair,
-  type JSONWebKeySet,
-  type JWK,
   SignJWT,
 } from 'jose';
+import type { CompactJWSHeaderParameters, JSONWebKeySet, JWK } from 'jose';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import type { CellTokenKeys } from './cellTokens.js';
 import { createJoseDeliveryVerifier } from './outboxDeliveries.js';

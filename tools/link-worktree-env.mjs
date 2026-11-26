@@ -6,7 +6,6 @@
 import { execFileSync } from 'node:child_process';
 import { lstatSync, readdirSync, statSync, symlinkSync } from 'node:fs';
 import { basename, dirname, join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 /** The folders that may hold an env file: the root, and each workspace package's. */
 const PACKAGE_PARENTS = ['apps', 'packages'];
@@ -104,11 +103,11 @@ export function linkEnvFiles(root, git = runGit) {
   return linked;
 }
 
-const invokedDirectly = process.argv[1] === fileURLToPath(import.meta.url);
+const invokedDirectly = process.argv[1] === import.meta.filename;
 if (invokedDirectly) {
   // Never fail an install: a link that cannot be made is only a warning.
   try {
-    const root = dirname(dirname(fileURLToPath(import.meta.url)));
+    const root = dirname(import.meta.dirname);
     for (const path of linkEnvFiles(root)) {
       console.log(`Linked ${path} from the main checkout.`);
     }

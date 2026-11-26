@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decideGuestBinding, type GuestFacts } from './guestOwnership';
+import { decideGuestBinding } from './guestOwnership';
+import type { GuestFacts } from './guestOwnership';
 
 const ok: GuestFacts = {
   type: 'webview',

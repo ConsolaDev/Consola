@@ -21,10 +21,11 @@ export type SecretPlace =
 
 function destination(place: SecretPlace): string {
   if ('check' in place) return "this automation's check, as its environment variable";
-  if (place.server)
+  if (place.server) {
     return place.server.transport === 'http'
       ? `server \`${place.server.name}\`, in a header`
       : `server \`${place.server.name}\`, as its environment`;
+  }
   return `command \`${place.step}\`, as its environment variable`;
 }
 

@@ -1,11 +1,9 @@
-import {
-  AUTOMATION_NAME_PATTERN,
-  type Automation,
-  describeOutputType,
-  flatSteps,
-  type LineRange,
-  type RunStatus as EngineRunStatus,
-  type StepRunStatus,
+import { AUTOMATION_NAME_PATTERN, describeOutputType, flatSteps } from '@consola/factory-spec';
+import type {
+  Automation,
+  LineRange,
+  RunStatus as EngineRunStatus,
+  StepRunStatus,
 } from '@consola/factory-spec';
 import {
   ITEM_KINDS,
@@ -142,10 +140,10 @@ export type StepDefinition = {
   readonly agent: string | null;
   /** The command, as written. */
   readonly run: string | null;
-  readonly env: { readonly name: string; readonly value: string }[];
+  readonly env: Array<{ readonly name: string; readonly value: string }>;
   readonly if: string | null;
   /** Its declared outputs, each type in words (`describeOutputType`). */
-  readonly outputs: { readonly name: string; readonly type: string }[];
+  readonly outputs: Array<{ readonly name: string; readonly type: string }>;
   readonly artifacts: string[];
   readonly maxTurns: number | null;
   readonly timeoutMs: number | null;
@@ -406,7 +404,7 @@ const CONTROLS = /\p{Cc}+/gu;
 
 /** `text` on one line, at most `TITLE_MAX` characters, an ellipsis ending one that was cut. */
 function titleText(text: string): string {
-  const line = text.replace(CONTROLS, ' ').replace(/\s+/g, ' ').trim();
+  const line = text.replaceAll(CONTROLS, ' ').replaceAll(/\s+/g, ' ').trim();
   const chars = [...line];
   if (chars.length <= TITLE_MAX) return line;
   return `${chars
@@ -443,11 +441,15 @@ const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[
 const utf8 = new TextEncoder();
 
 /** Every string anywhere in `value`, its keys included, with where it is. */
-function stringsIn(value: unknown, at: string, found: [string, string][]): [string, string][] {
+function stringsIn(
+  value: unknown,
+  at: string,
+  found: Array<[string, string]>,
+): Array<[string, string]> {
   if (typeof value === 'string') found.push([at, value]);
-  else if (Array.isArray(value))
+  else if (Array.isArray(value)) {
     value.forEach((entry, i) => stringsIn(entry, `${at}[${i}]`, found));
-  else if (value !== null && typeof value === 'object') {
+  } else if (value !== null && typeof value === 'object') {
     for (const [key, entry] of Object.entries(value)) {
       found.push([at, key]);
       stringsIn(entry, `${at}.${key}`, found);
@@ -487,8 +489,9 @@ function stepDetailProblems(
         typeof value === 'string' ||
         typeof value === 'boolean' ||
         (typeof value === 'number' && Number.isFinite(value));
-      if (name === '' || !ok)
+      if (name === '' || !ok) {
         refuse(`${at}.outputs`, 'An output is a name and text, a number or true or false.');
+      }
     }
   }
   step.artifacts.forEach((artifact, i) => {
@@ -555,8 +558,9 @@ export function checkRun(
   const problems: RunProblem[] = [];
   const refuse = (field: string, message: string) => problems.push({ field, message });
 
-  if (!RUN_ID_PATTERN.test(run.id))
+  if (!RUN_ID_PATTERN.test(run.id)) {
     refuse('id', 'A run id is 1 to 128 letters, digits, ., _, : or -.');
+  }
   if (run.factoryId === '') refuse('factoryId', 'A run names its factory.');
   if (!Number.isSafeInteger(run.factoryVersion) || run.factoryVersion < 1) {
     refuse('factoryVersion', "A factory's versions are numbered from 1.");
@@ -663,8 +667,9 @@ export function checkRun(
     }
   }
 
-  if (run.costUsd !== null && !isMoney(run.costUsd))
+  if (run.costUsd !== null && !isMoney(run.costUsd)) {
     refuse('costUsd', 'A cost is a number from 0.');
+  }
   if (!isTime(run.createdAt)) refuse('createdAt', 'That is no ISO 8601 time.');
   if (!isTime(run.updatedAt)) refuse('updatedAt', 'That is no ISO 8601 time.');
   for (const [field, time] of [
@@ -741,7 +746,7 @@ export function decodeCursor(text: string): RunCursor | null {
     return null;
   }
   if (!Array.isArray(value) || value.length !== 2) return null;
-  const [createdAt, id] = value;
+  const [createdAt, id] = value as unknown[];
   if (typeof createdAt !== 'string' || typeof id !== 'string') return null;
   if (!isTime(createdAt) || !RUN_ID_PATTERN.test(id)) return null;
   return { createdAt, id };

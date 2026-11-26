@@ -18,6 +18,7 @@ export function WorkspaceEmptyView({ workspace }: { workspace: Workspace }) {
         <p>Start a session or select one from the sidebar.</p>
         <div className="dialog-actions">
           <button
+            type="button"
             className="dialog-button-primary"
             disabled={!scope}
             onClick={() => void createQuickSession(workspace.id)}
@@ -25,6 +26,7 @@ export function WorkspaceEmptyView({ workspace }: { workspace: Workspace }) {
             New session
           </button>
           <button
+            type="button"
             className="dialog-button-secondary"
             onClick={() => openNewSessionDialog(workspace.id)}
           >

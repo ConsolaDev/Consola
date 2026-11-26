@@ -1,7 +1,9 @@
-import { useRef, useState, type ReactNode } from 'react';
+import { useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ArrowLeft, ArrowRight, Camera, ExternalLink, RotateCw, X } from 'lucide-react';
-import { isAllowedPageUrl, type BrowserTabSnapshot } from '../../../shared/browser';
+import { isAllowedPageUrl } from '../../../shared/browser';
+import type { BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
 import { terminalBridge } from '../../services/terminalBridge';
 import { formatDroppedPaths } from '../Terminal/useTerminalFileDrop';

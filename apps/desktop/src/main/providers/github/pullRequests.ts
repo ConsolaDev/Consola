@@ -28,8 +28,9 @@ const restPullSchema = z.object({
 
 /** The `gh api` endpoint answering one query. Throws on a query that could escape the path. */
 export function pullsEndpoint(query: PullRequestQuery): string {
-  if (!REPO_SLUG.test(query.repo))
+  if (!REPO_SLUG.test(query.repo)) {
     throw new Error(`Not an owner/name repository: "${query.repo}".`);
+  }
   if ('number' in query) {
     if (!Number.isInteger(query.number) || query.number <= 0) {
       throw new Error(`Not a pull request number: ${query.number}.`);
@@ -52,8 +53,9 @@ export function parsePullsResponse(query: PullRequestQuery, stdout: string): Pul
   }
   const raw = 'number' in query ? [payload] : payload;
   const parsed = z.array(restPullSchema).safeParse(raw);
-  if (!parsed.success)
+  if (!parsed.success) {
     throw new Error('GitHub returned a pulls response Consola does not recognise.');
+  }
   return parsed.data
     .map(
       (pull): PullRequestState => ({

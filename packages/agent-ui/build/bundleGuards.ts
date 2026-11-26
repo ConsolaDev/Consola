@@ -317,7 +317,7 @@ export const bundleNotices = (moduleIds: Iterable<string>): Notice[] => {
   return checked([...packageNotices(dirs, problems), ...copiedNotices(ids, problems)], problems);
 };
 
-export const renderNotices = (notices: ReadonlyArray<Notice>): string => {
+export const renderNotices = (notices: readonly Notice[]): string => {
   const header =
     'THIRD-PARTY NOTICES\n\n' +
     "@consola/agent-ui's bundle holds the code and files below, each under the licence named, " +

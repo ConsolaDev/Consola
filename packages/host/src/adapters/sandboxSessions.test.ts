@@ -1,12 +1,6 @@
 import type { Harness, SessionStart, SessionUpdate } from '@consola/runner-protocol';
-import {
-  type FakeProcess,
-  FakeProvider,
-  type FakeProviderOptions,
-  SandboxError,
-  type SandboxProvider,
-  sandboxesFrom,
-} from '@consola/sandbox';
+import { FakeProvider, SandboxError, sandboxesFrom } from '@consola/sandbox';
+import type { FakeProcess, FakeProviderOptions, SandboxProvider } from '@consola/sandbox';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
@@ -14,7 +8,8 @@ import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Queue from 'effect/Queue';
 import { describe, expect, it } from 'vite-plus/test';
-import { type SandboxSessions, makeSandboxSessions } from './sandboxSessions.ts';
+import { makeSandboxSessions } from './sandboxSessions.ts';
+import type { SandboxSessions } from './sandboxSessions.ts';
 
 const GIT_TOKEN = 'ghp_sprocketGitToken0123';
 const ANTHROPIC_KEY = 'sk-ant-sprocket-0123';
@@ -57,9 +52,9 @@ type Harnessed = {
   /** The next update the sessions sent the cell; dies when none comes in time. */
   readonly next: Effect.Effect<SessionUpdate>;
   /** Every update sent so far. */
-  readonly sent: ReadonlyArray<SessionUpdate>;
+  readonly sent: readonly SessionUpdate[];
   /** Every line logged so far. */
-  readonly logged: ReadonlyArray<string>;
+  readonly logged: readonly string[];
   /**
    * Waits for the session's own path to finish (its "ended" log, which comes once its end is
    * said and its sandbox stopped); dies when it does not in time. Never `stopAll`, which would
@@ -188,7 +183,7 @@ const expectNoSecret = (h: Harnessed) => {
   for (const secret of SECRET_VALUES) expect(said).not.toContain(secret);
 };
 
-const finalsOf = (sent: ReadonlyArray<SessionUpdate>, sessionId: string) =>
+const finalsOf = (sent: readonly SessionUpdate[], sessionId: string) =>
   sent.filter(
     (update) =>
       update.sessionId === sessionId && (update.status === 'stopped' || update.status === 'failed'),
@@ -930,8 +925,8 @@ describe('makeSandboxSessions', () => {
         yield* h.next;
         // Eight hours, less the moment it took to make: the provider stops it by the cap.
         const lifetime = h.fake.sandboxes[0]?.lifetimeSeconds ?? 0;
-        expect(lifetime).toBeLessThanOrEqual(8 * 3_600);
-        expect(lifetime).toBeGreaterThan(8 * 3_600 - 60);
+        expect(lifetime).toBeLessThanOrEqual(8 * 3600);
+        expect(lifetime).toBeGreaterThan(8 * 3600 - 60);
         yield* h.sessions.stopAll;
       }),
     ));
@@ -976,7 +971,7 @@ describe('makeSandboxSessions', () => {
       Effect.gen(function* () {
         const renewals: number[] = [];
         const h = yield* harness({
-          maxLifetime: Duration.millis(2_500),
+          maxLifetime: Duration.millis(2500),
           fake: {
             capabilities: ['keepAlive'],
             programs: { 'consola-session-start': readyUntilStopped() },
@@ -1047,9 +1042,9 @@ describe('makeSandboxSessions', () => {
         // stop comes first (1.5 s), so the session is stopped, not failed as a sandbox that
         // ended by itself.
         const h = yield* harness({
-          maxLifetime: Duration.millis(2_500),
+          maxLifetime: Duration.millis(2500),
           stopTimeout: Duration.seconds(1),
-          leaseRenewEvery: Duration.millis(1_200),
+          leaseRenewEvery: Duration.millis(1200),
           fake: {
             capabilities: ['keepAlive'],
             programs: { 'consola-session-start': readyUntilStopped() },

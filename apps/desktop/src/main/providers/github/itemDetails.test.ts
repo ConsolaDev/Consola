@@ -180,8 +180,9 @@ describe('GitHub item details', () => {
         'ConsolaReviewThreads',
       ]),
     );
-    for (const line of calls())
+    for (const line of calls()) {
       expect(line).toMatch(/--hostname github\.com .*GH_TOKEN=stub-workspace-account$/);
+    }
     expect(calls().filter((line) => line.includes('--paginate --slurp'))).toHaveLength(3);
     expect(log()).toContain('-f owner=sprocket -f name=catalog-portal -F number=51');
   });
@@ -479,9 +480,7 @@ describe('GitHub item actions', () => {
     await expect(
       driver.mutateItem(ref, { ...line, startLine: 3, startSide: 'RIGHT' }, env),
     ).rejects.toThrow('start before');
-    await expect(
-      driver.mutateItem(ref, { ...line, startLine: 2 } as WorkItemMutation, env),
-    ).rejects.toThrow('both');
+    await expect(driver.mutateItem(ref, { ...line, startLine: 2 }, env)).rejects.toThrow('both');
     await expect(driver.mutateItem(ref, { ...line, line: 0 }, env)).rejects.toThrow();
     await expect(
       driver.mutateItem(ref, { kind: 'reply', threadId: 'PRRT_1 } }', body: 'x' }, env),

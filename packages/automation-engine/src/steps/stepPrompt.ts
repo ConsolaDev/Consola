@@ -1,4 +1,5 @@
-import { describeOutputType, type AgentStep, type OutputType } from '@consola/factory-spec';
+import { describeOutputType } from '@consola/factory-spec';
+import type { AgentStep, OutputType } from '@consola/factory-spec';
 import { NO_EARLIER_RUN, OF_EARLIER_RUN } from '../sources/previous';
 
 /**
@@ -91,8 +92,9 @@ function sessionSentence(
   environment: StepPromptInput['environment'],
   tools: string,
 ): string {
-  if (policy === 'edit')
+  if (policy === 'edit') {
     return `This session writes files: it can change the files in this checkout and use ${tools}, and nothing else: no shell, no network. Consola commits what you leave when you finish. `;
+  }
   if (policy === 'write') {
     const shell =
       environment?.isolation === 'sandbox'

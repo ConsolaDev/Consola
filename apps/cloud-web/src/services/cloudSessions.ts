@@ -1,27 +1,20 @@
-import {
-  type CloudSession,
-  type CloudSessionOptions,
-  type CloudSessionPass,
-  type Harness,
-  isHarness,
-  isSessionStatus,
-  type OptionsAnswer,
-  type PassAnswer,
-  type SessionAnswer,
-  type SessionsAnswer,
-  type StartAnswer,
-  type StartRefusalCode,
-  type StopAnswer,
+import { isHarness, isSessionStatus } from '../domain/cloudSession';
+import type {
+  CloudSession,
+  CloudSessionOptions,
+  CloudSessionPass,
+  Harness,
+  OptionsAnswer,
+  PassAnswer,
+  SessionAnswer,
+  SessionsAnswer,
+  StartAnswer,
+  StartRefusalCode,
+  StopAnswer,
 } from '../domain/cloudSession';
 import { messageForPassAnswer } from '../domain/cloudSessionMessages';
-import {
-  type CellDeps,
-  type CellSession,
-  codeOf,
-  createCellSession,
-  pageCellSession,
-  UNAVAILABLE,
-} from './cell';
+import { codeOf, createCellSession, pageCellSession, UNAVAILABLE } from './cell';
+import type { CellDeps, CellSession } from './cell';
 
 /*
  * The person's cloud sessions, from the workspace's regional cell, reached through `cell.ts` as

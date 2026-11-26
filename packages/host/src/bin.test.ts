@@ -1,6 +1,8 @@
 // @effect-diagnostics nodeBuiltinImport:off - It starts the host with node and reads what it prints.
-import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { execFileSync, spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -13,10 +15,10 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { get } from 'node:http';
-import { type AddressInfo, createServer, type Server } from 'node:net';
+import { createServer } from 'node:net';
+import type { AddressInfo, Server } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 import { CommandId, ORCHESTRATION_V2_WS_METHODS, ThreadId } from '@t3tools/contracts';
 import type * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -28,7 +30,8 @@ import * as Stream from 'effect/Stream';
 import { E2BProvider } from '@consola/sandbox/e2b';
 import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
-import { type WebSocket, WebSocketServer } from 'ws';
+import { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import { DEV_PASS_SECONDS } from './adapters/devPass.ts';
 import { HOST_LINE_TYPES } from './adapters/stdoutEvents.ts';
 import {
@@ -61,7 +64,7 @@ import { connectHost } from './testing/t3Client.ts';
  */
 const machine = isolateMachine();
 
-const SRC = dirname(fileURLToPath(import.meta.url));
+const SRC = import.meta.dirname;
 /** The command as Track B's runner starts it: the package's bin. */
 const BIN = join(SRC, 'main.ts');
 /** The same command, its Claude driver replaying one of t3's fixtures (test-only). */
@@ -85,7 +88,7 @@ type Exited = { readonly code: number | null; readonly signal: NodeJS.Signals | 
 type Host = {
   readonly pid: number;
   /** Every stdout line, as printed. */
-  readonly printed: ReadonlyArray<string>;
+  readonly printed: readonly string[];
   /** The next stdout line, parsed; dies when the host ends first or prints none in time. */
   readonly next: Effect.Effect<Line>;
   readonly stderr: () => string;
@@ -111,7 +114,7 @@ const parseLine = (printed: string): Line => JSON.parse(printed) as Line;
 /** Starts `node <script> <args>` with the test machine's environment (and `env` over it). */
 const startHost = Effect.fn('startHost')(function* (
   script: string,
-  args: ReadonlyArray<string>,
+  args: readonly string[],
   env: NodeJS.ProcessEnv = {},
 ) {
   const lines = yield* Queue.unbounded<string, Cause.Done>();
@@ -168,7 +171,7 @@ const startHost = Effect.fn('startHost')(function* (
 });
 
 /** Every line the host printed is one JSON object of a type the runner reads. */
-const expectOnlyHostLines = (printed: ReadonlyArray<string>) => {
+const expectOnlyHostLines = (printed: readonly string[]) => {
   for (const each of printed) {
     const parsed = parseLine(each);
     expect(parsed).toMatchObject({ type: expect.any(String) });
@@ -176,7 +179,7 @@ const expectOnlyHostLines = (printed: ReadonlyArray<string>) => {
   }
 };
 
-const typesOf = (printed: ReadonlyArray<string>) => printed.map((each) => parseLine(each).type);
+const typesOf = (printed: readonly string[]) => printed.map((each) => parseLine(each).type);
 
 /** A folder for the test, removed with its scope. */
 const tempFolder = (prefix: string) =>
@@ -631,7 +634,7 @@ describe('consola-host session', () => {
         yield* Effect.scoped(
           Effect.gen(function* () {
             yield* connectHost(ready.port as number, pass);
-            yield* Effect.sleep(Duration.millis(idleMinutes * 60_000 + 3_000));
+            yield* Effect.sleep(Duration.millis(idleMinutes * 60_000 + 3000));
             expect(typesOf(host.printed)).toEqual(['ready']);
           }),
         );
@@ -640,7 +643,7 @@ describe('consola-host session', () => {
         const leftAt = yield* Clock.currentTimeMillis;
         expect(yield* host.next).toEqual({ type: 'exit', reason: 'idle' });
         const exitedAt = yield* Clock.currentTimeMillis;
-        expect(exitedAt - leftAt).toBeGreaterThanOrEqual(idleMinutes * 60_000 - 1_000);
+        expect(exitedAt - leftAt).toBeGreaterThanOrEqual(idleMinutes * 60_000 - 1000);
         expect(yield* host.exited).toEqual({ code: 0, signal: null });
         expect(typesOf(host.printed)).toEqual(['ready', 'exit']);
         expectOnlyHostLines(host.printed);
@@ -742,9 +745,8 @@ describe('temporaryStateDir', () => {
 });
 
 describe('parseSessionArgs', () => {
-  const parse = (argv: ReadonlyArray<string>) => Effect.runSync(parseSessionArgs(argv));
-  const refusal = (argv: ReadonlyArray<string>) =>
-    Effect.runSync(Effect.flip(parseSessionArgs(argv)));
+  const parse = (argv: readonly string[]) => Effect.runSync(parseSessionArgs(argv));
+  const refusal = (argv: readonly string[]) => Effect.runSync(Effect.flip(parseSessionArgs(argv)));
   const required = [
     'session',
     '--session-id',
@@ -1196,9 +1198,9 @@ describe('parseRunnerArgs', () => {
     '--runner-id',
     'r-1',
   ];
-  const parse = (argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = RUNNER_ENV) =>
+  const parse = (argv: readonly string[], env: NodeJS.ProcessEnv = RUNNER_ENV) =>
     Effect.runSync(parseRunnerArgs(argv, env));
-  const refusal = (argv: ReadonlyArray<string>, env: NodeJS.ProcessEnv = RUNNER_ENV) =>
+  const refusal = (argv: readonly string[], env: NodeJS.ProcessEnv = RUNNER_ENV) =>
     Effect.runSync(Effect.flip(parseRunnerArgs(argv, env)));
 
   it('reads its flags and environment, with ten idle minutes and an eight-hour cap by default', () => {
@@ -1243,8 +1245,9 @@ describe('parseRunnerArgs', () => {
     // Every `env.NAME` (or `env['NAME']`) in the host's own source, the harnesses' keys too.
     const read = new Set<string>(Object.values(HARNESS_API_KEYS));
     for (const file of readdirSync(SRC, { recursive: true, encoding: 'utf8' })) {
-      if (!file.endsWith('.ts') || file.endsWith('.test.ts') || file.startsWith('testing'))
+      if (!file.endsWith('.ts') || file.endsWith('.test.ts') || file.startsWith('testing')) {
         continue;
+      }
       const source = readFileSync(join(SRC, file), 'utf8');
       for (const match of source.matchAll(/\benv(?:\.|\[['"])([A-Z][A-Z0-9_]*)/g)) {
         if (match[1] !== undefined) read.add(match[1]);

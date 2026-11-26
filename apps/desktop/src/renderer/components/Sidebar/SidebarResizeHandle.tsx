@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState, type PointerEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { PointerEvent, RefObject } from 'react';
 import {
   useNavigationStore,
   clampSidebarWidth,

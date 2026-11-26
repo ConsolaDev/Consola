@@ -1,6 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { describeWrites, type AgentRequirements } from '@consola/automation-engine';
+import { describeWrites } from '@consola/automation-engine';
+import type { AgentRequirements } from '@consola/automation-engine';
 import type { StepsAutomation } from '@consola/factory-spec';
 import { describe, expect, it } from 'vitest';
 import { SANDBOX_CHECKED_ON_CLAUDE } from '../../shared/sandboxCheck';

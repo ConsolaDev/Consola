@@ -1,15 +1,15 @@
 import * as path from 'node:path';
-import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
+import { parseAutomationEntry } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import { reReviewEntry, RE_REVIEW_NAME } from '../factoryTemplates';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
-import {
-  stepsHarness,
-  WORKSPACE_ID,
-  type FakeCommand,
-  type StepsHarness,
-  type StepsHarnessOptions,
-  type StepsWorld,
+import { stepsHarness, WORKSPACE_ID } from '../steps/steps.test-helpers';
+import type {
+  FakeCommand,
+  StepsHarness,
+  StepsHarnessOptions,
+  StepsWorld,
 } from '../steps/steps.test-helpers';
 import type { ItemRef, ItemTarget } from '../views';
 
@@ -32,8 +32,9 @@ export const RE_REVIEW_ENTRY = `${reReviewEntry()}\n`;
 /** The check command the template runs, as its `run: |` block reads. */
 export const RE_REVIEW_COMMAND = (() => {
   const parsed = parseAutomationEntry(RE_REVIEW_ENTRY);
-  if (!parsed.ok || parsed.automation.trigger.kind !== 'poll')
+  if (!parsed.ok || parsed.automation.trigger.kind !== 'poll') {
     throw new Error('The re-review template is not a poll.');
+  }
   return parsed.automation.trigger.run;
 })();
 

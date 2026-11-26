@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { isRegion, REGIONS, type Region } from './domain/region.js';
+import { isRegion, REGIONS } from './domain/region.js';
+import type { Region } from './domain/region.js';
 
 /**
  * The workspace's runner and the key its sessions' passes are signed with: the POC's stand-in for
@@ -59,7 +60,7 @@ const DATABASE_SCHEMES = ['postgres://', 'postgresql://', 'pglite:'];
 
 // Plain http only on this machine: anyone on the network between the cell and `cloud-global`
 // could otherwise hand the cell keys of their own, and then mint any token it would accept.
-const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '[::1]'];
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 /** Why the cell may not fetch `cloud-global`'s keys from `value`, or null when it may. */
 function cloudGlobalUrlProblem(value: string): string | null {
@@ -76,7 +77,7 @@ function cloudGlobalUrlProblem(value: string): string | null {
   if (url.pathname !== '/' || url.search !== '' || url.hash !== '') {
     return 'must be an address with no path, query or fragment';
   }
-  if (url.protocol === 'http:' && !LOOPBACK_HOSTS.includes(url.hostname)) {
+  if (url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname)) {
     return 'must be https unless it is on this machine (127.0.0.1, localhost or [::1])';
   }
   return null;
@@ -133,7 +134,7 @@ const rawEnv = z.object({
     .number({ error: 'must be a whole number' })
     .int('must be a whole number')
     .min(1, 'must be between 1 and 65535')
-    .max(65535, 'must be between 1 and 65535')
+    .max(65_535, 'must be between 1 and 65535')
     .optional(),
   CLOUD_GLOBAL_URL: z
     .string()
@@ -228,7 +229,7 @@ export function loadConfig(env: Record<string, string | undefined>): CellConfig 
   } = parsed;
   return {
     databaseUrl: parsed.DATABASE_URL,
-    region: parsed.REGION as Region,
+    region: parsed.REGION,
     port: parsed.PORT ?? DEFAULT_PORT,
     cloudGlobalUrl: parsed.CLOUD_GLOBAL_URL ?? DEFAULT_CLOUD_GLOBAL_URL,
     runner:

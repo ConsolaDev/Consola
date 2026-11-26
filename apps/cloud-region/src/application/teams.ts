@@ -1,12 +1,6 @@
 import type { Caller } from '../domain/caller.js';
-import {
-  actingRole,
-  checkTeamName,
-  mayManageTeams,
-  type Team,
-  type TeamProblem,
-  teamsSeenBy,
-} from '../domain/team.js';
+import { actingRole, checkTeamName, mayManageTeams, teamsSeenBy } from '../domain/team.js';
+import type { Team, TeamProblem } from '../domain/team.js';
 import type { TeamStore } from './ports.js';
 
 /*

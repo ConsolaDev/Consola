@@ -216,8 +216,9 @@ export class HookSignals {
       before?.holdingBackgroundWork === after?.holdingBackgroundWork &&
       before?.awaitingAgents === after?.awaitingAgents &&
       before?.turn === after?.turn
-    )
+    ) {
       return;
+    }
     this.notify(instanceId);
   }
 

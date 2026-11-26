@@ -1,13 +1,10 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X } from 'lucide-react';
-import {
-  formatLaunchArgs,
-  parseLaunchArgs,
-  useHarnessStore,
-  type Harness,
-} from '../../stores/harnessStore';
-import { ConfigFields, IdentityFields, type HarnessDraft } from './harnessFields';
+import { formatLaunchArgs, parseLaunchArgs, useHarnessStore } from '../../stores/harnessStore';
+import type { Harness } from '../../stores/harnessStore';
+import { ConfigFields, IdentityFields } from './harnessFields';
+import type { HarnessDraft } from './harnessFields';
 import './styles.css';
 
 function toDraft(harness: Harness): HarnessDraft {
@@ -90,14 +87,14 @@ export function EditHarnessDialog({
               type="button"
               className="dialog-button-primary"
               disabled={!activeDraft?.name.trim()}
-              onClick={save}
+              onClick={() => void save()}
             >
               Save changes
             </button>
           </div>
 
           <Dialog.Close asChild>
-            <button className="dialog-close" aria-label="Close">
+            <button type="button" className="dialog-close" aria-label="Close">
               <X size={16} />
             </button>
           </Dialog.Close>

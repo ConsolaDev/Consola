@@ -27,7 +27,7 @@ describe('a settings page in the address', () => {
   });
 
   it('opens the first page when it names none, or one this build does not have', () => {
-    const pages: readonly [{ id: string }, ...{ id: string }[]] = [
+    const pages: readonly [{ id: string }, ...Array<{ id: string }>] = [
       { id: 'connections' },
       { id: 'members' },
     ];

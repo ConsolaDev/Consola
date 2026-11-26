@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { decideLive, HIDDEN_UNLOAD_MS, MAX_LIVE_PAGES, type LiveCandidate } from './livePolicy';
+import { decideLive, HIDDEN_UNLOAD_MS, MAX_LIVE_PAGES } from './livePolicy';
+import type { LiveCandidate } from './livePolicy';
 
 const NOW = 10_000_000;
 

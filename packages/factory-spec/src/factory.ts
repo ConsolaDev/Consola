@@ -7,17 +7,22 @@
  * defined twice. The texts come in already read (a runner's adapter reads the
  * folder), so this does no I/O and every runner parses a folder alike.
  */
-import { agentHash, parseAgentFile, type AgentDefinition } from './agents';
-import { parseEnvironmentFile, type EnvironmentDefinition } from './environments';
+import { agentHash, parseAgentFile } from './agents';
+import type { AgentDefinition } from './agents';
+import { parseEnvironmentFile } from './environments';
+import type { EnvironmentDefinition } from './environments';
 import { parseAutomationFile } from './automationFile';
 import { usesNotices } from './callArguments';
-import { formatPath, type FactorySpecIssue } from './issues';
+import { formatPath } from './issues';
+import type { FactorySpecIssue } from './issues';
 import { AUTOMATION_NAME_PATTERN } from './names';
 import { parseFactoryYml } from './parse';
 import { isRunOwnedCheckout } from './flow';
-import { isStepsEntry, type Automation } from './schema';
+import { isStepsEntry } from './schema';
+import type { Automation } from './schema';
 import type { McpServerDefinition } from './servers';
-import { parseSkill, type SkillDefinition, type SkillFileEntry } from './skills';
+import { parseSkill } from './skills';
+import type { SkillDefinition, SkillFileEntry } from './skills';
 import { flatSteps, leafSteps } from './steps';
 
 /** The largest text file the folder's reader reads; a larger one is reported as not read. */
@@ -32,7 +37,7 @@ export const LATER_FOLDERS: Readonly<Record<string, string>> = {
 /** What editors and the OS leave beside a file, by suffix: a backup (`x.md~`, `x.bak`), a merge's or a patch's (`x.orig`, `x.rej`). */
 const LEFTOVER_SUFFIXES = ['~', '.bak', '.orig', '.rej'];
 /** Files an OS writes into any folder it shows (Windows's; macOS's `.DS_Store` is a dotfile). */
-const OS_FILES = ['Thumbs.db', 'desktop.ini'];
+const OS_FILES = new Set(['Thumbs.db', 'desktop.ini']);
 
 /**
  * A name a folder's reader passes over, so it is neither a file of the
@@ -43,7 +48,7 @@ const OS_FILES = ['Thumbs.db', 'desktop.ini'];
  * does. Every runner's adapter passes over the same names.
  */
 export function isIgnoredFileName(name: string): boolean {
-  if (name.startsWith('.') || OS_FILES.includes(name)) return true;
+  if (name.startsWith('.') || OS_FILES.has(name)) return true;
   if (name.length > 1 && name.startsWith('#') && name.endsWith('#')) return true;
   const lower = name.toLowerCase();
   return LEFTOVER_SUFFIXES.some((suffix) => lower.endsWith(suffix));
@@ -135,14 +140,18 @@ function joinList(items: string[]): string {
 }
 
 function strayMessage(path: string): string {
-  if (path.startsWith('agents/'))
+  if (path.startsWith('agents/')) {
     return `\`${path}\` is not an agent: agent files are \`agents/<name>.md\`.`;
-  if (path.startsWith('automations/'))
+  }
+  if (path.startsWith('automations/')) {
     return `\`${path}\` is not an automation: automation files are \`automations/<name>.yaml\`.`;
-  if (path.startsWith('skills/'))
+  }
+  if (path.startsWith('skills/')) {
     return `\`${path}\` is not a skill: a skill is a folder, \`skills/<name>/SKILL.md\`.`;
-  if (path.startsWith('environments/'))
+  }
+  if (path.startsWith('environments/')) {
     return `\`${path}\` is not an environment: environment files are \`environments/<name>.yaml\`.`;
+  }
   return `\`${path}\` is not an agent, an automation or a skill.`;
 }
 
@@ -402,13 +411,13 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
   });
 
   // Two namespaces: an agent's servers are its harness's, whatever factory.yml defines.
-  const factoryServerNames = [...Object.keys(servers), ...brokenServers];
+  const factoryServerNames = new Set([...Object.keys(servers), ...brokenServers]);
   for (const name of sortedKeys(agents)) {
     const agent = agents[name];
     // An agent that names servers always names its harness (`parseAgentFile`).
     if (agent.harness === undefined) continue;
     for (const server of agent.mcpServers) {
-      if (!factoryServerNames.includes(server.name)) continue;
+      if (!factoryServerNames.has(server.name)) continue;
       notices.push({
         message: `\`${server.name}\` is also a server in factory.yml; this agent gets \`${agent.harness}\`'s \`${server.name}\`, because agents use their harness's servers.`,
         file: `agents/${name}.md`,
@@ -470,8 +479,9 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     if (!isStepsEntry(automation)) return true;
     let kept = true;
     flatSteps(automation.steps).forEach(({ step, path: at }) => {
-      if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0)
+      if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0) {
         return;
+      }
       const agent = agents[step.agent];
       const onHost =
         agent.tools === 'write' &&
@@ -504,8 +514,9 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     for (const step of leafSteps(automation.steps)) {
       if (step.kind !== 'agent' || step.agent === undefined || named.has(step.agent)) continue;
       named.add(step.agent);
-      for (const server of agents[step.agent].mcpServers)
+      for (const server of agents[step.agent].mcpServers) {
         pairs.push(`\`${server.name}\` from \`${step.agent}\`'s servers`);
+      }
     }
     if (pairs.length === 0) return true;
     const path = candidate.pathTo(['mode']);
@@ -528,8 +539,9 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     }
   }
 
-  for (const path of files.stray)
+  for (const path of files.stray) {
     issues.push({ message: strayMessage(path), file: path, path: '' });
+  }
   for (const { path, reason } of files.unread) {
     issues.push({ message: `Could not read \`${path}\`: ${reason}.`, file: path, path: '' });
     present.push(path);
@@ -600,8 +612,9 @@ export function factoryFilesOf(
       files.environments[environment[1]] = texts[path];
     }
   }
-  for (const name of Object.keys(skills ?? {}))
+  for (const name of Object.keys(skills ?? {})) {
     files.skills[name] = skills![name].map((entry) => ({ path: entry.path, bytes: entry.bytes }));
+  }
   return files;
 }
 
@@ -624,8 +637,8 @@ export function storedFactoryFiles(
   files: ReadonlyArray<{ path: string; content: string }>,
 ): FactoryFiles {
   let factoryYml: string | null = null;
-  const automations: [string, string][] = [];
-  const agents: [string, string][] = [];
+  const automations: Array<[string, string]> = [];
+  const agents: Array<[string, string]> = [];
   const skills = new Map<string, SkillFileEntry[]>();
   const laterFolders = new Set<string>();
   const stray: string[] = [];

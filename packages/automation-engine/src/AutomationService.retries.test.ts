@@ -1,20 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import {
-  automationVersion,
-  leafSteps,
-  parseFactorySpec,
-  type RunRecord,
-  type StepRun,
-} from '@consola/factory-spec';
+import { automationVersion, leafSteps, parseFactorySpec } from '@consola/factory-spec';
+import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { inboxItem } from './inboxItems.test-helpers';
 import {
   checkoutPathFor,
   stepsHarness,
   turnReport,
   WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /** One `- name:` entry: its head lines as given, then `steps:` with each item's lines. */
 function entry(name: string, head: string, ...steps: string[]): string {
@@ -36,8 +30,9 @@ const MINUTE = 60_000;
 /** Accept every entry in `yaml` at its version, as a person approving each once would. */
 function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
-    if (leafSteps(automation.steps ?? []).some((step) => step.kind === 'agent' && step.action))
+    if (leafSteps(automation.steps ?? []).some((step) => step.kind === 'agent' && step.action)) {
       throw new Error('no action steps here');
+    }
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
   }
 }
@@ -113,7 +108,7 @@ describe("a step's declared retry", () => {
     h.advance(59_000);
     await h.tick();
     expect(h.world.launches).toHaveLength(1);
-    h.advance(1_000);
+    h.advance(1000);
     await h.tick();
     expect(rowOf(h, run.id, 'look')).toMatchObject({
       status: 'running',

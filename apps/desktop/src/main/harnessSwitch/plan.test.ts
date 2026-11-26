@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessDriver } from '../drivers';
-import {
-  conversationSupport,
-  describeSwitch,
-  planHarnessSwitch,
-  type ConversationSupport,
-} from './plan';
+import { conversationSupport, describeSwitch, planHarnessSwitch } from './plan';
+import type { ConversationSupport } from './plan';
 
 const claude: ConversationSupport = { driverId: 'claude', transplant: true, readable: true };
 const codex: ConversationSupport = { driverId: 'codex', transplant: false, readable: true };

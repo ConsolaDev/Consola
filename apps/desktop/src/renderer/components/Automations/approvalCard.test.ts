@@ -15,28 +15,26 @@ import {
 
 type Step = RunDefinition['automation']['steps'][number];
 
-const agent = (id: string): Step =>
-  ({
-    id,
-    kind: 'agent',
-    action: 'Review',
-    outputs: {},
-    artifacts: [],
-    reads: [],
-    handover: 'required',
-    named: true,
-  }) as Step;
-const command = (id: string, dryRun: 'report' | 'run' = 'report'): Step =>
-  ({
-    id,
-    kind: 'run',
-    run: 'git fetch',
-    env: {},
-    outputs: {},
-    timeoutMs: 1000,
-    dryRun,
-    named: true,
-  }) as Step;
+const agent = (id: string): Step => ({
+  id,
+  kind: 'agent',
+  action: 'Review',
+  outputs: {},
+  artifacts: [],
+  reads: [],
+  handover: 'required',
+  named: true,
+});
+const command = (id: string, dryRun: 'report' | 'run' = 'report'): Step => ({
+  id,
+  kind: 'run',
+  run: 'git fetch',
+  env: {},
+  outputs: {},
+  timeoutMs: 1000,
+  dryRun,
+  named: true,
+});
 
 const definitionOf = (...steps: Step[]): RunDefinition => ({
   automation: { name: 'review', steps } as unknown as RunDefinition['automation'],
@@ -81,19 +79,18 @@ describe('dryRunCommands', () => {
 });
 
 describe('dryRunCommands with calls (5a-2)', () => {
-  const call = (id: string, dryRun: 'report' | 'run'): Step =>
-    ({
-      id,
-      kind: 'uses',
-      uses: 'tracker#lookup',
-      server: 'tracker',
-      tool: 'lookup',
-      with: {},
-      outputs: {},
-      timeoutMs: 60_000,
-      dryRun,
-      named: true,
-    }) as Step;
+  const call = (id: string, dryRun: 'report' | 'run'): Step => ({
+    id,
+    kind: 'uses',
+    uses: 'tracker#lookup',
+    server: 'tracker',
+    tool: 'lookup',
+    with: {},
+    outputs: {},
+    timeoutMs: 60_000,
+    dryRun,
+    named: true,
+  });
 
   it('names the commands and the calls marked dry_run: run, in file order', () => {
     expect(
@@ -335,10 +332,11 @@ describe('approvalSkills (review M4)', () => {
     expect(approvalSkills(detail({ skillsProblem: 'Its skills could not be read.' }))).toEqual({
       problem: 'Its skills could not be read.',
     });
-    for (const gone of [null, detail({})])
+    for (const gone of [null, detail({})]) {
       expect(approvalSkills(gone)).toEqual({
         problem: "Its skills can't be shown from this run's folder.",
       });
+    }
   });
 });
 

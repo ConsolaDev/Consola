@@ -15,18 +15,18 @@
  * answers. A step's sandbox (`adapters/agentSteps.ts`, `commandSteps.ts`) behaves as its `steps`
  * option says (`LocalStepsOptions`), each `/workspace` path in the sandbox's folder.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import {
-  type Command,
-  type CreateSandboxOptions,
-  type ProviderCommand,
-  type ProviderSandbox,
-  SandboxError,
-  type SandboxProvider,
+import { SandboxError } from '@consola/sandbox';
+import type {
+  Command,
+  CreateSandboxOptions,
+  ProviderCommand,
+  ProviderSandbox,
+  SandboxProvider,
 } from '@consola/sandbox';
 import { SESSION_START_ARGV, SESSION_TEMPLATE } from '../core/runnerDecisions.ts';
 import {
@@ -45,7 +45,7 @@ import {
  */
 export { RUNNER_SECRET_VARIABLES } from '../core/runnerDecisions.ts';
 
-const REPLAY_SESSION = join(dirname(fileURLToPath(import.meta.url)), 'replaySession.ts');
+const REPLAY_SESSION = join(import.meta.dirname, 'replaySession.ts');
 
 /** The replay's own arguments: the fixture, and the mode it was recorded in. */
 const REPLAY_FIXTURE = ['simple', 'full-access'];
@@ -55,7 +55,7 @@ const REPLAY_FIXTURE = ['simple', 'full-access'];
  * its temporary files are, and nothing else. The runner's process holds its secret and every key;
  * a sandbox gets only what the runner gives it (`sandboxEnvFor`), over these.
  */
-export const MACHINE_VARIABLES: ReadonlyArray<string> = [
+export const MACHINE_VARIABLES: readonly string[] = [
   'PATH',
   'HOME',
   'USERPROFILE',
@@ -140,7 +140,7 @@ export type LocalProviderOptions = {
   readonly steps?: LocalStepsOptions;
 };
 
-const MAIN = join(dirname(fileURLToPath(import.meta.url)), '..', 'main.ts');
+const MAIN = join(import.meta.dirname, '..', 'main.ts');
 
 /**
  * The real step tools' server in `folder`, given `calls` as an MCP client gives them: initialize,

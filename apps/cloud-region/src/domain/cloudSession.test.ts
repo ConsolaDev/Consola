@@ -1,14 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   belongsToRunner,
-  type CloudSession,
-  type CloudSessionStatus,
   endReported,
   nextStatus,
   readStartRequest,
   runnerFailure,
   transition,
 } from './cloudSession.js';
+import type { CloudSession, CloudSessionStatus } from './cloudSession.js';
 
 const session = (status: CloudSessionStatus): CloudSession => ({
   id: 'session-1',

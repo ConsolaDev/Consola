@@ -1,6 +1,7 @@
 import { secretNameProblem } from '@consola/factory-spec';
 import type { JsonStateFile } from '../state/JsonStateFile';
-import { type BindingRef, formatReference, parseReference } from './references';
+import { formatReference, parseReference } from './references';
+import type { BindingRef } from './references';
 
 /**
  * Where this Mac keeps each secret name's binding: `secret-bindings.json` in
@@ -239,7 +240,7 @@ export class BindingsStore {
   }
 
   private copy(): Workspaces {
-    return JSON.parse(JSON.stringify(this.workspaces)) as Workspaces;
+    return structuredClone(this.workspaces);
   }
 
   /** Writes `next` and only then makes it the store's: a write that throws changes nothing. */

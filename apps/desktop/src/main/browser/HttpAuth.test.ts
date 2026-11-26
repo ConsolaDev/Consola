@@ -127,7 +127,7 @@ describe('AuthPrompts', () => {
 
   it('treats a malformed answer as a cancel', () => {
     const callback = ask();
-    prompts.answer(host, 'req1', { username: 1, password: {} } as never);
+    prompts.answer(host, 'req1', { username: 1, password: {} });
     expect(callback).toHaveBeenCalledWith();
   });
 

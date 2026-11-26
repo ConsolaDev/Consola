@@ -1,6 +1,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { answer, type CallerAccess, plain, tabIdInput } from './browserToolAccess';
+import { answer, plain, tabIdInput } from './browserToolAccess';
+import type { CallerAccess } from './browserToolAccess';
 import type { BrowserActToolsDeps } from './browserPageSteps';
 import type { BrowserToolContent } from './browserToolResults';
 import { NO_DIALOG_MESSAGE } from './PageDialogs';

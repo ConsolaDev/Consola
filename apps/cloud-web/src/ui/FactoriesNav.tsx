@@ -1,4 +1,5 @@
-import { ChevronDown, FileCode, type LucideIcon, Plus, Settings2 } from 'lucide-react';
+import { ChevronDown, FileCode, Plus, Settings2 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useEffect, useId, useState } from 'react';
 import type { FactoriesState, Factory } from '../domain/factories';
 import {
@@ -9,13 +10,8 @@ import {
   sidebarLineForFactoriesState,
   UNSAVED_EDITS,
 } from '../domain/factoryMessages';
-import {
-  FACTORY_PAGES,
-  type FactoryPageId,
-  hashOfFactoryPage,
-  isUnfolded,
-  withFold,
-} from '../domain/factoryNav';
+import { FACTORY_PAGES, hashOfFactoryPage, isUnfolded, withFold } from '../domain/factoryNav';
+import type { FactoryPageId } from '../domain/factoryNav';
 import type { MyWorkspace } from '../domain/workspace';
 import { readUnfolded, writeUnfolded } from '../services/foldStore';
 import { FactoryTile } from './FactoryTile';

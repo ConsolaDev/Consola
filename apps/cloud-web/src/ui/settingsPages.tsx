@@ -1,4 +1,5 @@
-import { Info, type LucideIcon, Plug, Users } from 'lucide-react';
+import { Info, Plug, Users } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { ConnectionsPage } from './ConnectionsPage';
 import { GeneralPage } from './GeneralPage';

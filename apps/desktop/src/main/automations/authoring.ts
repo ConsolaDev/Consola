@@ -1,11 +1,7 @@
 import * as path from 'node:path';
 import type { AuthoringBasis, AuthoringRequest } from '../../shared/automations';
-import {
-  generateSessionInstanceId,
-  primaryScope,
-  type Session,
-  type Workspace,
-} from '../../shared/workspace';
+import { generateSessionInstanceId, primaryScope } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import { AUTOMATION_TEMPLATES } from '@consola/automation-engine';
 
@@ -121,8 +117,9 @@ export async function startAuthoring(
   const workspace = deps.getWorkspace(request.workspaceId);
   if (!workspace) throw new Error(`No workspace ${request.workspaceId}.`);
   const description = request.description.trim();
-  if (!description && !request.basis)
+  if (!description && !request.basis) {
     throw new Error('Say what the automation should do, and when.');
+  }
   const scope =
     workspace.scopes.find((candidate) => candidate.id === request.scopeId) ??
     primaryScope(workspace);
@@ -151,8 +148,9 @@ async function resolveBasis(
 ): Promise<ResolvedBasis> {
   if ('automation' in basis) {
     const entry = await deps.basisEntry(workspaceId, basis);
-    if (entry === null)
+    if (entry === null) {
       throw new Error(`There is no automation named "${basis.automation}" in factory.yml.`);
+    }
     return { kind: 'automation', name: basis.automation, entry };
   }
   const template = AUTOMATION_TEMPLATES.find((candidate) => candidate.id === basis.template);

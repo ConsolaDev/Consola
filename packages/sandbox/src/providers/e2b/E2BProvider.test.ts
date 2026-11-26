@@ -177,7 +177,7 @@ describe('E2BProvider', () => {
     );
 
     api.create.mockRejectedValueOnce(answered(401, `the key ${KEY} is not valid`));
-    const error = await provider.create({ template: 'base' }).catch((e: unknown) => e);
+    const error = await provider.create({ template: 'base' }).catch((caught: unknown) => caught);
     expect(error).toEqual(coded('provider', /the key \[the E2B API key\] is not valid/));
     expect(JSON.stringify(error)).not.toContain(KEY);
     expect((error as Error).message).not.toContain(KEY);
@@ -331,7 +331,7 @@ describe('E2BProvider', () => {
     const attached = await provider.attach('sbx-sprocket-7');
     expect(attached.id).toBe('sbx-sprocket-7');
     expect(api.getInfo).toHaveBeenCalledWith('sbx-sprocket-7');
-    expect(api.connect.mock.calls).toEqual([['sbx-sprocket-7', { timeoutMs: 1_000 }]]);
+    expect(api.connect.mock.calls).toEqual([['sbx-sprocket-7', { timeoutMs: 1000 }]]);
   });
 
   it('refuses to attach to a paused sandbox, and never resumes it', async () => {
@@ -410,7 +410,7 @@ describe("E2B's command line", () => {
       '`echo run`',
       'two  spaces',
       'semi;colon && more',
-      'back\\slash',
+      String.raw`back\slash`,
       'new\nline',
       '-n',
       '',

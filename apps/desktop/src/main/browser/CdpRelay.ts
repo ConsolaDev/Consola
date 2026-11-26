@@ -1,11 +1,7 @@
 import type { Debugger, WebContents } from 'electron';
 import type { ConnectOverCDPTransport } from 'playwright-core';
-import {
-  createRelayConnection,
-  MAX_COMMANDS_IN_FLIGHT,
-  type RelayConnection,
-  type RelayPage,
-} from './cdpRelayProtocol';
+import { createRelayConnection, MAX_COMMANDS_IN_FLIGHT } from './cdpRelayProtocol';
+import type { RelayConnection, RelayPage } from './cdpRelayProtocol';
 
 /** The guest page the relay serves; a `WebContents` is one. */
 export type RelayGuest = Pick<
@@ -197,7 +193,9 @@ export class CdpRelay implements ConnectOverCDPTransport {
           ? pageDebugger.sendCommand(method, params)
           : pageDebugger.sendCommand(method, params, sessionId),
       targetInfo: async () => {
-        const answer = await pageDebugger.sendCommand('Target.getTargetInfo');
+        const answer = (await pageDebugger.sendCommand('Target.getTargetInfo')) as
+          | { targetInfo?: { targetId?: unknown; url?: unknown; title?: unknown } }
+          | undefined;
         const info = answer?.targetInfo;
         if (typeof info?.targetId !== 'string') {
           throw new Error('The page did not say which target it is.');

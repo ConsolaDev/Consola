@@ -1,6 +1,7 @@
 import { useId, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { type CustomSnoozeInput, describeWake, resolveCustomSnooze } from '../../../shared/snooze';
+import { describeWake, resolveCustomSnooze } from '../../../shared/snooze';
+import type { CustomSnoozeInput } from '../../../shared/snooze';
 import { useMinuteTick } from '../../hooks/useMinuteTick';
 import { useSnoozeDialogStore } from '../../stores/snoozeDialogStore';
 import { snoozeWithUndo } from '../../utils/snoozeActions';

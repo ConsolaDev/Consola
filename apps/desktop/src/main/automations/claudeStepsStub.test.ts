@@ -549,7 +549,7 @@ describe('the stub claude speaks the control protocol', { timeout: 30_000 }, () 
       { PATH: process.env.PATH, CLAUDE_CONFIG_DIR: scratch(), ...env },
       requests,
       // Far short of the 15 s default: "at once" means the stub answered.
-      { timeoutMs: 8_000, extraArgs },
+      { timeoutMs: 8000, extraArgs },
     );
 
   it('without either knob, refuses the protocol as before and logs nothing', () => {
@@ -980,8 +980,9 @@ describe('the stub claude in a write step', { timeout: 30_000 }, () => {
     expect(readLog(log)).not.toContain('HOLD waiting');
     const held = launch(dir, 'fix', [...WRITE_TOOLS, ...REPORT], env);
     const deadline = Date.now() + 20_000;
-    while (!readLog(log).includes('HOLD waiting') && Date.now() < deadline)
+    while (!readLog(log).includes('HOLD waiting') && Date.now() < deadline) {
       await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     // Held, with its files already written.
     expect(fs.readFileSync(path.join(dir, 'src', 'app.ts'), 'utf8')).toBe('fixed');
     expect(readLog(log).some((line) => line.startsWith('END fix '))).toBe(false);
@@ -1060,8 +1061,12 @@ describe('the stub claude in a write step', { timeout: 30_000 }, () => {
       [],
     );
     const deadline = Date.now() + 20_000;
-    while (!(fs.existsSync(log) && readLog(log).includes('OPEN waiting')) && Date.now() < deadline)
+    while (
+      !(fs.existsSync(log) && readLog(log).includes('OPEN waiting')) &&
+      Date.now() < deadline
+    ) {
       await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     expect(fs.readFileSync(path.join(dir, 'NOTES.md'), 'utf8')).toBe('notes');
     expect(readLog(log)).not.toContain('OPEN closed');
     fs.writeFileSync(`${open}.close`, '');

@@ -15,7 +15,8 @@
  */
 import { sha256Hex } from './sha256';
 import { LineCounter, parseDocument } from 'yaml';
-import { closestNode, formatPath, type FactorySpecIssue } from './issues';
+import { closestNode, formatPath } from './issues';
+import type { FactorySpecIssue } from './issues';
 import { stableStringify } from './run';
 import { ENV_NAME_PATTERN, isRefusedEnvName } from './steps';
 import { documentValue } from './yamlValue';
@@ -37,7 +38,7 @@ export interface EnvironmentDefinition {
 /** The most hosts `network` and names `env` may list. */
 export const MAX_ENVIRONMENT_ENTRIES = 50;
 
-const KEYS = ['isolation', 'network', 'env', 'description'];
+const KEYS = new Set(['isolation', 'network', 'env', 'description']);
 
 /** Keys a later slice owns, refused with what each arrives with. */
 const LATER: Readonly<Record<string, string>> = {
@@ -104,14 +105,18 @@ export function environmentHash(environment: Omit<EnvironmentDefinition, 'hash' 
 
 /** Why a name `env:` lists is refused, or null. */
 function envNameProblem(name: unknown): string | null {
-  if (typeof name !== 'string' || !ENV_NAME_PATTERN.test(name))
+  if (typeof name !== 'string' || !ENV_NAME_PATTERN.test(name)) {
     return `\`${String(name)}\` is not a variable name: capital letters, digits and \`_\`.`;
-  if (isRefusedEnvName(name) && !PASSED_DESPITE_PREFIX.has(name))
+  }
+  if (isRefusedEnvName(name) && !PASSED_DESPITE_PREFIX.has(name)) {
     return `\`${name}\` makes a program run its value, so an environment does not pass it.`;
-  if (isOwnName(name))
+  }
+  if (isOwnName(name)) {
     return `\`${name}\` is Consola's or the harness's own; an environment does not pass it.`;
-  if (looksLikeCredential(name))
+  }
+  if (looksLikeCredential(name)) {
     return `\`${name}\` looks like a credential, which an environment passes to its commands only, and no command runs in an environment yet.`;
+  }
   return null;
 }
 
@@ -136,13 +141,14 @@ export function parseEnvironmentFile(
   };
 
   if (doc.errors.length > 0) {
-    for (const error of doc.errors)
+    for (const error of doc.errors) {
       issues.push({
         message: error.message.split('\n')[0].trim(),
         file,
         path: '',
         line: error.linePos?.[0]?.line ?? lineOf(error.pos?.[0]) ?? 1,
       });
+    }
     return { issues };
   }
   const value = documentValue(doc);
@@ -160,13 +166,14 @@ export function parseEnvironmentFile(
 
   for (const key of Object.keys(fields)) {
     if (Object.prototype.hasOwnProperty.call(LATER, key)) issue(LATER[key], [key]);
-    else if (!KEYS.includes(key)) issue(`Unrecognized key in an environment: \`${key}\`.`, [key]);
+    else if (!KEYS.has(key)) issue(`Unrecognized key in an environment: \`${key}\`.`, [key]);
   }
 
   const { isolation } = fields;
   if (isolation === 'container') issue(CONTAINER, ['isolation']);
-  else if (isolation !== 'host' && isolation !== 'sandbox')
+  else if (isolation !== 'host' && isolation !== 'sandbox') {
     issue(ISOLATION, isolation === undefined ? [] : ['isolation']);
+  }
 
   const list = (key: 'network' | 'env', check: (entry: unknown) => string | null): string[] => {
     const raw = fields[key];
@@ -190,9 +197,9 @@ export function parseEnvironmentFile(
     raw.forEach((entry, index) => {
       const problem = check(entry);
       if (problem) issue(problem, [key, index]);
-      else if (seen.has(String(entry).toLowerCase()))
+      else if (seen.has(String(entry).toLowerCase())) {
         issue(`\`${String(entry)}\` is listed twice in \`${key}:\`.`, [key, index]);
-      else seen.add(String(entry).toLowerCase());
+      } else seen.add(String(entry).toLowerCase());
     });
     return raw as string[];
   };
@@ -204,8 +211,12 @@ export function parseEnvironmentFile(
   const env = list('env', envNameProblem);
 
   const { description } = fields;
-  if (description !== undefined && (typeof description !== 'string' || /[\r\n]/.test(description)))
+  if (
+    description !== undefined &&
+    (typeof description !== 'string' || /[\r\n]/.test(description))
+  ) {
     issue(DESCRIPTION, ['description']);
+  }
 
   if (issues.length > 0) return { issues };
   const said = {

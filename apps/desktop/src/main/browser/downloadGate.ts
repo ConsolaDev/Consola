@@ -1,15 +1,7 @@
 import type { DownloadItem, WebContents } from 'electron';
 import { PERSON_INPUT_GUARD_MS } from './PersonInput';
-import {
-  type DownloadFacts,
-  type DownloadGate,
-  type DownloadPlaces,
-  type DownloadSource,
-  downloadRefusal,
-  downloadSource,
-  isInvited,
-  QUIET_SESSION,
-} from './sessionPolicy';
+import { downloadRefusal, downloadSource, isInvited, QUIET_SESSION } from './sessionPolicy';
+import type { DownloadFacts, DownloadGate, DownloadPlaces, DownloadSource } from './sessionPolicy';
 
 /** What the gate needs of a download: whether it is past its save dialog. */
 type FollowedItem = Pick<DownloadItem, 'getSavePath' | 'on' | 'removeListener'>;

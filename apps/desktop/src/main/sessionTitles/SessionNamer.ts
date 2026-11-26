@@ -1,22 +1,16 @@
 import type { ConversationRecord } from '../../shared/conversation';
-import { launchFieldsFor, type Harness } from '../../shared/harness';
-import { resolveTitleSource, titleCallOptions, type TitleSource } from '../../shared/sessionTitles';
+import { launchFieldsFor } from '../../shared/harness';
+import type { Harness } from '../../shared/harness';
+import { resolveTitleSource, titleCallOptions } from '../../shared/sessionTitles';
+import type { TitleSource } from '../../shared/sessionTitles';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { HarnessDriverId, HarnessModel } from '../../shared/types';
-import {
-  scopeForSession,
-  type Session,
-  type SessionUpdates,
-  type Workspace,
-} from '../../shared/workspace';
+import { scopeForSession } from '../../shared/workspace';
+import type { Session, SessionUpdates, Workspace } from '../../shared/workspace';
 import { findSessionByInstanceId } from '../attention';
 import { describeError } from '../describeError';
-import {
-  toHarnessConfig,
-  type HarnessConfig,
-  type HarnessDriver,
-  type TextGenerationRequest,
-} from '../drivers/HarnessDriver';
+import { toHarnessConfig } from '../drivers/HarnessDriver';
+import type { HarnessConfig, HarnessDriver, TextGenerationRequest } from '../drivers/HarnessDriver';
 import {
   TITLE_SCHEMA,
   buildInitialTitlePrompt,
@@ -429,7 +423,7 @@ export class SessionNamer {
   /** Keeps background work visible to `idle()`; a failure is logged, never thrown. */
   private track(work: Promise<void>): void {
     const tracked: Promise<void> = work
-      .catch((error) => console.error('Session naming failed.', error))
+      .catch((error: unknown) => console.error('Session naming failed.', error))
       .finally(() => this.pending.delete(tracked));
     this.pending.add(tracked);
   }

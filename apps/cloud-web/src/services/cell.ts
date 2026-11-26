@@ -1,7 +1,9 @@
-import createClient, { type Client } from 'openapi-fetch';
+import createClient from 'openapi-fetch';
+import type { Client } from 'openapi-fetch';
 import type { paths } from '../domain/cellApiContract';
 import type { CellRefusal } from '../domain/cell';
-import { type Api, createApi } from './api';
+import { createApi } from './api';
+import type { Api } from './api';
 
 /*
  * The way to a workspace's regional cell, which every service of the cell's (teams, factories)

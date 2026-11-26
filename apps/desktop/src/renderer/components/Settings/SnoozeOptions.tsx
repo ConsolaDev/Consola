@@ -3,16 +3,13 @@ import { Plus, RotateCcw, X } from 'lucide-react';
 import {
   DEFAULT_SNOOZE_PRESETS,
   MAX_SNOOZE_PRESETS,
-  type SnoozePresetDay,
-  type SnoozePresetSetting,
   snoozePresetsEqual,
 } from '../../../shared/snooze';
+import type { SnoozePresetDay, SnoozePresetSetting } from '../../../shared/snooze';
 import { useMinuteTick } from '../../hooks/useMinuteTick';
 import { preferencesBridge } from '../../services/preferencesBridge';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 import {
-  type DraftRow,
-  type DurationUnit,
   durationParts,
   isDefault,
   menuOrder,
@@ -25,6 +22,7 @@ import {
   toDraft,
   toMinutes,
 } from './snoozeOptions.logic';
+import type { DraftRow, DurationUnit } from './snoozeOptions.logic';
 import './styles.css';
 
 /**

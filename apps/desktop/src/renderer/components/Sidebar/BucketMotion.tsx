@@ -1,7 +1,9 @@
-import { Component, type RefObject } from 'react';
+import { Component } from 'react';
+import type { RefObject } from 'react';
 import { EASE_OUT } from '../../hooks/useSettleOnChange';
 import type { Bucket } from '../../sidebar/bucketize';
-import { departures, travelDuration, type Placement } from '../../sidebar/departures';
+import { departures, travelDuration } from '../../sidebar/departures';
+import type { Placement } from '../../sidebar/departures';
 import type { EntryKey } from '../../sidebar/entry';
 
 const BUCKETS: Bucket[] = ['waiting', 'working', 'snoozed', 'settled'];
@@ -190,8 +192,9 @@ export class BucketMotion extends Component<BucketMotionProps> {
       // on a tree's children) does not play under it. Only that one: a
       // spinner cancelled here would never turn again.
       for (const animation of row?.getAnimations({ subtree: true }) ?? []) {
-        if (animation instanceof CSSAnimation && animation.animationName === ROW_ARRIVAL)
+        if (animation instanceof CSSAnimation && animation.animationName === ROW_ARRIVAL) {
           animation.cancel();
+        }
       }
       // A shelf that does not scroll is opened so the row is seen crossing
       // into it. One that scrolls stays clipped, and the row slides in at its edge.
@@ -225,13 +228,14 @@ export class BucketMotion extends Component<BucketMotionProps> {
       // A shelf that only now exists (Working, as its first session starts)
       // shows its header fading in above the row on its way there.
       const header = shelf.querySelector<HTMLElement>(':scope > .shelf-header');
-      if (header)
+      if (header) {
         this.track(
           header.animate([{ opacity: 0 }, { opacity: 1 }], {
             duration: MAKE_ROOM_MS,
             easing: EASE_OUT,
           }),
         );
+      }
     }
     const travelling = new Set<string>(snapshot.travellers.map((traveller) => traveller.key));
     for (const { bucket, row, before } of rows) {
@@ -406,6 +410,7 @@ export class BucketMotion extends Component<BucketMotionProps> {
 function merge(into: Snapshot, next: Snapshot) {
   for (const [key, value] of next.was) if (!into.was.has(key)) into.was.set(key, value);
   const known = new Set(into.travellers.map((traveller) => traveller.key));
-  for (const traveller of next.travellers)
+  for (const traveller of next.travellers) {
     if (!known.has(traveller.key)) into.travellers.push(traveller);
+  }
 }

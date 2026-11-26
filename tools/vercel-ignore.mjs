@@ -17,7 +17,6 @@ import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 /** The branch Vercel deploys to production. */
 export const PRODUCTION_BRANCH = 'main';
@@ -209,9 +208,9 @@ export function changesOnGitHub({ repo, head, base }) {
   }
 }
 
-const invokedDirectly = process.argv[1] === fileURLToPath(import.meta.url);
+const invokedDirectly = process.argv[1] === import.meta.filename;
 if (invokedDirectly) {
-  const root = dirname(dirname(fileURLToPath(import.meta.url)));
+  const root = dirname(import.meta.dirname);
   const { deploy, reason } = decide({
     env: process.env,
     readVercelignore: () => readFileSync(join(root, '.vercelignore'), 'utf8'),

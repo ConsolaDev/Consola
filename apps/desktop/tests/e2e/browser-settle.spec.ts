@@ -111,7 +111,7 @@ const storedSessionIds = (): string[] =>
 const storedTabs = (): Record<string, string[]> => {
   const state = JSON.parse(fs.readFileSync(path.join(effective, 'browser-state.json'), 'utf8'));
   return Object.fromEntries(
-    Object.entries(state.sessions as Record<string, { tabs: { url: string }[] }>).map(
+    Object.entries(state.sessions as Record<string, { tabs: Array<{ url: string }> }>).map(
       ([id, entry]) => [id, entry.tabs.map((stored) => stored.url)],
     ),
   );

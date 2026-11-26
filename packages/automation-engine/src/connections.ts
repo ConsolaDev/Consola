@@ -1,12 +1,7 @@
 import { z } from 'zod';
 import type { EventTrigger, ExprValue, ItemFieldTable, RunItem } from '@consola/factory-spec';
-import {
-  fenceUntrusted,
-  READ_ONLY_NOTE,
-  UNWATCHED_NOTE,
-  type ItemSource,
-  type SourceItem,
-} from './sources/itemSource';
+import { fenceUntrusted, READ_ONLY_NOTE, UNWATCHED_NOTE } from './sources/itemSource';
+import type { ItemSource, SourceItem } from './sources/itemSource';
 import { fillActionPlaceholders } from './support';
 import type { InboxItemView, ItemRef } from './views';
 
@@ -171,7 +166,11 @@ function globToRegExp(glob: string): RegExp {
   const pattern = glob
     .split('')
     .map((char) =>
-      char === '*' ? '[^/]*' : char === '?' ? '[^/]' : char.replace(/[.+^${}()|[\]\\]/g, '\\$&'),
+      char === '*'
+        ? '[^/]*'
+        : char === '?'
+          ? '[^/]'
+          : char.replace(/[.+^${}()|[\]\\]/g, String.raw`\$&`),
     )
     .join('');
   return new RegExp(`^${pattern}$`, 'i');

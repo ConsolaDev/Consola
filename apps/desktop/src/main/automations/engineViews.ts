@@ -11,12 +11,8 @@ import type {
 import type { TurnInit, TurnReport, TurnResult } from '../drivers';
 import { isGitProviderId } from '../../shared/providers';
 import type { Session, SessionProvenance, Workspace } from '../../shared/workspace';
-import {
-  workItemKey,
-  type InboxItem,
-  type InboxSnapshot,
-  type WorkItemRef,
-} from '../../shared/workItems';
+import { workItemKey } from '../../shared/workItems';
+import type { InboxItem, InboxSnapshot, WorkItemRef } from '../../shared/workItems';
 
 /** The desktop's records, narrowed to what the engine reads. */
 

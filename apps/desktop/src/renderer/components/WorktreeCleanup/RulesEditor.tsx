@@ -2,16 +2,17 @@ import { useId } from 'react';
 import {
   RUN_FINISHED_MINUTES_CHOICES,
   SETTLED_DAYS_CHOICES,
-  type WorktreeCleanupRules,
 } from '../../../shared/worktreeCleanup';
+import type { WorktreeCleanupRules } from '../../../shared/worktreeCleanup';
 
 const daysLabel = (days: number) => (days === 0 ? 'Off' : days === 1 ? '1 day' : `${days} days`);
 
 function minutesLabel(minutes: number | 'off'): string {
   if (minutes === 'off') return 'Off';
   if (minutes === 0) return 'Right away';
-  if (minutes % 1440 === 0)
+  if (minutes % 1440 === 0) {
     return minutes === 1440 ? 'After 1 day' : `After ${minutes / 1440} days`;
+  }
   if (minutes % 60 === 0) return minutes === 60 ? 'After 1 hour' : `After ${minutes / 60} hours`;
   return `After ${minutes} minutes`;
 }

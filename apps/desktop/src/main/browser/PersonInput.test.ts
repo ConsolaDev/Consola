@@ -15,7 +15,7 @@ const T0 = 1_700_000_000_000;
 describe('the person comes first', () => {
   // As long as the activation a real press leaves the page (about 5 s), and a margin.
   it('is using a tab for 6 seconds after pressing in it', () => {
-    expect(PERSON_INPUT_GUARD_MS).toBe(6_000);
+    expect(PERSON_INPUT_GUARD_MS).toBe(6000);
     expect(personIsUsing(T0, T0 + PERSON_INPUT_GUARD_MS - 100)).toBe(true);
     expect(personIsUsing(T0, T0 + PERSON_INPUT_GUARD_MS + 100)).toBe(false);
     expect(personIsUsing(undefined, T0)).toBe(false);
@@ -37,7 +37,7 @@ describe('the person comes first', () => {
     let now = T0;
     const person = new PersonInput(() => now);
     person.noteInput('tab1');
-    now = T0 + PERSON_INPUT_GUARD_MS - 1_000;
+    now = T0 + PERSON_INPUT_GUARD_MS - 1000;
     person.noteInput('tab1');
     // Past the first input's guard, inside the second's.
     now = T0 + PERSON_INPUT_GUARD_MS + 500;

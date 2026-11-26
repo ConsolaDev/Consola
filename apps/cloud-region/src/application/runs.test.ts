@@ -1,10 +1,14 @@
-import { cellTokenClaims, type WorkspaceRole } from '@consola/cloud-contract';
+import { cellTokenClaims } from '@consola/cloud-contract';
+import type { WorkspaceRole } from '@consola/cloud-contract';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { admitClaims, type Caller } from '../domain/caller.js';
+import { admitClaims } from '../domain/caller.js';
+import type { Caller } from '../domain/caller.js';
 import type { Factory } from '../domain/factory.js';
-import { NO_RUNS, NO_STEP_DETAIL, type RunWrite, type StepRecord } from '../domain/run.js';
+import { NO_RUNS, NO_STEP_DETAIL } from '../domain/run.js';
+import type { RunWrite, StepRecord } from '../domain/run.js';
 import type { Team } from '../domain/team.js';
 import type {
   FactoryStore,
@@ -14,7 +18,8 @@ import type {
   TeamStore,
   WorkspaceCopies,
 } from './ports.js';
-import { answerRunApproval, listRuns, type RunsQuery, readRun, recordRun } from './runs.js';
+import { answerRunApproval, listRuns, readRun, recordRun } from './runs.js';
+import type { RunsQuery } from './runs.js';
 
 let db: Database;
 let close: () => Promise<void>;
@@ -50,7 +55,7 @@ const gus = () => caller('person-gus', 'member');
 /** Applies `changes` to a workspace's copy in order, the way the outbox does. */
 async function apply(
   workspaceId: string,
-  changes: Parameters<WorkspaceCopies['applyAfter']>[0]['change'][],
+  changes: Array<Parameters<WorkspaceCopies['applyAfter']>[0]['change']>,
 ) {
   for (const [index, change] of changes.entries()) {
     const sequence = index + 1;

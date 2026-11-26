@@ -1,8 +1,5 @@
-import {
-  CAPABILITY_ABILITIES,
-  SANDBOX_CAPABILITIES,
-  type SandboxCapability,
-} from '../domain/capabilities';
+import { CAPABILITY_ABILITIES, SANDBOX_CAPABILITIES } from '../domain/capabilities';
+import type { SandboxCapability } from '../domain/capabilities';
 import { asSandboxError, SandboxError } from '../domain/errors';
 import {
   commandProblem,
@@ -180,6 +177,7 @@ export function sandboxesFrom(provider: SandboxProvider): Sandboxes {
         throw new AggregateError(
           [error, stopError],
           `The work in sandbox ${sandbox.id} failed, and stopping the sandbox failed too.`,
+          { cause: stopError },
         );
       }
       throw error;
@@ -259,7 +257,7 @@ export function requireCapability<C extends SandboxCapability>(
       `This sandbox provider cannot ${CAPABILITY_ABILITIES[capability]}.`,
     );
   }
-  return member as NonNullable<Sandboxes[C]>;
+  return member;
 }
 
 type State = 'running' | 'paused' | 'stopped';

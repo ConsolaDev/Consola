@@ -8,19 +8,16 @@ import {
   listPollDelay,
   mergeRefresh,
   PHASES,
-  type Phase,
   progressOf,
   RUN_POLL_ACTIVE_MS,
   RUN_POLL_WAITING_MS,
-  type RUN_TRIGGERS,
-  type RunSummary,
-  type RunTrigger,
   refreshLimit,
   runPollDelay,
   safeItemUrl,
   starterOf,
   stepHasEnded,
 } from './runs';
+import type { Phase, RUN_TRIGGERS, RunSummary, RunTrigger } from './runs';
 
 type Schemas = components['schemas'];
 
@@ -84,7 +81,7 @@ describe('isLive', () => {
 
 describe('stepHasEnded', () => {
   it('reads the status as the cell counts progress, not the finish time', () => {
-    const statuses: Schemas['StepStatus'][] = [
+    const statuses: Array<Schemas['StepStatus']> = [
       'pending',
       'queued',
       'running',

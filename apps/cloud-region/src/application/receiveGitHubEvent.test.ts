@@ -1,7 +1,8 @@
 import type { GitHubEventMessage } from '@consola/cloud-contract';
 import { asc } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { gitHubEvents } from '../adapters/persistence/tables.js';
 import type {

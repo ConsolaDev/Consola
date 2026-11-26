@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import {
   ArrowRight,
   Check,
@@ -11,12 +12,8 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react';
-import {
-  isAgentRunPreview,
-  isStepsRunPreview,
-  type RunListEntry,
-  type RunRecord,
-} from '../../../shared/automations';
+import { isAgentRunPreview, isStepsRunPreview } from '../../../shared/automations';
+import type { RunListEntry, RunRecord } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { formatCostUsd } from '../../../shared/cost';
 import type { Workspace } from '../../../shared/workspace';
@@ -49,15 +46,8 @@ import {
   runStatusLabel,
   triggerInWords,
 } from './presentation';
-import {
-  adjacentRuns,
-  durationAgainstUsual,
-  leadDetail,
-  runNotes,
-  runStages,
-  type RunStage,
-  type RunStageKey,
-} from './runPage';
+import { adjacentRuns, durationAgainstUsual, leadDetail, runNotes, runStages } from './runPage';
+import type { RunStage, RunStageKey } from './runPage';
 
 const NO_RUNS: RunListEntry[] = [];
 
@@ -97,12 +87,13 @@ export function RunDetails({ workspace, runId }: { workspace: Workspace; runId: 
     };
   }, [runId, updatedAt]);
 
-  if (loadError && !loaded)
+  if (loadError && !loaded) {
     return (
       <div className="automations-error" role="alert">
         {loadError}
       </div>
     );
+  }
   if (!loaded) return <p className="automations-hint">Loading…</p>;
   // A notification or a stale panel can name a run that history has since dropped.
   if (!loaded.run) return <p className="automations-hint">This run is no longer in history.</p>;
@@ -541,7 +532,9 @@ function RunStats({
   const usual = durationAgainstUsual(run, history, now);
   const forYou = stages.find((stage) => stage.key === 'approval')?.ms ?? null;
   const inLine = stages.find((stage) => stage.key === 'queue')?.ms ?? null;
-  const waitedBefore = run.startedAt ? Date.parse(run.startedAt) - Date.parse(run.createdAt) : NaN;
+  const waitedBefore = run.startedAt
+    ? Date.parse(run.startedAt) - Date.parse(run.createdAt)
+    : Number.NaN;
   const waitParts = [
     forYou !== null && forYou >= 1000 ? `${formatElapsed(forYou)} for you` : null,
     inLine !== null && inLine >= 1000 ? `${formatElapsed(inLine)} in line` : null,

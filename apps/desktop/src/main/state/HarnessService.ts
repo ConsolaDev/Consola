@@ -1,11 +1,7 @@
 import type { JsonStateFile } from './JsonStateFile';
 import { BUILT_IN_HARNESS_ID } from '../../shared/constants';
-import {
-  createBuiltInHarness,
-  type Harness,
-  type HarnessUpdates,
-  type NewHarnessFields,
-} from '../../shared/harness';
+import { createBuiltInHarness } from '../../shared/harness';
+import type { Harness, HarnessUpdates, NewHarnessFields } from '../../shared/harness';
 
 export interface HarnessStateFile {
   version: number;

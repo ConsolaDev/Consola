@@ -1,10 +1,6 @@
 import { useState } from 'react';
-import {
-  checkoutPathForSession,
-  scopeForSession,
-  type Session,
-  type Workspace,
-} from '../../../shared/workspace';
+import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
+import type { Session, Workspace } from '../../../shared/workspace';
 import { useCheckout } from '../../stores/checkoutStore';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';

@@ -60,7 +60,7 @@ export type InboxSearchStrings = Record<InboxSearchAlias, string>;
  * dropped when the same PR was requested of you directly -- whatever order
  * the aliases come back in, and whatever order the driver sent them.
  */
-export const INBOX_SEARCH_ALIASES: ReadonlyArray<InboxSearchAlias> = [
+export const INBOX_SEARCH_ALIASES: readonly InboxSearchAlias[] = [
   'direct',
   'team',
   'authored',

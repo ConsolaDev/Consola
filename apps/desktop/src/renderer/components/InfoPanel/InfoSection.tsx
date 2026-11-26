@@ -1,4 +1,5 @@
-import { useId, type ReactNode } from 'react';
+import { useId } from 'react';
+import type { ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import type { InfoSectionId } from '../../infoPanel/sections';
 import { isInfoSectionOpen, useSettingsStore } from '../../stores/settingsStore';

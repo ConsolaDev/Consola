@@ -100,6 +100,7 @@ function PreviewTabItem({
             <FileIcon filename={tab.filename} className="preview-tab-icon" />
             <span className="preview-tab-name">{tab.filename}</span>
             <button
+              type="button"
               className="preview-tab-close"
               onClick={(e) => {
                 e.stopPropagation();

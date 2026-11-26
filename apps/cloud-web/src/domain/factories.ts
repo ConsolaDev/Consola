@@ -183,49 +183,89 @@ export type FactorySave =
 /** The folders a factory's files sit in, in the order a factory folder is read. */
 const FOLDER_ORDER = ['automations', 'agents', 'skills'];
 
-/** A factory's files under one folder (null for the folder's own top), each named inside it. */
+/** A file in the tree, named inside its folder (or its skill). */
+export type FileEntry = { path: string; name: string };
+
+/** A skill's files, under its folder's name: its `SKILL.md` first, then the rest by name. */
+export type SkillGroup = { skill: string; files: FileEntry[] };
+
+/**
+ * A factory's files under one folder (null for the folder's own top), each named inside it. A
+ * skill's files sit one level deeper, under their skill (`skills`).
+ */
 export type FileGroup = {
   folder: string | null;
-  files: { path: string; name: string }[];
+  files: FileEntry[];
+  skills: SkillGroup[];
 };
 
 /**
  * A factory's files grouped as its folder holds them: the files at its top (`factory.yml`)
  * first, then `automations/`, `agents/` and `skills/`, then any other folder by name. Each file
- * is named by its path inside its folder (`release/SKILL.md` under `skills`), and listed by it.
+ * is named by its path inside its folder, a skill's inside its skill (`refs/queries.md` under
+ * `triage`), and listed by it. With `formatFolders`, the format's three folders are listed even
+ * when they hold nothing, so the tree shows where each kind of file goes.
  */
-export function fileGroups(files: readonly { path: string }[]): FileGroup[] {
-  const byFolder = new Map<string | null, { path: string; name: string }[]>();
+export function fileGroups(
+  files: ReadonlyArray<{ path: string }>,
+  { formatFolders = false }: { formatFolders?: boolean } = {},
+): FileGroup[] {
+  const byFolder = new Map<string | null, FileGroup>();
+  const groupOf = (folder: string | null) => {
+    const group = byFolder.get(folder) ?? { folder, files: [], skills: [] };
+    byFolder.set(folder, group);
+    return group;
+  };
+  if (formatFolders) for (const folder of FOLDER_ORDER) groupOf(folder);
   for (const { path } of files) {
     const slash = path.indexOf('/');
     const folder = slash > 0 ? path.slice(0, slash) : null;
     const name = slash > 0 ? path.slice(slash + 1) : path;
-    const group = byFolder.get(folder) ?? [];
-    group.push({ path, name });
-    byFolder.set(folder, group);
+    const group = groupOf(folder);
+    const inSkill = folder === 'skills' ? /^([^/]+)\/(.+)$/.exec(name) : null;
+    if (!inSkill?.[1] || !inSkill[2]) {
+      group.files.push({ path, name });
+      continue;
+    }
+    const skillName = inSkill[1];
+    let skill = group.skills.find((candidate) => candidate.skill === skillName);
+    if (!skill) {
+      skill = { skill: skillName, files: [] };
+      group.skills.push(skill);
+    }
+    skill.files.push({ path, name: inSkill[2] });
   }
   const rank = (folder: string | null) => {
     if (folder === null) return -1;
     const known = FOLDER_ORDER.indexOf(folder);
     return known === -1 ? FOLDER_ORDER.length : known;
   };
-  return [...byFolder.entries()]
-    .sort(([a], [b]) => rank(a) - rank(b) || (a ?? '').localeCompare(b ?? ''))
-    .map(([folder, grouped]) => ({
-      folder,
-      files: grouped.sort((a, b) => a.name.localeCompare(b.name)),
+  const byName = (a: FileEntry, b: FileEntry) => a.name.localeCompare(b.name);
+  const skillFirst = (a: FileEntry, b: FileEntry) =>
+    Number(b.name === 'SKILL.md') - Number(a.name === 'SKILL.md') || byName(a, b);
+  return [...byFolder.values()]
+    .sort(
+      (a, b) => rank(a.folder) - rank(b.folder) || (a.folder ?? '').localeCompare(b.folder ?? ''),
+    )
+    .map((group) => ({
+      folder: group.folder,
+      files: group.files.sort(byName),
+      skills: group.skills
+        .sort((a, b) => a.skill.localeCompare(b.skill))
+        .map((skill) => ({ skill: skill.skill, files: skill.files.sort(skillFirst) })),
     }));
 }
 
-/** Every path in the order the file list shows them (`fileGroups`), folder by folder. */
-export function listedPaths(paths: readonly string[]): string[] {
-  return fileGroups(paths.map((path) => ({ path }))).flatMap((group) =>
-    group.files.map((file) => file.path),
-  );
+/** Every file of the groups, in the order the tree lists them. */
+export function listedFiles(groups: readonly FileGroup[]): FileEntry[] {
+  return groups.flatMap((group) => [
+    ...group.files,
+    ...group.skills.flatMap((skill) => skill.files),
+  ]);
 }
 
 /** The file a factory's definition opens on: `factory.yml`, else the first as they are listed. */
 export function firstFile(groups: readonly FileGroup[]): string | null {
-  const all = groups.flatMap((group) => group.files);
+  const all = listedFiles(groups);
   return (all.find((file) => file.path === 'factory.yml') ?? all[0])?.path ?? null;
 }

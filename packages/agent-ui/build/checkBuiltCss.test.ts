@@ -26,8 +26,8 @@ const inLayer = (rules: string) => `@layer consola-agent-ui{${rules}}`;
 const rollback = (
   prefix: string,
   value: string,
-  registered: ReadonlyArray<string>,
-  pseudoElements: ReadonlyArray<string> = GUARDED_PSEUDO_ELEMENTS,
+  registered: readonly string[],
+  pseudoElements: readonly string[] = GUARDED_PSEUDO_ELEMENTS,
 ) =>
   [
     `${compact(prefix)}{all:${value};direction:${value};unicode-bidi:${value}${registered.map((name) => `;${name}:${value}`).join('')}}`,
@@ -43,7 +43,7 @@ const rollback = (
   ].join('');
 
 /** The guard as scopeCss completes it, minified (the root's guard aside). */
-const guard = (registered: ReadonlyArray<string>, pseudoElements?: ReadonlyArray<string>) =>
+const guard = (registered: readonly string[], pseudoElements?: readonly string[]) =>
   rollback(GUARDED, 'revert-layer', registered, pseudoElements);
 
 /** What the floor lets fall through to the attributes that style an element. */
@@ -54,7 +54,7 @@ const ATTRIBUTE_RULES = ATTRIBUTE_STYLED.map(
 const DOCUMENT_RESET = `${DOCUMENT}{all:initial;display:block;direction:ltr}`;
 
 /** The floor, the chat layer's first sublayer, as scopeCss completes it, minified. */
-const floor = (registered: ReadonlyArray<string>) =>
+const floor = (registered: readonly string[]) =>
   `@layer reset{${rollback(FLOOR, 'revert', registered)}${ATTRIBUTE_RULES}${DOCUMENT_RESET}}`;
 
 /** What the chat's stylesheet holds, minified as the build writes it. */
@@ -68,7 +68,7 @@ const CHAT = [
       ':where([data-theme]) .consola-agent-ui .consola-agent-ui-theme{--background:var(--consola-agent-ui-bg)}',
       ':where([data-theme]) .consola-agent-ui-portal[data-base-ui-portal]{--background:var(--consola-agent-ui-bg)}',
       '.consola-agent-ui{contain:layout;height:100%}',
-      '@layer base{@media (min-width:40rem){:where(.consola-agent-ui,.consola-agent-ui-portal) .sm\\:flex{display:flex}}}',
+      String.raw`@layer base{@media (min-width:40rem){:where(.consola-agent-ui,.consola-agent-ui-portal) .sm\:flex{display:flex}}}`,
     ].join(''),
   ),
   guard(['--tw-border-style']),

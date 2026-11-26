@@ -8,13 +8,8 @@ import {
   parseFactory,
   parseFactorySpec,
 } from '@consola/factory-spec';
-import {
-  stepsHarness,
-  turnReport,
-  WORKSPACE_ID,
-  type StepsHarness,
-  type StepsHarnessOptions,
-} from './steps/steps.test-helpers';
+import { stepsHarness, turnReport, WORKSPACE_ID } from './steps/steps.test-helpers';
+import type { StepsHarness, StepsHarnessOptions } from './steps/steps.test-helpers';
 
 /*
  * A factory folder's automation files and agents, as the service reads them:

@@ -1,11 +1,8 @@
-import {
-  PASS_AUDIENCE,
-  PASS_MAX_LIFETIME_SECONDS,
-  type PassClaims,
-  type SessionUpdate,
-} from '@consola/runner-protocol';
+import { PASS_AUDIENCE, PASS_MAX_LIFETIME_SECONDS } from '@consola/runner-protocol';
+import type { PassClaims, SessionUpdate } from '@consola/runner-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { type Database, migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import type { Database } from '../adapters/persistence/database.js';
 import { createCloudSessionStore } from '../adapters/persistence/cloudSessions.js';
 import type { Caller } from '../domain/caller.js';
 import {

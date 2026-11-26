@@ -12,7 +12,8 @@ import { findSessionById, findSessionByInstanceId } from '../attention';
 import type { AttentionLedger, SnoozeTarget } from './AttentionLedger';
 import { isPersonKey, pressesEnter } from './personInput';
 import { settleable, treeRootOf, withDescendants } from './settling';
-import { type ArmedTimer, armAt } from './wakeTimer';
+import { armAt } from './wakeTimer';
+import type { ArmedTimer } from './wakeTimer';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -132,13 +133,14 @@ export class Snoozer {
   ): SnoozeBatchResult {
     const now = this.now();
     const workspace = this.workspace(workspaceId);
-    if (!workspace)
+    if (!workspace) {
       return {
         applied: [],
         refused: sessionIds.map((id) => refusal(id, 'not-found')),
         memento: {},
         until: null,
       };
+    }
     const refused: Refusal[] = [];
     const selected = new Set(sessionIds);
     const accepted = new Map<string, { tree: Tree; until: number }>();
@@ -212,12 +214,13 @@ export class Snoozer {
    */
   public wake(workspaceId: string, sessionIds: string[], opts: { by: SnoozeActor }): BatchResult {
     const workspace = this.workspace(workspaceId);
-    if (!workspace)
+    if (!workspace) {
       return {
         applied: [],
         refused: sessionIds.map((id) => refusal(id, 'not-found')),
         memento: {},
       };
+    }
     const refused: Refusal[] = [];
     const trees = new Map<string, Tree>();
     const applied: string[] = [];
@@ -307,8 +310,9 @@ export class Snoozer {
     if (info.resetsAt <= now) return 'skipped';
     const record = this.deps.ledger.get(sessionId);
     if (record?.snoozedUntil !== undefined) {
-      if (record.snoozeReason !== 'usage-limit' || info.resetsAt <= record.snoozedUntil)
+      if (record.snoozeReason !== 'usage-limit' || info.resetsAt <= record.snoozedUntil) {
         return 'skipped';
+      }
       this.write([{ tree, until: info.resetsAt }], now, 'usage-limit');
       this.settled();
       return 'extended';
@@ -325,8 +329,9 @@ export class Snoozer {
   public harnessSwitched(sessionId: string): void {
     if (this.stopped) return;
     const tree = this.snoozedTreeOf(sessionId);
-    if (tree && this.deps.ledger.get(tree.root.id)?.snoozeReason === 'usage-limit')
+    if (tree && this.deps.ledger.get(tree.root.id)?.snoozeReason === 'usage-limit') {
       this.wakeTrees([tree], 'hold');
+    }
   }
 
   /** Wake every tree whose time has come, in one write, and wait for the next. */
@@ -367,8 +372,9 @@ export class Snoozer {
     }
     const memento = this.deps.ledger.wake(ids, now, { marks, hold: kind === 'hold' });
     for (const tree of trees) {
-      if (marks[tree.root.id] && this.deps.isViewedInFocusedWindow(tree.root.instanceId))
+      if (marks[tree.root.id] && this.deps.isViewedInFocusedWindow(tree.root.instanceId)) {
         this.deps.ledger.markSeen(tree.root.id, now);
+      }
     }
     this.settled();
     return memento;
@@ -376,7 +382,7 @@ export class Snoozer {
 
   /** Write snoozes for these trees, every member at its root's time. */
   private write(
-    trees: { tree: Tree; until: number }[],
+    trees: Array<{ tree: Tree; until: number }>,
     now: number,
     reason: SnoozeReason | undefined,
   ): SettleMemento {

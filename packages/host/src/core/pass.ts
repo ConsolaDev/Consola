@@ -1,9 +1,5 @@
-import {
-  PASS_MAX_LIFETIME_SECONDS,
-  PASS_TYPE,
-  type PassClaims,
-  readPassClaims,
-} from '@consola/runner-protocol';
+import { PASS_MAX_LIFETIME_SECONDS, PASS_TYPE, readPassClaims } from '@consola/runner-protocol';
+import type { PassClaims } from '@consola/runner-protocol';
 
 /**
  * What a session pass says, once an adapter has verified its signature: the protocol's claims

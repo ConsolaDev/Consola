@@ -46,8 +46,9 @@ type AgentFlags = (options?: {
 function allowedOf(flags: string[]): string[] {
   const at = flags.indexOf('--allowedTools');
   const names: string[] = [];
-  for (let next = at + 1; next < flags.length && !flags[next].startsWith('--'); next++)
+  for (let next = at + 1; next < flags.length && !flags[next].startsWith('--'); next++) {
     names.push(flags[next]);
+  }
   return names;
 }
 

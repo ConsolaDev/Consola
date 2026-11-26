@@ -1,11 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { RunRecord } from '@consola/factory-spec';
-import {
-  MAX_RUNS_PER_WORKSPACE,
-  RETENTION_DAYS,
-  RunStore,
-  type AutomationStateFile,
-} from './RunStore';
+import { MAX_RUNS_PER_WORKSPACE, RETENTION_DAYS, RunStore } from './RunStore';
+import type { AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
 
 const NOW = '2026-11-12T10:00:00.000Z';
@@ -180,8 +176,9 @@ describe('RunStore history', () => {
       expect(reloaded()).toEqual(['c', 'b', 'a']);
 
       // Enough updates to cross 2 x live + 50 lines and compact.
-      for (let index = 0; index < 60; index++)
+      for (let index = 0; index < 60; index++) {
         first.update('b', { updatedAt: `2026-11-12T10:00:${String(index).padStart(2, '0')}.000Z` });
+      }
       expect(
         fs.readFileSync(path.join(dir, 'ws-1.jsonl'), 'utf8').split('\n').filter(Boolean).length,
       ).toBeLessThan(60);

@@ -1,4 +1,5 @@
-import { isSandboxError, type SandboxError, type SandboxErrorCode } from '../domain/errors';
+import { isSandboxError } from '../domain/errors';
+import type { SandboxError, SandboxErrorCode } from '../domain/errors';
 
 /**
  * The contract's own assertions. It runs inside any test framework, and in none, so it uses

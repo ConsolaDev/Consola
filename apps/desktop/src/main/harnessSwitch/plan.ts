@@ -41,8 +41,9 @@ export function planHarnessSwitch(input: {
   hasStarted: boolean;
 }): HarnessSwitchPlan {
   if (!input.hasStarted) return { ok: true, mode: 'unstarted' };
-  if (input.source.driverId === input.target.driverId && input.source.transplant)
+  if (input.source.driverId === input.target.driverId && input.source.transplant) {
     return { ok: true, mode: 'native' };
+  }
   if (input.source.readable) return { ok: true, mode: 'handoff' };
   return {
     ok: false,

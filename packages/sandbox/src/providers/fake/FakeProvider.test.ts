@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { sandboxesFrom } from '../../application/sandboxes';
 import { SandboxError } from '../../domain/errors';
-import { FAKE_DEFAULT_CWD, type FakeProcess, FakeProvider } from './FakeProvider';
+import { FAKE_DEFAULT_CWD, FakeProvider } from './FakeProvider';
+import type { FakeProcess } from './FakeProvider';
 import { POSIX_PROGRAMS } from './posixPrograms';
 
 const coded = (code: SandboxError['code'], message?: RegExp) =>

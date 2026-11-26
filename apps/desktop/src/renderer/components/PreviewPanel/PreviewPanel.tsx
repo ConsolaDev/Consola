@@ -1,4 +1,5 @@
-import { usePreviewTabStore, type PreviewTab } from '../../stores/previewTabStore';
+import { usePreviewTabStore } from '../../stores/previewTabStore';
+import type { PreviewTab } from '../../stores/previewTabStore';
 import { PreviewTabBar } from './PreviewTabBar';
 import { CodeFileView } from '../Views/CodeFileView';
 import { MarkdownFileView } from '../Views/MarkdownFileView';

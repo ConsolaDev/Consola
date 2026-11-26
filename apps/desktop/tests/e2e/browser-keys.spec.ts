@@ -5,7 +5,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { showBrowser, sidePanelChord } from './helpers/browserTab';
 import { launchElectron, removeProfile } from './helpers/electron';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 
 /**
  * ⌘Q and ⌘W with the keyboard in the browser. A page, or a popup it opened,
@@ -82,7 +83,7 @@ async function typeAddress(page: Page, text: string): Promise<void> {
 }
 
 /** Main's tab list for the session, as the host window receives it. */
-async function tabsOf(page: Page, sessionId: string): Promise<{ id: string; url: string }[]> {
+async function tabsOf(page: Page, sessionId: string): Promise<Array<{ id: string; url: string }>> {
   const snapshot = await page.evaluate((id) => window.browserAPI.get(id), sessionId);
   return snapshot.tabs.map(({ id, url }) => ({ id, url }));
 }

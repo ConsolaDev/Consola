@@ -26,15 +26,8 @@ import {
   triggerDefinitionWords,
 } from '../domain/runFile';
 import { NO_CHILDREN_WORDS } from '../domain/runMessages';
-import {
-  isLive,
-  type RunDetail,
-  type RunSource,
-  type RunSummary,
-  safeItemUrl,
-  type Starter,
-  starterOf,
-} from '../domain/runs';
+import { isLive, safeItemUrl, starterOf } from '../domain/runs';
+import type { RunDetail, RunSource, RunSummary, Starter } from '../domain/runs';
 import { hashOfRun } from '../domain/runsRoute';
 import {
   agoInWords,

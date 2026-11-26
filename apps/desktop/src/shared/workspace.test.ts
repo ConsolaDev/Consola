@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
   createSessionRecord,
@@ -9,15 +9,29 @@ import {
   primaryScope,
   scopeForSession,
   switchedSession,
-  type Session,
-  type Workspace,
 } from './workspace';
+import type { Session } from './workspace';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 describe('generateUuid', () => {
   it('produces a v4 UUID, which is what `claude --session-id` requires', () => {
     expect(generateUuid()).toMatch(UUID_V4);
+  });
+
+  it('makes one from random bytes where randomUUID is missing (not a secure context)', () => {
+    const random = vi.spyOn(Math, 'random');
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    try {
+      const made = [generateUuid(), generateUuid()];
+      expect(made[0]).toMatch(UUID_V4);
+      expect(made[1]).toMatch(UUID_V4);
+      expect(made[0]).not.toBe(made[1]);
+      expect(random).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      random.mockRestore();
+    }
   });
 });
 
@@ -622,10 +636,10 @@ describe('migrateWorkspaceState v6 -> v7', () => {
     expect([...w1Ids].some((id) => w2Ids.has(id))).toBe(false);
 
     // Each workspace's section defaults point only at its own actions.
-    for (const actionId of Object.values(w1.sectionDefaults) as string[]) {
+    for (const actionId of Object.values<string>(w1.sectionDefaults)) {
       expect(w1Ids.has(actionId)).toBe(true);
     }
-    for (const actionId of Object.values(w2.sectionDefaults) as string[]) {
+    for (const actionId of Object.values<string>(w2.sectionDefaults)) {
       expect(w2Ids.has(actionId)).toBe(true);
     }
   });
@@ -1061,7 +1075,7 @@ describe('createSessionRecord', () => {
 describe('scope helpers', () => {
   const workspace = {
     ...createWorkspaceRecord('consola', '/code/consola', true),
-  } as Workspace;
+  };
 
   it('primaryScope is the first scope', () => {
     expect(primaryScope(workspace)?.path).toBe('/code/consola');

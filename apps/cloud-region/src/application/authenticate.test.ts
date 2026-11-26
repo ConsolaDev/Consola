@@ -17,8 +17,8 @@ const goodClaims = (region: 'eu' | 'us' = 'eu') =>
   });
 
 /** A verifier that answers `check` for every token, and remembers what it was asked. */
-function verifier(check: SignatureCheck): TokenVerifier & { asked: [string, number][] } {
-  const asked: [string, number][] = [];
+function verifier(check: SignatureCheck): TokenVerifier & { asked: Array<[string, number]> } {
+  const asked: Array<[string, number]> = [];
   return {
     asked,
     async verify(token, nowSeconds) {

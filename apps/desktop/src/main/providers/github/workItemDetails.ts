@@ -66,8 +66,9 @@ const viewSchema = z.object({
 /** Throws on a reply that is not an item: an empty description would read as "nothing to review". */
 export function parseWorkItemDetails(stdout: string, diff?: string): WorkItemDetails {
   const parsed = viewSchema.safeParse(JSON.parse(stdout));
-  if (!parsed.success)
+  if (!parsed.success) {
     throw new Error(`Unrecognised reply from gh: ${parsed.error.issues[0]?.message ?? 'invalid'}.`);
+  }
   const view = parsed.data;
   return {
     title: view.title,

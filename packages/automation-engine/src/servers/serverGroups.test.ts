@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { StateFile } from '../ports';
-import { ServerGroupLedger, type ServerGroupsFile } from './serverGroups';
+import { ServerGroupLedger } from './serverGroups';
+import type { ServerGroupsFile } from './serverGroups';
 
 function memory(): StateFile<ServerGroupsFile> & { stored: ServerGroupsFile | null } {
   const file = {

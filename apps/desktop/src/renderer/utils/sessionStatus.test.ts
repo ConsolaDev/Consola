@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { anyOtherWorkspaceNeedsAttention, workspaceStatusFor } from './sessionStatus';
-import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Workspace } from '../../shared/workspace';
 
 // Built through the record creators rather than hand-rolled, so a shape
 // change to Workspace/Session updates this fixture automatically. Each session's

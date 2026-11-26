@@ -3,8 +3,10 @@
  * runs: the problem it shows until then. Decided as entries resolve, never
  * mid-run (spec *Checked at apply, never mid-run*).
  */
-import { secretNamesOf, type Automation, type McpServerDefinition } from '@consola/factory-spec';
-import { PERSONAL_FACTORY, type SecretsPort } from './secretsPort';
+import { secretNamesOf } from '@consola/factory-spec';
+import type { Automation, McpServerDefinition } from '@consola/factory-spec';
+import { PERSONAL_FACTORY } from './secretsPort';
+import type { SecretsPort } from './secretsPort';
 
 /** An entry's problem on a runner with no secrets port. */
 export const NO_SECRETS = "this runner can't bind secrets, so `secrets:` can't run here";

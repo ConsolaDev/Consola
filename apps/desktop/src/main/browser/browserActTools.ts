@@ -2,7 +2,6 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
 import {
-  type BrowserActToolsDeps,
   countOf,
   giveWay,
   messageOf,
@@ -12,16 +11,10 @@ import {
   staleRefMessage,
   unlessDialog,
 } from './browserPageSteps';
+import type { BrowserActToolsDeps } from './browserPageSteps';
+import { answer, PageTextError, plain, refuseWhileDialog, tabIdInput } from './browserToolAccess';
+import type { CallerAccess } from './browserToolAccess';
 import {
-  answer,
-  type CallerAccess,
-  PageTextError,
-  plain,
-  refuseWhileDialog,
-  tabIdInput,
-} from './browserToolAccess';
-import {
-  type BrowserToolContent,
   cutSentence,
   evaluateContent,
   firstLine,
@@ -29,18 +22,16 @@ import {
   untrusted,
   untrustedJson,
 } from './browserToolResults';
-import { type KeyPress, parseKeyPress } from './keyPress';
-import {
-  type ActRefusal,
-  actRefusalIn,
-  clickInPage,
-  type FillOutcome,
-  fillInPage,
-  type KeyOutcome,
-  pressInPage,
-  type ScrollDirection,
-  type ScrollOutcome,
-  scrollInPage,
+import type { BrowserToolContent } from './browserToolResults';
+import { parseKeyPress } from './keyPress';
+import type { KeyPress } from './keyPress';
+import { actRefusalIn, clickInPage, fillInPage, pressInPage, scrollInPage } from './pageInput';
+import type {
+  ActRefusal,
+  FillOutcome,
+  KeyOutcome,
+  ScrollDirection,
+  ScrollOutcome,
 } from './pageInput';
 
 export type { BrowserActToolsDeps } from './browserPageSteps';
@@ -271,7 +262,7 @@ interface ActDone {
 }
 
 /** How much of what a field holds an answer carries; plenty for a field. */
-const MAX_FIELD_VALUE_CHARS = 2_000;
+const MAX_FIELD_VALUE_CHARS = 2000;
 
 /** What a field holds, as an answer carries it: cut, with a sentence saying so. */
 function heldValue(summary: string, value: string): ActDone {
@@ -508,7 +499,8 @@ async function act(
   }
   const { summary, value } = outcome.done;
   // What the field holds is the page's to say: behind the note.
-  if (value !== undefined)
+  if (value !== undefined) {
     return [untrustedJson({ ...done, summary: `${summary} ${AFTER}`, value })];
+  }
   return plain({ ...done, summary: `${summary} ${AFTER}` });
 }

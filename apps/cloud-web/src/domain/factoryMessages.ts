@@ -1,14 +1,16 @@
-import {
-  FACTORY_NAME_MAX,
-  type FactoriesState,
-  type FactoryChange,
-  type FactorySave,
-  type FactorySourceKind,
-  type NewFactoryProblem,
-  type SourceOption,
+import { FACTORY_NAME_MAX } from './factories';
+import type {
+  FactoriesState,
+  FactoryChange,
+  FactorySave,
+  FactorySourceKind,
+  NewFactoryProblem,
+  SourceOption,
 } from './factories';
+import type { BroughtIn, ChangeSummary } from './factoryDraft';
+import { kindOfPath, PATH_MAX } from './factoryKinds';
+import type { NameCheck, NamingTarget, NewKind } from './factoryKinds';
 import type { FactoryPageId } from './factoryNav';
-import type { NewFileStart } from './factoryNewFile';
 import { messageForTeamsState } from './teamMessages';
 import { regionName } from './workspace';
 
@@ -171,40 +173,114 @@ export const LOADING_FACTORIES = 'Loading…';
 /** Said where a factory's definition has no files yet, and what fills it. */
 export const NO_FILES = 'No files yet.';
 export const NO_FILES_HINT =
-  'Add an automation or an agent to start. Nothing is kept until you save.';
+  'Start with an automation, an agent or factory.yml. Nothing is kept until you save.';
 
-/** The file list's control that adds a file. */
-export const NEW_FILE = 'New file';
-
-/** The new file's field: its name for a screen reader, its example, and how it is answered. */
-export const NEW_FILE_PATH_LABEL = 'New file’s path';
-export const NEW_FILE_PLACEHOLDER = 'e.g. agents/reviewer.md';
-export const NEW_FILE_HINT = 'Enter adds it. Esc cancels.';
-
-/** Each start the new file's field offers, by the word on its button. */
-export const NEW_FILE_START_LABELS: Record<NewFileStart['id'], string> = {
-  automation: 'Automation',
-  agent: 'Agent',
+/** What the New menu and each folder's + offer. */
+export const NEW_LABELS: Record<NewKind, string> = {
+  automation: 'New automation',
+  agent: 'New agent',
+  skill: 'New skill',
 };
 
-/** Said under a new file's path in a folder a later slice reads, which the cell stores all the same. */
-export function laterFolderNote(folder: string): string {
-  return `Files in \`${folder}/\` are kept, but have no effect yet.`;
+/** A skill's +: a file inside it. */
+export function newInSkillLabel(skill: string): string {
+  return `New file in ${skill}`;
 }
 
-/** Said once a file is added, for a screen reader. */
-export function addedLine(path: string): string {
-  return `Added ${path}. Save to keep it.`;
+/** A row's ⋯, named for a screen reader. */
+export function moreLabel(name: string): string {
+  return `More for ${name}`;
 }
 
-/** A file row's delete button, named for a screen reader. */
-export function deleteFileLabel(path: string): string {
-  return `Delete ${path}`;
+/** The foot of the tree, where removed files wait until Save. */
+export const REMOVED_ON_SAVE = 'Removed on save';
+
+/** Why Restore waits: a file is at a path the removed one would take. */
+export function restoreBlocked(path: string): string {
+  return `${path} is a file again: rename or remove it to restore this.`;
 }
 
-/** Said once a file is deleted, beside Undo: a saved file goes from the factory with the next save. */
-export function deletedLine(path: string, saved: boolean): string {
-  return saved ? `Deleted ${path}. Saving removes it from the factory.` : `Deleted ${path}.`;
+/** Said to a screen reader as a file, or a skill, leaves the tree, and as it comes back. */
+export function removedSaid(label: string): string {
+  return `${label} is under Removed on save, where Restore brings it back.`;
+}
+
+export function restoredSaid(label: string): string {
+  return `Restored ${label}.`;
+}
+
+/** A renamed file's mark, as its title says it. */
+export function renamedTitle(from: string): string {
+  return `Renamed from ${from}`;
+}
+
+/** A naming field's name, for a screen reader. */
+export function namingLabel(target: NamingTarget): string {
+  switch (target.type) {
+    case 'new':
+      return `Name the new ${target.kind}`;
+    case 'new-in-skill':
+      return `Path of the new file in ${target.skill}`;
+    case 'rename':
+      return `New name for ${target.path}`;
+    case 'rename-skill':
+      return `New name for the skill ${target.skill}`;
+  }
+}
+
+/** What a naming field says while the name is fine, or nothing is typed yet. */
+export const NAME_HINT = 'Lowercase letters, numbers and dashes.';
+export const SKILL_FILE_HINT = 'A path inside the skill, such as refs/queries.md.';
+
+/**
+ * The one sentence under a naming field: what a name needs, or why the one typed cannot be made.
+ * A refused name's sentence differs from the hint, so a screen reader hears it change.
+ */
+export function nameSentence(
+  target: NamingTarget,
+  check: NameCheck,
+): { text: string; refused: boolean } {
+  const inSkill =
+    target.type === 'new-in-skill' ||
+    (target.type === 'rename' && kindOfPath(target.path) === 'skill-file');
+  const hint = { text: inSkill ? SKILL_FILE_HINT : NAME_HINT, refused: false };
+  if (check.ok || check.problem === 'empty') return hint;
+  const path = check.path ?? '';
+  const refused = (text: string) => ({ text, refused: true });
+  switch (check.problem) {
+    case 'rule':
+      return refused(
+        'Use only lowercase letters, numbers and dashes, starting with a letter or number, up to 64 characters.',
+      );
+    case 'path':
+      return refused(
+        String.raw`Use a path inside the skill, with no empty, “.” or “..” part and no “\”.`,
+      );
+    case 'long':
+      return refused(`Keep the whole path to ${PATH_MAX} characters.`);
+    case 'taken':
+      return refused(
+        path.endsWith('/')
+          ? `There’s already a skill at ${path}.`
+          : `There’s already a file at ${path}.`,
+      );
+    case 'removed':
+      return refused(`${path} is under Removed on save. Restore it, or choose another name.`);
+    case 'defined': {
+      const name = path.replace(/^automations\//, '').replace(/\.yaml$/, '');
+      return refused(`factory.yml already defines an automation named ${name}.`);
+    }
+  }
+}
+
+/** What Save will do, in a line: "2 new · 1 removed · 3 changed"; empty for nothing. */
+export function changeLine(summary: ChangeSummary): string {
+  const parts: string[] = [];
+  if (summary.added > 0) parts.push(`${summary.added} new`);
+  if (summary.renamed > 0) parts.push(`${summary.renamed} renamed`);
+  if (summary.removed > 0) parts.push(`${summary.removed} removed`);
+  if (summary.changed > 0) parts.push(`${summary.changed} changed`);
+  return parts.join(' · ');
 }
 
 /** What the sidebar's dot on a factory's definition means. */
@@ -217,7 +293,7 @@ export const DEFINITION_NOT_LOADED =
 /** The banner over a factory's definition, until the person hides it for good. */
 export const DEFINITION_BANNER_TITLE = 'Your factory is defined in code';
 export const DEFINITION_BANNER_TEXT =
-  'Its automations, agents and skills live as files. Read them here, add one, and make a quick edit when you need one.';
+  'Its automations, agents and skills live as files. Add, edit, rename and remove them here, and Save keeps them as the next version.';
 
 /** Said in the file list when its filter matches no file. */
 export function noFileMatches(filter: string): string {
@@ -261,9 +337,7 @@ export function bringInLabel(latestVersion: number): string {
 /** What bringing a newer version in came to: the files to check before saving, if any. */
 export function broughtInLine(
   version: number,
-  bothChanged: readonly string[],
-  goneThere: readonly string[],
-  deletedChanged: readonly string[] = [],
+  { bothChanged, goneThere, removedChanged, followed }: Omit<BroughtIn, 'draft'>,
 ): string {
   const said = [`Brought in version ${version}.`];
   if (bothChanged.length > 0) {
@@ -272,14 +346,20 @@ export function broughtInLine(
     );
   }
   if (goneThere.length > 0) {
+    said.push(`Version ${version} removed ${listOf(goneThere)}: saving adds your copy back.`);
+  }
+  if (removedChanged.length > 0) {
+    const one = removedChanged.length === 1;
     said.push(
-      `Version ${version} removed ${listOf(goneThere)}: saving adds your edited copy back.`,
+      `Version ${version} changed ${listOf(removedChanged)}, which you removed: ${one ? 'it stays' : 'they stay'} removed, and Restore brings back yours.`,
     );
   }
-  if (deletedChanged.length > 0) {
-    const them = deletedChanged.length === 1 ? 'it' : 'them';
+  if (followed.length > 0) {
+    const one = followed.length === 1;
     said.push(
-      `You deleted ${listOf(deletedChanged)}, which version ${version} changed: saving still deletes ${them}.`,
+      one
+        ? `Version ${version} changed ${listOf(followed)} under its old name: the change moved with your rename, so check it before saving.`
+        : `Version ${version} changed ${listOf(followed)} under their old names: the changes moved with your renames, so check them before saving.`,
     );
   }
   if (said.length === 1) said.push('Your changes are on top of it.');

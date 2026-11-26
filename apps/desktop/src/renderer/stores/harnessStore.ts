@@ -1,11 +1,11 @@
 import { create } from 'zustand';
 import type { HarnessLaunchFields } from '../../shared/types';
-import {
-  launchFieldsFor,
-  type Harness,
-  type HarnessStatus,
-  type HarnessUpdates,
-  type NewHarnessFields,
+import { launchFieldsFor } from '../../shared/harness';
+import type {
+  Harness,
+  HarnessStatus,
+  HarnessUpdates,
+  NewHarnessFields,
 } from '../../shared/harness';
 import { harnessBridge } from '../services/harnessBridge';
 import { harnessBridgeState } from '../services/harnessBridgeState';

@@ -183,7 +183,7 @@ describe('durationOf', () => {
   it('runs to now while the step runs', () => {
     expect(
       durationOf(step({ status: 'running', startedAt: '2026-11-12T11:59:00.000Z' }), NOW),
-    ).toBe(60000);
+    ).toBe(60_000);
   });
   it('is null for a step that never started, or has no end', () => {
     expect(durationOf(step({ status: 'queued' }), NOW)).toBeNull();

@@ -22,19 +22,23 @@ import { clearAllFilters, revealSessionScope } from '../../utils/sessionActions'
 import { useSettleOnChange } from '../../hooks/useSettleOnChange';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
-import { bucketize, type Bucket } from '../../sidebar/bucketize';
+import { bucketize } from '../../sidebar/bucketize';
+import type { Bucket } from '../../sidebar/bucketize';
 import { runEntries, sessionEntries, sessionKey, filterSelection } from '../../sidebar/entries';
 import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
-import { aggregateAttention, buildForest, type TreeNode } from '../../sidebar/forest';
+import { aggregateAttention, buildForest } from '../../sidebar/forest';
+import type { TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
-import { holdFor, pinHold, type Hold } from '../../sidebar/openRowHold';
+import { holdFor, pinHold } from '../../sidebar/openRowHold';
+import type { Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
 import { snoozeOffer } from '../../sidebar/snoozeRules';
 import { wakeWithUndo } from '../../utils/snoozeActions';
 import { droppedSnoozedSessionId, isSnoozedSessionDrag, leftDropTarget } from './sessionDrag';
 import { drawnOrder } from '../../sidebar/selection';
-import { SelectionContext, type SelectionFrame } from '../../sidebar/selectionContext';
+import { SelectionContext } from '../../sidebar/selectionContext';
+import type { SelectionFrame } from '../../sidebar/selectionContext';
 import { treeView } from '../../sidebar/treeView';
 import {
   clearSelection,
@@ -73,7 +77,9 @@ export function Sidebar() {
   const drawn = useRef<SelectionFrame | null>(null);
   // A selection belongs to the workspace it was made in.
   useEffect(() => clearSelection(), [activeWorkspaceId]);
-  // Rows deleted, filtered out or folded away leave the selection.
+  // Rows deleted, filtered out or folded away leave the selection, so this
+  // runs after every render.
+  // oxlint-disable-next-line @nkzw/require-use-effect-arguments -- on purpose, above
   useEffect(() => {
     if (drawn.current) pruneSelected(drawn.current.workspaceId, drawn.current.order);
   });
@@ -125,8 +131,9 @@ export function Sidebar() {
       listed,
       useSessionFilterStore.getState().filters[current.id],
     );
-    if (hasActiveFilters(facets) && !matchesFilters(session, facets))
+    if (hasActiveFilters(facets) && !matchesFilters(session, facets)) {
       useSessionFilterStore.getState().clear(current.id);
+    }
   }, [activeWorkspaceId, activeSessionId]);
 
   // A changed filter settles the list in, so it reads as a new list rather
@@ -167,16 +174,18 @@ export function Sidebar() {
     workspace && activeSessionId && allSessions.some((session) => session.id === activeSessionId)
       ? sessionKey(activeSessionId)
       : null;
-  if (held.current.activeKey !== activeKey || held.current.workingSection !== workingSection)
+  if (held.current.activeKey !== activeKey || held.current.workingSection !== workingSection) {
     held.current = { activeKey, workingSection, hold: holdFor(natural, activeKey) };
+  }
   // A row whose name is being edited stays exactly where it was when the field
   // opened: moving it would remount it and lose the field (see pinHold).
   const renamingKey =
     renamingSessionId && allSessions.some((session) => session.id === renamingSessionId)
       ? sessionKey(renamingSessionId)
       : null;
-  if (pinned.current.key !== renamingKey)
+  if (pinned.current.key !== renamingKey) {
     pinned.current = { key: renamingKey, pin: holdFor(natural, renamingKey) };
+  }
   const placed = pinHold(natural, pinned.current.pin);
 
   // Without a Working section, running rows share the top of the list
@@ -218,10 +227,11 @@ export function Sidebar() {
         </>
       );
     }
-    if (!allSessions.length)
+    if (!allSessions.length) {
       return scope
         ? `Sessions you start in ${scope.name} appear here.`
         : 'Sessions you start appear here.';
+    }
     if (scope && !hasActiveFilters(facets)) {
       return (
         <>
@@ -341,6 +351,7 @@ export function Sidebar() {
         </SidebarSearch>
         <nav className="app-navigation" aria-label="Main navigation">
           <button
+            type="button"
             className={`app-navigation-item ${!isInbox ? 'active' : ''}`}
             aria-label="Home"
             title="Home"
@@ -352,6 +363,7 @@ export function Sidebar() {
           </button>
           {workspace && (
             <button
+              type="button"
               className={`app-navigation-item ${isInbox ? 'active' : ''}`}
               aria-label="Inbox"
               title="Inbox"
@@ -374,6 +386,7 @@ export function Sidebar() {
                   <span className="sidebar-section-title">Integrations</span>
                 </div>
                 <button
+                  type="button"
                   className="sidebar-inbox-row active"
                   aria-current="page"
                   onClick={() => useNavigationStore.getState().openInbox()}

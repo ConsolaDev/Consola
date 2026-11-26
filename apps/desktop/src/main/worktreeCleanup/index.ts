@@ -1,30 +1,28 @@
 import type { Session, Workspace } from '../../shared/workspace';
-import {
-  anySweepRuleOn,
-  type CleanupEntry,
-  type CleanupPreview,
-  type CleanupReport,
-  describeTrigger,
-  type RemovedWorktree,
-  type SessionDeleteOutcome,
-  type SessionDeletePreview,
-  type TreeVerdict,
-  type WorktreeCleanupRules,
+import { anySweepRuleOn, describeTrigger } from '../../shared/worktreeCleanup';
+import type {
+  CleanupEntry,
+  CleanupPreview,
+  CleanupReport,
+  RemovedWorktree,
+  SessionDeleteOutcome,
+  SessionDeletePreview,
+  TreeVerdict,
+  WorktreeCleanupRules,
 } from '../../shared/worktreeCleanup';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { WorktreeInspection } from '../WorktreeService';
-import {
-  FactGatherer,
-  type FactSources,
-  type GatherOptions,
-  type ResolvedPullRequest,
-} from './FactGatherer';
+import { FactGatherer } from './FactGatherer';
+import type { FactSources, GatherOptions, ResolvedPullRequest } from './FactGatherer';
 import type { PathLock } from './PathLock';
-import { judge, type TreeFacts, userBlockers } from './policy';
+import { judge, userBlockers } from './policy';
+import type { TreeFacts } from './policy';
 import type { ProcessSnapshot } from './ProcessCwdIndex';
 import { judgeLookup, PullRequestResolver, toFact } from './PullRequestResolver';
-import { indexTrees, type TreeUser, withRunOwnedTrees } from './TreeIndex';
-import { type Execution, type ExecutorDeps, WorktreeExecutor } from './WorktreeExecutor';
+import { indexTrees, withRunOwnedTrees } from './TreeIndex';
+import type { TreeUser } from './TreeIndex';
+import { WorktreeExecutor } from './WorktreeExecutor';
+import type { Execution, ExecutorDeps } from './WorktreeExecutor';
 
 export interface WorktreeCleanupDeps extends Omit<FactSources, 'lock' | 'worktrees'> {
   lock: Pick<PathLock, 'run' | 'recentlyPrepared'>;

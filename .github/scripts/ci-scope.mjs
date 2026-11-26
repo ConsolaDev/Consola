@@ -40,7 +40,7 @@ const VENDORED = 'vendor/';
 /**
  * Files only the website's deploy reads, which belong to no package.
  */
-const WEBSITE_DEPLOY = ['vercel.json', '.vercelignore'];
+const WEBSITE_DEPLOY = new Set(['vercel.json', '.vercelignore']);
 
 /**
  * Files of other apps the chat view's page tests read at test time
@@ -50,14 +50,14 @@ const WEBSITE_DEPLOY = ['vercel.json', '.vercelignore'];
  * lockfile, within its range) decides. ci-scope.test.mjs checks every file that
  * module reads is here.
  */
-const AGENT_UI_READS = [
+const AGENT_UI_READS = new Set([
   'apps/desktop/src/renderer/styles/global.css',
   'apps/desktop/src/renderer/styles/themes/tokens.css',
   'apps/desktop/src/renderer/styles/themes/light.css',
   'apps/cloud-web/src/ui/styles.css',
   'apps/cloud-web/src/ui/Sessions.css',
   'apps/cloud-web/package.json',
-];
+]);
 const LOCKFILE = 'pnpm-lock.yaml';
 
 const matches = (file, pattern) =>
@@ -90,12 +90,12 @@ export function scope({ event, changedFiles, affected, all, vendored = [] }) {
   // another, so the graph cannot say one depends on the other.
   if (packages.has(CLOUD_GLOBAL)) packages.add(CLOUD_REGION);
   if (packages.has(CLOUD_GLOBAL) || packages.has(CLOUD_REGION)) packages.add(CLOUD_WEB);
-  if (changedFiles.some((file) => WEBSITE_DEPLOY.includes(file))) packages.add(WEBSITE);
+  if (changedFiles.some((file) => WEBSITE_DEPLOY.has(file))) packages.add(WEBSITE);
   // The chat view's page tests read the desktop's and cloud-web's CSS as
   // files, and cloud-web's Radix Themes from its node_modules: a change to
   // one, or a lockfile change to what cloud-web installs, can break them.
   if (
-    changedFiles.some((file) => AGENT_UI_READS.includes(file)) ||
+    changedFiles.some((file) => AGENT_UI_READS.has(file)) ||
     (changedFiles.includes(LOCKFILE) && packages.has(CLOUD_WEB))
   ) {
     packages.add(AGENT_UI);

@@ -1,11 +1,8 @@
 import type { BrowserWindow, WebContents } from 'electron';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserShortcutMessage } from '../../shared/browser';
-import {
-  forwardedShortcutFor,
-  shortcutPlatformOf,
-  type ForwardedShortcut,
-} from '../../shared/shortcuts';
+import { forwardedShortcutFor, shortcutPlatformOf } from '../../shared/shortcuts';
+import type { ForwardedShortcut } from '../../shared/shortcuts';
 
 /** The parts of Electron's `Input` the decision reads. */
 export interface GuestKeyInput {

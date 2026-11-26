@@ -112,8 +112,9 @@ export class AttentionService {
       change.removed.length === 0 &&
       Object.keys(change.changed).length === 0 &&
       change.snoozes === undefined
-    )
+    ) {
       return;
+    }
     for (const listener of [...this.listeners]) {
       try {
         listener(change);

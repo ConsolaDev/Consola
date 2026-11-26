@@ -1,10 +1,9 @@
-import {
-  MAX_HISTORY_PER_WORKSPACE,
-  MAX_TABS_PER_SESSION,
-  type BrowserHistoryEntry,
-  type BrowserStateFile,
-  type BrowserTab,
-  type SessionBrowser,
+import { MAX_HISTORY_PER_WORKSPACE, MAX_TABS_PER_SESSION } from '../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserStateFile,
+  BrowserTab,
+  SessionBrowser,
 } from '../../shared/browser';
 
 /** The slice of `JsonStateFile` the store needs, so tests can use a fake. */
@@ -23,7 +22,7 @@ export const WRITE_DEBOUNCE_MS = 1000;
  * long addresses would freeze every session's terminal at each write, and
  * after every relaunch. Real addresses are far shorter than this.
  */
-export const MAX_STORED_ADDRESS_CHARS = 8_192;
+export const MAX_STORED_ADDRESS_CHARS = 8192;
 
 /**
  * An address as the file keeps it: as it is up to the cap, else only its
@@ -248,13 +247,16 @@ export class BrowserStateStore {
 
   private write(): void {
     try {
-      const sessions = [...this.sessions].map(([sessionId, session]) => [
-        sessionId,
-        {
-          ...session,
-          tabs: session.tabs.map((tab) => ({ ...tab, url: storableAddress(tab.url) })),
-        },
-      ]);
+      const sessions = [...this.sessions].map(
+        ([sessionId, session]) =>
+          [
+            sessionId,
+            {
+              ...session,
+              tabs: session.tabs.map((tab) => ({ ...tab, url: storableAddress(tab.url) })),
+            },
+          ] as const,
+      );
       this.file.write({
         sessions: Object.fromEntries(sessions),
         history: Object.fromEntries(this.history),

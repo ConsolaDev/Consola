@@ -9,9 +9,11 @@ import * as Effect from 'effect/Effect';
 import * as Queue from 'effect/Queue';
 import type * as Scope from 'effect/Scope';
 import { describe, expect, it } from 'vite-plus/test';
-import { type WebSocket, WebSocketServer } from 'ws';
+import { WebSocketServer } from 'ws';
+import type { WebSocket } from 'ws';
 import type { LiveSessions } from './sandboxSessions.ts';
-import { CELL_FRAME_LIMIT_BYTES, type CellSocket, makeCellSocket } from './cellSocket.ts';
+import { CELL_FRAME_LIMIT_BYTES, makeCellSocket } from './cellSocket.ts';
+import type { CellSocket } from './cellSocket.ts';
 
 const SECRET = 'runner-secret-sprocket-0123456789abcdef';
 const OFFER = { repositories: ['sprocket/catalog-portal'], harnesses: ['claude' as const] };
@@ -303,7 +305,7 @@ describe('makeCellSocket', () => {
           yield* runner.socket.send(stopped);
           expect(yield* first.next).toEqual(stopped);
           // A socket that died without a close stays open for minutes: no time open means heard.
-          yield* Effect.sleep(Duration.millis(5_500));
+          yield* Effect.sleep(Duration.millis(5500));
           first.socket.terminate();
           const second = yield* cell.next;
           expect(yield* second.next).toMatchObject({

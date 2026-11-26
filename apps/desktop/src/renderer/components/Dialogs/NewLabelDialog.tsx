@@ -37,9 +37,9 @@ export function NewLabelDialog({ workspaceId, onClose, onCreated }: NewLabelDial
       // open with its message, rather than closing over a half-done assignment.
       await onCreated?.(label);
       onClose();
-    } catch (err) {
+    } catch (failure) {
       // Keep the dialog open so the name is not lost.
-      setError(err instanceof Error ? err.message : String(err));
+      setError(failure instanceof Error ? failure.message : String(failure));
     } finally {
       setSubmitting(false);
     }
@@ -87,10 +87,11 @@ export function NewLabelDialog({ workspaceId, onClose, onCreated }: NewLabelDial
             </div>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>
+            <button type="button" className="dialog-button-secondary" onClick={onClose}>
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               onClick={() => void create()}
               disabled={!name.trim() || submitting}

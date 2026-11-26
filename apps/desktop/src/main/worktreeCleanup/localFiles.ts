@@ -73,9 +73,9 @@ export interface LocalFileBudget {
 }
 
 export const DEFAULT_LOCAL_FILE_BUDGET: LocalFileBudget = {
-  deadlineMs: 8_000,
-  listedPaths: 5_000,
-  visitedEntries: 1_000,
+  deadlineMs: 8000,
+  listedPaths: 5000,
+  visitedEntries: 1000,
   comparedBytes: 32 * 1024 * 1024,
   comparedFileBytes: 4 * 1024 * 1024,
 };
@@ -246,7 +246,7 @@ export interface NestedRepos {
  */
 export async function nestedRepos(
   tree: string,
-  limits: { directories: number; deadlineMs: number } = { directories: 20_000, deadlineMs: 5_000 },
+  limits: { directories: number; deadlineMs: number } = { directories: 20_000, deadlineMs: 5000 },
   now: () => number = Date.now,
 ): Promise<NestedRepos> {
   const deadline = now() + limits.deadlineMs;
@@ -254,8 +254,9 @@ export async function nestedRepos(
   const queue: string[] = [''];
   let visited = 0;
   while (queue.length > 0) {
-    if (now() > deadline || ++visited > limits.directories)
+    if (now() > deadline || ++visited > limits.directories) {
       return { paths: found, complete: false };
+    }
     const relative = queue.shift()!;
     let children: fs.Dirent[];
     try {

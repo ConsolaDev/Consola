@@ -1,7 +1,8 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions, WebContents } from 'electron';
 import type { CertificateTrust } from './CertificateTrust';
 import { guardNavigation } from './guestPolicy';
-import { decideGuestShortcut, type GuestKeyInput } from './guestShortcuts';
+import { decideGuestShortcut } from './guestShortcuts';
+import type { GuestKeyInput } from './guestShortcuts';
 import { refusePageRequests } from './pageRequests';
 import { decidePopup, PersonInputClock, popupTitle } from './popupPolicy';
 

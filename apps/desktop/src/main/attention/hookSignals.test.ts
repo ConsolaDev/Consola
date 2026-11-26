@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import { HookSignals, type AttentionSignal } from './hookSignals';
+import { HookSignals } from './hookSignals';
+import type { AttentionSignal } from './hookSignals';
 
 const menu: AttentionSignal = { kind: 'needs-input', origin: 'menu' };
 const subagent: AttentionSignal = { kind: 'needs-input', origin: 'subagent' };
@@ -56,12 +57,9 @@ describe('HookSignals', () => {
     expect(hooks.get('i')?.needsInput).toBe(true);
   });
 
-  it.each([
-    ['idle', { kind: 'idle' } as AttentionSignal],
-    [
-      'a turn ending',
-      { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 } as AttentionSignal,
-    ],
+  it.each<[string, AttentionSignal]>([
+    ['idle', { kind: 'idle' }],
+    ['a turn ending', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 }],
   ])('ends on %s', (_name, signal) => {
     const hooks = signals('ready');
     hooks.apply('i', menu);
@@ -102,8 +100,9 @@ describe('HookSignals', () => {
     // again, over and over, and is no new turn: the next one reports at its stop.
     const hooks = signals('working');
     hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
-    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const)
+    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const) {
       hooks.statusChanged('i', status);
+    }
     expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: true });
   });
 

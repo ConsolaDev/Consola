@@ -8,11 +8,13 @@ import type {
   SandboxProvider,
 } from './application/ports';
 import { ContractFailure } from './contract/expect';
-import { type ContractSubject, sandboxContract } from './contract/sandboxContract';
+import { sandboxContract } from './contract/sandboxContract';
+import type { ContractSubject } from './contract/sandboxContract';
 import { SANDBOX_CAPABILITIES } from './domain/capabilities';
 import { SandboxError } from './domain/errors';
 import { E2BProvider } from './providers/e2b/E2BProvider';
-import { FakeProvider, type FakeProviderOptions } from './providers/fake/FakeProvider';
+import { FakeProvider } from './providers/fake/FakeProvider';
+import type { FakeProviderOptions } from './providers/fake/FakeProvider';
 import { POSIX_PROGRAMS } from './providers/fake/posixPrograms';
 
 /**
@@ -63,7 +65,7 @@ const PROVIDERS: readonly ProviderUnderTest[] = [
     subject: () => ({
       provider: new E2BProvider({ apiKey: E2B_API_KEY }),
       template: 'base',
-      elapse: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1_000)),
+      elapse: (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000)),
     }),
     skipped:
       E2B_API_KEY === ''

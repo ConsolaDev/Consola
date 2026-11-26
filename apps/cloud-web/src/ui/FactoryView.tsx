@@ -1,4 +1,5 @@
-import { Fragment, lazy, type ReactNode, Suspense } from 'react';
+import { Fragment, lazy, Suspense } from 'react';
+import type { ReactNode } from 'react';
 import type { FactoriesState } from '../domain/factories';
 import { owningTeam } from '../domain/factories';
 import {

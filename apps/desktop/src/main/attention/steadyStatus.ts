@@ -12,7 +12,7 @@ import type { HookInputs } from './hookSignals';
  * straight back. A turn the CLI reported over (a hook's `Stop`) does not
  * wait this out.
  */
-export const DROP_HOLD_MS = 2_000;
+export const DROP_HOLD_MS = 2000;
 
 /**
  * How long output must last, after the CLI said the turn was over and before
@@ -26,7 +26,7 @@ export const DROP_HOLD_MS = 2_000;
  * outlasts every such burst counts, which still catches work no hook
  * announces.
  */
-export const UNTURNED_WORK_MS = 3_000;
+export const UNTURNED_WORK_MS = 3000;
 
 type Turn = HookInputs['turn'];
 

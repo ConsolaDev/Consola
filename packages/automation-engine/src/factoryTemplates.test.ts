@@ -4,8 +4,8 @@ import {
   isStepsEntry,
   parseAutomationEntry,
   parseFactorySpec,
-  type StepsAutomation,
 } from '@consola/factory-spec';
+import type { StepsAutomation } from '@consola/factory-spec';
 import {
   ASSIGNED_REVIEWS_GATED_NAME,
   ASSIGNED_REVIEWS_NAME,

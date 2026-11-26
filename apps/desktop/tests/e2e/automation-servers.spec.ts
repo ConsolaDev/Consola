@@ -1,4 +1,5 @@
-import { expect, test, type ElectronApplication, type Locator, type Page } from '@playwright/test';
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import type { RunRecord, StepRun } from '@consola/factory-spec';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -190,7 +191,7 @@ function ownFile(name: string): string {
 }
 
 /** The banner's time: `HH:MM` today. */
-const AT = '\\d\\d:\\d\\d';
+const AT = String.raw`\d\d:\d\d`;
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: GIT_ENV }).trim();
@@ -1004,8 +1005,9 @@ test('the investigator: a connector and a user server, a skill and its deny list
     expect(personal[0]).toContain(' --model haiku ');
     expect(personal[0]).toContain(' --max-turns 6 ');
     expect(personal[0]).toContain(' --strict-mcp-config ');
-    for (const absent of ['allowedMcpServers', '--plugin-dir', 'Skill', '.claude.json'])
+    for (const absent of ['allowedMcpServers', '--plugin-dir', 'Skill', '.claude.json']) {
       expect(personal[0]).not.toContain(absent);
+    }
 
     // investigate's init: Consola's server and its two, and neither of the others.
     const init = turnFile(steps, run.id, 'investigate', 1).turns[0].init;
@@ -1145,7 +1147,7 @@ test('a probe that fails, a sign-in, or a server that did not load: the step fai
     writeFactoryFile(steps, QUERIES_FILE, QUERIES_2);
     await expect
       .poll(() => fs.readFileSync(path.join(folderOf(steps), QUERIES_FILE), 'utf8'), {
-        timeout: 5_000,
+        timeout: 5000,
       })
       .toBe(QUERIES_2);
     const runPage = await openRun(steps);
@@ -1322,12 +1324,13 @@ test('refused at apply: a plugin server, an unknown server and a Codex harness, 
       'agents/codex-reader.md': '---\nharness: codex-1\n---\nRead the catalog.\n',
     };
     for (const [file, text] of Object.entries(agents)) writeFactoryFile(steps, file, text);
-    for (const name of ['miro-reader', 'grafana-reader', 'codex-reader'])
+    for (const name of ['miro-reader', 'grafana-reader', 'codex-reader']) {
       writeFactoryFile(
         steps,
         `automations/${name}.yaml`,
         `on: { cron: ${NEVER} }\nscope: catalog-portal\nmode: auto\nsteps:\n  - id: look\n    agent: ${name}\n`,
       );
+    }
 
     // Each refusal under its agent file: the servers at their `mcpServers:` line, the harness at `harness:`.
     await expect(bannerOf(steps.page)).toHaveCount(1, { timeout: 30_000 });
@@ -1359,10 +1362,7 @@ test('refused at apply: a plugin server, an unknown server and a Codex harness, 
       expect(await viewOf(steps, name)).toBeUndefined();
       const refused = await steps.page.evaluate(
         async ([workspaceId, entry]) =>
-          window.automationsAPI.runNow(workspaceId, entry).then(
-            () => null,
-            (error: unknown) => String(error),
-          ),
+          window.automationsAPI.runNow(workspaceId, entry).then(() => null, String),
         [steps.workspaceId, name] as const,
       );
       expect(refused).not.toBeNull();

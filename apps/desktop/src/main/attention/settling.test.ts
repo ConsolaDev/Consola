@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
-import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
+import { JsonAttentionLedger } from './AttentionLedger';
+import type { AttentionLedgerStateFile } from './AttentionLedger';
 import { SessionSource } from './SessionSource';
 import { settleAndVerify, settleMany, unsettleMany } from './settling';
 

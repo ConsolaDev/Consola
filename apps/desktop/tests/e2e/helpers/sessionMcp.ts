@@ -1,4 +1,5 @@
-import { expect, type ElectronApplication } from '@playwright/test';
+import { expect } from '@playwright/test';
+import type { ElectronApplication } from '@playwright/test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';

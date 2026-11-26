@@ -87,6 +87,7 @@ export function PathDisplay({ path, className, showPath = true }: PathDisplayPro
               <Tooltip.Root>
                 <Tooltip.Trigger asChild>
                   <button
+                    type="button"
                     className={`git-stats-refresh ${isLoading ? 'loading' : ''}`}
                     onClick={handleRefresh}
                     disabled={isLoading}

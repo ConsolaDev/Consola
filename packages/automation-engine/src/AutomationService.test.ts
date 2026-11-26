@@ -13,17 +13,14 @@ import {
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import { defineTool, FakeToolRegistry } from './tools.test-helpers';
-import {
-  AutomationService,
-  INTERRUPTED_PROMPT,
-  TICK_MS,
-  type AutomationNotice,
-} from './AutomationService';
+import { AutomationService, INTERRUPTED_PROMPT, TICK_MS } from './AutomationService';
+import type { AutomationNotice } from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import { assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { RunFolder } from './node/runFolder';
 import type { AgentLaunchRequest, EngineToolContext, RunFolderPort } from './ports';
-import { RunStore, type AutomationStateFile } from './RunStore';
+import { RunStore } from './RunStore';
+import type { AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
 import { memoryAppliedStore } from './steps/steps.test-helpers';
 import { StartedByHandError } from './support';
@@ -466,8 +463,9 @@ describe('an agent’s destructive call', () => {
     const t = setup({ workspaces });
     await t.start();
     const { run } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
-    for (let i = 1; i < 10; i++)
+    for (let i = 1; i < 10; i++) {
       await t.service.requestApproval('zap', { target: `t-${i}` }, 's-1');
+    }
     await expect(t.service.requestApproval('zap', { target: 't-10' }, 's-1')).rejects.toThrow(
       /already waiting/,
     );
@@ -1628,7 +1626,7 @@ describe('automatic reviews, offered by the banner', () => {
     // No pull request action: the entry inlines its prompt, so it is still offered, and adds.
     const noAction = setup({
       yaml: sweeping(),
-      workspaces: [{ ...bound(), actions: [] } as WorkspaceView],
+      workspaces: [{ ...bound(), actions: [] }],
     });
     await noAction.start();
     expect(noAction.service.snapshot('ws-1').suggestAssignedReviews).toBe(true);
@@ -1643,7 +1641,7 @@ describe('automatic reviews, offered by the banner', () => {
     // Without an account, nothing to offer, and Add says what to do first.
     const unbound = setup({
       yaml: sweeping(),
-      workspaces: [{ ...bound(), provider: undefined } as WorkspaceView],
+      workspaces: [{ ...bound(), provider: undefined }],
     });
     await unbound.start();
     expect(unbound.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
@@ -1800,7 +1798,7 @@ describe('the seen record', () => {
     workspaces[0] = {
       ...workspaces[0],
       provider: { id: 'github', accountLogin: 'me', org: 'globex' },
-    } as WorkspaceView;
+    };
     await t.service.syncWorkspaces();
     await t.poll([pr(1), pr(2), pr(3)]);
     expect(t.store.runs()).toEqual([]);
@@ -2365,7 +2363,7 @@ describe('saving an entry', () => {
     for (const [yaml, reason] of cases) {
       const error = await t.service.saveEntry('ws-1', yaml, { replace: false }).then(
         () => null,
-        (failure: Error) => failure,
+        (failure: unknown) => failure as Error,
       );
       expect(error?.message, yaml).toMatch(/^Not saved: /);
       expect(error?.message, yaml).toMatch(reason);
@@ -2700,9 +2698,7 @@ describe('stepIO', () => {
         },
       } as SessionView;
       const t = setup({
-        workspaces: [
-          { id: 'ws-1', sessions: [session], scopes: [], actions: [] } as unknown as WorkspaceView,
-        ],
+        workspaces: [{ id: 'ws-1', sessions: [session], scopes: [], actions: [] }],
         runFolder: folder,
       });
       await t.start();
@@ -2716,8 +2712,9 @@ automations:
         outputs:
           verdict: { enum: [approve, comment, request-changes] }
 `).automations;
-      if (!automation || !isStepsEntry(automation))
+      if (!automation || !isStepsEntry(automation)) {
         throw new Error('The steps entry does not parse.');
+      }
       folder.writeDefinition('ws-1', 'run-steps', { automation, version: 'v1', actions: {} });
       const at = '2026-11-04T08:00:00.000Z';
       t.store.add({

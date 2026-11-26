@@ -1,12 +1,8 @@
-import { type KeyboardEvent, type ReactNode, useRef } from 'react';
+import { useRef } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import {
-  type GroupId,
-  otherGroup,
-  type TabId,
-  type TabMenuItem,
-  tabMenuItems,
-} from '../../sidePanel/layout';
+import { otherGroup, tabMenuItems } from '../../sidePanel/layout';
+import type { GroupId, TabId, TabMenuItem } from '../../sidePanel/layout';
 import { useSidePanelStore } from '../../stores/sidePanelStore';
 import {
   focusTrigger,

@@ -7,8 +7,8 @@ import type { Session, Workspace } from '../../shared/workspace';
 import {
   DEFAULT_WORKTREE_CLEANUP_RULES,
   effectiveWorktreeCleanup,
-  type WorktreeCleanupRules,
 } from '../../shared/worktreeCleanup';
+import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import type { PullRequestQuery, PullRequestState } from '../providers/pullRequests';
 import { WorktreeService } from '../WorktreeService';

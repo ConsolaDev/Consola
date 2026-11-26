@@ -30,19 +30,18 @@ import {
 import { claudeAttentionHooks, claudeSettings } from './claudeHooks';
 import { budgetFlags, writeAgentArgs } from './claudeWriteAgent';
 import { createClaudeTurnReader } from './claudeTurnReader';
-import {
-  looseningProblem,
-  namedFlags,
-  type CliNameRead,
-  type CompileAgentInput,
-  type CompiledAgent,
-  type HarnessConfig,
-  type HarnessDriver,
-  type McpServerReport,
-  type SessionLaunch,
-  type TextGenerationRequest,
-  type TurnReader,
-  type UsageLimitReporting,
+import { looseningProblem, namedFlags } from './HarnessDriver';
+import type {
+  CliNameRead,
+  CompileAgentInput,
+  CompiledAgent,
+  HarnessConfig,
+  HarnessDriver,
+  McpServerReport,
+  SessionLaunch,
+  TextGenerationRequest,
+  TurnReader,
+  UsageLimitReporting,
 } from './HarnessDriver';
 
 /**
@@ -53,8 +52,8 @@ import {
  * redirects a whole profile, and the shape of the account file it writes.
  */
 
-const VERSION_TIMEOUT_MS = 10000;
-const HEADLESS_TIMEOUT_MS = 60000;
+const VERSION_TIMEOUT_MS = 10_000;
+const HEADLESS_TIMEOUT_MS = 60_000;
 
 // Locations `claude` commonly installs to, checked when the PATH search fails.
 const FALLBACK_BINARY_PATHS = [
@@ -179,7 +178,7 @@ function stepPlugin(
   grants: ClaudeAgentGrants | undefined,
 ): { dir: string } | { notice: string } | null {
   if (!grants || grants.skills.length === 0 || !grants.pluginDir) return null;
-  let isFolder = false;
+  let isFolder: boolean;
   try {
     isFolder = fs.statSync(grants.pluginDir).isDirectory();
   } catch {
@@ -517,10 +516,12 @@ export class ClaudeDriver implements HarnessDriver {
     if (problem) throw new Error(problem);
     const writes = launch.toolPolicy === 'edit' || launch.toolPolicy === 'write';
     if (writes && !compiledWhole(launch.grants)) throw new Error(WRITE_NEEDS_GRANTS);
-    if (launch.unattended && launch.toolPolicy === undefined)
+    if (launch.unattended && launch.toolPolicy === undefined) {
       throw new Error(UNATTENDED_NEEDS_POLICY);
-    if (launch.unattended && !launch.initialPrompt)
+    }
+    if (launch.unattended && !launch.initialPrompt) {
       throw new Error('An unattended turn needs the prompt it runs.');
+    }
     const grants = claudeGrants(launch);
     if (launch.unattended && launch.reportTurn) {
       // A harness edited after its run was queued: fail the step rather
@@ -879,7 +880,7 @@ export class ClaudeDriver implements HarnessDriver {
           // stdout, and exits 1: its reason is there, not on stderr.
           let parsed: { is_error?: unknown; result?: unknown; structured_output?: unknown } | null;
           try {
-            parsed = JSON.parse(stdout);
+            parsed = JSON.parse(stdout) as typeof parsed;
           } catch {
             parsed = null;
           }
@@ -978,16 +979,15 @@ export async function runHeadless(
           resolve({ text: '', isError: true });
           return;
         }
+        let parsed: { result?: string; is_error?: boolean };
         try {
-          const parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
-          resolve({
-            text: (parsed.result ?? '').trim(),
-            isError: parsed.is_error === true,
-          });
+          parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
         } catch {
           // Non-JSON output means something went wrong upstream.
           resolve({ text: '', isError: true });
+          return;
         }
+        resolve({ text: (parsed.result ?? '').trim(), isError: parsed.is_error === true });
       },
     );
   });

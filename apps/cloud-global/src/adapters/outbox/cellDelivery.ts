@@ -3,8 +3,8 @@ import {
   OUTBOX_DELIVERY_MEDIA_TYPE,
   OUTBOX_DELIVERY_PATH,
   readOutOfOrderAnswer,
-  type Region,
 } from '@consola/cloud-contract';
+import type { Region } from '@consola/cloud-contract';
 import type { CellDelivery, DeliveryAnswer } from '../../application/ports.js';
 
 /** How long a cell has to answer a delivery before it counts as failed. */

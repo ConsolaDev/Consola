@@ -1,10 +1,9 @@
-import {
-  DEFAULT_PREFERENCES,
-  isTerminalLinkRule,
-  type Preferences,
-} from '../../shared/preferences';
-import { normalizeRules, type WorktreeCleanupRules } from '../../shared/worktreeCleanup';
-import { normalizeSnoozePresets, type SnoozePresetSetting } from '../../shared/snooze';
+import { DEFAULT_PREFERENCES, isTerminalLinkRule } from '../../shared/preferences';
+import type { Preferences } from '../../shared/preferences';
+import { normalizeRules } from '../../shared/worktreeCleanup';
+import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
+import { normalizeSnoozePresets } from '../../shared/snooze';
+import type { SnoozePresetSetting } from '../../shared/snooze';
 import type { JsonStateFile } from './JsonStateFile';
 
 /** Read stored preferences, falling back per field so one bad value costs only itself. */

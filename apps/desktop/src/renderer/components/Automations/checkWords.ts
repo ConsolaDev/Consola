@@ -68,8 +68,9 @@ export function allowBannerWords(check: CheckView): string {
 /** What allowing grants, by mode. */
 export function grantWords(mode: AutomationMode): string {
   if (mode === 'confirm') return 'It then checks; each run still waits for your approval.';
-  if (mode === 'notify')
+  if (mode === 'notify') {
     return 'It then checks, and runs dry runs: agents review, commands only report.';
+  }
   return 'It then checks, and runs on its own when something is new or changed.';
 }
 

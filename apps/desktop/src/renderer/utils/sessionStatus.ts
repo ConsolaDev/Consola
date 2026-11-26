@@ -1,4 +1,5 @@
-import { isParked, worstStatus, type Attention } from '../../shared/attention';
+import { isParked, worstStatus } from '../../shared/attention';
+import type { Attention } from '../../shared/attention';
 import type { Workspace } from '../../shared/workspace';
 
 /**

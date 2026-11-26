@@ -52,7 +52,7 @@ export function SwitchHarnessDialog({ workspaceId, session, onClose }: SwitchHar
           )?.harnessId,
         );
       })
-      .catch((reason) => {
+      .catch((reason: unknown) => {
         if (live) setError(ipcErrorMessage(reason));
       });
     return () => {
@@ -163,10 +163,16 @@ export function SwitchHarnessDialog({ workspaceId, session, onClose }: SwitchHar
           </div>
 
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" disabled={submitting} onClick={onClose}>
+            <button
+              type="button"
+              className="dialog-button-secondary"
+              disabled={submitting}
+              onClick={onClose}
+            >
               Cancel
             </button>
             <button
+              type="button"
               className="dialog-button-primary"
               disabled={submitting || !chosen?.ok}
               onClick={() => void confirm()}

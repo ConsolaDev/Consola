@@ -6,8 +6,8 @@ import {
   workItemActionKey,
   workItemKey,
   workItemUrl,
-  type WorkItemRef,
 } from './workItems';
+import type { WorkItemRef } from './workItems';
 
 const pr51: WorkItemRef = {
   provider: 'github',

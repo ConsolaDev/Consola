@@ -1,23 +1,26 @@
 // @effect-diagnostics nodeBuiltinImport:off - Each test makes its own pass keys with node:crypto.
-import { generateKeyPairSync, type KeyObject } from 'node:crypto';
+import { generateKeyPairSync } from 'node:crypto';
+import type { KeyObject } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import {
   CommandId,
-  type ModelSelection,
   ORCHESTRATION_PROTOCOL_HEADER,
   ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
-  type OrchestrationV2Command,
-  type OrchestrationV2ShellStreamItem,
-  type OrchestrationV2SubscribeShellInput,
-  type OrchestrationV2ThreadStreamItem,
   ProviderInstanceId,
   RunId,
   serverProviderDeltas,
   ThreadId,
   TurnItemId,
   WS_METHODS,
+} from '@t3tools/contracts';
+import type {
+  ModelSelection,
+  OrchestrationV2Command,
+  OrchestrationV2ShellStreamItem,
+  OrchestrationV2SubscribeShellInput,
+  OrchestrationV2ThreadStreamItem,
 } from '@t3tools/contracts';
 import * as Cause from 'effect/Cause';
 import * as Clock from 'effect/Clock';
@@ -70,8 +73,8 @@ import {
   connectT3Client,
   hostSocketUrl,
   issueHostTicket,
-  type T3Client,
 } from '../testing/t3Client.ts';
+import type { T3Client } from '../testing/t3Client.ts';
 import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
 import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
@@ -292,7 +295,7 @@ const recordingTracer = () => {
 };
 
 /** The spans' names, attributes and events, as one text to search. */
-function describeSpans(spans: ReadonlyArray<Tracer.NativeSpan>): string {
+function describeSpans(spans: readonly Tracer.NativeSpan[]): string {
   return JSON.stringify(
     spans.map((span) => ({
       name: span.name,
@@ -705,7 +708,7 @@ describe('serveHost', () => {
             expect(closed).toMatchObject({ code: 4401, reason: 'The session pass has expired.' });
             // Not refused at the door: open for a while, closed no later than the pass's exp.
             expect(closed.closedAt - closed.openedAt).toBeGreaterThan(500);
-            expect(closed.closedAt - closed.openedAt).toBeLessThan(6_000);
+            expect(closed.closedAt - closed.openedAt).toBeLessThan(6000);
           }
           yield* Effect.gen(function* () {
             while (connectedClients() !== 0) yield* Effect.sleep(Duration.millis(10));
@@ -906,7 +909,7 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
   const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
     effect.pipe(
       Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch),
     );
 
   it(
@@ -964,8 +967,9 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
           expect(socketTicket).not.toBe(Redacted.value(ticket.ticket));
           expect(socketUrl.toString()).not.toContain(pass);
           const withFlags = new URL(hostSocketUrl(port));
-          for (const [name, value] of socketUrl.searchParams)
+          for (const [name, value] of socketUrl.searchParams) {
             withFlags.searchParams.set(name, value);
+          }
           const { initialConfig } = yield* connectT3Client(withFlags.toString());
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
           // Used once: the same URL opens nothing again.
@@ -1059,7 +1063,7 @@ describe("the shell and a cold thread: what t3's client reads once connected", (
   const asT3Client = <A, E>(effect: Effect.Effect<A, E, HttpClient.HttpClient>) =>
     effect.pipe(
       Effect.provide(FetchHttpClient.layer),
-      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch as typeof globalThis.fetch),
+      Effect.provideService(FetchHttpClient.Fetch, loopbackFetch),
     );
 
   /**
@@ -1142,7 +1146,7 @@ describe("the shell and a cold thread: what t3's client reads once connected", (
           // Rows held at a cursor the socket can resume from are kept; one past the thread's
           // last event (another host's) is answered with the shell.
           expect(yield* load(pass, answer.snapshotSequence)).toEqual({ resumable: true });
-          expect(yield* load(pass, answer.snapshotSequence + 1_000)).toMatchObject({
+          expect(yield* load(pass, answer.snapshotSequence + 1000)).toMatchObject({
             threads: [expect.objectContaining({ id: spec.sessionId })],
           });
 
@@ -1235,7 +1239,7 @@ describe("the shell and a cold thread: what t3's client reads once connected", (
           expect(yield* takeShell(behind)).toEqual({ kind: 'synchronized' });
           // A cursor past it (another host's): `snapshot-required` for a client that loads the
           // shell over HTTP instead, else the snapshot.
-          const past = { afterSequence: highWater + 1_000, requestCompletionMarker: true } as const;
+          const past = { afterSequence: highWater + 1000, requestCompletionMarker: true } as const;
           const fallback = yield* subscribeShell(t3, { ...past, httpSnapshotFallback: true });
           expect(yield* takeShell(fallback)).toEqual({ kind: 'snapshot-required' });
           const resent = yield* subscribeShell(t3, past);

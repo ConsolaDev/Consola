@@ -151,8 +151,9 @@ test('demo interactions stay in the browser and use no persisted state', async (
       url.hostname !== 'localhost' &&
       url.hostname !== '127.0.0.1' &&
       request.url() !== releaseApi
-    )
+    ) {
       outgoing.push(request.url());
+    }
   });
   const frame = await demo(page);
   await frame.getByRole('button', { name: /Add retry logic to the API client/ }).click();
@@ -200,8 +201,9 @@ test('analytics reaches PostHog through this origin and persists nothing', async
       url.hostname !== 'localhost' &&
       url.hostname !== '127.0.0.1' &&
       request.url() !== releaseApi
-    )
+    ) {
       offOrigin.push(request.url());
+    }
   });
   const proxied = page.waitForRequest((request) =>
     new URL(request.url()).pathname.startsWith('/cnsl/'),

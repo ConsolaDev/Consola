@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { createSessionRecord, createWorkspaceRecord, type Session } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import { useSessionFilterStore } from '../stores/sessionFilterStore';
 import {
   deriveFacets,

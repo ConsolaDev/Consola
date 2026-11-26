@@ -1,18 +1,16 @@
 // @effect-diagnostics nodeBuiltinImport:off - A session's project is named after its folder.
 import { basename } from 'node:path';
-import {
-  CommandId,
-  type OrchestrationV2Command,
-  type OrchestrationV2StoredEvent,
-  type OrchestrationV2ThreadProjection,
-  ProjectId,
-  type OrchestrationV2CommandOutputError,
-  type OrchestrationV2CommandOutputFrame,
-  type OrchestrationV2ShellSnapshot,
-  type OrchestrationV2ThreadShell,
-  type RuntimeMode,
-  ThreadId,
-  type TurnItemId,
+import { CommandId, ProjectId, ThreadId } from '@t3tools/contracts';
+import type {
+  OrchestrationV2Command,
+  OrchestrationV2StoredEvent,
+  OrchestrationV2ThreadProjection,
+  OrchestrationV2CommandOutputError,
+  OrchestrationV2CommandOutputFrame,
+  OrchestrationV2ShellSnapshot,
+  OrchestrationV2ThreadShell,
+  RuntimeMode,
+  TurnItemId,
 } from '@t3tools/contracts';
 import type { AnyProviderDriver } from '@t3tools/provider-core/server/driver';
 import * as Cause from 'effect/Cause';
@@ -37,12 +35,8 @@ import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
 import { decideCommand } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
-import {
-  defaultModelSelection,
-  type HostDriversEnv,
-  hostDriverFor,
-  titleModelSelection,
-} from './drivers.ts';
+import { defaultModelSelection, hostDriverFor, titleModelSelection } from './drivers.ts';
+import type { HostDriversEnv } from './drivers.ts';
 import {
   layerOrchestration,
   layerOrchestrationForTests,

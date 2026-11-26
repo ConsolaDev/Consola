@@ -1,10 +1,5 @@
-import {
-  CommandId,
-  type ModelSelection,
-  type OrchestrationV2Command,
-  type RuntimeMode,
-  ThreadId,
-} from '@t3tools/contracts';
+import { CommandId, ThreadId } from '@t3tools/contracts';
+import type { ModelSelection, OrchestrationV2Command, RuntimeMode } from '@t3tools/contracts';
 import type { OrchestratorV2ScenarioResult } from '@t3tools/server-orchestration/testing';
 import * as Clock from 'effect/Clock';
 import * as Duration from 'effect/Duration';
@@ -66,7 +61,7 @@ type Replay = {
   /** t3's own checks of this replay, from the fixture's `claude_output.ts`. */
   readonly assertT3Output: Effect.Effect<void, ThreadRuntime.ThreadRuntimeError>;
   /** Each thread title t3 asked the replayed Claude instance for (`replayClaudeDriver`). */
-  readonly titleRequests: ReadonlyArray<ModelSelection>;
+  readonly titleRequests: readonly ModelSelection[];
 };
 
 /**

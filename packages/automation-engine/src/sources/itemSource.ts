@@ -85,9 +85,9 @@ export const UNWATCHED_NOTE =
  */
 export function quoteUntrusted(text: string): string {
   return JSON.stringify(text)
-    .replace(/</g, '\\u003c')
-    .replace(/>/g, '\\u003e')
-    .replace(/@/g, '\\u0040');
+    .replace(/</g, String.raw`\u003c`)
+    .replace(/>/g, String.raw`\u003e`)
+    .replace(/@/g, String.raw`\u0040`);
 }
 
 /** Item-derived fields, marked as data rather than instructions (north-star §4.4). */

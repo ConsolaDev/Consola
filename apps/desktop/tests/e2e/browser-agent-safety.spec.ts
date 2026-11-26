@@ -2,15 +2,17 @@ import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
 import path from 'node:path';
 import {
-  type AgentWorkspace,
   closeAgentWorkspace,
   inPage,
   launchAgentWorkspace,
   showBrowser,
 } from './helpers/agentWorkspace';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import type { AgentWorkspace } from './helpers/agentWorkspace';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
 import { expectOffScreen } from './helpers/screenGuard';
-import { type AgentClient, connectAgent } from './helpers/sessionMcp';
+import { connectAgent } from './helpers/sessionMcp';
+import type { AgentClient } from './helpers/sessionMcp';
 import { afterNote, openTab, plainAnswer, refIn } from './helpers/toolAnswers';
 
 /**

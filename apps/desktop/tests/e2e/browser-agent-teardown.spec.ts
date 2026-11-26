@@ -3,13 +3,12 @@ import type { ElectronApplication } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import {
-  type AgentWorkspace,
-  closeAgentWorkspace,
-  launchAgentWorkspace,
-} from './helpers/agentWorkspace';
-import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
-import { type AgentClient, connectAgent } from './helpers/sessionMcp';
+import { closeAgentWorkspace, launchAgentWorkspace } from './helpers/agentWorkspace';
+import type { AgentWorkspace } from './helpers/agentWorkspace';
+import { startFixtureServer } from './helpers/fixtureServer';
+import type { FixtureServer } from './helpers/fixtureServer';
+import { connectAgent } from './helpers/sessionMcp';
+import type { AgentClient } from './helpers/sessionMcp';
 import { openTab } from './helpers/toolAnswers';
 
 /**
