@@ -76,7 +76,7 @@ describe('createWorkspace', () => {
 
   it('makes it in the region it is handed, never one the request names', async () => {
     const session = await signedIn(dana, 's-dana');
-    const sent: Record<string, unknown> = { ...acme, region: 'eu' };
+    const sent = { ...acme, region: 'eu' };
     const made = await createWorkspace(stores, session, sent, 'us');
     expect(made).toMatchObject({ kind: 'created', workspace: { region: 'us' } });
     expect(
