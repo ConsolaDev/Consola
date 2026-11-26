@@ -1,4 +1,3 @@
-import type { GitHubEventMessage } from '@consola/cloud-contract';
 import {
   hasAgentTeam,
   matchPullRequestAutomations,
@@ -34,6 +33,23 @@ import { recordRun } from './runs.js';
  * in this experiment the cell, not a runner, decides that a run starts, so it is the run's writer.
  */
 
+/**
+ * A GitHub event the webhook recorded for a workspace, as it hands it on: the webhook's own
+ * `GitHubEvent` (`domain/webhooks.ts`), field for field, which starting its agent runs reads.
+ */
+export type GitHubEvent = {
+  /** The workspace that holds the installation. */
+  workspaceId: string;
+  /** GitHub's id of the delivery (`X-GitHub-Delivery`). */
+  deliveryId: string;
+  /** The event's name (`X-GitHub-Event`): `pull_request`, `push`, … */
+  event: string;
+  /** The installation of Consola's GitHub App the event came through. */
+  installationId: number;
+  /** The event's payload, as GitHub sent it. */
+  payload: Record<string, unknown>;
+};
+
 /** The event's name GitHub gives a pull request's webhook. */
 const PULL_REQUEST = 'pull_request';
 
@@ -46,11 +62,11 @@ type Firing = {
   event: PullRequestEvent;
 };
 
-const about = (event: GitHubEventMessage) =>
+const about = (event: GitHubEvent) =>
   `GitHub delivery ${event.deliveryId} (${event.event}) for workspace ${event.workspaceId}`;
 
 /**
- * Starts the agent runs a GitHub event fires, once the cell has recorded it for the first time:
+ * Starts the agent runs a GitHub event fires, once it is recorded for the first time:
  * for a `pull_request` event, each automation of each of the workspace's factories whose latest
  * files hold an agent team with no issues, whose triggers match it
  * (`matchPullRequestAutomations`), starts one run (`startAgentRun`). Any other event starts
@@ -60,7 +76,7 @@ const about = (event: GitHubEventMessage) =>
  */
 export async function startAgentRunsFor(
   ports: AgentRunPorts,
-  message: GitHubEventMessage,
+  message: GitHubEvent,
 ): Promise<CloudSession[]> {
   if (message.event !== PULL_REQUEST) return [];
   const event = pullRequestEventOf(message.payload);

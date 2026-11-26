@@ -1,14 +1,13 @@
-import { cellTokenClaims } from '@consola/cloud-contract';
-import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { admitClaims } from '../domain/caller.js';
-import type { Caller } from '../domain/caller.js';
+import {
+  makeTestWorkspace,
+  nextMillisecond,
+  openTestDatabase,
+} from '../adapters/persistence/testDatabase.js';
 import { FIRST_TEAM_NAME, TEAM_NAME_MAX } from '../domain/team.js';
-import type { CopyChange } from '../domain/workspaceCopy.js';
-import type { TeamStore, WorkspaceCopies } from './ports.js';
+import type { TeamStore } from './ports.js';
 import {
   addTeamMember,
   createTeam,
@@ -17,53 +16,31 @@ import {
   removeTeamMember,
   renameTeam,
 } from './teams.js';
+import { callerAs as caller, fakeMembership } from './testMembership.js';
+import type { FakeMembership } from './testMembership.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let teams: TeamStore;
-let workspaceCopies: WorkspaceCopies;
+let membership: FakeMembership;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  ({ teams, workspaceCopies } = createDrizzleStores(db));
+  ({ db, close } = await openTestDatabase());
+  ({ teams } = createDrizzleStores(db));
+  membership = fakeMembership();
 });
 
 afterEach(async () => {
   await close();
 });
 
-/** Who a checked cell token names: only `admitClaims` makes a caller. */
-function caller(personId: string, role: WorkspaceRole, workspaceId = 'acme'): Caller {
-  const now = Math.floor(Date.now() / 1000);
-  const claims = cellTokenClaims({ personId, workspaceId, role, region: 'eu', issuedAt: now });
-  const admitted = admitClaims(claims, now, 'eu');
-  if (admitted.kind !== 'accepted') throw new Error('the token was not accepted');
-  return admitted.caller;
-}
-
-/** Acme, opened in the copy with Dana (owner), Eli (admin) and Fay (member). */
+/** Acme, made whole, with Dana (owner), Eli (admin) and Fay (member) in its first team. */
 async function acme() {
-  let sequence = 1;
-  await workspaceCopies.applyAfter({
-    workspaceId: 'acme',
-    sequence,
-    after: null,
-    change: { kind: 'open-workspace' },
-  });
-  for (const [personId, role] of [
+  await makeTestWorkspace(db, membership, 'acme', [
     ['person-dana', 'owner'],
     ['person-eli', 'admin'],
     ['person-fay', 'member'],
-  ] as const) {
-    sequence += 1;
-    await workspaceCopies.applyAfter({
-      workspaceId: 'acme',
-      sequence,
-      after: sequence - 1,
-      change: { kind: 'put-member', personId, role },
-    });
-  }
+  ]);
 }
 
 const dana = () => caller('person-dana', 'owner');
@@ -76,82 +53,120 @@ async function platform() {
   return answer.team;
 }
 
+async function firstTeam() {
+  const answer = await listTeams(teams, membership, dana());
+  const first = answer.teams.find((team) => team.first);
+  if (!first) throw new Error('Acme has no first team');
+  return first;
+}
+
 describe('listTeams', () => {
   it('shows owners and admins every team, and that they manage them', async () => {
     await acme();
     const made = await platform();
     for (const who of [dana(), eli()]) {
-      const answer = await listTeams(teams, who);
+      const answer = await listTeams(teams, membership, who);
       expect(answer).toMatchObject({ kind: 'listed', canManage: true });
-      expect(answer.kind === 'listed' && answer.teams.map((team) => team.name)).toEqual([
-        FIRST_TEAM_NAME,
-        made.name,
-      ]);
+      expect(answer.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME, made.name]);
     }
   });
 
   it('shows a member the teams they are in, and that they do not manage them', async () => {
     await acme();
     await platform();
-    const answer = await listTeams(teams, fay());
+    const answer = await listTeams(teams, membership, fay());
     expect(answer).toMatchObject({ kind: 'listed', canManage: false });
-    expect(answer.kind === 'listed' && answer.teams.map((team) => team.name)).toEqual([
-      FIRST_TEAM_NAME,
+    expect(answer.teams).toEqual([
+      {
+        id: expect.any(String),
+        name: FIRST_TEAM_NAME,
+        first: true,
+        memberIds: ['person-dana', 'person-eli', 'person-fay'],
+      },
     ]);
   });
 
-  it('is pending while the cell does not hold the workspace', async () => {
-    expect(await listTeams(teams, dana())).toEqual({ kind: 'workspace-pending' });
+  it('acts with the role the caller was admitted with this request', async () => {
+    await acme();
+    await platform();
+    // Eli was an admin; demoted, the request is admitted with the member's role.
+    membership.put('acme', 'person-eli', 'member');
+    const answer = await listTeams(teams, membership, caller('person-eli', 'member'));
+    expect(answer).toMatchObject({ kind: 'listed', canManage: false });
+    expect(answer.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
   });
 
   it("never reads another workspace's teams", async () => {
     await acme();
     await platform();
-    await workspaceCopies.applyAfter({
-      workspaceId: 'sprocket',
-      sequence: 1,
-      after: null,
-      change: { kind: 'open-workspace' },
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-dana', 'owner']]);
+    const answer = await listTeams(teams, membership, caller('person-dana', 'owner', 'sprocket'));
+    expect(answer.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+  });
+
+  it('lists only people who are members of the workspace now, whatever places are left', async () => {
+    await acme();
+    const made = await platform();
+    await addTeamMember(teams, membership, eli(), made.id, 'person-fay');
+    // Fay leaves the workspace, and nothing has taken her places out of its teams yet.
+    membership.remove('acme', 'person-fay');
+
+    const answer = await listTeams(teams, membership, dana());
+    expect(answer.teams.map((team) => [team.name, team.memberIds])).toEqual([
+      [FIRST_TEAM_NAME, ['person-dana', 'person-eli']],
+      ['Platform', []],
+    ]);
+    // Every answer that holds a team shows it so.
+    await nextMillisecond();
+    expect(await renameTeam(teams, membership, eli(), made.id, { name: 'Apps' })).toEqual({
+      kind: 'renamed',
+      team: { ...made, name: 'Apps', memberIds: [] },
     });
-    await workspaceCopies.applyAfter({
-      workspaceId: 'sprocket',
-      sequence: 2,
-      after: 1,
-      change: { kind: 'put-member', personId: 'person-dana', role: 'owner' },
+    expect(await addTeamMember(teams, membership, eli(), made.id, 'person-eli')).toEqual({
+      kind: 'changed',
+      team: { ...made, name: 'Apps', memberIds: ['person-eli'] },
     });
-    const answer = await listTeams(teams, caller('person-dana', 'owner', 'sprocket'));
-    expect(answer.kind === 'listed' && answer.teams.map((team) => team.name)).toEqual([
-      FIRST_TEAM_NAME,
+    const first = await firstTeam();
+    expect(await removeTeamMember(teams, membership, eli(), first.id, 'person-eli')).toMatchObject({
+      kind: 'changed',
+      team: { memberIds: ['person-dana'] },
+    });
+    // The place is still there: should Fay come back, so is she.
+    membership.put('acme', 'person-fay', 'member');
+    expect((await listTeams(teams, membership, dana())).teams[1]?.memberIds).toEqual([
+      'person-fay',
+      'person-eli',
     ]);
   });
 });
 
 describe('changing teams', () => {
   it('is for owners and admins: a member is refused before anything else is read', async () => {
-    // Not even the workspace is held, and the name is no name: the role is judged first.
+    // Not even a team is there, and the name is no name: the role is judged first.
     expect(await createTeam(teams, fay(), { name: '' })).toEqual({ kind: 'not-allowed' });
-    expect(await renameTeam(teams, fay(), 'x', { name: '' })).toEqual({ kind: 'not-allowed' });
+    expect(await renameTeam(teams, membership, fay(), 'x', { name: '' })).toEqual({
+      kind: 'not-allowed',
+    });
     expect(await deleteTeam(teams, fay(), 'x')).toEqual({ kind: 'not-allowed' });
-    expect(await addTeamMember(teams, fay(), 'x', 'person-fay')).toEqual({ kind: 'not-allowed' });
-    expect(await removeTeamMember(teams, fay(), 'x', 'person-fay')).toEqual({
+    expect(await addTeamMember(teams, membership, fay(), 'x', 'person-fay')).toEqual({
+      kind: 'not-allowed',
+    });
+    expect(await removeTeamMember(teams, membership, fay(), 'x', 'person-fay')).toEqual({
       kind: 'not-allowed',
     });
   });
 
-  it('names every problem with a name before asking whether the workspace is held', async () => {
+  it('names every problem with a name before the store is asked', async () => {
     expect(await createTeam(teams, eli(), { name: ' ' })).toEqual({
       kind: 'invalid',
       problems: ['name_missing'],
     });
-    expect(await renameTeam(teams, eli(), 'x', { name: 'a'.repeat(TEAM_NAME_MAX + 1) })).toEqual({
-      kind: 'invalid',
-      problems: ['name_too_long'],
+    expect(
+      await renameTeam(teams, membership, eli(), 'x', { name: 'a'.repeat(TEAM_NAME_MAX + 1) }),
+    ).toEqual({ kind: 'invalid', problems: ['name_too_long'] });
+    expect(await renameTeam(teams, membership, eli(), 'x', { name: 'Platform' })).toEqual({
+      kind: 'not-found',
     });
-    expect(await createTeam(teams, eli(), { name: 'Platform' })).toEqual({
-      kind: 'workspace-pending',
-    });
-    expect(await deleteTeam(teams, eli(), 'x')).toEqual({ kind: 'workspace-pending' });
-    expect(await addTeamMember(teams, eli(), 'x', 'p')).toEqual({ kind: 'workspace-pending' });
   });
 
   it('makes, renames and deletes a team, keeping names unique in any case', async () => {
@@ -159,7 +174,7 @@ describe('changing teams', () => {
     const made = await platform();
     expect(made).toMatchObject({ name: 'Platform', first: false, memberIds: [] });
     expect(await createTeam(teams, eli(), { name: ' platform ' })).toEqual({ kind: 'name-taken' });
-    expect(await renameTeam(teams, eli(), made.id, { name: '  Apps ' })).toEqual({
+    expect(await renameTeam(teams, membership, eli(), made.id, { name: '  Apps ' })).toEqual({
       kind: 'renamed',
       team: { ...made, name: 'Apps' },
     });
@@ -169,9 +184,8 @@ describe('changing teams', () => {
 
   it('never deletes the first team', async () => {
     await acme();
-    const listed = await listTeams(teams, dana());
-    const first = listed.kind === 'listed' ? listed.teams[0] : undefined;
-    expect(await deleteTeam(teams, dana(), first?.id ?? '')).toEqual({ kind: 'first-team' });
+    const first = await firstTeam();
+    expect(await deleteTeam(teams, dana(), first.id)).toEqual({ kind: 'first-team' });
   });
 
   it('never deletes a team that owns a factory', async () => {
@@ -182,58 +196,46 @@ describe('changing teams', () => {
     expect(await deleteTeam(teams, dana(), made.id)).toEqual({ kind: 'owns-factories' });
   });
 
-  it('judge a token older than the copy by the lesser of the two roles', async () => {
+  it("adds only the workspace's members, asked of accounts first, and takes people out", async () => {
     await acme();
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-gus', 'owner']]);
     const made = await platform();
-    const apply = (sequence: number, change: CopyChange) =>
-      workspaceCopies.applyAfter({ workspaceId: 'acme', sequence, after: sequence - 1, change });
-    // Since their tokens were minted: Eli was made a member, and Dana left the workspace.
-    await apply(5, { kind: 'put-member', personId: 'person-eli', role: 'member' });
-    await apply(6, { kind: 'drop-member', personId: 'person-dana' });
-
-    for (const stale of [eli(), dana()]) {
-      expect(await createTeam(teams, stale, { name: 'Apps' })).toEqual({ kind: 'not-allowed' });
-      expect(await renameTeam(teams, stale, made.id, { name: 'Apps' })).toEqual({
-        kind: 'not-allowed',
-      });
-      expect(await deleteTeam(teams, stale, made.id)).toEqual({ kind: 'not-allowed' });
-      expect(await addTeamMember(teams, stale, made.id, 'person-fay')).toEqual({
-        kind: 'not-allowed',
-      });
-      expect(await removeTeamMember(teams, stale, made.id, 'person-fay')).toEqual({
-        kind: 'not-allowed',
+    // Gus is a member of another workspace, and nobody's id is anybody's.
+    for (const personId of ['person-gus', 'person-nobody']) {
+      expect(await addTeamMember(teams, membership, eli(), made.id, personId)).toEqual({
+        kind: 'not-a-member',
       });
     }
-    // Eli sees what a member sees; Dana, in no team any more, sees none.
-    const seenByEli = await listTeams(teams, eli());
-    expect(seenByEli).toMatchObject({ kind: 'listed', canManage: false });
-    expect(seenByEli.kind === 'listed' && seenByEli.teams.map((team) => team.name)).toEqual([
-      FIRST_TEAM_NAME,
-    ]);
-    expect(await listTeams(teams, dana())).toEqual({ kind: 'listed', teams: [], canManage: false });
-
-    // A promotion counts once the copy has it too: Fay's new token alone is not enough.
-    const promoted = caller('person-fay', 'admin');
-    expect(await createTeam(teams, promoted, { name: 'Apps' })).toEqual({ kind: 'not-allowed' });
-    await apply(7, { kind: 'put-member', personId: 'person-fay', role: 'admin' });
-    expect(await createTeam(teams, promoted, { name: 'Apps' })).toMatchObject({ kind: 'created' });
-  });
-
-  it("adds only the workspace's members, and takes people out", async () => {
-    await acme();
-    const made = await platform();
-    expect(await addTeamMember(teams, eli(), made.id, 'person-gus')).toEqual({
+    // Membership is asked before the team is looked for.
+    expect(await addTeamMember(teams, membership, eli(), 'no-such-team', 'person-gus')).toEqual({
       kind: 'not-a-member',
     });
-    expect(await addTeamMember(teams, eli(), made.id, 'person-fay')).toEqual({
+    expect(await addTeamMember(teams, membership, eli(), 'no-such-team', 'person-fay')).toEqual({
+      kind: 'not-found',
+    });
+    expect(await addTeamMember(teams, membership, eli(), made.id, 'person-fay')).toEqual({
       kind: 'changed',
       team: { ...made, memberIds: ['person-fay'] },
     });
-    expect(await removeTeamMember(teams, eli(), made.id, 'person-fay')).toEqual({
+    expect(await removeTeamMember(teams, membership, eli(), made.id, 'person-fay')).toEqual({
       kind: 'changed',
       team: made,
     });
-    expect(await removeTeamMember(teams, eli(), 'no-such-team', 'person-fay')).toEqual({
+    expect(await removeTeamMember(teams, membership, eli(), 'no-such-team', 'person-fay')).toEqual({
+      kind: 'not-found',
+    });
+  });
+
+  it('finds no team of another workspace to change', async () => {
+    await acme();
+    const made = await platform();
+    await makeTestWorkspace(db, membership, 'sprocket', [['person-dana', 'owner']]);
+    const inSprocket = caller('person-dana', 'owner', 'sprocket');
+    expect(await renameTeam(teams, membership, inSprocket, made.id, { name: 'Mine' })).toEqual({
+      kind: 'not-found',
+    });
+    expect(await deleteTeam(teams, inSprocket, made.id)).toEqual({ kind: 'not-found' });
+    expect(await addTeamMember(teams, membership, inSprocket, made.id, 'person-dana')).toEqual({
       kind: 'not-found',
     });
   });

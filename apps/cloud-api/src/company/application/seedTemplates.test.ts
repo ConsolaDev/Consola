@@ -1,39 +1,34 @@
 import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import type { FactoryStore, TeamStore, WorkspaceCopies } from './ports.js';
+import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
+import type { FactoryStore, TeamStore } from './ports.js';
 import { seedCodeReviewTeam, seedDemoAgentRun } from './seedTemplates.js';
+import { fakeMembership } from './testMembership.js';
+import type { FakeMembership } from './testMembership.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let teams: TeamStore;
 let factories: FactoryStore;
-let workspaceCopies: WorkspaceCopies;
+let membership: FakeMembership;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  ({ teams, factories, workspaceCopies } = createDrizzleStores(db));
+  ({ db, close } = await openTestDatabase());
+  ({ teams, factories } = createDrizzleStores(db));
+  membership = fakeMembership();
 });
 afterEach(async () => {
   await close();
 });
 
-async function holdAcme() {
-  await workspaceCopies.applyAfter({
-    workspaceId: 'acme',
-    sequence: 1,
-    after: null,
-    change: { kind: 'open-workspace' },
-  });
-  await workspaceCopies.applyAfter({
-    workspaceId: 'acme',
-    sequence: 2,
-    after: 1,
-    change: { kind: 'put-member', personId: 'person-dana', role: 'owner' },
-  });
+/** Acme, with Dana its owner and Fay a member. */
+async function acme() {
+  await makeTestWorkspace(db, membership, 'acme', [
+    ['person-dana', 'owner'],
+    ['person-fay', 'member'],
+  ]);
 }
 
 const sorted = (files: ReadonlyArray<{ path: string; content: string }>) =>
@@ -41,8 +36,8 @@ const sorted = (files: ReadonlyArray<{ path: string; content: string }>) =>
 
 describe('seedCodeReviewTeam', () => {
   it('installs the code review team on the first team, and saves again only when its files differ', async () => {
-    await holdAcme();
-    const ports = { teams, factories };
+    await acme();
+    const ports = { teams, factories, membership };
 
     const made = await seedCodeReviewTeam(ports, 'acme');
     expect(made).toMatchObject({ kind: 'created', version: 2 });
@@ -55,6 +50,8 @@ describe('seedCodeReviewTeam', () => {
     });
     const version = await factories.version('acme', factory?.id ?? '', 2);
     expect(sorted(version?.files ?? [])).toEqual(sorted(CODE_REVIEW_TEAM_FILES));
+    // Saved by the workspace's first member, its owner.
+    expect(version?.savedBy).toBe('person-dana');
 
     expect(await seedCodeReviewTeam(ports, 'acme')).toMatchObject({
       kind: 'unchanged',
@@ -71,17 +68,36 @@ describe('seedCodeReviewTeam', () => {
     expect(await factories.list('acme')).toHaveLength(1);
   });
 
-  it('does nothing for a workspace the cell does not hold', async () => {
-    expect(await seedCodeReviewTeam({ teams, factories }, 'globex')).toBe('workspace-pending');
+  it('leaves alone a factory of its name that another team owns', async () => {
+    await acme();
+    const platform = await teams.create('acme', 'Platform');
+    if (platform === 'name-taken') throw new Error('Platform was taken');
+    const theirs = await factories.create('acme', {
+      name: 'Code review team',
+      teamId: platform.id,
+      personId: 'person-fay',
+    });
+    if (typeof theirs === 'string') throw new Error(theirs);
+    expect(await seedCodeReviewTeam({ teams, factories, membership }, 'acme')).toEqual({
+      kind: 'taken',
+      factoryId: theirs.id,
+    });
+    expect((await factories.get('acme', theirs.id))?.latestVersion).toBe(1);
+  });
+
+  it('refuses a workspace with no first team, which no workspace made whole is', async () => {
+    await expect(seedCodeReviewTeam({ teams, factories, membership }, 'globex')).rejects.toThrow(
+      /no first team/,
+    );
   });
 });
 
 describe('seedDemoAgentRun', () => {
   it('records a finished agent run in Runs, its session its conversation, once', async () => {
-    await holdAcme();
+    await acme();
     const stores = createDrizzleStores(db);
-    const team = await seedCodeReviewTeam({ teams, factories }, 'acme');
-    if (team === 'workspace-pending' || team.kind === 'taken') throw new Error('no team');
+    const team = await seedCodeReviewTeam({ teams, factories, membership }, 'acme');
+    if (team.kind === 'taken') throw new Error('no team');
     const factory = { id: team.factoryId, name: 'Code review team', version: team.version };
     const seed = () =>
       seedDemoAgentRun(

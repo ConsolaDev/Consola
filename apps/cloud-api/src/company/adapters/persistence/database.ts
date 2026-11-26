@@ -13,10 +13,14 @@ import { schema } from './schema.js';
 /** Either driver, through drizzle's one query builder and `.transaction`. */
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
+/** A transaction on either driver, as `Database.transaction` hands it to its callback. */
+export type Transaction = Parameters<Parameters<Database['transaction']>[0]>[0];
+
 export type OpenDatabase = { db: Database; close(): Promise<void> };
 
-// Resolves from both `src/adapters/persistence` and `dist/adapters/persistence`.
-const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../drizzle', import.meta.url));
+// The app's one chain. Resolves from both `src/company/adapters/persistence` and
+// `dist/company/adapters/persistence`.
+const MIGRATIONS_FOLDER = fileURLToPath(new URL('../../../../drizzle', import.meta.url));
 
 type Driver = 'pglite' | 'pg';
 

@@ -1,6 +1,6 @@
 import type { RunnerHello } from '@consola/runner-protocol';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createCloudSessionStore } from '../adapters/persistence/cloudSessions.js';
 import type { CloudSession, CloudSessionStatus } from '../domain/cloudSession.js';
@@ -13,8 +13,7 @@ let sessions: CloudSessionStore;
 let ports: RunnerUpdatePorts;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   sessions = createCloudSessionStore(db);
   ports = { sessions, clock: { nowSeconds: () => 2000 } };
 });

@@ -1,67 +1,68 @@
 import type { Caller } from '../domain/caller.js';
-import { actingRole, checkTeamName, mayManageTeams, teamsSeenBy } from '../domain/team.js';
+import { checkTeamName, mayManageTeams, teamsSeenBy, withCurrentMembers } from '../domain/team.js';
 import type { Team, TeamProblem } from '../domain/team.js';
-import type { TeamStore } from './ports.js';
+import type { MembershipReader, TeamStore } from './ports.js';
 
 /*
- * A workspace's teams, for the caller a cell token names. Every use case reads and writes the
- * caller's workspace alone (`caller.workspaceId`), and judges what the caller may do by the
- * lesser of the role their token carries and the role the cell's copy holds (`actingRole`): a
- * token lives minutes, so someone demoted or removed since it was minted acts as they are now.
+ * A workspace's teams, for the caller a request's session names. Every use case reads and writes
+ * the caller's workspace alone (`caller.workspaceId`), and judges what the caller may do by their
+ * role there (`caller.role`), read from accounts' `member` for this request: someone demoted or
+ * removed acts as they are now.
  *
- * A change answers in the order it checks: whether the token's role may do it (refused without
- * reading anything), whether what was sent reads, whether the cell holds the workspace yet,
- * whether the caller's role in the copy may do it too, and only then what the store finds.
+ * A change answers in the order it checks: whether the caller's role may do it (refused without
+ * reading anything), whether what was sent reads, and only then what the store finds. Every team
+ * an answer holds lists only people who are members of the workspace now (`shown`).
  */
-
-/** Whether the caller manages teams now, by their token's role and their role in the copy. */
-async function managesNow(teams: TeamStore, caller: Caller): Promise<boolean> {
-  const role = actingRole(caller.role, await teams.roleInCopy(caller.workspaceId, caller.personId));
-  return role !== null && mayManageTeams(role);
-}
-
-/** A refusal every change of a team can give. */
-type Refusal =
-  /** The caller's role, in their token or in the cell's copy, does not manage teams. */
-  | { kind: 'not-allowed' }
-  /**
-   * The cell does not hold the workspace yet: `cloud-global` has not delivered its
-   * `workspace.created`, so it has no first team either. It will, so asking again later helps.
-   */
-  | { kind: 'workspace-pending' };
-
-const NOT_ALLOWED = { kind: 'not-allowed' } as const;
-const WORKSPACE_PENDING = { kind: 'workspace-pending' } as const;
-
-export type TeamsList =
-  | {
-      kind: 'listed';
-      /** The teams the caller sees (`teamsSeenBy`). */
-      teams: Team[];
-      /** Whether the caller may make, rename and delete teams, and choose their members. */
-      canManage: boolean;
-    }
-  | { kind: 'workspace-pending' };
 
 /**
- * The teams the caller sees: every team for those who manage them, else the caller's own. A
- * caller the copy holds no member of is in no team, so sees none.
+ * The teams as an answer shows them: with the places of the workspace's members now alone
+ * (`withCurrentMembers`), so someone who left the workspace is never listed in one of its teams.
  */
-export async function listTeams(teams: TeamStore, caller: Caller): Promise<TeamsList> {
-  const { workspaceId, personId } = caller;
-  if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
-  const role = actingRole(caller.role, await teams.roleInCopy(workspaceId, personId));
-  const viewer = { personId, role: role ?? 'member' };
+async function shown(
+  membership: MembershipReader,
+  workspaceId: string,
+  teams: readonly Team[],
+): Promise<Team[]> {
+  const members = new Set(await membership.memberIds(workspaceId));
+  return teams.map((team) => withCurrentMembers(team, members));
+}
+
+/** One team, as `shown` shows it. */
+async function shownTeam(membership: MembershipReader, workspaceId: string, team: Team) {
+  const [only] = await shown(membership, workspaceId, [team]);
+  return only ?? team;
+}
+
+/** The caller's role does not manage teams. */
+type NotAllowed = { kind: 'not-allowed' };
+const NOT_ALLOWED: NotAllowed = { kind: 'not-allowed' };
+
+export type TeamsList = {
+  kind: 'listed';
+  /** The teams the caller sees (`teamsSeenBy`). */
+  teams: Team[];
+  /** Whether the caller may make, rename and delete teams, and choose their members. */
+  canManage: boolean;
+};
+
+/** The teams the caller sees: every team for those who manage them, else the caller's own. */
+export async function listTeams(
+  teams: TeamStore,
+  membership: MembershipReader,
+  caller: Caller,
+): Promise<TeamsList> {
+  const { workspaceId } = caller;
+  const seen = teamsSeenBy(caller, await teams.list(workspaceId));
   return {
     kind: 'listed',
-    teams: teamsSeenBy(viewer, await teams.list(workspaceId)),
-    canManage: role !== null && mayManageTeams(role),
+    teams: await shown(membership, workspaceId, seen),
+    canManage: mayManageTeams(caller.role),
   };
 }
 
 export type TeamCreation =
   | { kind: 'created'; team: Team }
-  | Refusal
+  | NotAllowed
   | { kind: 'invalid'; problems: TeamProblem[] }
   | { kind: 'name-taken' };
 
@@ -74,8 +75,6 @@ export async function createTeam(
   if (!mayManageTeams(caller.role)) return NOT_ALLOWED;
   const name = checkTeamName(input.name);
   if (!name.ok) return { kind: 'invalid', problems: name.problems };
-  if (!(await teams.holdsWorkspace(caller.workspaceId))) return WORKSPACE_PENDING;
-  if (!(await managesNow(teams, caller))) return NOT_ALLOWED;
 
   const team = await teams.create(caller.workspaceId, name.name);
   return team === 'name-taken' ? { kind: 'name-taken' } : { kind: 'created', team };
@@ -83,7 +82,7 @@ export async function createTeam(
 
 export type TeamRename =
   | { kind: 'renamed'; team: Team }
-  | Refusal
+  | NotAllowed
   | { kind: 'invalid'; problems: TeamProblem[] }
   | { kind: 'not-found' }
   | { kind: 'name-taken' };
@@ -91,6 +90,7 @@ export type TeamRename =
 /** Gives a team of the caller's workspace a new name. The first team can be renamed too. */
 export async function renameTeam(
   teams: TeamStore,
+  membership: MembershipReader,
   caller: Caller,
   teamId: string,
   input: { name: string },
@@ -98,17 +98,15 @@ export async function renameTeam(
   if (!mayManageTeams(caller.role)) return NOT_ALLOWED;
   const name = checkTeamName(input.name);
   if (!name.ok) return { kind: 'invalid', problems: name.problems };
-  if (!(await teams.holdsWorkspace(caller.workspaceId))) return WORKSPACE_PENDING;
-  if (!(await managesNow(teams, caller))) return NOT_ALLOWED;
 
   const team = await teams.rename(caller.workspaceId, teamId, name.name);
   if (team === 'not-found' || team === 'name-taken') return { kind: team };
-  return { kind: 'renamed', team };
+  return { kind: 'renamed', team: await shownTeam(membership, caller.workspaceId, team) };
 }
 
 export type TeamDeletion =
   | { kind: 'deleted' }
-  | Refusal
+  | NotAllowed
   | { kind: 'not-found' }
   /** The workspace's first team, which is never deleted. */
   | { kind: 'first-team' }
@@ -122,8 +120,6 @@ export async function deleteTeam(
   teamId: string,
 ): Promise<TeamDeletion> {
   if (!mayManageTeams(caller.role)) return NOT_ALLOWED;
-  if (!(await teams.holdsWorkspace(caller.workspaceId))) return WORKSPACE_PENDING;
-  if (!(await managesNow(teams, caller))) return NOT_ALLOWED;
 
   const answer = await teams.remove(caller.workspaceId, teamId);
   return answer === 'removed' ? { kind: 'deleted' } : { kind: answer };
@@ -131,41 +127,45 @@ export async function deleteTeam(
 
 export type TeamMembership =
   | { kind: 'changed'; team: Team }
-  | Refusal
+  | NotAllowed
   | { kind: 'not-found' }
-  /** The person is not a member of the workspace, as far as the cell's copy knows. */
+  /** The person is not a member of the workspace, as accounts' `member` holds it now. */
   | { kind: 'not-a-member' };
 
 /**
  * Makes a member of the caller's workspace a member of one of its teams. Only the workspace's
- * members can be, by their global id; one already in the team stays as they are.
+ * members can be, by their id: whether the person is one is asked of accounts' `member`
+ * (`membership`) before the place is written, since no foreign key reaches it. One already in the
+ * team stays as they are.
  */
 export async function addTeamMember(
   teams: TeamStore,
+  membership: MembershipReader,
   caller: Caller,
   teamId: string,
   personId: string,
 ): Promise<TeamMembership> {
   if (!mayManageTeams(caller.role)) return NOT_ALLOWED;
-  if (!(await teams.holdsWorkspace(caller.workspaceId))) return WORKSPACE_PENDING;
-  if (!(await managesNow(teams, caller))) return NOT_ALLOWED;
+  if ((await membership.roleOf(personId, caller.workspaceId)) === null) {
+    return { kind: 'not-a-member' };
+  }
 
   const team = await teams.addMember(caller.workspaceId, teamId, personId);
-  if (team === 'not-found' || team === 'not-a-member') return { kind: team };
-  return { kind: 'changed', team };
+  if (team === 'not-found') return { kind: team };
+  return { kind: 'changed', team: await shownTeam(membership, caller.workspaceId, team) };
 }
 
 /** Takes a person out of a team of the caller's workspace. Someone not in it changes nothing. */
 export async function removeTeamMember(
   teams: TeamStore,
+  membership: MembershipReader,
   caller: Caller,
   teamId: string,
   personId: string,
 ): Promise<Exclude<TeamMembership, { kind: 'not-a-member' }>> {
   if (!mayManageTeams(caller.role)) return NOT_ALLOWED;
-  if (!(await teams.holdsWorkspace(caller.workspaceId))) return WORKSPACE_PENDING;
-  if (!(await managesNow(teams, caller))) return NOT_ALLOWED;
 
   const team = await teams.removeMember(caller.workspaceId, teamId, personId);
-  return team === 'not-found' ? { kind: 'not-found' } : { kind: 'changed', team };
+  if (team === 'not-found') return { kind: 'not-found' };
+  return { kind: 'changed', team: await shownTeam(membership, caller.workspaceId, team) };
 }

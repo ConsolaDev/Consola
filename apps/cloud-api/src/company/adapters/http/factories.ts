@@ -11,7 +11,8 @@ import {
 } from '../../application/factories.js';
 import type { FactoryStore, TeamStore } from '../../application/ports.js';
 import { FACTORY_BYTES_MAX } from '../../domain/factory.js';
-import type { CellEnv } from './caller.js';
+import { behindCaller } from './caller.js';
+import type { CallerCheck } from './caller.js';
 import {
   getFactory,
   getFactoryVersion,
@@ -22,7 +23,6 @@ import {
   postFactoryVersion,
 } from './contract.js';
 
-const WORKSPACE_PENDING = { error: 'workspace_pending' } as const;
 const FACTORY_NOT_FOUND = { error: 'factory_not_found' } as const;
 
 /**
@@ -33,22 +33,22 @@ const FACTORY_NOT_FOUND = { error: 'factory_not_found' } as const;
 export const SAVE_BODY_MAX = 2 * FACTORY_BYTES_MAX;
 
 /**
- * The factories routes, on `app` behind its token check: each hands its use case the caller the
- * token names, and takes no workspace from the request. A factory id in the path is looked up in
- * the caller's workspace alone, and a factory the caller does not see is `factory_not_found`.
+ * The factories routes, on `app`, each behind the caller check: each hands its use case the
+ * caller the session names, and takes no workspace from the request. A factory id in the path is
+ * looked up in the caller's workspace alone, and a factory the caller does not see is
+ * `factory_not_found`.
  */
 export function factoryRoutes(
-  app: OpenAPIHono<CellEnv>,
-  teams: TeamStore,
-  factories: FactoryStore,
+  app: OpenAPIHono,
+  deps: { caller: CallerCheck; teams: TeamStore; factories: FactoryStore },
 ): void {
-  app.openapi(listFactories, async (c) => {
+  const { caller, teams, factories } = deps;
+  app.openapi(behindCaller(caller, listFactories), async (c) => {
     const answer = await listFactoriesUseCase(teams, factories, c.var.caller);
-    if (answer.kind === 'workspace-pending') return c.json(WORKSPACE_PENDING, 409);
     return c.json({ factories: answer.factories }, 200);
   });
 
-  app.openapi(postFactory, async (c) => {
+  app.openapi(behindCaller(caller, postFactory), async (c) => {
     const answer = await createFactory(teams, factories, c.var.caller, c.req.valid('json'));
     switch (answer.kind) {
       case 'created':
@@ -57,14 +57,12 @@ export function factoryRoutes(
         return c.json({ error: 'invalid_factory', problems: answer.problems } as const, 400);
       case 'team-not-found':
         return c.json({ error: 'team_not_found' } as const, 404);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
       case 'name-taken':
         return c.json({ error: 'name_taken' } as const, 409);
     }
   });
 
-  app.openapi(getFactory, async (c) => {
+  app.openapi(behindCaller(caller, getFactory), async (c) => {
     const answer = await readFactory(
       teams,
       factories,
@@ -76,12 +74,10 @@ export function factoryRoutes(
         return c.json({ factory: answer.factory, version: answer.version }, 200);
       case 'not-found':
         return c.json(FACTORY_NOT_FOUND, 404);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
     }
   });
 
-  app.openapi(patchFactory, async (c) => {
+  app.openapi(behindCaller(caller, patchFactory), async (c) => {
     const answer = await changeFactory(
       teams,
       factories,
@@ -98,14 +94,12 @@ export function factoryRoutes(
         return c.json(FACTORY_NOT_FOUND, 404);
       case 'team-not-found':
         return c.json({ error: 'team_not_found' } as const, 404);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
       case 'name-taken':
         return c.json({ error: 'name_taken' } as const, 409);
     }
   });
 
-  app.openapi(getFactoryVersion, async (c) => {
+  app.openapi(behindCaller(caller, getFactoryVersion), async (c) => {
     const { factoryId, version } = c.req.valid('param');
     const answer = await readFactoryVersion(
       teams,
@@ -121,21 +115,19 @@ export function factoryRoutes(
         return c.json(FACTORY_NOT_FOUND, 404);
       case 'version-not-found':
         return c.json({ error: 'version_not_found' } as const, 404);
-      case 'workspace-pending':
-        return c.json(WORKSPACE_PENDING, 409);
     }
   });
 
+  // The caller is checked before the body is limited, and the body before it is read.
   app.openapi(
-    {
-      ...postFactoryVersion,
-      middleware: [
-        bodyLimit({
-          maxSize: SAVE_BODY_MAX,
-          onError: (c) => c.json({ error: 'too_large' } as const, 413),
-        }),
-      ],
-    },
+    behindCaller(
+      caller,
+      postFactoryVersion,
+      bodyLimit({
+        maxSize: SAVE_BODY_MAX,
+        onError: (c) => c.json({ error: 'too_large' } as const, 413),
+      }),
+    ),
     async (c) => {
       const answer = await saveFactoryFiles(
         teams,
@@ -156,13 +148,11 @@ export function factoryRoutes(
             { error: 'version_moved', latestVersion: answer.latestVersion } as const,
             409,
           );
-        case 'workspace-pending':
-          return c.json(WORKSPACE_PENDING, 409);
       }
     },
   );
 
-  app.openapi(listFactoryTemplates, (c) =>
+  app.openapi(behindCaller(caller, listFactoryTemplates), (c) =>
     c.json(
       factoryTemplates().map(({ id, name, description, files }) => ({
         id,

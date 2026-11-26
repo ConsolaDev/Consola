@@ -56,7 +56,7 @@ export type RunnerSocketSettings = {
 export type RunnerSocket = {
   /** The `RunnerChannel` the use cases reach the runner through. */
   channel: RunnerChannel;
-  /** `GET RUNNER_SOCKET_PATH`, for `createApp` to mount before `requireCaller`. */
+  /** `GET RUNNER_SOCKET_PATH`, for the composition to mount on the app, behind the front door. */
   routes: Hono;
   /** Hands the server's upgrades to the socket. Every upgrade goes to `routes`, and only it. */
   injectWebSocket: NodeWebSocket['injectWebSocket'];

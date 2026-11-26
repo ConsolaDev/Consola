@@ -1,4 +1,3 @@
-import type { WorkspaceRole } from '../../shared/workspaceRole.js';
 import type { Caller } from '../domain/caller.js';
 import type { Automation } from '@consola/factory-spec';
 import { automationsOf, factoriesSeenBy } from '../domain/factory.js';
@@ -17,7 +16,7 @@ import { approvalOf, DECISION_OF, judgeAnswer } from '../domain/runApproval.js';
 import type { ApprovalChoice, ApprovalRun, RunApproval } from '../domain/runApproval.js';
 import { sourceOf } from '../domain/runSource.js';
 import type { RunSource } from '../domain/runSource.js';
-import { actingRole, teamsSeenBy } from '../domain/team.js';
+import { teamsSeenBy } from '../domain/team.js';
 import type { Team } from '../domain/team.js';
 import type {
   FactoryStore,
@@ -29,36 +28,27 @@ import type {
 } from './ports.js';
 
 /*
- * A workspace's runs, for the caller a cell token names. Every use case reads the caller's
- * workspace alone (`caller.workspaceId`), and a caller sees the runs of the factories they see
- * (`factoriesSeenBy`, by the role they act with, `actingRole`), as factories' use cases judge
- * it: owners and admins every run, a member the runs of their teams' factories. A run the caller
- * does not see is never listed, counted or offered as a facet, and its id is not found.
+ * A workspace's runs, for the caller a request's session names. Every use case reads the
+ * caller's workspace alone (`caller.workspaceId`), and a caller sees the runs of the factories
+ * they see (`factoriesSeenBy`, by their role there, `caller.role`, read for this request), as
+ * factories' use cases judge it: owners and admins every run, a member the runs of their teams'
+ * factories. A run the caller does not see is never listed, counted or offered as a facet, and
+ * its id is not found.
  *
- * The order of the checks: what was sent (the cursor), whether the cell holds the workspace yet,
- * then what the caller sees, then what the store finds.
+ * The order of the checks: what was sent (the cursor), then what the caller sees, then what the
+ * store finds.
  */
 
-type Pending = { kind: 'workspace-pending' };
-const WORKSPACE_PENDING = { kind: 'workspace-pending' } as const;
-
-/** What the caller sees now: the teams and factories, or none when the copy does not hold them. */
+/** What the caller sees now: the teams and factories. */
 async function seenBy(
   teams: TeamStore,
   factories: FactoryStore,
   caller: Caller,
 ): Promise<{ teams: Team[]; factories: Factory[] }> {
-  const { workspaceId, personId } = caller;
-  const role: WorkspaceRole | null = actingRole(
-    caller.role,
-    await teams.roleInCopy(workspaceId, personId),
-  );
-  if (role === null) return { teams: [], factories: [] };
-  const viewer = { personId, role };
-  const all = await teams.list(workspaceId);
+  const all = await teams.list(caller.workspaceId);
   return {
-    teams: teamsSeenBy(viewer, all),
-    factories: factoriesSeenBy(viewer, all, await factories.list(workspaceId)),
+    teams: teamsSeenBy(caller, all),
+    factories: factoriesSeenBy(caller, all, await factories.list(caller.workspaceId)),
   };
 }
 
@@ -94,7 +84,6 @@ export type RunsListing =
       counts: PhaseCounts;
       facets: RunFacets;
     }
-  | Pending
   /** The cursor is not one the list handed out. */
   | { kind: 'invalid-cursor' };
 
@@ -113,7 +102,6 @@ export async function listRuns(
   const after = query.cursor === null ? null : decodeCursor(query.cursor);
   if (query.cursor !== null && after === null) return { kind: 'invalid-cursor' };
   const { workspaceId } = caller;
-  if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
 
   const seen = await seenBy(teams, factories, caller);
   const facets: RunFacets = {
@@ -168,7 +156,6 @@ export type RunRead =
         source: RunSource | null;
         approval: RunApproval | null;
       })
-  | Pending
   | { kind: 'not-found' };
 
 /** A run the caller sees, with its factory as they see it now, or why there is none for them. */
@@ -252,7 +239,6 @@ export async function readRun(
   runId: string,
 ): Promise<RunRead> {
   const { workspaceId } = caller;
-  if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
   const seen = await seenRun(teams, factories, runs, caller, runId);
   if (!seen) return { kind: 'not-found' };
   const { found } = seen;
@@ -279,7 +265,6 @@ export async function readRun(
 
 export type ApprovalAnswering =
   | { kind: 'answered'; approval: RunApproval }
-  | Pending
   | { kind: 'not-found' }
   /** The caller sees the run, but is not on its factory's owning team. */
   | { kind: 'not-allowed' }
@@ -295,9 +280,9 @@ export type ApprovalAnswering =
  * Anyone on the run's factory's owning team may answer (`mayAnswer`), and the first answer for a
  * version stands. The cell records it and does not change the run: its runner acts on it.
  *
- * In the order it checks: whether the cell holds the workspace, whether the caller sees the run
- * (`not-found`, so a member of another team learns nothing), whether they are on its team, then
- * `judgeAnswer`'s waiting and version, then the store's first answer.
+ * In the order it checks: whether the caller sees the run (`not-found`, so a member of another
+ * team learns nothing), whether they are on its team, then `judgeAnswer`'s waiting and version,
+ * then the store's first answer.
  */
 export async function answerRunApproval(
   teams: TeamStore,
@@ -308,7 +293,6 @@ export async function answerRunApproval(
   input: { decision: ApprovalChoice; version: number },
 ): Promise<ApprovalAnswering> {
   const { workspaceId, personId } = caller;
-  if (!(await teams.holdsWorkspace(workspaceId))) return WORKSPACE_PENDING;
   const seen = await seenRun(teams, factories, runs, caller, runId);
   if (!seen) return { kind: 'not-found' };
   const judged = judgeAnswer(approvalRunOf(seen.found.run), seen.team, personId, input.version);

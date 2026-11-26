@@ -1,10 +1,11 @@
 import { PASS_AUDIENCE, PASS_MAX_LIFETIME_SECONDS } from '@consola/runner-protocol';
 import type { PassClaims, SessionUpdate } from '@consola/runner-protocol';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
+import { openTestDatabase } from '../adapters/persistence/testDatabase.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { createCloudSessionStore } from '../adapters/persistence/cloudSessions.js';
 import type { Caller } from '../domain/caller.js';
+import { callerAs } from './testMembership.js';
 import {
   applyRunnerUpdate,
   getSession,
@@ -27,15 +28,14 @@ let db: Database;
 let close: () => Promise<void>;
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
 });
 afterEach(async () => {
   await close();
 });
 
 const caller = (personId = 'person-1', workspaceId = 'acme'): Caller =>
-  ({ personId, workspaceId, role: 'member', region: 'eu' }) as Caller;
+  callerAs(personId, 'member', workspaceId);
 
 const offer: Offer = {
   runnerId: 'runner-1',

@@ -1,36 +1,32 @@
-import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TeamStore } from '../../application/ports.js';
 import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import type { Team } from '../../domain/team.js';
-import { migrateDatabase, openDatabase } from './database.js';
 import type { Database } from './database.js';
-import { createTeamStore } from './teams.js';
-import { createWorkspaceCopies } from './workspaceCopies.js';
+import { createTeamStore, openWorkspace } from './teams.js';
+import { nextMillisecond, openTestDatabase } from './testDatabase.js';
 
 let db: Database;
 let close: () => Promise<void>;
 let teams: TeamStore;
 
-/** Opens `workspaceId` in the copy, with `members`, the way the outbox does. */
-async function workspace(workspaceId: string, members: Array<[string, WorkspaceRole]> = []) {
-  const copies = createWorkspaceCopies(db);
-  await copies.applyAfter({
-    workspaceId,
-    sequence: 1,
-    after: null,
-    change: { kind: 'open-workspace' },
-  });
-  let sequence = 1;
-  for (const [personId, role] of members) {
-    sequence += 1;
-    await copies.applyAfter({
-      workspaceId,
-      sequence,
-      after: sequence - 1,
-      change: { kind: 'put-member', personId, role },
-    });
+/**
+ * Opens `workspaceId` as making it does, with `ownerId` in its first team, then puts `others` in
+ * that team too, as each joins.
+ */
+async function workspace(workspaceId: string, ownerId = 'person-dana', others: string[] = []) {
+  await db.transaction((tx) => openWorkspace(tx, { workspaceId, ownerId }));
+  const first = await firstTeamOf(workspaceId);
+  for (const personId of others) {
+    await nextMillisecond();
+    await teams.addMember(workspaceId, first.id, personId);
   }
+}
+
+async function firstTeamOf(workspaceId: string): Promise<Team> {
+  const first = (await teams.list(workspaceId)).find((team) => team.first);
+  if (!first) throw new Error(`${workspaceId} has no first team`);
+  return first;
 }
 
 /** A team the test made, or a failure that names why not. */
@@ -41,8 +37,7 @@ async function made(workspaceId: string, name: string): Promise<Team> {
 }
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
+  ({ db, close } = await openTestDatabase());
   teams = createTeamStore(db);
 });
 
@@ -50,13 +45,62 @@ afterEach(async () => {
   await close();
 });
 
-describe('the team store', () => {
-  it('holds a workspace once its copy is opened, and not before', async () => {
-    expect(await teams.holdsWorkspace('acme')).toBe(false);
-    await workspace('acme');
-    expect(await teams.holdsWorkspace('acme')).toBe(true);
+describe('opening a workspace', () => {
+  it('makes its first team, with its owner in it, and nothing for another workspace', async () => {
+    expect(await teams.list('acme')).toEqual([]);
+    await db.transaction((tx) =>
+      openWorkspace(tx, { workspaceId: 'acme', ownerId: 'person-dana' }),
+    );
+    expect(await teams.list('acme')).toEqual([
+      { id: expect.any(String), name: FIRST_TEAM_NAME, first: true, memberIds: ['person-dana'] },
+    ]);
+    expect(await teams.list('sprocket')).toEqual([]);
   });
 
+  it('changes nothing when it is opened again, even after its first team changed', async () => {
+    await workspace('acme', 'person-dana', ['person-eli']);
+    const first = await firstTeamOf('acme');
+    await teams.rename('acme', first.id, 'Everyone');
+    await teams.removeMember('acme', first.id, 'person-dana');
+    const before = await teams.list('acme');
+
+    await db.transaction((tx) =>
+      openWorkspace(tx, { workspaceId: 'acme', ownerId: 'person-dana' }),
+    );
+    await db.transaction((tx) => openWorkspace(tx, { workspaceId: 'acme', ownerId: 'person-fay' }));
+    expect(await teams.list('acme')).toEqual(before);
+    expect(before).toEqual([
+      { id: first.id, name: 'Everyone', first: true, memberIds: ['person-eli'] },
+    ]);
+  });
+
+  it('opened twice in a row makes one first team', async () => {
+    await db.transaction(async (tx) => {
+      await openWorkspace(tx, { workspaceId: 'acme', ownerId: 'person-dana' });
+      await openWorkspace(tx, { workspaceId: 'acme', ownerId: 'person-dana' });
+    });
+    expect(await teams.list('acme')).toEqual([
+      { id: expect.any(String), name: FIRST_TEAM_NAME, first: true, memberIds: ['person-dana'] },
+    ]);
+  });
+
+  it('leaves nothing when the transaction that makes the workspace fails', async () => {
+    const failed = new Error('making the workspace failed after it was opened');
+    await expect(
+      db.transaction(async (tx) => {
+        await openWorkspace(tx, { workspaceId: 'acme', ownerId: 'person-dana' });
+        throw failed;
+      }),
+    ).rejects.toBe(failed);
+    expect(await teams.list('acme')).toEqual([]);
+
+    // Nothing is half there: opening it again makes it whole.
+    await workspace('acme');
+    expect(await teams.list('acme')).toMatchObject([{ first: true, memberIds: ['person-dana'] }]);
+  });
+});
+
+describe('the team store', () => {
   it('lists the first team first, then the others by name whatever its case', async () => {
     await workspace('acme');
     const design = await made('acme', 'design');
@@ -95,10 +139,10 @@ describe('the team store', () => {
   });
 
   it('renames a team, the first one included, keeping its members', async () => {
-    await workspace('acme', [['person-dana', 'owner']]);
-    const [general] = await teams.list('acme');
-    expect(await teams.rename('acme', general?.id ?? '', 'Everyone')).toEqual({
-      id: general?.id,
+    await workspace('acme');
+    const general = await firstTeamOf('acme');
+    expect(await teams.rename('acme', general.id, 'Everyone')).toEqual({
+      id: general.id,
       name: 'Everyone',
       first: true,
       memberIds: ['person-dana'],
@@ -114,43 +158,40 @@ describe('the team store', () => {
   });
 
   it("finds no team of another workspace, or one that isn't there", async () => {
-    await workspace('acme', [['person-dana', 'owner']]);
-    await workspace('sprocket', [['person-dana', 'owner']]);
+    await workspace('acme');
+    await workspace('sprocket');
     const platform = await made('acme', 'Platform');
     expect(await teams.rename('sprocket', platform.id, 'Mine')).toBe('not-found');
     expect(await teams.remove('sprocket', platform.id)).toBe('not-found');
     expect(await teams.addMember('sprocket', platform.id, 'person-dana')).toBe('not-found');
     expect(await teams.removeMember('sprocket', platform.id, 'person-dana')).toBe('not-found');
     expect(await teams.rename('acme', 'no-such-team', 'Mine')).toBe('not-found');
+    expect(await teams.addMember('acme', 'no-such-team', 'person-dana')).toBe('not-found');
     expect((await teams.list('acme')).map((team) => team.name)).toEqual([
       FIRST_TEAM_NAME,
       'Platform',
     ]);
+    expect((await teams.list('acme'))[1]?.memberIds).toEqual([]);
   });
 
   it('deletes a team and every place in it, but never the first team', async () => {
-    await workspace('acme', [['person-dana', 'owner']]);
+    await workspace('acme');
     const platform = await made('acme', 'Platform');
     await teams.addMember('acme', platform.id, 'person-dana');
-    const [general] = await teams.list('acme');
+    const general = await firstTeamOf('acme');
 
-    expect(await teams.remove('acme', general?.id ?? '')).toBe('first-team');
+    expect(await teams.remove('acme', general.id)).toBe('first-team');
     expect(await teams.remove('acme', platform.id)).toBe('removed');
     expect(await teams.remove('acme', platform.id)).toBe('not-found');
     expect(await teams.list('acme')).toEqual([general]);
   });
 
-  it('adds only members of the workspace, each once, in the order they joined the team', async () => {
-    await workspace('acme', [
-      ['person-dana', 'owner'],
-      ['person-eli', 'member'],
-    ]);
-    await workspace('sprocket', [['person-fay', 'owner']]);
+  it('adds a person to a team once, in the order they joined it', async () => {
+    await workspace('acme');
     const platform = await made('acme', 'Platform');
 
-    expect(await teams.addMember('acme', platform.id, 'person-fay')).toBe('not-a-member');
-    expect(await teams.addMember('acme', platform.id, 'person-nobody')).toBe('not-a-member');
     await teams.addMember('acme', platform.id, 'person-eli');
+    await nextMillisecond();
     expect(await teams.addMember('acme', platform.id, 'person-dana')).toEqual({
       ...platform,
       memberIds: ['person-eli', 'person-dana'],
@@ -162,15 +203,12 @@ describe('the team store', () => {
   });
 
   it('takes a person out of a team, and changes nothing for someone not in it', async () => {
-    await workspace('acme', [
-      ['person-dana', 'owner'],
-      ['person-eli', 'member'],
-    ]);
-    const [general] = await teams.list('acme');
-    expect(await teams.removeMember('acme', general?.id ?? '', 'person-dana')).toMatchObject({
+    await workspace('acme', 'person-dana', ['person-eli']);
+    const general = await firstTeamOf('acme');
+    expect(await teams.removeMember('acme', general.id, 'person-dana')).toMatchObject({
       memberIds: ['person-eli'],
     });
-    expect(await teams.removeMember('acme', general?.id ?? '', 'person-dana')).toMatchObject({
+    expect(await teams.removeMember('acme', general.id, 'person-dana')).toMatchObject({
       memberIds: ['person-eli'],
     });
   });

@@ -1,5 +1,7 @@
 import { z } from '@hono/zod-openapi';
+import type { RouteConfig } from '@hono/zod-openapi';
 import type { MiddlewareHandler } from 'hono';
+import { every } from 'hono/combine';
 import { createMiddleware } from 'hono/factory';
 import type { MembershipReader } from '../../application/ports.js';
 import { admitCaller } from '../../domain/caller.js';
@@ -16,9 +18,6 @@ export const WORKSPACE_HEADER = 'x-consola-workspace';
  * request's session and the person's membership, and nothing else about who is asking.
  */
 export type CompanyEnv = { Variables: { caller: Caller } };
-
-/** The cell's name for `CompanyEnv`, kept until every route file says `CompanyEnv`. */
-export type CellEnv = CompanyEnv;
 
 /** Who a request's session says is asking (accounts' `currentSession`), or null for none. */
 export type WhoIsAsking = (headers: Headers) => Promise<SignedInPerson | null>;
@@ -54,6 +53,25 @@ export function requireCaller(deps: {
     c.set('caller', admission.caller);
     await next();
   });
+}
+
+/** `requireCaller`, built once for every company route. */
+export type CallerCheck = MiddlewareHandler<CompanyEnv>;
+
+/**
+ * `route` behind the caller check, as the route's own middleware: the check runs first, then any
+ * middleware `then` names (a body limit, say), then the request's validation and the handler,
+ * which gets `c.var.caller`. A route is put behind it this way, never with `app.use`, so a path no
+ * route serves is the app's 404, whoever asks.
+ */
+export function behindCaller<R extends RouteConfig>(
+  check: CallerCheck,
+  route: R,
+  ...then: MiddlewareHandler[]
+) {
+  // One middleware, typed with the caller: a list of several loses the type of `c.var`.
+  const middleware: [CallerCheck] = [then.length === 0 ? check : every(check, ...then)];
+  return { ...route, middleware };
 }
 
 const failure = <const Code extends string>(code: Code) =>
