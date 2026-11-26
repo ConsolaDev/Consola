@@ -1,4 +1,5 @@
 import type { Person, SignedIn } from '../domain/person.js';
+import type { Region } from '../domain/region.js';
 import {
   CREATOR_ROLE,
   checkNewWorkspace,
@@ -11,12 +12,15 @@ import type { MembershipStore, SessionStore, WorkspaceStore } from './ports.js';
 
 /**
  * Makes a workspace for the person signed in: `checkNewWorkspace` first, then the store, which
- * refuses a slug any region has. The creator is its owner, and their session opens it.
+ * refuses a slug any workspace has. It is made in `region`, the deployment's, never one the
+ * request names. The creator is its owner, and their session opens it. A store that fails, part
+ * of the way or at all, rejects, and the session is left as it was.
  */
 export async function createWorkspace(
   stores: { workspaces: WorkspaceStore; sessions: SessionStore },
   session: SignedIn,
-  request: { name?: unknown; slug?: unknown; region?: unknown },
+  request: { name?: unknown; slug?: unknown },
+  region: Region,
 ): Promise<
   | { kind: 'created'; workspace: MyWorkspace }
   | { kind: 'invalid'; problems: WorkspaceProblem[] }
@@ -25,7 +29,7 @@ export async function createWorkspace(
   const checked = checkNewWorkspace(request);
   if (!checked.ok) return { kind: 'invalid', problems: checked.problems };
 
-  const made = await stores.workspaces.create(checked.workspace, {
+  const made = await stores.workspaces.create({ ...checked.workspace, region }, {
     userId: session.person.id,
     role: CREATOR_ROLE,
   });

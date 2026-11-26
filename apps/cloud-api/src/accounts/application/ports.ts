@@ -1,4 +1,5 @@
 import type { WorkspaceRole } from '../../shared/workspaceRole.js';
+import type { Region } from '../domain/region.js';
 import type { MyWorkspace, NewWorkspace, Workspace, WorkspaceMember } from '../domain/workspace.js';
 import type { WorkspaceIcon } from '../domain/workspaceIcon.js';
 
@@ -6,12 +7,13 @@ import type { WorkspaceIcon } from '../domain/workspaceIcon.js';
 
 export type WorkspaceStore = {
   /**
-   * Makes the workspace and its first member, together with whatever the rest of the app opens
-   * for a new workspace, or none of them. A slug that any workspace has is `slug-taken`, and
-   * then nothing is written. A failure part-way writes nothing either, and rejects.
+   * Makes the workspace in `region` and its first member, together with whatever the rest of the
+   * app opens for a new workspace, or none of them. A slug that any workspace has is
+   * `slug-taken`, and then nothing is written. A failure part-way writes nothing either, and
+   * rejects.
    */
   create(
-    workspace: NewWorkspace,
+    workspace: NewWorkspace & { region: Region },
     firstMember: { userId: string; role: WorkspaceRole },
   ): Promise<{ kind: 'created'; workspace: Workspace } | { kind: 'slug-taken' }>;
   /** Sets the workspace's icon, or clears it (null), and nothing else on the row. */

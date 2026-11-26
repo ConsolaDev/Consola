@@ -17,6 +17,7 @@ import {
   setWorkspaceIcon,
 } from '../../application/workspaces.js';
 import type { SignedIn } from '../../domain/person.js';
+import type { Region } from '../../domain/region.js';
 import { checkNewWorkspace, mayManageWorkspace } from '../../domain/workspace.js';
 import type { MyWorkspace } from '../../domain/workspace.js';
 import {
@@ -73,9 +74,12 @@ export function createApp(deps: {
   memberships: MembershipStore;
   sessions: SessionStore;
   health: HealthProbe;
+  /** The deployment's region, which every new workspace is made in. */
+  region: Region;
 }): OpenAPIHono {
   const { handleAuth, currentSession, webOrigin, workspaces, memberships, sessions, health } =
     deps;
+  const { region } = deps;
   // A body of the wrong shape is 400 `invalid_request` unless its route says otherwise, never
   // the validator's own answer, which is not in the contract.
   const app = new OpenAPIHono({
@@ -176,6 +180,7 @@ export function createApp(deps: {
         { workspaces, sessions },
         c.var.session,
         c.req.valid('json'),
+        region,
       );
       if (answer.kind === 'invalid') {
         return c.json({ error: 'invalid_workspace', problems: answer.problems } as const, 400);

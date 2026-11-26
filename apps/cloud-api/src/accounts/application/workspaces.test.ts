@@ -52,12 +52,12 @@ afterEach(async () => {
   await close();
 });
 
-const acme = { name: 'Acme', slug: 'acme', region: 'eu' };
+const acme = { name: 'Acme', slug: 'acme' };
 
 describe('createWorkspace', () => {
   it('makes the workspace with its creator as owner, and makes it active', async () => {
     const session = await signedIn(dana, 's-dana');
-    const made = await createWorkspace(stores, session, acme);
+    const made = await createWorkspace(stores, session, acme, 'eu');
     expect(made).toEqual({
       kind: 'created',
       workspace: {
@@ -74,21 +74,30 @@ describe('createWorkspace', () => {
     expect(await listMyWorkspaces(stores.memberships, dana)).toEqual([made.workspace]);
   });
 
+  it('makes it in the region it is handed, never one the request names', async () => {
+    const session = await signedIn(dana, 's-dana');
+    const sent: Record<string, unknown> = { ...acme, region: 'eu' };
+    const made = await createWorkspace(stores, session, sent, 'us');
+    expect(made).toMatchObject({ kind: 'created', workspace: { region: 'us' } });
+    expect(
+      await db.select({ region: schema.organization.region }).from(schema.organization),
+    ).toEqual([{ region: 'us' }]);
+  });
+
   it('refuses a request the domain refuses, writing nothing', async () => {
     const session = await signedIn(dana, 's-dana');
-    expect(await createWorkspace(stores, session, { ...acme, slug: 'Acme', region: 'ap' })).toEqual(
-      { kind: 'invalid', problems: ['slug_invalid', 'region_unknown'] },
-    );
+    expect(await createWorkspace(stores, session, { ...acme, slug: 'Acme' }, 'eu')).toEqual({
+      kind: 'invalid',
+      problems: ['slug_invalid'],
+    });
     expect(await db.select().from(schema.organization)).toEqual([]);
     expect(await activeOf('s-dana')).toBeNull();
   });
 
-  it('refuses a slug taken in another region, leaving the session as it was', async () => {
-    await createWorkspace(stores, await signedIn(dana, 's-dana'), acme);
+  it('refuses a slug that is taken, leaving the session as it was', async () => {
+    await createWorkspace(stores, await signedIn(dana, 's-dana'), acme, 'eu');
     const session = await signedIn(lee, 's-lee');
-    expect(await createWorkspace(stores, session, { ...acme, region: 'us' })).toEqual({
-      kind: 'slug-taken',
-    });
+    expect(await createWorkspace(stores, session, acme, 'eu')).toEqual({ kind: 'slug-taken' });
     expect(await activeOf('s-lee')).toBeNull();
     expect(await listMyWorkspaces(stores.memberships, lee)).toEqual([]);
   });
@@ -100,7 +109,7 @@ describe('createWorkspace', () => {
       },
     });
     const session = await signedIn(dana, 's-dana');
-    await expect(createWorkspace(failing, session, acme)).rejects.toThrow(
+    await expect(createWorkspace(failing, session, acme, 'eu')).rejects.toThrow(
       'the first team could not be made',
     );
     expect(await db.select().from(schema.organization)).toEqual([]);
@@ -111,12 +120,13 @@ describe('createWorkspace', () => {
 
 describe('listMyWorkspaces', () => {
   it('lists only the person’s own workspaces', async () => {
-    const danas = await createWorkspace(stores, await signedIn(dana, 's-dana'), acme);
-    const lees = await createWorkspace(stores, await signedIn(lee, 's-lee'), {
-      name: 'Sprocket',
-      slug: 'sprocket',
-      region: 'us',
-    });
+    const danas = await createWorkspace(stores, await signedIn(dana, 's-dana'), acme, 'eu');
+    const lees = await createWorkspace(
+      stores,
+      await signedIn(lee, 's-lee'),
+      { name: 'Sprocket', slug: 'sprocket' },
+      'eu',
+    );
     if (danas.kind !== 'created' || lees.kind !== 'created') throw new Error('not created');
     expect(await listMyWorkspaces(stores.memberships, dana)).toEqual([danas.workspace]);
     expect(await listMyWorkspaces(stores.memberships, lee)).toEqual([lees.workspace]);
@@ -126,8 +136,8 @@ describe('listMyWorkspaces', () => {
 describe('setActiveWorkspace', () => {
   it('makes a workspace the person is in active', async () => {
     const session = await signedIn(dana, 's-dana');
-    const first = await createWorkspace(stores, session, acme);
-    await createWorkspace(stores, session, { ...acme, slug: 'acme-labs' });
+    const first = await createWorkspace(stores, session, acme, 'eu');
+    await createWorkspace(stores, session, { ...acme, slug: 'acme-labs' }, 'eu');
     if (first.kind !== 'created') throw new Error('not created');
 
     expect(await setActiveWorkspace(stores, session, first.workspace.id)).toEqual({
@@ -138,7 +148,7 @@ describe('setActiveWorkspace', () => {
   });
 
   it('is not-found for a workspace the person is not in, or that is not there', async () => {
-    const danas = await createWorkspace(stores, await signedIn(dana, 's-dana'), acme);
+    const danas = await createWorkspace(stores, await signedIn(dana, 's-dana'), acme, 'eu');
     if (danas.kind !== 'created') throw new Error('not created');
     const session = await signedIn(lee, 's-lee');
 
@@ -157,8 +167,8 @@ describe('workspaceForNewSession', () => {
 
   it('is the workspace the person last had active', async () => {
     const session = await signedIn(dana, 's-dana');
-    const first = await createWorkspace(stores, session, acme);
-    const second = await createWorkspace(stores, session, { ...acme, slug: 'acme-labs' });
+    const first = await createWorkspace(stores, session, acme, 'eu');
+    const second = await createWorkspace(stores, session, { ...acme, slug: 'acme-labs' }, 'eu');
     if (first.kind !== 'created' || second.kind !== 'created') throw new Error('not created');
     expect(await workspaceForNewSession(stores, dana.id)).toBe(second.workspace.id);
 
@@ -168,8 +178,8 @@ describe('workspaceForNewSession', () => {
 
   it('is the first workspace joined once the person is no longer in the last active one', async () => {
     const session = await signedIn(dana, 's-dana');
-    const first = await createWorkspace(stores, session, acme);
-    const second = await createWorkspace(stores, session, { ...acme, slug: 'acme-labs' });
+    const first = await createWorkspace(stores, session, acme, 'eu');
+    const second = await createWorkspace(stores, session, { ...acme, slug: 'acme-labs' }, 'eu');
     if (first.kind !== 'created' || second.kind !== 'created') throw new Error('not created');
     await db.delete(schema.member).where(eq(schema.member.organizationId, second.workspace.id));
 
@@ -180,7 +190,7 @@ describe('workspaceForNewSession', () => {
 describe('setWorkspaceIcon', () => {
   async function ownersSession() {
     const session = await signedIn(dana, 's-dana');
-    const made = await createWorkspace(stores, session, acme);
+    const made = await createWorkspace(stores, session, acme, 'eu');
     if (made.kind !== 'created') throw new Error('not created');
     return { session: { ...session, activeWorkspaceId: made.workspace.id }, made };
   }

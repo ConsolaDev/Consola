@@ -51,13 +51,12 @@ export const Me = z
   .strictObject({ user: Person, workspace: z.union([MyWorkspace, z.null()]) })
   .openapi('Me', { description: 'Who is signed in, and their session’s active workspace.' });
 
-export const NewWorkspace = z
-  .object({ name: z.string(), slug: z.string(), region: z.enum(REGIONS) })
-  .openapi('NewWorkspace', {
-    description:
-      `A name (trimmed, at most ${WORKSPACE_NAME_MAX} characters), a slug of lowercase letters ` +
-      `and digits with single dashes between (at most ${WORKSPACE_SLUG_MAX}) and a region.`,
-  });
+export const NewWorkspace = z.object({ name: z.string(), slug: z.string() }).openapi('NewWorkspace', {
+  description:
+    `A name (trimmed, at most ${WORKSPACE_NAME_MAX} characters) and a slug of lowercase letters ` +
+    `and digits with single dashes between (at most ${WORKSPACE_SLUG_MAX}). The workspace is ` +
+    'made in the deployment’s region, which no request names.',
+});
 
 export const ActiveWorkspace = z.object({ workspaceId: z.string() }).openapi('ActiveWorkspace');
 
@@ -211,7 +210,7 @@ export const postWorkspace = createRoute({
     },
     401: signedOut,
     403: badOrigin,
-    409: json(failure('slug_taken'), 'A workspace in some region has that slug.'),
+    409: json(failure('slug_taken'), 'A workspace has that slug.'),
     415: unsupportedMediaType,
   },
 });
