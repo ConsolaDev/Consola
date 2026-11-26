@@ -1,11 +1,10 @@
-// The cell's tables, each exported from here so `drizzle-kit generate` finds it
+// The company's tables, each exported from here so `drizzle-kit generate` finds it
 // (drizzle.config.ts).
 //
-// Every table carries a not-null `workspace_id` (the workspace's id in cloud-global), and a
-// person is a column holding their global id, never a copy of their account. `schema.test.ts`
-// checks both.
+// Every table carries a not-null `workspace_id`, the workspace's id (accounts' `organization`),
+// and a person is a column holding their id, never a copy of their account. No foreign key leaves
+// these tables: a workspace and its members are accounts', read through `MembershipReader`.
 
-import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
 import { sql } from 'drizzle-orm';
 import type { SQLWrapper } from 'drizzle-orm';
 import {
@@ -41,45 +40,15 @@ import type {
 } from '../../domain/run.js';
 
 /**
- * The cell's copy of each workspace in its region, kept from cloud-global's outbox messages: a row
- * once the workspace's `workspace.created` is applied. `last_applied_sequence` is the sequence of
- * the last of its messages the cell applied, which every later message is placed against.
- * Nothing else about the workspace (its name, its slug) is here: the cell needs only its id.
- */
-export const workspaces = pgTable('workspace', {
-  workspaceId: text('workspace_id').primaryKey(),
-  // The contract's sequences are whole numbers JavaScript keeps exactly, past an integer's range.
-  lastAppliedSequence: bigint('last_applied_sequence', { mode: 'number' }).notNull(),
-});
-
-/**
- * Who is a member of each workspace, and with which role, from the same messages. A person is
- * their global id and their role, and nothing more: no email, no name.
- */
-export const workspaceMembers = pgTable(
-  'workspace_member',
-  {
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.workspaceId),
-    personId: text('person_id').notNull(),
-    role: text('role').$type<WorkspaceRole>().notNull(),
-  },
-  (table) => [primaryKey({ columns: [table.workspaceId, table.personId] })],
-);
-
-/**
  * A workspace's teams (`domain/team.ts`). Names are unique in a workspace whatever their case,
- * and each workspace has exactly one first team (`is_first`), which the cell makes as it applies
- * the workspace's `workspace.created` and never deletes. The cell gives a team its id.
+ * and each workspace has exactly one first team (`is_first`), made in the transaction that makes
+ * the workspace (`openWorkspace`) and never deleted. The company gives a team its id.
  */
 export const teams = pgTable(
   'team',
   {
     teamId: text('team_id').primaryKey().default(sql`gen_random_uuid()::text`),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.workspaceId),
+    workspaceId: text('workspace_id').notNull(),
     name: text('name').notNull(),
     isFirst: boolean('is_first').notNull().default(false),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -93,10 +62,10 @@ export const teams = pgTable(
 );
 
 /**
- * Who is in each team, by global id. A row points at its workspace's copy of the member, so only
- * a member of the workspace can be in one of its teams, and a member who leaves the workspace
- * leaves every team in the same transaction (the copy's row goes, and these go with it). Deleting
- * a team takes its rows too.
+ * Who is in each team, by id. A row points at its team through both ids, so a place is always in
+ * a team of its own workspace, and deleting a team takes its rows too. Whether the person is a
+ * member of the workspace is asked of `MembershipReader` before a row is written, since no
+ * foreign key reaches accounts' `member`.
  */
 export const teamMembers = pgTable(
   'team_member',
@@ -114,11 +83,6 @@ export const teamMembers = pgTable(
       columns: [table.workspaceId, table.teamId],
       foreignColumns: [teams.workspaceId, teams.teamId],
     }).onDelete('cascade'),
-    foreignKey({
-      name: 'team_member_workspace_member_fk',
-      columns: [table.workspaceId, table.personId],
-      foreignColumns: [workspaceMembers.workspaceId, workspaceMembers.personId],
-    }).onDelete('cascade'),
   ],
 );
 
@@ -133,9 +97,7 @@ export const factories = pgTable(
   'factory',
   {
     factoryId: text('factory_id').primaryKey().default(sql`gen_random_uuid()::text`),
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.workspaceId),
+    workspaceId: text('workspace_id').notNull(),
     teamId: text('team_id').notNull(),
     name: text('name').notNull(),
     source: text('source').$type<FactorySource['kind']>().notNull().default('stored'),
@@ -202,32 +164,6 @@ export const factoryFiles = pgTable(
   ],
 );
 
-/**
- * The GitHub events `cloud-global` passed on for each workspace (14.2), kept here because what
- * happens in a company's repositories is the company's. One row per GitHub delivery, keyed by
- * the workspace and GitHub's id of the delivery, which GitHub keeps when it sends one again, so
- * an event is recorded once. The payload is GitHub's JSON as text: `json` and `jsonb` both
- * refuse a `\u0000` escape, which a pull request's body or a comment can hold. The workspace's
- * runners and triggers read them later (epics 21 and 39).
- */
-export const gitHubEvents = pgTable(
-  'github_event',
-  {
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.workspaceId),
-    deliveryId: text('delivery_id').notNull(),
-    event: text('event').notNull(),
-    installationId: bigint('installation_id', { mode: 'number' }).notNull(),
-    payload: text('payload').notNull(),
-    receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
-  },
-  (table) => [
-    primaryKey({ columns: [table.workspaceId, table.deliveryId] }),
-    index('github_event_received_idx').on(table.workspaceId, table.receivedAt),
-  ],
-);
-
 /** A run's time, to the millisecond, as runners write it: a cursor holding one finds it again. */
 const runTime = (name: string) => timestamp(name, { withTimezone: true, precision: 3 });
 
@@ -249,9 +185,7 @@ const oneOf = (column: SQLWrapper, words: readonly string[]) =>
 export const runs = pgTable(
   'run',
   {
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.workspaceId),
+    workspaceId: text('workspace_id').notNull(),
     runId: text('run_id').notNull(),
     factoryId: text('factory_id').notNull(),
     factoryVersion: integer('factory_version').notNull(),
@@ -338,9 +272,7 @@ export const runs = pgTable(
 export const runApprovals = pgTable(
   'run_approval',
   {
-    workspaceId: text('workspace_id')
-      .notNull()
-      .references(() => workspaces.workspaceId),
+    workspaceId: text('workspace_id').notNull(),
     runId: text('run_id').notNull(),
     version: integer('version').notNull(),
     decision: text('decision').$type<ApprovalDecision>().notNull(),
@@ -362,8 +294,7 @@ export const runApprovals = pgTable(
 
 /**
  * A cloud session: a person's, or an agent run an automation started, which has no `person_id`
- * and has its `origin`. No foreign key to `workspace`: a session is the workspace's whatever the
- * outbox has delivered yet. `error` is a message a runner reported and `error_code` a code the
+ * and has its `origin`. `error` is a message a runner reported and `error_code` a code the
  * cell decided (`CELL_FAILURE_CODES`); a failure has one of them. `runner_id` is null for an agent
  * run no runner took. `origin` and `agent_run` (the runner's last report) are JSON as text, not
  * `json` or `jsonb`, which refuse a `\u0000` escape that a pull request's title or an agent's
