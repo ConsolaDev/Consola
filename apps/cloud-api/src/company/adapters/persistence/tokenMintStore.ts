@@ -1,40 +1,32 @@
-import { isGitHubTokenPurpose } from '@consola/cloud-contract';
 import { and, asc, eq } from 'drizzle-orm';
-import type { TokenMintStore } from '../../application/ports.js';
+import type { TokenMintStore } from '../../application/gitHubPorts.js';
+import { isGitHubTokenPurpose } from '../../domain/gitHubTokens.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
-import type { Database } from './database.js';
-import { regionOf } from './regionOf.js';
-import { schema } from './schema.js';
-
-const table = schema.githubTokenMint;
+import type { GitHubDatabase } from './gitHubStores.js';
+import { githubInstallation, githubTokenMint as table } from './gitHubTables.js';
 
 /**
  * The record of every GitHub token minted, in `github_token_mint`, and the one read a mint needs
- * first: whether the workspace holds the installation (`github_installation`), and its region
- * (`organization`), in one query.
+ * first: whether the workspace holds the installation (`github_installation`).
  */
-export function createTokenMintStore(db: Database): TokenMintStore {
+export function createTokenMintStore(db: GitHubDatabase): TokenMintStore {
   return {
-    async holding({ workspaceId, installationId }) {
+    async holds({ workspaceId, installationId }) {
       const [row] = await db
-        .select({ slug: schema.organization.slug, region: schema.organization.region })
-        .from(schema.githubInstallation)
-        .innerJoin(
-          schema.organization,
-          eq(schema.organization.id, schema.githubInstallation.organizationId),
-        )
+        .select({ installationId: githubInstallation.installationId })
+        .from(githubInstallation)
         .where(
           and(
-            eq(schema.githubInstallation.installationId, installationId),
-            eq(schema.githubInstallation.organizationId, workspaceId),
+            eq(githubInstallation.installationId, installationId),
+            eq(githubInstallation.workspaceId, workspaceId),
           ),
         );
-      return row ? { region: regionOf(row) } : null;
+      return row !== undefined;
     },
 
     async record(mint) {
       await db.insert(table).values({
-        organizationId: mint.workspaceId,
+        workspaceId: mint.workspaceId,
         installationId: mint.installationId,
         purpose: mint.purpose,
         repositoryIds: mint.repositoryIds,
@@ -48,11 +40,11 @@ export function createTokenMintStore(db: Database): TokenMintStore {
       const rows = await db
         .select()
         .from(table)
-        .where(eq(table.organizationId, workspaceId))
+        .where(eq(table.workspaceId, workspaceId))
         .orderBy(asc(table.mintedAt), asc(table.id));
       return rows.map(
         (row): TokenMint => ({
-          workspaceId: row.organizationId,
+          workspaceId: row.workspaceId,
           installationId: row.installationId,
           purpose: purposeOf(row),
           repositoryIds: row.repositoryIds,
@@ -65,7 +57,7 @@ export function createTokenMintStore(db: Database): TokenMintStore {
   };
 }
 
-/** A stored purpose, read back only when the contract names it: any other is no row of ours. */
+/** A stored purpose, read back only when the domain names it: any other is no row of ours. */
 function purposeOf(row: { id: number; purpose: string }): TokenMint['purpose'] {
   if (!isGitHubTokenPurpose(row.purpose)) {
     throw new Error(`The token mint ${row.id} has an unknown purpose, "${row.purpose}".`);

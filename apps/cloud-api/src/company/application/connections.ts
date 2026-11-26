@@ -1,3 +1,4 @@
+import type { Caller, SignedInPerson } from '../domain/caller.js';
 import {
   checkInstaller,
   checkInstallState,
@@ -6,30 +7,8 @@ import {
   readGitHubId,
 } from '../domain/connections.js';
 import type { ConnectedInstallation, GitHubRepository } from '../domain/connections.js';
-import type { SignedIn } from '../domain/person.js';
-import type { MyWorkspace } from '../domain/workspace.js';
-import type { GitHubApp, InstallationStore, InstallStateSigner, MembershipStore } from './ports.js';
-
-/**
- * The session's active workspace as the person is in it now, read from the store: `no-workspace`
- * when the session names none, `not-a-member` when it names one the person is not in, or one
- * that is not there.
- */
-async function activeWorkspace(
-  memberships: MembershipStore,
-  session: SignedIn,
-): Promise<
-  | { kind: 'workspace'; workspace: MyWorkspace }
-  | { kind: 'no-workspace' }
-  | { kind: 'not-a-member' }
-> {
-  if (session.activeWorkspaceId === null) return { kind: 'no-workspace' };
-  const workspace = await memberships.workspaceFor({
-    workspaceId: session.activeWorkspaceId,
-    userId: session.person.id,
-  });
-  return workspace ? { kind: 'workspace', workspace } : { kind: 'not-a-member' };
-}
+import type { GitHubApp, InstallationStore, InstallStateSigner } from './gitHubPorts.js';
+import type { MembershipReader } from './ports.js';
 
 /** What GitHub says an installation covers, or why it could not say. */
 export type RepositoriesAnswer =
@@ -43,34 +22,25 @@ export type GitHubConnection = {
   repositories: RepositoriesAnswer;
 };
 
+/** What the caller's workspace is connected to, and whether they may change it. */
+export type Connections = {
+  canManage: boolean;
+  github: { configured: boolean; installations: GitHubConnection[] };
+};
+
 /**
- * What the session's active workspace is connected to, for any of its members, and whether this
- * person may change it (`canManage`). The repositories are asked of GitHub each time rather than
- * kept, so they are never stale; when GitHub cannot answer, or the app is not configured on this
- * server, the installation is still listed, with `unavailable` repositories.
+ * What the caller's workspace is connected to, for any of its members, and whether the caller
+ * may change it (`canManage`, from their role at this request). The repositories are asked of
+ * GitHub each time rather than kept, so they are never stale; when GitHub cannot answer, or the
+ * app is not configured on this server, the installation is still listed, with `unavailable`
+ * repositories.
  */
 export async function listConnections(
-  ports: {
-    memberships: MembershipStore;
-    installations: InstallationStore;
-    github: GitHubApp | null;
-  },
-  session: SignedIn,
-): Promise<
-  | {
-      kind: 'listed';
-      canManage: boolean;
-      github: { configured: boolean; installations: GitHubConnection[] };
-    }
-  | { kind: 'no-workspace' }
-  | { kind: 'not-a-member' }
-> {
-  const active = await activeWorkspace(ports.memberships, session);
-  if (active.kind !== 'workspace') return active;
-  const { workspace } = active;
-
+  ports: { installations: InstallationStore; github: GitHubApp | null },
+  caller: Caller,
+): Promise<Connections> {
   const { github } = ports;
-  const held = await ports.installations.ofWorkspace(workspace.id);
+  const held = await ports.installations.ofWorkspace(caller.workspaceId);
   const installations = await Promise.all(
     held.map(
       async (installation): Promise<GitHubConnection> => ({
@@ -82,35 +52,26 @@ export async function listConnections(
     ),
   );
   return {
-    kind: 'listed',
-    canManage: mayManageConnections(workspace.role),
+    canManage: mayManageConnections(caller.role),
     github: { configured: github !== null, installations },
   };
 }
 
 /**
- * Starts connecting the session's active workspace to GitHub: the address that installs
- * Consola's GitHub App, carrying a signed state that only this session can finish with, until
+ * Starts connecting the caller's workspace to GitHub: the address that installs Consola's GitHub
+ * App, carrying a signed state that only this person can finish with, until
  * `INSTALL_STATE_LIFETIME_SECONDS` after `now` (whole seconds since the epoch). Only an owner or
  * an admin may (`not-allowed` otherwise).
  */
-export async function startGitHubInstall(
-  ports: { memberships: MembershipStore; github: GitHubApp | null; states: InstallStateSigner },
-  session: SignedIn,
+export function startGitHubInstall(
+  ports: { github: GitHubApp | null; states: InstallStateSigner },
+  caller: Caller,
   now: number,
-): Promise<
-  | { kind: 'started'; url: string }
-  | { kind: 'no-workspace' }
-  | { kind: 'not-a-member' }
-  | { kind: 'not-allowed' }
-  | { kind: 'not-configured' }
-> {
-  const active = await activeWorkspace(ports.memberships, session);
-  if (active.kind !== 'workspace') return active;
-  if (!mayManageConnections(active.workspace.role)) return { kind: 'not-allowed' };
+): { kind: 'started'; url: string } | { kind: 'not-allowed' } | { kind: 'not-configured' } {
+  if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
   if (!ports.github) return { kind: 'not-configured' };
 
-  const state = ports.states.sign(newInstallState(session, active.workspace.id, now));
+  const state = ports.states.sign(newInstallState(caller.personId, caller.workspaceId, now));
   return { kind: 'started', url: ports.github.installUrl(state) };
 }
 
@@ -131,7 +92,7 @@ export type InstallOutcome =
   | { kind: 'requested' }
   /** The person said no to GitHub's authorisation. */
   | { kind: 'cancelled' }
-  /** No state, one Consola did not sign, or another session's. */
+  /** No state, one Consola did not sign, or another person's. */
   | { kind: 'bad-state' }
   | { kind: 'expired' }
   /** The person is no longer an owner or admin of the workspace the Connect was for. */
@@ -153,11 +114,12 @@ export type InstallOutcome =
 
 /**
  * Finishes a Connect when GitHub sends the person back, and records the installation for the
- * workspace the Connect was started for. Each check comes before anything that trusts what the
+ * workspace the Connect was started for, whatever their session has active by then. The person
+ * is the signed-in one (`signedIn`), and each check comes before anything that trusts what the
  * redirect says:
  *
- * 1. the state is this session's own, signed by Consola and in time;
- * 2. the person is still an owner or admin of that workspace;
+ * 1. the state is this person's own, signed by Consola and in time;
+ * 2. the person is still an owner or admin of that workspace, read from `member` now;
  * 3. GitHub, asked with the redirect's one-time code, lists the installation among those this
  *    person can reach, since the `installation_id` in the address can be forged, and says they
  *    administer its account (`checkInstaller`): reaching it is not enough, since every member
@@ -166,12 +128,12 @@ export type InstallOutcome =
  */
 export async function finishGitHubInstall(
   ports: {
-    memberships: MembershipStore;
+    membership: MembershipReader;
     installations: InstallationStore;
     github: GitHubApp | null;
     states: InstallStateSigner;
   },
-  session: SignedIn,
+  signedIn: SignedInPerson,
   returned: InstallReturn,
   now: number,
 ): Promise<InstallOutcome> {
@@ -179,18 +141,16 @@ export async function finishGitHubInstall(
   if (!github) return { kind: 'not-configured' };
 
   const state = returned.state === undefined ? null : ports.states.read(returned.state);
-  const checked = checkInstallState(state, session, now);
+  const checked = checkInstallState(state, signedIn.personId, now);
   if (checked === 'expired') return { kind: 'expired' };
   if (checked !== 'ok' || state === null) return { kind: 'bad-state' };
 
   if (returned.error !== undefined) return { kind: 'cancelled' };
   if (returned.setupAction === 'request') return { kind: 'requested' };
 
-  const workspace = await ports.memberships.workspaceFor({
-    workspaceId: state.workspaceId,
-    userId: session.person.id,
-  });
-  if (!workspace || !mayManageConnections(workspace.role)) return { kind: 'not-allowed' };
+  const { workspaceId } = state;
+  const role = await ports.membership.roleOf(signedIn.personId, workspaceId);
+  if (role === null || !mayManageConnections(role)) return { kind: 'not-allowed' };
 
   const installationId = readGitHubId(returned.installationId);
   if (installationId === null || !returned.code) return { kind: 'invalid' };
@@ -203,37 +163,28 @@ export async function finishGitHubInstall(
 
   const recorded = await ports.installations.connect({
     installation,
-    workspaceId: workspace.id,
-    connectedBy: session.person.id,
+    workspaceId,
+    connectedBy: signedIn.personId,
     at: new Date(now * 1000),
   });
   if (recorded === 'taken') return { kind: 'taken' };
-  return { kind: recorded, workspaceId: workspace.id };
+  return { kind: recorded, workspaceId };
 }
 
 /**
- * Disconnects a GitHub installation from the session's active workspace: Consola's record goes,
- * and the app stays installed on GitHub until someone uninstalls it there. Only an owner or an
- * admin may (`not-allowed` otherwise). An installation the workspace does not hold, another
- * workspace's included, is `not-found`.
+ * Disconnects a GitHub installation from the caller's workspace: Consola's record goes, and the
+ * app stays installed on GitHub until someone uninstalls it there. Only an owner or an admin may
+ * (`not-allowed` otherwise). An installation the workspace does not hold, another workspace's
+ * included, is `not-found`.
  */
 export async function disconnectGitHub(
-  ports: { memberships: MembershipStore; installations: InstallationStore },
-  session: SignedIn,
+  ports: { installations: InstallationStore },
+  caller: Caller,
   installationId: number,
-): Promise<
-  | { kind: 'disconnected' }
-  | { kind: 'not-found' }
-  | { kind: 'not-allowed' }
-  | { kind: 'no-workspace' }
-  | { kind: 'not-a-member' }
-> {
-  const active = await activeWorkspace(ports.memberships, session);
-  if (active.kind !== 'workspace') return active;
-  if (!mayManageConnections(active.workspace.role)) return { kind: 'not-allowed' };
-
+): Promise<{ kind: 'disconnected' } | { kind: 'not-found' } | { kind: 'not-allowed' }> {
+  if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
   const removed = await ports.installations.disconnect({
-    workspaceId: active.workspace.id,
+    workspaceId: caller.workspaceId,
     installationId,
   });
   return removed ? { kind: 'disconnected' } : { kind: 'not-found' };

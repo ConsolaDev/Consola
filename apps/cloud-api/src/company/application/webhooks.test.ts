@@ -1,36 +1,37 @@
 import { createHmac } from 'node:crypto';
-import type { GitHubEventMessage } from '@consola/cloud-contract';
-import type { Region } from '../../shared/region.js';
+import { PGlite } from '@electric-sql/pglite';
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
+import { asc } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/pglite';
+import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createWebhookSignatures } from '../adapters/github/webhookSignatures.js';
-import { migrateDatabase, openDatabase } from '../adapters/persistence/database.js';
-import type { Database } from '../adapters/persistence/database.js';
-import { schema } from '../adapters/persistence/schema.js';
-import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import type { CellEventAnswer, CellEvents, GitHubEventSigner, InstallationStore } from './ports.js';
-import { receiveGitHubWebhook } from './webhooks.js';
+import { createGitHubStores } from '../adapters/persistence/gitHubStores.js';
+import * as gitHubTables from '../adapters/persistence/gitHubTables.js';
+import type { GitHubEventStore, InstallationStore } from './gitHubPorts.js';
+import type { AgentRunPorts, FactoryStore } from './ports.js';
+import { receiveGitHubWebhook, recordGitHubEvent } from './webhooks.js';
 import type { WebhookDelivery } from './webhooks.js';
 
-let db: Database;
-let close: () => Promise<void>;
+let client: PGlite;
+let db: PgliteDatabase;
 let installations: InstallationStore;
+let events: GitHubEventStore;
 
 const SECRET = 'sprocket-test-webhook-secret-0123456789';
 const signatures = createWebhookSignatures(SECRET);
 const DELIVERY_ID = '72d3162e-cc78-11e3-81ab-4c9367dc0958';
+const HEAD = 'a'.repeat(40);
 
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  await db
-    .insert(schema.user)
-    .values([{ id: 'lee', name: 'Lee', email: 'lee@sprocket.test', emailVerified: true }]);
-  await db
-    .insert(schema.organization)
-    .values([
-      { id: 'sprocket', name: 'Sprocket', slug: 'sprocket', region: 'us', createdAt: new Date() },
-    ]);
-  ({ installations } = createDrizzleStores(db));
+  client = new PGlite();
+  const statements = await generateMigration(
+    generateDrizzleJson({}),
+    generateDrizzleJson(gitHubTables),
+  );
+  for (const statement of statements) await client.exec(statement);
+  db = drizzle(client);
+  ({ installations, events } = createGitHubStores(db));
   await installations.connect({
     installation: {
       id: 41,
@@ -45,31 +46,24 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await close();
+  if (!client.closed) await client.close();
 });
 
-/** Signs nothing: says what it was asked to sign, so a test can read it back. */
-const signer: GitHubEventSigner = {
-  signGitHubEvent: async (event) => `signed:${JSON.stringify(event)}`,
-};
-
-/** Cells in each region named, each answering `answer`, keeping what they were passed. */
-function cells(answer: CellEventAnswer = { kind: 'recorded' }, regions: Region[] = ['eu', 'us']) {
-  const passed: Array<{ region: Region; event: GitHubEventMessage }> = [];
-  const events: CellEvents = {
-    reaches: (region) => regions.includes(region),
-    pass: async (region, signed) => {
-      passed.push({ region, event: JSON.parse(signed.slice('signed:'.length)) });
-      return answer;
-    },
-  };
-  return { events, passed };
-}
-
+/** The body GitHub POSTs when a pull request opens, as the agent runs read it. */
 const pullRequestOpened = {
   action: 'opened',
   number: 7,
-  pull_request: { title: 'Price the catalog in euros' },
+  pull_request: {
+    number: 7,
+    html_url: 'https://github.com/sprocket/catalog-portal/pull/7',
+    title: 'Price the catalog in euros',
+    body: 'Customers in Lyon asked.',
+    draft: false,
+    user: { login: 'octocat', type: 'User' },
+    head: { sha: HEAD, ref: 'euros' },
+    base: { ref: 'main' },
+    labels: [],
+  },
   repository: { full_name: 'sprocket/catalog-portal' },
   installation: { id: 41 },
 };
@@ -92,35 +86,55 @@ function delivery(
   };
 }
 
-const receive = (sent: WebhookDelivery, events: CellEvents = cells().events) =>
-  receiveGitHubWebhook({ signatures, installations, signer, cells: events }, sent);
+/**
+ * What starting agent runs reads, as far as it gets for a workspace with no factory: the list of
+ * its factories, counted, and the lines it reports. Nothing past the list is reached.
+ */
+function agentRunsWith(list: FactoryStore['list'] = async () => []) {
+  const lines: string[] = [];
+  const listed = vi.fn(list);
+  const ports = {
+    factories: { list: listed },
+    report: (line: string) => {
+      lines.push(line);
+    },
+  } as unknown as AgentRunPorts;
+  return { ports, listed, lines };
+}
+
+const receive = (sent: WebhookDelivery, agentRuns?: AgentRunPorts) =>
+  receiveGitHubWebhook({ signatures, installations, events, agentRuns }, sent);
+
+const recorded = () =>
+  db
+    .select()
+    .from(gitHubTables.gitHubEvents)
+    .orderBy(asc(gitHubTables.gitHubEvents.workspaceId), asc(gitHubTables.gitHubEvents.deliveryId));
+
+const named = { deliveryId: DELIVERY_ID, event: 'pull_request' };
 
 describe('receiveGitHubWebhook', () => {
-  it('passes a signed event on to the cell of the workspace that holds its installation', async () => {
-    const { events, passed } = cells();
-    expect(await receive(delivery(pullRequestOpened), events)).toEqual({
-      kind: 'delivered',
-      delivery: { deliveryId: DELIVERY_ID, event: 'pull_request' },
-      passing: { installationId: 41, workspaceId: 'sprocket', region: 'us' },
+  it('records a signed event for the workspace that holds its installation, as GitHub sent it', async () => {
+    expect(await receive(delivery(pullRequestOpened))).toEqual({
+      kind: 'recorded',
+      delivery: named,
+      holding: { installationId: 41, workspaceId: 'sprocket' },
     });
-    expect(passed).toEqual([
+    expect(await recorded()).toEqual([
       {
-        region: 'us',
-        event: {
-          workspaceId: 'sprocket',
-          region: 'us',
-          deliveryId: DELIVERY_ID,
-          event: 'pull_request',
-          installationId: 41,
-          payload: pullRequestOpened,
-        },
+        workspaceId: 'sprocket',
+        deliveryId: DELIVERY_ID,
+        event: 'pull_request',
+        installationId: 41,
+        payload: JSON.stringify(pullRequestOpened),
+        receivedAt: expect.any(Date),
       },
     ]);
   });
 
   it('checks the signature before anything else, and reads nothing it does not check', async () => {
     const holderOf = vi.spyOn(installations, 'holderOf');
-    const { events, passed } = cells();
+    const record = vi.spyOn(events, 'record');
     for (const sent of [
       delivery(pullRequestOpened, { signature: undefined }),
       delivery(pullRequestOpened, {}, 'acme-webhook-secret-that-is-not-sprockets'),
@@ -131,20 +145,20 @@ describe('receiveGitHubWebhook', () => {
       // Unsigned, a body and headers that would each be refused are never looked at.
       delivery('not json', { signature: 'sha256=00', event: undefined, deliveryId: undefined }),
     ]) {
-      expect(await receive(sent, events)).toEqual({ kind: 'bad-signature' });
+      expect(await receive(sent)).toEqual({ kind: 'bad-signature' });
     }
     expect(holderOf).not.toHaveBeenCalled();
-    expect(passed).toEqual([]);
+    expect(record).not.toHaveBeenCalled();
+    expect(await recorded()).toEqual([]);
   });
 
   it('refuses every delivery while no webhook secret is set', async () => {
-    const { events, passed } = cells();
     const answer = await receiveGitHubWebhook(
-      { signatures: null, installations, signer, cells: events },
+      { signatures: null, installations, events },
       delivery(pullRequestOpened),
     );
     expect(answer).toEqual({ kind: 'not-configured' });
-    expect(passed).toEqual([]);
+    expect(await recorded()).toEqual([]);
   });
 
   it.each([
@@ -165,61 +179,130 @@ describe('receiveGitHubWebhook', () => {
     expect(await receive(delivery(payload))).toEqual({ kind: 'invalid', reason });
   });
 
-  it("answers GitHub's ping and passes it on to no cell", async () => {
-    const { events, passed } = cells();
+  it("answers GitHub's ping and records it for no workspace", async () => {
     const ping = delivery({ zen: 'Keep it logically awesome.', hook_id: 1 }, { event: 'ping' });
-    expect(await receive(ping, events)).toEqual({
+    expect(await receive(ping)).toEqual({
       kind: 'ping',
       delivery: { deliveryId: DELIVERY_ID, event: 'ping' },
     });
-    expect(passed).toEqual([]);
+    expect(await recorded()).toEqual([]);
   });
 
   it('drops an event through an installation no workspace holds', async () => {
-    const { events, passed } = cells();
     const elsewhere = { ...pullRequestOpened, installation: { id: 52 } };
-    expect(await receive(delivery(elsewhere), events)).toEqual({
+    expect(await receive(delivery(elsewhere))).toEqual({
       kind: 'unknown-installation',
-      delivery: { deliveryId: DELIVERY_ID, event: 'pull_request' },
+      delivery: named,
       installationId: 52,
     });
-    expect(passed).toEqual([]);
+    expect(await recorded()).toEqual([]);
   });
 
   it('drops an event that came through no installation', async () => {
     const revoked = delivery(
       { action: 'revoked', sender: { login: 'lee' } },
-      {
-        event: 'github_app_authorization',
-      },
+      { event: 'github_app_authorization' },
     );
     expect(await receive(revoked)).toEqual({
       kind: 'no-installation',
       delivery: { deliveryId: DELIVERY_ID, event: 'github_app_authorization' },
     });
+    expect(await recorded()).toEqual([]);
   });
 
-  it("says when the workspace's region has no cell", async () => {
-    const { events, passed } = cells({ kind: 'recorded' }, ['eu']);
-    expect(await receive(delivery(pullRequestOpened), events)).toMatchObject({
-      kind: 'no-cell',
-      passing: { region: 'us' },
+  it('records a delivery once, however often it arrives, and calls the next ones duplicates', async () => {
+    expect(await receive(delivery(pullRequestOpened))).toMatchObject({ kind: 'recorded' });
+    const closed = { ...pullRequestOpened, action: 'closed' };
+    expect(await receive(delivery(closed))).toEqual({
+      kind: 'duplicate',
+      delivery: named,
+      holding: { installationId: 41, workspaceId: 'sprocket' },
     });
-    expect(passed).toEqual([]);
+
+    const rows = await recorded();
+    expect(rows).toHaveLength(1);
+    expect(JSON.parse(rows[0]?.payload ?? '')).toMatchObject({ action: 'opened' });
   });
 
-  it('calls a delivery the cell had already a duplicate', async () => {
-    const { events } = cells({ kind: 'recorded-before' });
-    expect(await receive(delivery(pullRequestOpened), events)).toMatchObject({
+  it('keeps a payload whatever it holds, a NUL character included', async () => {
+    const edited = { ...pullRequestOpened, action: 'edited', comment: 'before\u0000after' };
+    expect(await receive(delivery(edited))).toMatchObject({ kind: 'recorded' });
+    expect(JSON.parse((await recorded())[0]?.payload ?? '')).toEqual(edited);
+  });
+
+  it('says the database did not answer, rather than throwing, whether for the holder or the record', async () => {
+    const failing: GitHubEventStore = {
+      record: async () => {
+        throw new Error('Failed query: insert into "github_event"', {
+          cause: new Error('the database is gone\nand a second line'),
+        });
+      },
+    };
+    expect(
+      await receiveGitHubWebhook(
+        { signatures, installations, events: failing },
+        delivery(pullRequestOpened),
+      ),
+    ).toEqual({ kind: 'unavailable', delivery: named, reason: 'the database is gone' });
+
+    await client.close();
+    expect(await receive(delivery(pullRequestOpened))).toMatchObject({
+      kind: 'unavailable',
+      delivery: named,
+    });
+  });
+});
+
+describe('an event recorded now starts its agent runs', () => {
+  it('starts them for a first delivery, and never for one sent again', async () => {
+    const { ports, listed } = agentRunsWith();
+    expect(await receive(delivery(pullRequestOpened), ports)).toMatchObject({ kind: 'recorded' });
+    expect(listed).toHaveBeenCalledTimes(1);
+    expect(listed).toHaveBeenCalledWith('sprocket');
+
+    expect(await receive(delivery(pullRequestOpened), ports)).toMatchObject({
       kind: 'duplicate',
     });
+    expect(listed).toHaveBeenCalledTimes(1);
   });
 
-  it("says the cell did not take it, and why, so GitHub's Redeliver can send it again", async () => {
-    const { events } = cells({ kind: 'failed', error: 'status 503 (unavailable)' });
-    expect(await receive(delivery(pullRequestOpened), events)).toMatchObject({
-      kind: 'failed',
-      error: 'status 503 (unavailable)',
+  it('starts none for a delivery that is refused or dropped', async () => {
+    const { ports, listed } = agentRunsWith();
+    await receive(delivery(pullRequestOpened, { signature: undefined }), ports);
+    await receive(delivery({ ...pullRequestOpened, installation: { id: 52 } }), ports);
+    await receive(delivery({ zen: 'Keep it logically awesome.' }, { event: 'ping' }), ports);
+    expect(listed).not.toHaveBeenCalled();
+  });
+
+  it('records the event, and answers so, when starting its runs fails', async () => {
+    const { ports, lines } = agentRunsWith(async () => {
+      throw new Error('the factories could not be read');
     });
+    expect(await receive(delivery(pullRequestOpened), ports)).toMatchObject({ kind: 'recorded' });
+    expect(await recorded()).toHaveLength(1);
+    expect(lines).toEqual([
+      `GitHub delivery ${DELIVERY_ID} (pull_request) for workspace sprocket started no agent run: the factories could not be read`,
+    ]);
+  });
+});
+
+describe('recordGitHubEvent', () => {
+  const event = {
+    workspaceId: 'sprocket',
+    deliveryId: DELIVERY_ID,
+    event: 'pull_request',
+    installationId: 41,
+    payload: pullRequestOpened,
+  };
+
+  it('records an event once per workspace and delivery id', async () => {
+    expect(await recordGitHubEvent({ events }, event)).toEqual({ kind: 'recorded', now: true });
+    expect(await recordGitHubEvent({ events }, event)).toEqual({ kind: 'recorded', now: false });
+    // The same delivery id in another workspace is another event.
+    expect(await recordGitHubEvent({ events }, { ...event, workspaceId: 'acme' })).toEqual({
+      kind: 'recorded',
+      now: true,
+    });
+    expect(await recorded()).toHaveLength(2);
   });
 });

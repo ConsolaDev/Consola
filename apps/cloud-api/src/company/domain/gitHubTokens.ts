@@ -1,4 +1,18 @@
-import type { GitHubTokenPurpose } from '@consola/cloud-contract';
+/**
+ * What a token can be for. Each purpose fixes the permissions the token gets (`TOKEN_PURPOSES`),
+ * which the code that asks cannot widen:
+ *
+ * - `review-run`: a run of the review automation, on its repositories;
+ * - `factory-pull`: pulling a repo-backed factory's files, from its one repository;
+ * - `factory-save`: saving a repo-backed factory's files, to its one repository.
+ */
+export const GITHUB_TOKEN_PURPOSES = ['review-run', 'factory-pull', 'factory-save'] as const;
+
+export type GitHubTokenPurpose = (typeof GITHUB_TOKEN_PURPOSES)[number];
+
+export function isGitHubTokenPurpose(value: unknown): value is GitHubTokenPurpose {
+  return typeof value === 'string' && (GITHUB_TOKEN_PURPOSES as readonly string[]).includes(value);
+}
 
 /** The permissions a token of Consola's may carry, by GitHub's names. */
 export type GitHubPermission = 'contents' | 'pull_requests';
@@ -15,7 +29,7 @@ export type GitHubPermissions = Partial<Record<GitHubPermission, GitHubAccess>>;
 export type GrantedPermissions = GitHubPermissions & { metadata?: 'read' };
 
 /**
- * What each purpose a cell may ask a token for is given: its permissions, which the request
+ * What each purpose a token may be asked for is given: its permissions, which the request
  * cannot widen, and how many repositories it may be narrowed to. Nothing else is ever minted
  * (decided 2026-11-21: one Consola GitHub App, each token narrowed to the repositories and
  * permissions it is needed for).

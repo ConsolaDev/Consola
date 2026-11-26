@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { installationOfEvent, readDeliveryHeaders } from './webhooks.js';
+import {
+  installationOfEvent,
+  isGitHubDeliveryId,
+  isGitHubEventName,
+  readDeliveryHeaders,
+} from './webhooks.js';
 
 const deliveryId = '72d3162e-cc78-11e3-81ab-4c9367dc0958';
 
@@ -50,5 +55,42 @@ describe('installationOfEvent', () => {
     ['names an id past what JSON keeps exactly', { installation: { id: 2 ** 53 } }],
   ])('is null when the payload %s', (_what, payload) => {
     expect(installationOfEvent(payload)).toBeNull();
+  });
+});
+
+describe('isGitHubDeliveryId', () => {
+  it('takes the GUID GitHub names a delivery with', () => {
+    expect(isGitHubDeliveryId('72d3162e-cc78-11e3-81ab-4c9367dc0958')).toBe(true);
+  });
+
+  it.each([
+    ['nothing', ''],
+    ['a space', '72d3162e cc78'],
+    ['a line break', '72d3162e\ncc78'],
+    ['a slash', '../72d3162e'],
+    ['too long an id', 'a'.repeat(65)],
+    ['a number', 72],
+  ])('refuses %s', (_what, value) => {
+    expect(isGitHubDeliveryId(value)).toBe(false);
+  });
+});
+
+describe('isGitHubEventName', () => {
+  it.each(['pull_request', 'push', 'installation_repositories', 'check_run'])(
+    'takes %s',
+    (name) => {
+      expect(isGitHubEventName(name)).toBe(true);
+    },
+  );
+
+  it.each([
+    ['nothing', ''],
+    ['capitals', 'Pull_Request'],
+    ['a dot', 'pull_request.opened'],
+    ['a line break', 'push\n'],
+    ['too long a name', `p${'a'.repeat(64)}`],
+    ['a number', 1],
+  ])('refuses %s', (_what, value) => {
+    expect(isGitHubEventName(value)).toBe(false);
   });
 });

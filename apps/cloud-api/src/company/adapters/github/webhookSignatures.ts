@@ -1,5 +1,5 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { WebhookSignatures } from '../../application/ports.js';
+import type { WebhookSignatures } from '../../application/gitHubPorts.js';
 
 /** How GitHub writes `X-Hub-Signature-256`: the algorithm, then the HMAC in hex. */
 const SIGNATURE = /^sha256=([0-9a-fA-F]{64})$/;

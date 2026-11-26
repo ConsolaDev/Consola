@@ -1,13 +1,28 @@
-import { readGitHubTokenRequest } from '@consola/cloud-contract';
 import { grantedAsAsked, scopeFor, uncoveredRepositories } from '../domain/gitHubTokens.js';
-import type { GrantedPermissions, TokenRequestProblem } from '../domain/gitHubTokens.js';
-import type { CellRequestVerifier, GitHubApp, GitHubTokenMinter, TokenMintStore } from './ports.js';
+import type {
+  GitHubTokenPurpose,
+  GrantedPermissions,
+  TokenRequestProblem,
+} from '../domain/gitHubTokens.js';
+import type { GitHubApp, GitHubTokenMinter, TokenMintStore } from './gitHubPorts.js';
+import type { Clock } from './ports.js';
 
-/** How a cell's request for a GitHub token ended. */
+/** What a token is asked for: the workspace's work it is for decides each of these. */
+export type GitHubTokenRequest = {
+  /** The workspace the token is for. */
+  workspaceId: string;
+  /** The installation of Consola's GitHub App the workspace holds: its id on GitHub. */
+  installationId: number;
+  purpose: GitHubTokenPurpose;
+  /** The repositories the token is narrowed to, by their ids on GitHub, which a rename keeps. */
+  repositoryIds: readonly number[];
+};
+
+/** How a request for a GitHub token ended. */
 export type TokenRequestOutcome =
   /**
-   * The token, handed to the cell that asked and to nobody else: when it expires (whole seconds
-   * since the epoch), and the repositories and permissions it carries, as GitHub granted them.
+   * The token, for the work that asked and nobody else: when it expires (whole seconds since the
+   * epoch), and the repositories and permissions it carries, as GitHub granted them.
    */
   | {
       kind: 'minted';
@@ -16,16 +31,10 @@ export type TokenRequestOutcome =
       repositories: Array<{ id: number; fullName: string }>;
       permissions: GrantedPermissions;
     }
-  /** No cell's key checks the request. */
-  | { kind: 'unsigned' }
-  /** Signed, but no request the contract reads; `reason` names the field, never its contents. */
-  | { kind: 'unreadable'; reason: string }
   /** The repositories break the purpose's rules. */
   | { kind: 'invalid'; problems: TokenRequestProblem[] }
   /** The workspace holds no such installation, whether or not another workspace does. */
   | { kind: 'installation-not-found' }
-  /** The workspace is in another region than the cell that signed the request. */
-  | { kind: 'other-region' }
   /** This server has no GitHub App. */
   | { kind: 'not-configured' }
   /** GitHub no longer has the installation: uninstalled, or suspended. */
@@ -39,16 +48,14 @@ export type TokenRequestOutcome =
   | { kind: 'unavailable' };
 
 /**
- * Mints an installation token of Consola's GitHub App for a cell's signed request, narrowed to
- * the repositories it names and the permissions its purpose fixes, at `now` (whole seconds since
- * the epoch). Each check comes before anything is minted:
+ * Mints an installation token of Consola's GitHub App for the workspace's own work, narrowed to
+ * the repositories it names and the permissions its purpose fixes, at the clock's time. The
+ * request comes from code in this app, never from a request's body: the workspace is the one
+ * whose work the token is for. Each check comes before anything is minted:
  *
- * 1. a region's cell signed the request, with the key configured for it;
- * 2. the contract reads it, in its time;
- * 3. its repositories keep the purpose's rules: at least one, no more than it allows, each once;
- * 4. the workspace holds the installation, and is in the signing cell's region, so a cell only
- *    ever gets a token for a workspace it serves, and a workspace only for its own installation;
- * 5. the installation covers every repository, as GitHub lists it now.
+ * 1. its repositories keep the purpose's rules: at least one, no more than it allows, each once;
+ * 2. the workspace holds the installation, so a workspace only ever gets a token for its own;
+ * 3. the installation covers every repository, as GitHub lists it now.
  *
  * Then GitHub mints, and what it granted is checked against what was asked: anything else is
  * revoked and never handed out. Every token handed out is recorded first; one that cannot be
@@ -56,28 +63,21 @@ export type TokenRequestOutcome =
  */
 export async function mintGitHubToken(
   ports: {
-    cellRequests: CellRequestVerifier;
     mints: TokenMintStore;
     github: (Pick<GitHubApp, 'repositoriesOf'> & GitHubTokenMinter) | null;
+    clock: Clock;
   },
-  signedRequest: string,
-  now: number,
+  request: GitHubTokenRequest,
 ): Promise<TokenRequestOutcome> {
-  const verified = await ports.cellRequests.verifyTokenRequest(signedRequest);
-  if (verified.kind === 'unsigned') return verified;
-  const read = readGitHubTokenRequest(verified.payload, now);
-  if (!read.ok) return { kind: 'unreadable', reason: read.reason };
-  const request = read.value;
   const asked = scopeFor(request);
   if (!asked.ok) return { kind: 'invalid', problems: asked.problems };
   const { scope } = asked;
 
-  const holding = await ports.mints.holding({
+  const holds = await ports.mints.holds({
     workspaceId: request.workspaceId,
     installationId: request.installationId,
   });
-  if (!holding) return { kind: 'installation-not-found' };
-  if (holding.region !== verified.region) return { kind: 'other-region' };
+  if (!holds) return { kind: 'installation-not-found' };
 
   const { github } = ports;
   if (!github) return { kind: 'not-configured' };
@@ -113,7 +113,7 @@ export async function mintGitHubToken(
       purpose: request.purpose,
       repositoryIds: scope.repositoryIds,
       permissions,
-      mintedAt: new Date(now * 1000),
+      mintedAt: new Date(ports.clock.nowSeconds() * 1000),
       expiresAt: minted.expiresAt,
     });
   } catch (error) {

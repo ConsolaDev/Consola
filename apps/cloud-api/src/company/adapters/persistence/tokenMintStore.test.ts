@@ -1,14 +1,16 @@
+import { PGlite } from '@electric-sql/pglite';
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { sql } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/pglite';
+import type { PgliteDatabase } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { TokenMintStore } from '../../application/ports.js';
+import type { TokenMintStore } from '../../application/gitHubPorts.js';
 import type { TokenMint } from '../../domain/gitHubTokens.js';
-import { migrateDatabase, openDatabase } from './database.js';
-import type { Database } from './database.js';
-import { schema } from './schema.js';
-import { createTokenMintStore } from './tokenMintStore.js';
+import { createGitHubStores } from './gitHubStores.js';
+import * as gitHubTables from './gitHubTables.js';
 
-let db: Database;
-let close: () => Promise<void>;
+let client: PGlite;
+let db: PgliteDatabase;
 let mints: TokenMintStore;
 
 const at = (iso: string) => new Date(iso);
@@ -23,53 +25,50 @@ const pull: TokenMint = {
   expiresAt: at('2026-11-22T11:00:00Z'),
 };
 
+// GitHub's three tables alone, made from their definitions. Acme holds installation 41 and
+// Sprocket 52.
 beforeEach(async () => {
-  ({ db, close } = openDatabase('pglite:memory'));
-  await migrateDatabase(db);
-  await db.insert(schema.organization).values([
-    { id: 'acme', name: 'Acme', slug: 'acme', region: 'eu', createdAt: new Date() },
-    { id: 'sprocket', name: 'Sprocket', slug: 'sprocket', region: 'us', createdAt: new Date() },
-  ]);
-  await db.insert(schema.githubInstallation).values([
-    {
-      installationId: 41,
-      organizationId: 'acme',
-      accountId: 9001,
-      accountLogin: 'acme',
-      accountType: 'Organization',
-      connectedAt: at('2026-11-22T09:00:00Z'),
-    },
-    {
-      installationId: 52,
-      organizationId: 'sprocket',
-      accountId: 9002,
-      accountLogin: 'sprocket',
-      accountType: 'Organization',
-      connectedAt: at('2026-11-22T09:00:00Z'),
-    },
-  ]);
-  mints = createTokenMintStore(db);
+  client = new PGlite();
+  const statements = await generateMigration(
+    generateDrizzleJson({}),
+    generateDrizzleJson(gitHubTables),
+  );
+  for (const statement of statements) await client.exec(statement);
+  db = drizzle(client);
+  const stores = createGitHubStores(db);
+  for (const [id, workspaceId] of [
+    [41, 'acme'],
+    [52, 'sprocket'],
+  ] as const) {
+    await stores.installations.connect({
+      installation: {
+        id,
+        account: { id: id + 9000, login: workspaceId, type: 'Organization' },
+        repositorySelection: 'selected',
+      },
+      workspaceId,
+      connectedBy: 'dana',
+      at: at('2026-11-22T09:00:00Z'),
+    });
+  }
+  mints = stores.mints;
 });
 
 afterEach(async () => {
-  await close();
+  await client.close();
 });
 
 describe('the token mint store', () => {
-  it("gives the workspace's region when it holds the installation", async () => {
-    expect(await mints.holding({ workspaceId: 'acme', installationId: 41 })).toEqual({
-      region: 'eu',
-    });
-    expect(await mints.holding({ workspaceId: 'sprocket', installationId: 52 })).toEqual({
-      region: 'us',
-    });
+  it('says a workspace holds the installation it connected', async () => {
+    expect(await mints.holds({ workspaceId: 'acme', installationId: 41 })).toBe(true);
+    expect(await mints.holds({ workspaceId: 'sprocket', installationId: 52 })).toBe(true);
   });
 
-  it("is null for another workspace's installation, one nobody holds, or no workspace", async () => {
-    expect(await mints.holding({ workspaceId: 'acme', installationId: 52 })).toBeNull();
-    expect(await mints.holding({ workspaceId: 'sprocket', installationId: 41 })).toBeNull();
-    expect(await mints.holding({ workspaceId: 'acme', installationId: 99 })).toBeNull();
-    expect(await mints.holding({ workspaceId: 'nobody', installationId: 41 })).toBeNull();
+  it("says no for another workspace's installation, one nobody holds, or no workspace", async () => {
+    expect(await mints.holds({ workspaceId: 'acme', installationId: 52 })).toBe(false);
+    expect(await mints.holds({ workspaceId: 'sprocket', installationId: 41 })).toBe(false);
+    expect(await mints.holds({ workspaceId: 'acme', installationId: 99 })).toBe(false);
+    expect(await mints.holds({ workspaceId: 'nobody', installationId: 41 })).toBe(false);
   });
 
   it("records each mint, and lists a workspace's oldest first", async () => {
@@ -106,14 +105,14 @@ describe('the token mint store', () => {
       'id',
       'installation_id',
       'minted_at',
-      'organization_id',
       'permissions',
       'purpose',
       'repository_ids',
+      'workspace_id',
     ]);
   });
 
-  it('refuses a purpose the contract does not name, or a mint for no repository', async () => {
+  it('refuses a purpose the domain does not name, or a mint for no repository', async () => {
     await expect(
       mints.record({ ...pull, purpose: 'admin' as TokenMint['purpose'] }),
     ).rejects.toThrow();

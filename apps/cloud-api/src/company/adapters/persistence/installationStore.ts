@@ -1,11 +1,8 @@
 import { and, asc, eq } from 'drizzle-orm';
-import type { InstallationStore } from '../../application/ports.js';
+import type { InstallationStore } from '../../application/gitHubPorts.js';
 import type { GitHubAccount } from '../../domain/connections.js';
-import type { Database } from './database.js';
-import { regionOf } from './regionOf.js';
-import { schema } from './schema.js';
-
-const table = schema.githubInstallation;
+import type { GitHubDatabase } from './gitHubStores.js';
+import { githubInstallation as table } from './gitHubTables.js';
 
 /**
  * A stored account type, read back only when it is one GitHub has. Any other value is a row
@@ -28,7 +25,7 @@ function accountTypeOf(row: {
  * installation id is there already, so two workspaces claiming one installation at once get one
  * `connected` and one `taken`, never two owners.
  */
-export function createInstallationStore(db: Database): InstallationStore {
+export function createInstallationStore(db: GitHubDatabase): InstallationStore {
   return {
     connect({ installation, workspaceId, connectedBy, at }) {
       const account = {
@@ -41,7 +38,7 @@ export function createInstallationStore(db: Database): InstallationStore {
           .insert(table)
           .values({
             installationId: installation.id,
-            organizationId: workspaceId,
+            workspaceId,
             ...account,
             connectedBy,
             connectedAt: at,
@@ -53,9 +50,7 @@ export function createInstallationStore(db: Database): InstallationStore {
         const updated = await tx
           .update(table)
           .set(account)
-          .where(
-            and(eq(table.installationId, installation.id), eq(table.organizationId, workspaceId)),
-          )
+          .where(and(eq(table.installationId, installation.id), eq(table.workspaceId, workspaceId)))
           .returning({ installationId: table.installationId });
         return updated.length > 0 ? 'already-connected' : 'taken';
       });
@@ -65,7 +60,7 @@ export function createInstallationStore(db: Database): InstallationStore {
       const rows = await db
         .select()
         .from(table)
-        .where(eq(table.organizationId, workspaceId))
+        .where(eq(table.workspaceId, workspaceId))
         .orderBy(asc(table.connectedAt), asc(table.installationId));
       return rows.map((row) => ({
         id: row.installationId,
@@ -77,22 +72,17 @@ export function createInstallationStore(db: Database): InstallationStore {
     async disconnect({ workspaceId, installationId }) {
       const removed = await db
         .delete(table)
-        .where(and(eq(table.installationId, installationId), eq(table.organizationId, workspaceId)))
+        .where(and(eq(table.installationId, installationId), eq(table.workspaceId, workspaceId)))
         .returning({ installationId: table.installationId });
       return removed.length > 0;
     },
 
     async holderOf(installationId) {
       const [row] = await db
-        .select({
-          workspaceId: table.organizationId,
-          slug: schema.organization.slug,
-          region: schema.organization.region,
-        })
+        .select({ workspaceId: table.workspaceId })
         .from(table)
-        .innerJoin(schema.organization, eq(schema.organization.id, table.organizationId))
         .where(eq(table.installationId, installationId));
-      return row ? { workspaceId: row.workspaceId, region: regionOf(row) } : null;
+      return row ? row.workspaceId : null;
     },
   };
 }
