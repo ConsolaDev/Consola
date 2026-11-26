@@ -171,10 +171,11 @@ export function flatSteps(entries: readonly StepEntry[]): FlatStep[] {
   const flat: FlatStep[] = [];
   entries.forEach((step, index) => {
     flat.push({ step, path: [index] });
-    if (step.kind === 'repeat')
+    if (step.kind === 'repeat') {
       step.steps.forEach((inner, at) =>
         flat.push({ step: inner, block: step, path: [index, 'steps', at] }),
       );
+    }
   });
   return flat;
 }
@@ -546,7 +547,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     );
     return null;
   }
-  if ('uses' in raw)
+  if ('uses' in raw) {
     return parseUsesStep(raw, failAt, {
       idAndIf: (given, bad) => parseIdAndIf(given, position, bad),
       outputs: parseOutputs,
@@ -562,6 +563,7 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
               ? laterKeyMessage(key)
               : undefined,
     });
+  }
   let ok = true;
   const bad: Fail = (message, path) => {
     ok = false;
@@ -588,17 +590,17 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
   // Keys: later slices', then strangers.
   for (const key of Object.keys(raw)) {
     if (ALL_KEYS.has(key)) continue;
-    if (key === 'inputs')
+    if (key === 'inputs') {
       bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
-    else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
+    } else if (key === 'skills' || key === 'mcpServers') bad(STEP_SKILLS_AND_SERVERS, [key]);
     else if (key === 'on_exhausted') bad(ON_EXHAUSTED_OUTSIDE, [key]);
-    else if (key === 'environment')
+    else if (key === 'environment') {
       bad('run' in raw ? ENVIRONMENT_ON_A_COMMAND : ENVIRONMENT_IN_AGENT_FILE, [key]);
-    else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
+    } else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key)) {
       bad(RUN_KEYS_ON_A_STEP[key], [key]);
-    else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key))
+    } else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key)) {
       bad(laterKeyMessage(key), [key]);
-    else bad(`Unrecognized key in a step: ${key}.`, [key]);
+    } else bad(`Unrecognized key in a step: ${key}.`, [key]);
   }
 
   const present = ONE_OF.filter((key) => key in raw);
@@ -625,11 +627,12 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
     const given = raw.outputs;
     if (kind === 'run' && isRecord(given) && given.from === 'stdout') {
       const extra = Object.keys(given).filter((key) => key !== 'from' && key !== 'format');
-      if (extra.length > 0)
+      if (extra.length > 0) {
         bad(`\`${extra[0]}\` is not a key here; write \`{ from: stdout, format: json }\`.`, [
           'outputs',
           extra[0],
         ]);
+      }
       const format = given.format;
       if (format !== 'json' && format !== 'text') {
         bad('Say how to read stdout: `format: json` or `format: text`.', ['outputs', 'format']);
@@ -751,22 +754,23 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
   if ('agent' in raw) {
     const given = raw.agent;
     if (typeof given === 'string' && AUTOMATION_NAME_PATTERN.test(given)) agent = given;
-    else if (typeof given === 'string' && /[/@]/.test(given))
+    else if (typeof given === 'string' && /[/@]/.test(given)) {
       bad('Pinned references arrive with shared factories.', ['agent']);
-    else
+    } else {
       bad(
         "Expected `agent` to be an agent's name, its file agents/<name>.md without `.md`: e.g. `agent: investigator`.",
         ['agent'],
       );
+    }
   }
 
   let handover: 'required' | 'optional' = 'optional';
   const artifacts: string[] = [];
   const pathArtifacts: Array<{ name: string; path: string }> = [];
   if ('artifacts' in raw) {
-    if (!Array.isArray(raw.artifacts))
+    if (!Array.isArray(raw.artifacts)) {
       bad('Expected `artifacts` to be a list of names.', ['artifacts']);
-    else {
+    } else {
       for (const entry of raw.artifacts) {
         // A name, or `{ name, path }`: a file the step leaves in its run's checkout (slice 3-B).
         let name: unknown = entry;
@@ -822,9 +826,9 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
 
   const reads: string[] = [];
   if ('reads' in raw) {
-    if (!Array.isArray(raw.reads))
+    if (!Array.isArray(raw.reads)) {
       bad('Expected `reads` to be a list of `<step>.<artifact>` names.', ['reads']);
-    else {
+    } else {
       for (const entry of raw.reads) {
         const ref = typeof entry === 'string' ? parseReadRef(entry) : null;
         if (!ref) {
@@ -839,9 +843,9 @@ function parseStep(raw: unknown, index: number, fail: Fail, position = index): S
             `\`${entry as string}\` is not a step and one of its documents, e.g. \`review.handover\`.`,
             ['reads'],
           );
-        } else if (reads.includes(entry as string))
+        } else if (reads.includes(entry as string)) {
           bad(`\`${entry as string}\` is listed twice.`, ['reads']);
-        else reads.push(entry as string);
+        } else reads.push(entry as string);
       }
     }
   }
@@ -909,16 +913,16 @@ function parseBlock(
   };
   for (const key of Object.keys(raw)) {
     if (BLOCK_KEYS.has(key)) continue;
-    if (key === 'then')
+    if (key === 'then') {
       bad('`then:` goes on a step; a loop ends by its `until` or its `on_exhausted`.', [key]);
-    else if (key === 'on_failure')
+    } else if (key === 'on_failure') {
       bad(
         "`on_failure` goes on a step or on the automation; a loop's rounds are bounded by `max`.",
         [key],
       );
-    else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key))
+    } else if (Object.prototype.hasOwnProperty.call(RUN_KEYS_ON_A_STEP, key)) {
       bad(RUN_KEYS_ON_A_STEP[key], [key]);
-    else bad(`Unrecognized key in a loop: ${key}.`, [key]);
+    } else bad(`Unrecognized key in a loop: ${key}.`, [key]);
   }
   if (!('id' in raw)) bad('A loop needs an `id`, e.g. `id: polish`.');
   const { id, named, condition } = parseIdAndIf(raw, position, bad);
@@ -1011,8 +1015,9 @@ export function stepsSchema(): z.ZodType<StepEntry[], unknown> {
     };
     for (const { step, index } of entries) {
       unique(step.id, [index]);
-      if (step.kind === 'repeat')
+      if (step.kind === 'repeat') {
         step.steps.forEach((inner, at) => unique(inner.id, [index, 'steps', at]));
+      }
     }
     return ok ? entries.map(({ step }) => step) : z.NEVER;
   });
@@ -1317,48 +1322,56 @@ export function checkSteps(
       return;
     }
 
-    if (step.kind === 'agent' && step.action !== undefined && actionProblem)
+    if (step.kind === 'agent' && step.action !== undefined && actionProblem) {
       fail(actionProblem, at('action'));
+    }
 
     // Only what cannot have acted retries by itself (Call 8): a command that is not safe to run in a dry run may push or post.
     if (
       (step.kind === 'run' || step.kind === 'uses') &&
       (step.onFailure?.retry ?? 0) > 0 &&
       step.dryRun !== 'run'
-    )
+    ) {
       fail(
         step.kind === 'run'
           ? `\`${step.id}\` runs a command that may push or post, so it never retries by itself; a person retries it from the run page.`
           : `\`${step.id}\` calls a tool that may post or change things, so it never retries by itself; a person retries it from the run page.`,
         at('on_failure'),
       );
+    }
 
     if (step.if !== undefined) here.condition(step.if, at('if'));
 
-    if (step.kind === 'agent')
+    if (step.kind === 'agent') {
       step.reads.forEach((read, readIndex) => here.document(read, at('reads', readIndex)));
+    }
     // A path artifact's placeholders name what the items have, as a run-owned branch's do (slice 3-B).
     if (step.kind === 'agent') {
       for (const { path: file } of step.pathArtifacts ?? []) {
         const names = branchPlaceholderNames(file);
-        if (itemKind === 'none' && names.length > 0)
+        if (itemKind === 'none' && names.length > 0) {
           fail(`\`{{${names[0]}}}\`: ${noItem}`, at('artifacts'));
-        else if (itemKind === 'untrusted' && names.includes('item.number'))
+        } else if (itemKind === 'untrusted' && names.includes('item.number')) {
           fail("A poll's items have no number; use `{{item.key}}`.", at('artifacts'));
+        }
       }
     }
-    if (step.kind === 'gate')
+    if (step.kind === 'gate') {
       step.show.forEach((shown, showIndex) => here.document(shown, at('gate', 'show', showIndex)));
+    }
 
-    if (step.kind === 'agent' && step.prompt !== undefined)
+    if (step.kind === 'agent' && step.prompt !== undefined) {
       here.text(step.prompt, 'prompt', at('prompt'));
+    }
     if (step.kind === 'gate') here.text(step.ask, 'prompt', at('gate', 'ask'));
     if (step.kind === 'run') {
-      for (const [name, value] of Object.entries(step.env))
+      for (const [name, value] of Object.entries(step.env)) {
         here.text(value, 'env', at('env', name));
+      }
     }
-    if (step.kind === 'uses')
+    if (step.kind === 'uses') {
       checkUsesStep(step, (ref) => here.templateProblem(ref, 'env'), at, fail);
+    }
   });
 }
 
@@ -1461,8 +1474,9 @@ function ifItemProblems(
               ? 'number'
               : 'boolean';
         if (op !== '==' && op !== '!=') {
-          if (type.kind !== 'number' || literal !== 'number')
+          if (type.kind !== 'number' || literal !== 'number') {
             problems.push(`\`${node.text}\`: \`${op}\` compares numbers`);
+          }
           return;
         }
         if (type.kind !== literal) {
@@ -1506,8 +1520,9 @@ export function stepItemFieldProblems(
   for (const { conditions, texts } of itemUses(entries)) {
     for (const condition of conditions) {
       const parsed = parseExpression(condition);
-      if (parsed.ok)
+      if (parsed.ok) {
         problems.push(...ifItemProblems(parsed.expr, (name, text) => lookup(name, text)?.type));
+      }
     }
     for (const [text, where] of texts) {
       for (const ref of templatePaths(text)) {

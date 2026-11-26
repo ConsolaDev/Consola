@@ -660,10 +660,11 @@ automations:
     expect(describeWrites(automation, agents, unchecked)!.agents[0].sentences[0]).toContain(
       `Consola's data; its file tools read only this run's checkout. ${HEDGE} Your keychain`,
     );
-    for (const isolation of ['host', 'sandbox'] as const)
+    for (const isolation of ['host', 'sandbox'] as const) {
       expect(
         blockFor('edit', isolation, { fileToolLinksChecked: false }).agents[0].sentences[0],
       ).toContain(`a later step pushes. ${HEDGE} Its connectors: none.`);
+    }
     // Once it passed, no hedge; and none where the file tools were not checked at all (that sentence says so).
     expect(JSON.stringify(describeWrites(automation, agents, V))).not.toContain(HEDGE);
     expect(

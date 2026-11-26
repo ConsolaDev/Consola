@@ -31,8 +31,9 @@ export function itemRefOf(run: RunRecord): ItemRef | undefined {
     item.repo === undefined ||
     item.number === undefined ||
     item.type === undefined
-  )
+  ) {
     return undefined;
+  }
   return { provider: connection, repo: item.repo, type: item.type, number: item.number };
 }
 
@@ -106,8 +107,9 @@ function readsOf(
     if (written) reads.push({ ref: entry, step: ref.step, bytes: written.bytes });
   }
   // The repository's instructions at the run's base, whatever the step declares (slice 3-B).
-  if (material?.claudeMd)
+  if (material?.claudeMd) {
     reads.push({ ref: CHECKOUT_REFS.claudeMd, step: 'checkout', ...material.claudeMd });
+  }
   return { reads, ...(readsPrevious && !earlier.previous ? { noEarlierRun: true as const } : {}) };
 }
 
@@ -228,13 +230,15 @@ export function agentStepLaunch(input: {
   const index = steps.findIndex((candidate) => candidate.id === stepId);
   const step = steps[index];
   const record = run.steps?.find((candidate) => candidate.id === stepId);
-  if (step?.kind !== 'agent' || !record)
+  if (step?.kind !== 'agent' || !record) {
     return { ok: false, error: `Its definition has no agent step ${stepId}.` };
+  }
 
   // A step that names an agent runs as the agent its definition snapshot holds, never the file as it is now.
   const agent = step.agent !== undefined ? definition.agents?.[step.id] : undefined;
-  if (step.agent !== undefined && !agent)
+  if (step.agent !== undefined && !agent) {
     return { ok: false, error: `Its definition has no agent for step ${step.id}.` };
+  }
 
   const automation = run.automationId;
   const item = run.trigger.item;
@@ -244,8 +248,9 @@ export function agentStepLaunch(input: {
   // Absent only for a step that names its agent and nothing else: the agent's instructions are its whole body.
   let body: string | undefined;
   if (action) {
-    if (!item || !workItem)
+    if (!item || !workItem) {
       return { ok: false, error: `${action.name} is an action, and this run has no item for it.` };
+    }
     const refused = actionTypeRefusal(action, workItem.type);
     if (refused) return { ok: false, error: refused };
     // The title is the author's: the body points at it, the fence holds it.

@@ -1005,8 +1005,9 @@ test('the investigator: a connector and a user server, a skill and its deny list
     expect(personal[0]).toContain(' --model haiku ');
     expect(personal[0]).toContain(' --max-turns 6 ');
     expect(personal[0]).toContain(' --strict-mcp-config ');
-    for (const absent of ['allowedMcpServers', '--plugin-dir', 'Skill', '.claude.json'])
+    for (const absent of ['allowedMcpServers', '--plugin-dir', 'Skill', '.claude.json']) {
       expect(personal[0]).not.toContain(absent);
+    }
 
     // investigate's init: Consola's server and its two, and neither of the others.
     const init = turnFile(steps, run.id, 'investigate', 1).turns[0].init;
@@ -1323,12 +1324,13 @@ test('refused at apply: a plugin server, an unknown server and a Codex harness, 
       'agents/codex-reader.md': '---\nharness: codex-1\n---\nRead the catalog.\n',
     };
     for (const [file, text] of Object.entries(agents)) writeFactoryFile(steps, file, text);
-    for (const name of ['miro-reader', 'grafana-reader', 'codex-reader'])
+    for (const name of ['miro-reader', 'grafana-reader', 'codex-reader']) {
       writeFactoryFile(
         steps,
         `automations/${name}.yaml`,
         `on: { cron: ${NEVER} }\nscope: catalog-portal\nmode: auto\nsteps:\n  - id: look\n    agent: ${name}\n`,
       );
+    }
 
     // Each refusal under its agent file: the servers at their `mcpServers:` line, the harness at `harness:`.
     await expect(bannerOf(steps.page)).toHaveCount(1, { timeout: 30_000 });

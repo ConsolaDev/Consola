@@ -908,10 +908,12 @@ describe('Streamable HTTP', () => {
     );
     for (const request of seen) {
       expect(request.values.authorization).toBe('present');
-      for (const name of request.headers)
+      for (const name of request.headers) {
         expect([...PROTOCOL_OWN, ...Object.keys(FETCH_OWN), 'authorization']).toContain(name);
-      for (const [name, value] of Object.entries(FETCH_OWN))
+      }
+      for (const [name, value] of Object.entries(FETCH_OWN)) {
         if (request.headers.includes(name)) expect(request.values[name]).toBe(value);
+      }
     }
   });
 

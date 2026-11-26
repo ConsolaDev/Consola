@@ -140,14 +140,18 @@ function joinList(items: string[]): string {
 }
 
 function strayMessage(path: string): string {
-  if (path.startsWith('agents/'))
+  if (path.startsWith('agents/')) {
     return `\`${path}\` is not an agent: agent files are \`agents/<name>.md\`.`;
-  if (path.startsWith('automations/'))
+  }
+  if (path.startsWith('automations/')) {
     return `\`${path}\` is not an automation: automation files are \`automations/<name>.yaml\`.`;
-  if (path.startsWith('skills/'))
+  }
+  if (path.startsWith('skills/')) {
     return `\`${path}\` is not a skill: a skill is a folder, \`skills/<name>/SKILL.md\`.`;
-  if (path.startsWith('environments/'))
+  }
+  if (path.startsWith('environments/')) {
     return `\`${path}\` is not an environment: environment files are \`environments/<name>.yaml\`.`;
+  }
   return `\`${path}\` is not an agent, an automation or a skill.`;
 }
 
@@ -475,8 +479,9 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     if (!isStepsEntry(automation)) return true;
     let kept = true;
     flatSteps(automation.steps).forEach(({ step, path: at }) => {
-      if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0)
+      if (step.kind !== 'agent' || step.agent === undefined || (step.onFailure?.retry ?? 0) === 0) {
         return;
+      }
       const agent = agents[step.agent];
       const onHost =
         agent.tools === 'write' &&
@@ -509,8 +514,9 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     for (const step of leafSteps(automation.steps)) {
       if (step.kind !== 'agent' || step.agent === undefined || named.has(step.agent)) continue;
       named.add(step.agent);
-      for (const server of agents[step.agent].mcpServers)
+      for (const server of agents[step.agent].mcpServers) {
         pairs.push(`\`${server.name}\` from \`${step.agent}\`'s servers`);
+      }
     }
     if (pairs.length === 0) return true;
     const path = candidate.pathTo(['mode']);
@@ -533,8 +539,9 @@ export function parseFactory(files: FactoryFiles): FactoryParseResult {
     }
   }
 
-  for (const path of files.stray)
+  for (const path of files.stray) {
     issues.push({ message: strayMessage(path), file: path, path: '' });
+  }
   for (const { path, reason } of files.unread) {
     issues.push({ message: `Could not read \`${path}\`: ${reason}.`, file: path, path: '' });
     present.push(path);
@@ -605,7 +612,8 @@ export function factoryFilesOf(
       files.environments[environment[1]] = texts[path];
     }
   }
-  for (const name of Object.keys(skills ?? {}))
+  for (const name of Object.keys(skills ?? {})) {
     files.skills[name] = skills![name].map((entry) => ({ path: entry.path, bytes: entry.bytes }));
+  }
   return files;
 }

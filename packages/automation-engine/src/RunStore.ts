@@ -284,8 +284,9 @@ export class RunStore {
     if (!run) throw new Error(`No run ${id}.`);
     const workspaceId = run.attribution?.workspaceId;
     // Nothing is mutated first: a run with no log cannot have its intent recorded.
-    if (!workspaceId)
+    if (!workspaceId) {
       throw new Error(`Run ${id} has no workspace, so its intent cannot be recorded.`);
+    }
     const before = { ...run };
     Object.assign(run, changes);
     if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;

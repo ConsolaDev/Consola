@@ -27,8 +27,9 @@ const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
  * them. `CONSOLA_FACTORY_DIR` replaces the `workspaces` folder — the seam tests use.
  */
 export function workspaceDataDir(workspaceId: string): string {
-  if (!WORKSPACE_ID.test(workspaceId))
+  if (!WORKSPACE_ID.test(workspaceId)) {
     throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
+  }
   const root = process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces');
   return path.join(root, workspaceId);
 }
@@ -251,8 +252,9 @@ export class FactoryFolder implements FactoryFolderHandle {
       (name) => AUTOMATION_NAME_PATTERN.test(name),
     );
     for (const folder of Object.keys(LATER_FOLDERS)) {
-      if (statOrNull(path.join(this.folderPath, folder), true)?.isDirectory())
+      if (statOrNull(path.join(this.folderPath, folder), true)?.isDirectory()) {
         files.laterFolders.push(folder);
+      }
     }
     files.stray.sort(byName);
     return { exists: factoryYml.exists, files };
@@ -368,8 +370,9 @@ export class FactoryFolder implements FactoryFolderHandle {
       const skill: SkillFileEntry[] = [];
       const budget = { bytes: MAX_SKILL_BYTES + 1 };
       // A skill whose folder cannot be listed is unread, not a skill with no files.
-      if (await this.walkSkill(entry.name, '', skill, budget, files))
+      if (await this.walkSkill(entry.name, '', skill, budget, files)) {
         files.skills[entry.name] = skill;
+      }
     }
   }
 
@@ -433,8 +436,9 @@ export class FactoryFolder implements FactoryFolderHandle {
           if (code === 'ENOENT') continue;
           // A file replaced by a link between the listing and the read.
           if (code === 'ELOOP') skill.push({ path: relative, kind: 'symlink' });
-          else
+          else {
             files.unread.push({ path: `skills/${skillName}/${relative}`, reason: describe(error) });
+          }
         }
       }
     }
@@ -474,8 +478,9 @@ export class FactoryFolder implements FactoryFolderHandle {
       const leaves = outsideLine(`${folder}/`, dir);
       lines.push(leaves ?? statLine(`${folder}/`, statOrNull(dir, true)));
       if (leaves !== null) continue;
-      for (const name of namesOrNone(dir))
+      for (const name of namesOrNone(dir)) {
         lines.push(line(`${folder}/${name}`, path.join(dir, name)));
+      }
     }
     const skills = path.join(this.folderPath, 'skills');
     const skillsLeave = outsideLine('skills/', skills);
@@ -486,8 +491,9 @@ export class FactoryFolder implements FactoryFolderHandle {
       if (stat?.isDirectory()) this.skillLines(path.join(skills, name), `skills/${name}`, lines);
     }
     for (const folder of Object.keys(LATER_FOLDERS)) {
-      if (statOrNull(path.join(this.folderPath, folder), true)?.isDirectory())
+      if (statOrNull(path.join(this.folderPath, folder), true)?.isDirectory()) {
         lines.push(`later\t${folder}`);
+      }
     }
     return lines.join('\n');
   }
@@ -498,8 +504,9 @@ export class FactoryFolder implements FactoryFolderHandle {
       count.entries += 1;
       const stat = statOrNull(path.join(dir, name), false);
       lines.push(statLine(`${relative}/${name}`, stat));
-      if (stat?.isDirectory())
+      if (stat?.isDirectory()) {
         this.skillLines(path.join(dir, name), `${relative}/${name}`, lines, count);
+      }
     }
   }
 
@@ -618,8 +625,9 @@ export class FactoryFolder implements FactoryFolderHandle {
   }
 
   private automationFile(name: string): string {
-    if (!AUTOMATION_NAME_PATTERN.test(name))
+    if (!AUTOMATION_NAME_PATTERN.test(name)) {
       throw new Error(`Not an automation name: ${JSON.stringify(name)}.`);
+    }
     return path.join(this.folderPath, 'automations', `${name}.yaml`);
   }
 

@@ -79,8 +79,9 @@ describe('parseAgentFile', () => {
   it('defaults', () => {
     const defaults = parsed('');
     expect(defaults).toMatchObject({ tools: 'read-only', mcpServers: [], skills: [], body: BODY });
-    for (const key of ['harness', 'model', 'description', 'maxTurns'])
+    for (const key of ['harness', 'model', 'description', 'maxTurns']) {
       expect(own(defaults, key), key).toBe(false);
+    }
     expect(defaults.lines).toEqual({});
   });
 

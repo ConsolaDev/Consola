@@ -62,8 +62,9 @@ function hashTree(root: string): Record<string, string> {
       const full = path.join(root, inside);
       if (entry.isSymbolicLink()) out[inside] = `link:${fs.readlinkSync(full)}`;
       else if (entry.isDirectory()) walk(inside);
-      else if (entry.isFile())
+      else if (entry.isFile()) {
         out[inside] = createHash('sha256').update(fs.readFileSync(full)).digest('hex');
+      }
     }
   };
   walk('');
@@ -187,10 +188,11 @@ describe('makeRunClone', () => {
     }
     git(source, 'config', 'core.hooksPath', path.join(source, '.git/hooks'));
     fs.mkdirSync(path.join(tmp, 'template/hooks'), { recursive: true });
-    for (const hook of ['post-checkout', 'reference-transaction'])
+    for (const hook of ['post-checkout', 'reference-transaction']) {
       fs.writeFileSync(path.join(tmp, 'template/hooks', hook), `#!/bin/sh\ntouch '${marker}'\n`, {
         mode: 0o755,
       });
+    }
     // The person's global config names the template folder, as `init.templateDir` would.
     git(
       tmp,
@@ -1014,8 +1016,9 @@ describe("checking, committing and resetting a run's checkout (Task 11)", () => 
     "a filter the login environment passes (%s) never reaches Consola's git",
     async (_what, passed) => {
       const marker = path.join(tmp, 'passed-ran');
-      for (const [name, value] of Object.entries(passed))
+      for (const [name, value] of Object.entries(passed)) {
         vi.stubEnv(name, value.replace('MARK', `touch '${marker}'; cat`));
+      }
       fs.rmSync(path.join(gitDir, 'info/attributes'));
       const env = runCloneGitEnv(dir, process.env);
       expect(env.GIT_CONFIG_PARAMETERS).toBeUndefined();
@@ -1407,10 +1410,11 @@ describe("a removed run's checkout: its keep-ref, its folders, its rebuild (Task
 
   it("fetches into no ref but Consola's own: the person's branches stay where they are (3-B code review F13)", async () => {
     const main = git(source, 'rev-parse', 'refs/heads/main');
-    for (const keepRef of ['refs/heads/main', 'refs/heads/fix/SHOP-42', 'refs/tags/kept', 'HEAD'])
+    for (const keepRef of ['refs/heads/main', 'refs/heads/fix/SHOP-42', 'refs/tags/kept', 'HEAD']) {
       await expect(
         fetchKeepRef({ source, dir, branch: 'fix/SHOP-42', head, keepRef }),
       ).rejects.toThrow(`${keepRef} is not a ref Consola keeps`);
+    }
     expect(git(source, 'rev-parse', 'refs/heads/main')).toBe(main);
     expect(() => git(source, 'rev-parse', '--verify', '-q', 'refs/heads/fix/SHOP-42')).toThrow();
     expect(() => git(source, 'rev-parse', '--verify', '-q', 'refs/tags/kept')).toThrow();

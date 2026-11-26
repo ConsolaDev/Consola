@@ -208,8 +208,9 @@ describe('evaluateExpression', () => {
   it('reports the first absent path in evaluation order', () => {
     const result = evaluateExpression(parse('steps.a.x == 1 && steps.b.y == 2'), lookup);
     expect(result.ok).toBe(false);
-    if (!result.ok)
+    if (!result.ok) {
       expect(result.missing).toMatchObject({ kind: 'output', step: 'a', output: 'x' });
+    }
   });
 
   it('does not read the right side when the left decides it', () => {
@@ -226,8 +227,9 @@ describe('evaluateExpression', () => {
   it('reads the right side when the left does not decide it', () => {
     const result = evaluateExpression(parse('true && steps.q.ok'), lookup);
     expect(result.ok).toBe(false);
-    if (!result.ok)
+    if (!result.ok) {
       expect(result.missing).toMatchObject({ kind: 'output', step: 'q', output: 'ok' });
+    }
   });
 });
 

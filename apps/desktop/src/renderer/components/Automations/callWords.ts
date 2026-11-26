@@ -158,10 +158,12 @@ export function resultView(result: CallResultFile | undefined): {
     const data = body === undefined || body === null ? '' : `\n\n${textOf(body, true)}`;
     return { state, text: `${result.summary}${data}` };
   }
-  if (isRecord(body) && body.structuredContent !== undefined)
+  if (isRecord(body) && body.structuredContent !== undefined) {
     return { state, text: textOf(body.structuredContent, true) };
-  if (isRecord(body) && Array.isArray(body.content))
+  }
+  if (isRecord(body) && Array.isArray(body.content)) {
     return { state, text: blocksText(body.content) };
+  }
   return { state, text: body === undefined ? '' : textOf(body, true) };
 }
 
@@ -204,8 +206,9 @@ export function callCardLines(call: CallView, outputs: readonly string[]): strin
 /** Each factory server the calls name, once, in the order the calls name them; a Consola call names none. */
 export function serversOf(calls: readonly CallView[]): ServerFacts[] {
   const seen = new Map<string, ServerFacts>();
-  for (const call of calls)
+  for (const call of calls) {
     if (call.facts && !seen.has(call.facts.name)) seen.set(call.facts.name, call.facts);
+  }
   return [...seen.values()];
 }
 
@@ -225,8 +228,9 @@ function andList(items: readonly string[]): string {
 function headerWords(headers: NonNullable<ServerFacts['secretHeaders']>): string {
   const names = headers.map(({ header }) => `\`${header}\``);
   const secrets: string[] = [];
-  for (const { secrets: named } of headers)
+  for (const { secrets: named } of headers) {
     for (const name of named) if (!secrets.includes(name)) secrets.push(name);
+  }
   const which =
     names.length === 1
       ? `${/^[aeiou]/i.test(headers[0].header) ? 'an' : 'a'} ${names[0]} header`
@@ -290,11 +294,11 @@ export function checkResultLines(view: ServerCheckView, at: { timeZone?: string 
       : `Checked ${when}: ${count} ${count === 1 ? 'tool' : 'tools'}.`,
   ];
   for (const { step, tool, verdict } of view.steps) {
-    if (verdict === 'fits')
+    if (verdict === 'fits') {
       lines.push(`\`${step}\`: \`${tool}\` is there, and its literal values fit`);
-    else if (verdict === 'missing')
+    } else if (verdict === 'missing') {
       lines.push(`\`${step}\`: \`${view.server}\` has no \`${tool}\``);
-    else lines.push(`\`${step}\`: ${verdict.problem}`);
+    } else lines.push(`\`${step}\`: ${verdict.problem}`);
   }
   if ((view.survivors ?? 0) > 0) lines.push(SURVIVORS_LINE);
   return lines;

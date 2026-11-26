@@ -32,8 +32,9 @@ export const RE_REVIEW_ENTRY = `${reReviewEntry()}\n`;
 /** The check command the template runs, as its `run: |` block reads. */
 export const RE_REVIEW_COMMAND = (() => {
   const parsed = parseAutomationEntry(RE_REVIEW_ENTRY);
-  if (!parsed.ok || parsed.automation.trigger.kind !== 'poll')
+  if (!parsed.ok || parsed.automation.trigger.kind !== 'poll') {
     throw new Error('The re-review template is not a poll.');
+  }
   return parsed.automation.trigger.run;
 })();
 

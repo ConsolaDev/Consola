@@ -167,10 +167,11 @@ describe('what each argument of an automatable tool does (Call 5)', () => {
     const automatable = tools.list().filter((tool) => tool.automatable);
     expect(automatable.map((tool) => tool.name)).toContain('cleanup_stale_sessions');
     for (const tool of automatable) {
-      for (const argument of Object.keys(tool.input))
+      for (const argument of Object.keys(tool.input)) {
         expect(tool.roles?.[argument], `${tool.name}: ${argument}`).toMatch(
           /^(prompt|selector|data)$/,
         );
+      }
     }
     expect(tools.get('cleanup_stale_sessions')?.roles).toEqual({
       pr_states: 'selector',

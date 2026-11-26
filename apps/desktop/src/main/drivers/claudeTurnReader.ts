@@ -80,8 +80,13 @@ function readInit(event: JsonObject): TurnInit {
   const servers: TurnInit['servers'] = [];
   if (Array.isArray(event.mcp_servers)) {
     for (const server of event.mcp_servers) {
-      if (!isObject(server) || typeof server.name !== 'string' || typeof server.status !== 'string')
+      if (
+        !isObject(server) ||
+        typeof server.name !== 'string' ||
+        typeof server.status !== 'string'
+      ) {
         continue;
+      }
       const name = oneLine(server.name, MAX_INIT_FIELD_CHARS);
       const status = oneLine(server.status, MAX_INIT_FIELD_CHARS);
       if (name && status) servers.push({ name, status });
@@ -179,20 +184,23 @@ export function createClaudeTurnReader(): TurnReader {
         const content = isObject(event.message) ? event.message.content : undefined;
         if (!Array.isArray(content)) return;
         for (const block of content) {
-          if (isObject(block) && block.type === 'tool_use' && typeof block.name === 'string')
+          if (isObject(block) && block.type === 'tool_use' && typeof block.name === 'string') {
             events.push({ kind: 'tool', name: block.name });
+          }
         }
         return;
       }
       case 'rate_limit_event':
         // A hint, as a notice on screen is: the reset still comes from the CLI.
-        if (isObject(event.rate_limit_info) && event.rate_limit_info.status === 'rejected')
+        if (isObject(event.rate_limit_info) && event.rate_limit_info.status === 'rejected') {
           limitNotice = true;
+        }
         return;
       case 'result':
         result = readResult(event);
-        if (typeof event.result === 'string' && showsClaudeLimitNotice(event.result))
+        if (typeof event.result === 'string' && showsClaudeLimitNotice(event.result)) {
           limitNotice = true;
+        }
         return;
       default:
         return;

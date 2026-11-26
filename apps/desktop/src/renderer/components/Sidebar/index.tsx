@@ -131,8 +131,9 @@ export function Sidebar() {
       listed,
       useSessionFilterStore.getState().filters[current.id],
     );
-    if (hasActiveFilters(facets) && !matchesFilters(session, facets))
+    if (hasActiveFilters(facets) && !matchesFilters(session, facets)) {
       useSessionFilterStore.getState().clear(current.id);
+    }
   }, [activeWorkspaceId, activeSessionId]);
 
   // A changed filter settles the list in, so it reads as a new list rather
@@ -173,16 +174,18 @@ export function Sidebar() {
     workspace && activeSessionId && allSessions.some((session) => session.id === activeSessionId)
       ? sessionKey(activeSessionId)
       : null;
-  if (held.current.activeKey !== activeKey || held.current.workingSection !== workingSection)
+  if (held.current.activeKey !== activeKey || held.current.workingSection !== workingSection) {
     held.current = { activeKey, workingSection, hold: holdFor(natural, activeKey) };
+  }
   // A row whose name is being edited stays exactly where it was when the field
   // opened: moving it would remount it and lose the field (see pinHold).
   const renamingKey =
     renamingSessionId && allSessions.some((session) => session.id === renamingSessionId)
       ? sessionKey(renamingSessionId)
       : null;
-  if (pinned.current.key !== renamingKey)
+  if (pinned.current.key !== renamingKey) {
     pinned.current = { key: renamingKey, pin: holdFor(natural, renamingKey) };
+  }
   const placed = pinHold(natural, pinned.current.pin);
 
   // Without a Working section, running rows share the top of the list
@@ -224,10 +227,11 @@ export function Sidebar() {
         </>
       );
     }
-    if (!allSessions.length)
+    if (!allSessions.length) {
       return scope
         ? `Sessions you start in ${scope.name} appear here.`
         : 'Sessions you start appear here.';
+    }
     if (scope && !hasActiveFilters(facets)) {
       return (
         <>

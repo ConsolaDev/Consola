@@ -967,8 +967,9 @@ describe("before the socket: what t3's client-runtime asks over HTTP", () => {
           expect(socketTicket).not.toBe(Redacted.value(ticket.ticket));
           expect(socketUrl.toString()).not.toContain(pass);
           const withFlags = new URL(hostSocketUrl(port));
-          for (const [name, value] of socketUrl.searchParams)
+          for (const [name, value] of socketUrl.searchParams) {
             withFlags.searchParams.set(name, value);
+          }
           const { initialConfig } = yield* connectT3Client(withFlags.toString());
           expect(initialConfig.environment.environmentId).toBe(spec.sessionId);
           // Used once: the same URL opens nothing again.

@@ -91,8 +91,9 @@ export function StepDetail({
         if (request === requests.current) setDetail({ state: 'ready', value });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setDetail({ state: 'failed', reason: ipcErrorMessage(failure) });
+        }
       },
     );
     return () => {
@@ -571,8 +572,9 @@ function ArtifactsFact({
         if (request === requests.current) setOpen({ name, read: { state: 'ready', value } });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setOpen({ name, read: { state: 'failed', reason: ipcErrorMessage(failure) } });
+        }
       },
     );
   };
@@ -775,8 +777,9 @@ function Log({
         setAll({ state: 'idle' });
       },
       (failure: unknown) => {
-        if (request === requests.current)
+        if (request === requests.current) {
           setAll({ state: 'failed', reason: ipcErrorMessage(failure) });
+        }
       },
     );
   };

@@ -83,8 +83,9 @@ export function recoverAfterRestart(run: RunRecord, nowIso: string): RunRecord |
           : INTERRUPTED_COMMAND;
     const steps = run.steps.map((step, index): StepRun => {
       if (index === cut) return { ...step, status: 'failed', error, finishedAt: nowIso };
-      if (isLoopRow(step) && (step.status === 'running' || step.status === 'waiting'))
+      if (isLoopRow(step) && (step.status === 'running' || step.status === 'waiting')) {
         return { ...step, status: 'failed', finishedAt: nowIso };
+      }
       if (index > cut && step.status === 'pending') return { ...step, status: 'not-run' };
       return step;
     });

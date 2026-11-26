@@ -376,8 +376,9 @@ describe('AppliedFactoryFiles', () => {
       });
       // The rename of the new version's staging folder fails.
       rename.mockImplementation((from, to) => {
-        if (/skills-[0-9a-f]{16}\.tmp$/.test(String(from)))
+        if (/skills-[0-9a-f]{16}\.tmp$/.test(String(from))) {
           throw new Error('EXDEV: cross-device link not permitted');
+        }
         return real(from, to);
       });
       expect(() =>
@@ -468,10 +469,11 @@ describe('AppliedFactoryFiles', () => {
         const { store, dir } = written();
         const document = documentOf(dir);
         // The skills the document names sit where it now points, so only the name refuses it.
-        if (typeof skillsFolder === 'string')
+        if (typeof skillsFolder === 'string') {
           fs.cpSync(path.join(dir, document.skillsFolder as string), path.join(dir, skillsFolder), {
             recursive: true,
           });
+        }
         const file = path.join(dir, 'applied.json');
         fs.writeFileSync(file, JSON.stringify({ ...document, skillsFolder }));
         readsAsNone(store, dir);
@@ -485,8 +487,9 @@ describe('AppliedFactoryFiles', () => {
         (_label, removed) => {
           const { store, dir } = written();
           const document = documentOf(dir);
-          if (removed)
+          if (removed) {
             fs.rmSync(path.join(dir, document.skillsFolder as string), { recursive: true });
+          }
           delete document.skills;
           fs.writeFileSync(path.join(dir, 'applied.json'), JSON.stringify(document));
           readsAsNone(store, dir);

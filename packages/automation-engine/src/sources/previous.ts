@@ -38,8 +38,9 @@ export function resolvePrevious(runs: readonly RunRecord[], run: RunRecord): Run
     if (
       candidate.automationId !== run.automationId ||
       candidate.attribution.workspaceId !== workspaceId
-    )
+    ) {
       continue;
+    }
     if (candidate.trigger.item?.key !== key) continue;
     if (candidate.status !== 'completed' || candidate.dryRun) continue;
     if (!candidate.steps || candidate.steps.length === 0) continue;

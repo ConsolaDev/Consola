@@ -2521,8 +2521,9 @@ describe('a write step’s session (slice 3-B Task 18)', () => {
       AWS_SECRET_ACCESS_KEY: 'aws-dummy',
     });
     expect(env.GH_TOKEN).toBe('gh-dummy'); // the person's own, as their shell has it; Consola borrows none
-    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) {
       expect(env).not.toHaveProperty(name);
+    }
     service.destroy();
   });
 

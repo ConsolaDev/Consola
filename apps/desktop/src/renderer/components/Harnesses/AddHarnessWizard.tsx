@@ -75,8 +75,9 @@ export function AddHarnessWizard({
   const idError = (() => {
     if (!draft.id) return 'An instance ID is required.';
     if (!HARNESS_ID_PATTERN.test(draft.id)) return "Use only letters, digits, '-', or '_'.";
-    if (harnesses.some((harness) => harness.id === draft.id))
+    if (harnesses.some((harness) => harness.id === draft.id)) {
       return 'That instance ID is already in use.';
+    }
     return undefined;
   })();
 

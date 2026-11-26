@@ -516,10 +516,12 @@ export class ClaudeDriver implements HarnessDriver {
     if (problem) throw new Error(problem);
     const writes = launch.toolPolicy === 'edit' || launch.toolPolicy === 'write';
     if (writes && !compiledWhole(launch.grants)) throw new Error(WRITE_NEEDS_GRANTS);
-    if (launch.unattended && launch.toolPolicy === undefined)
+    if (launch.unattended && launch.toolPolicy === undefined) {
       throw new Error(UNATTENDED_NEEDS_POLICY);
-    if (launch.unattended && !launch.initialPrompt)
+    }
+    if (launch.unattended && !launch.initialPrompt) {
       throw new Error('An unattended turn needs the prompt it runs.');
+    }
     const grants = claudeGrants(launch);
     if (launch.unattended && launch.reportTurn) {
       // A harness edited after its run was queued: fail the step rather

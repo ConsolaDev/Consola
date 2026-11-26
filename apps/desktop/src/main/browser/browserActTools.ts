@@ -499,7 +499,8 @@ async function act(
   }
   const { summary, value } = outcome.done;
   // What the field holds is the page's to say: behind the note.
-  if (value !== undefined)
+  if (value !== undefined) {
     return [untrustedJson({ ...done, summary: `${summary} ${AFTER}`, value })];
+  }
   return plain({ ...done, summary: `${summary} ${AFTER}` });
 }

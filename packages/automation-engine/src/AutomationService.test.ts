@@ -463,8 +463,9 @@ describe('an agent’s destructive call', () => {
     const t = setup({ workspaces });
     await t.start();
     const { run } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
-    for (let i = 1; i < 10; i++)
+    for (let i = 1; i < 10; i++) {
       await t.service.requestApproval('zap', { target: `t-${i}` }, 's-1');
+    }
     await expect(t.service.requestApproval('zap', { target: 't-10' }, 's-1')).rejects.toThrow(
       /already waiting/,
     );
@@ -2707,8 +2708,9 @@ automations:
         outputs:
           verdict: { enum: [approve, comment, request-changes] }
 `).automations;
-      if (!automation || !isStepsEntry(automation))
+      if (!automation || !isStepsEntry(automation)) {
         throw new Error('The steps entry does not parse.');
+      }
       folder.writeDefinition('ws-1', 'run-steps', { automation, version: 'v1', actions: {} });
       const at = '2026-11-04T08:00:00.000Z';
       t.store.add({

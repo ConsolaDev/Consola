@@ -114,8 +114,9 @@ export function listCodexModels(
             continue;
           }
           if (requestId === 1) {
-            if (!message.result || typeof message.result !== 'object')
+            if (!message.result || typeof message.result !== 'object') {
               throw new Error('Missing initialization');
+            }
             send(undefined, 'initialized', {});
             nextPage();
             continue;

@@ -85,8 +85,9 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   load: async (workspaceId) => {
     try {
       const snapshot = await automationsBridge.getSnapshot(workspaceId);
-      if (snapshot)
+      if (snapshot) {
         set((state) => ({ snapshots: { ...state.snapshots, [workspaceId]: snapshot } }));
+      }
     } catch (error) {
       // Called fire-and-forget; the next push repairs it.
       console.error('automationsStore.load failed:', error);

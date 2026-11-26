@@ -774,8 +774,9 @@ describe("an agent's grants on a launch", () => {
   const placed = (built: string[], extraArgs: string[] = EXTRA) => {
     const restricted = built.indexOf('--restricted');
     expect(restricted).toBeGreaterThan(-1);
-    for (const flag of ['--mcp-config', '--settings', '--plugin-dir', '--add-dir', '--tools'])
+    for (const flag of ['--mcp-config', '--settings', '--plugin-dir', '--add-dir', '--tools']) {
       if (built.includes(flag)) expect(built.indexOf(flag)).toBeLessThan(restricted);
+    }
     for (const arg of extraArgs) expect(built.lastIndexOf(arg)).toBeGreaterThan(restricted);
   };
 
@@ -1081,8 +1082,9 @@ setTimeout(() => {}, 10000);`,
       expect(fs.realpathSync(ask.cwd)).toBe(fs.realpathSync(cwd));
       // The handshake's flags, then exactly the skill flags: no server, no hook, no extra arg.
       expect(ask.argv.slice(-denyFlags(pluginDir).length)).toEqual(denyFlags(pluginDir));
-      for (const absent of ['--mcp-config', '--settings', '--append-system-prompt'])
+      for (const absent of ['--mcp-config', '--settings', '--append-system-prompt']) {
         expect(ask.argv).not.toContain(absent);
+      }
     });
 
     it('asks again on every launch, the reopen included, and never with the harness’s extra args', async () => {
@@ -1127,8 +1129,9 @@ setTimeout(() => {}, 10000);`,
         'Read,Grep,Glob,Skill',
         'Skill(consola-step:incident-triage)',
         '--disallowedTools',
-      ])
+      ]) {
         expect(built).not.toContain(absent);
+      }
       expect(built[built.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
       expect(asked()).toHaveLength(0);
       expect(driver.launchNotice(launch)).toBe(
@@ -1174,8 +1177,9 @@ setTimeout(() => {}, 10000);`,
           '--add-dir',
           'Read,Grep,Glob,Skill',
           '--disallowedTools',
-        ])
+        ]) {
           expect(built).not.toContain(absent);
+        }
         expect(built).not.toContain('Skill(consola-step:incident-triage)');
         expect(built[built.indexOf('--tools') + 1]).toBe('Read,Grep,Glob');
         expect(asked()).toHaveLength(0);
@@ -1304,7 +1308,7 @@ describe("a write agent's launch (slice 3-B Task 17)", () => {
     const settings = JSON.parse(value(argv, '--settings'));
     // The ruling on canary row 39: a sandboxed step launches with no HTTP attention hooks.
     expect(Object.keys(settings)).toEqual(isolation === 'sandbox' ? ['sandbox'] : ['hooks']);
-    if (isolation === 'sandbox')
+    if (isolation === 'sandbox') {
       expect(settings.sandbox).toEqual({
         enabled: true,
         autoAllowBashIfSandboxed: true,
@@ -1318,6 +1322,7 @@ describe("a write agent's launch (slice 3-B Task 17)", () => {
           denyWrite: ['/w/catalog-portal-run-3f2a91c0/.git'],
         },
       });
+    }
     if (isolation === 'sandbox') expect(value(argv, '--settings')).not.toContain('127.0.0.1');
     expect(argv.includes('Bash(git push:*)')).toBe(tools === 'write' && isolation === 'host');
     expect(argv).toEqual(

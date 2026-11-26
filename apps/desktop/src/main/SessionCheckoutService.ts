@@ -76,20 +76,23 @@ export class SessionCheckoutService {
     if (checkout.mode === 'existing') {
       const requestedPath = await fs.realpath(checkout.path).catch(() => checkout.path);
       const tree = context.worktrees.find((candidate) => candidate.path === requestedPath);
-      if (!tree || tree.unavailable)
+      if (!tree || tree.unavailable) {
         throw new Error('This worktree is no longer available. Refresh and choose another.');
+      }
       // Under the folder's lock, so a cleanup cannot remove it between this
       // check and the session that will run there being recorded.
       return this.prepared(tree.path, async () => {
-        if (!(await fs.stat(tree.path).catch(() => null)))
+        if (!(await fs.stat(tree.path).catch(() => null))) {
           throw new Error('This worktree is no longer available. Refresh and choose another.');
+        }
         // Revalidate membership, including a directory replaced after listing.
         const [actual, expected] = await Promise.all([
           git(tree.path, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
           git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
         ]);
-        if (actual !== expected)
+        if (actual !== expected) {
           throw new Error('This worktree belongs to a different repository.');
+        }
         return tree.path;
       });
     }

@@ -714,8 +714,9 @@ test('an agent file applies: its step runs on its harness and model, with its bo
       ' --max-turns 4 ',
       'Your standing instructions (agents/reviewer.md):',
       'REVIEWER-BODY-1',
-    ])
+    ]) {
       expect(lookLaunch).toContain(part);
+    }
     expect(lookLaunch).not.toContain('This step:');
     for (const part of [
       ' --max-turns 2 ',
@@ -723,8 +724,9 @@ test('an agent file applies: its step runs on its harness and model, with its bo
       'NOTER-BODY-1',
       'This step:',
       'Turn the handover into a note.',
-    ])
+    ]) {
       expect(tellLaunch).toContain(part);
+    }
     expect(tellLaunch).not.toContain('--model');
 
     const record = await theRun(steps);

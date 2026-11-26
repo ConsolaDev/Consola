@@ -61,8 +61,9 @@ describe('waitAfter', () => {
 
   it('a success resets it', () => {
     let state = fresh();
-    for (let failure = 0; failure < 3; failure++)
+    for (let failure = 0; failure < 3; failure++) {
       state = afterFailure(state, ENDED, 'exit 1: boom');
+    }
     expect(state).toMatchObject({
       failures: 3,
       lastEndedAt: ENDED,

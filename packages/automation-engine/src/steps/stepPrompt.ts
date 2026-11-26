@@ -77,8 +77,9 @@ function sessionSentence(
   environment: StepPromptInput['environment'],
   tools: string,
 ): string {
-  if (policy === 'edit')
+  if (policy === 'edit') {
     return `This session writes files: it can change the files in this checkout and use ${tools}, and nothing else: no shell, no network. Consola commits what you leave when you finish. `;
+  }
   if (policy === 'write') {
     const shell =
       environment?.isolation === 'sandbox'

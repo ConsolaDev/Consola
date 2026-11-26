@@ -131,8 +131,9 @@ function dependenciesOf(
   const item: string[] = [];
   if (condition) {
     for (const path of expressionPaths(condition)) {
-      if (path.kind === 'output')
+      if (path.kind === 'output') {
         conditions.push({ path: path.text, step: path.step, name: path.output });
+      }
     }
   }
   const reads: Reference[] = [];
@@ -259,8 +260,9 @@ export function advanceSteps(input: {
       (record) =>
         (ACTIVE.has(record.status) && record.kind !== 'repeat') || record.status === 'waiting',
     )
-  )
+  ) {
     return { kind: 'wait' };
+  }
 
   const flat = flatSteps(entries);
   /** The loop a leaf is inside, when it is. */
@@ -314,8 +316,9 @@ export function advanceSteps(input: {
     let condition: Expr | undefined;
     if (step.if !== undefined) {
       const parsed = parseExpression(step.if);
-      if (!parsed.ok)
+      if (!parsed.ok) {
         return failStep(step.id, `if: ${step.if} could not be read: ${parsed.problem}`);
+      }
       condition = parsed.expr;
     }
     const deps = dependenciesOf(step, condition);
@@ -335,10 +338,11 @@ export function advanceSteps(input: {
     const absentCondition = deps.conditions.find(
       (ref) => recorded(now.get(ref.step), ref.name ?? '', false) === undefined,
     );
-    if (absentCondition)
+    if (absentCondition) {
       return skip(
         noValue(absentCondition.path, absentCondition.step, now.get(absentCondition.step)),
       );
+    }
 
     if (condition) {
       const untyped = untypedItem ? untypedItemSkip(condition, itemValue) : undefined;
@@ -400,18 +404,20 @@ export function advanceSteps(input: {
       if (admitted === 'skipped') {
         for (const inner of block.steps) {
           const innerRow = now.get(inner.id);
-          if (innerRow)
+          if (innerRow) {
             update(innerRow, {
               id: inner.id,
               status: 'skipped',
               skipped: `the loop \`${block.id}\` was skipped`,
             });
+          }
         }
         return null;
       }
       if (admitted !== 'go') return admitted;
-      if (budget && spent)
+      if (budget && spent) {
         return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+      }
       return { kind: 'round', blockId: block.id, round: 1, updates };
     }
     // Ended (completed, skipped, reported or failed): passed over, its steps with it.
@@ -425,8 +431,9 @@ export function advanceSteps(input: {
     // The round is over: `until`, over the latest records. A path with no value is not met.
     const k = row.round ?? 1;
     const parsed = parseExpression(block.until);
-    if (!parsed.ok)
+    if (!parsed.ok) {
       return failStep(block.id, `until: ${block.until} could not be read: ${parsed.problem}`);
+    }
     const verdict = evaluateExpression(parsed.expr, pathValue);
     if (verdict.ok && verdict.value) {
       update(row, { id: block.id, status: 'completed', note: `clean after round ${k}` });
@@ -451,8 +458,9 @@ export function advanceSteps(input: {
       }
     }
     if (k < block.max) {
-      if (budget && spent)
+      if (budget && spent) {
         return failStep(block.id, overBudgetError(budget.spent, budget.usd), true);
+      }
       return { kind: 'round', blockId: block.id, round: k + 1, updates };
     }
     // Out of rounds: `on_exhausted`.

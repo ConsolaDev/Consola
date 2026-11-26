@@ -227,8 +227,9 @@ test.describe('an empty tab lists only its own session’s servers', () => {
   test.afterEach(async () => {
     await app.close();
     removeProfile(userDataDir);
-    for (const folder of [root, elsewhere, bin])
+    for (const folder of [root, elsewhere, bin]) {
       fs.rmSync(folder, { recursive: true, force: true });
+    }
   });
 
   test('switching session shows the new session’s servers, never the old one’s', async () => {

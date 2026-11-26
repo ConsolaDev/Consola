@@ -121,8 +121,9 @@ function itemRun(
 
 function stepsDefinition(entry: string, actions: RunDefinition['actions'] = {}): RunDefinition {
   const parsed = parseFactorySpec(`version: 1\nautomations:\n${entry}`);
-  if (parsed.issues.length > 0)
+  if (parsed.issues.length > 0) {
     throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+  }
   return { automation: parsed.automations[0] as StepsAutomation, version: 'v', actions };
 }
 
@@ -489,8 +490,9 @@ describe('agentStepLaunch with an agent', () => {
         'agents/investigator.md': 'You investigate.\n',
       }),
     );
-    if (parsed.issues.length > 0)
+    if (parsed.issues.length > 0) {
       throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+    }
     return {
       automation: parsed.automations[0] as StepsAutomation,
       version: 'v',
@@ -767,8 +769,9 @@ describe('agentRequirements', () => {
     const parsed = parseAgentFile('summariser', 'You summarise.\n');
     if (!parsed.agent) throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
     const requirements = agentRequirements({ ...parsed.agent, hash: 'd'.repeat(64) });
-    for (const key of ['description', 'harnessId', 'model', 'maxTurns', 'tools', 'environment'])
+    for (const key of ['description', 'harnessId', 'model', 'maxTurns', 'tools', 'environment']) {
       expect(Object.prototype.hasOwnProperty.call(requirements, key)).toBe(false);
+    }
   });
 
   it('a read-only agent gains nothing from the environments it is given (slice 3-B)', () => {

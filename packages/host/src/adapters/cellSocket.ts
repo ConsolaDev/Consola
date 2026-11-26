@@ -200,8 +200,9 @@ export const makeCellSocket = (options: CellSocketOptions): Effect.Effect<CellSo
     const onFrame = (text: string | null, handlers: CellHandlers): Effect.Effect<void> => {
       if (text === null) return options.log('a binary frame from the cell, dropped');
       const read = readCellMessage(parseJson(text));
-      if (!read.ok)
+      if (!read.ok) {
         return options.log(`a message from the cell it cannot read (${read.reason}), dropped`);
+      }
       return handlers.onMessage(read.value);
     };
 

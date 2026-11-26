@@ -206,12 +206,13 @@ describe('HarnessSwitcher.preview', () => {
     'a %s session never switches harness (slice 3-B, Call 16)',
     async (policy) => {
       const { switcher } = setup({ session: { toolPolicy: policy } });
-      for (const preview of switcher.preview('w', 'session-1'))
+      for (const preview of switcher.preview('w', 'session-1')) {
         expect(preview).toMatchObject({
           ok: false,
           reason:
             'A step that writes stays on its harness: its sandbox and environment were compiled for it.',
         });
+      }
       await expect(switcher.switch('w', 'session-1', 'work')).rejects.toThrow(
         'A step that writes stays on its harness: its sandbox and environment were compiled for it.',
       );

@@ -101,10 +101,12 @@ export function parseAutomationFile(fileName: string, text: string): AutomationF
 
   const issues: FactorySpecIssue[] = [];
   const { name: _name, version: _version, ...entry } = root;
-  if (Object.prototype.hasOwnProperty.call(root, 'name'))
+  if (Object.prototype.hasOwnProperty.call(root, 'name')) {
     issues.push({ message: NAMED, path: 'name', line: lineAt(['name']) });
-  if (Object.prototype.hasOwnProperty.call(root, 'version'))
+  }
+  if (Object.prototype.hasOwnProperty.call(root, 'version')) {
     issues.push({ message: VERSIONED, path: 'version', line: lineAt(['version']) });
+  }
   const parsed = automationSchema().safeParse({ name: fileName, ...entry });
   if (!parsed.success) {
     for (const issue of parsed.error.issues) issues.push(toIssue(issue, [], doc, lineOf));

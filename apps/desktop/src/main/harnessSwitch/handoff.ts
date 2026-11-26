@@ -52,9 +52,9 @@ function blocks(
     const last = out[out.length - 1];
     if (entry.kind === 'step' && last?.kind === 'step') last.block += `\n${step(entry)}`;
     else if (entry.kind === 'step') out.push({ block: step(entry), kind: 'step' });
-    else if (entry.kind === 'prompt')
+    else if (entry.kind === 'prompt') {
       out.push({ block: `## User${stamp(entry.at)}\n\n${entry.text.trim()}`, kind: 'prompt' });
-    else out.push({ block: `## Agent${stamp(entry.at)}\n\n${entry.text.trim()}`, kind: 'text' });
+    } else out.push({ block: `## Agent${stamp(entry.at)}\n\n${entry.text.trim()}`, kind: 'text' });
   }
   return out;
 }

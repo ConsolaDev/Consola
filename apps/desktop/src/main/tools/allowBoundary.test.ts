@@ -51,8 +51,9 @@ describe('no agent-facing code reaches allow', () => {
   });
 
   it('finds the agent-facing directories', () => {
-    for (const dir of agentFacing)
+    for (const dir of agentFacing) {
       expect(sources(dir).length, relative(mainDir, dir)).toBeGreaterThan(0);
+    }
   });
 
   it('touches allow in none of their source files', () => {

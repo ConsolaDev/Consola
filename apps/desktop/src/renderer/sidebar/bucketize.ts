@@ -92,8 +92,9 @@ export function bucketize(
     const attention = aggregateAttention(root);
     if (attention === 'settled') placed.settled.push(root);
     else if (attention === 'snoozed') placed.snoozed.push(root);
-    else if (workingSection && (attention === 'working' || lingers(root, attention)))
+    else if (workingSection && (attention === 'working' || lingers(root, attention))) {
       placed.working.push(root);
+    }
     // In play and not running: `needs-attention`, `done`, `ready`, `exited`.
     // Without a Working section, running trees stay here too.
     else placed.waiting.push(root);

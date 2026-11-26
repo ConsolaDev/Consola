@@ -210,7 +210,8 @@ export function subscribeToShowAutomations(): () => void {
   return windowBridge.onShowAutomations(({ runId, automation }) => {
     useNavigationStore.setState({ overlay: 'automations' });
     if (runId) useAutomationsStore.getState().openPanel({ kind: 'run', runId });
-    else if (automation)
+    else if (automation) {
       useAutomationsStore.getState().openPanel({ kind: 'automation', name: automation });
+    }
   });
 }

@@ -325,8 +325,9 @@ describe('desktopSecretsPort', () => {
     await port.resolve(WS, P, ['PAGER_TOKEN', 'SLACK_BOT_TOKEN', 'TRACKER_TOKEN']);
     for (const name of ['PAGER_TOKEN', 'SLACK_BOT_TOKEN', 'TRACKER_TOKEN']) {
       const described = port.describe(WS, P, name) as SecretBinding;
-      for (const key of Object.keys(described))
+      for (const key of Object.keys(described)) {
         expect(['kind', 'label', 'changedAt', 'program']).toContain(key);
+      }
       const answers = JSON.stringify([described, port.fingerprint(WS, P, name)]);
       for (const value of ALL_VALUES) expect(answers).not.toContain(value);
     }

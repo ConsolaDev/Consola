@@ -88,15 +88,17 @@ async function runDemoCommand(event: MessageEvent): Promise<void> {
     event.origin !== location.origin ||
     event.source !== window.parent ||
     data?.type !== 'consola:demo-command'
-  )
+  ) {
     return;
+  }
   if (data.command === 'home') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().setActiveSession('onboarding');
     useSidePanelStore.getState().setVisible(false);
   }
-  if (data.command === 'personal')
+  if (data.command === 'personal') {
     await useNavigationStore.getState().setActiveWorkspace('personal');
+  }
   if (data.command === 'inbox') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().openInbox();

@@ -86,8 +86,9 @@ export class FakeToolRegistry implements ToolsPort {
     const validated = this.validate(tool, raw);
     if (!validated.ok) throw new Error(`Invalid arguments for ${tool.name}: ${validated.error}`);
     if (mode === 'preview') {
-      if (!tool.preview)
+      if (!tool.preview) {
         throw new Error(`${tool.name} has nothing to preview; it changes nothing.`);
+      }
       return tool.preview(validated.args, context);
     }
     return tool.run(validated.args, context);

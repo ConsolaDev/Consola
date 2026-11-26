@@ -80,7 +80,8 @@ export function readPassClaims(payload: unknown): ReadResult<PassClaims> {
   if (!isWholeNumber(iat) || iat < 0) return refused('`iat` is not a time in whole seconds');
   if (!isWholeNumber(exp) || exp < 0) return refused('`exp` is not a time in whole seconds');
   if (exp <= iat) return refused('the pass expires before it was minted');
-  if (exp - iat > PASS_MAX_LIFETIME_SECONDS)
+  if (exp - iat > PASS_MAX_LIFETIME_SECONDS) {
     return refused('the pass lives longer than a pass may');
+  }
   return read({ aud, sub, ws, sid, iat, exp });
 }

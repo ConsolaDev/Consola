@@ -98,8 +98,9 @@ async function compileForLaunch(
   const writes = tools !== 'read-only';
   const driver = (deps.driverFor ?? getDriver)(fields.driverId);
   // A write agent needs a driver that holds it to its environment, whatever else it says.
-  if (writes && (!driver.compileAgent || driver.agentRefusal !== undefined))
+  if (writes && (!driver.compileAgent || driver.agentRefusal !== undefined)) {
     throw didNotStart(writeAgentsClaudeOnly(name));
+  }
   const policy = toolPolicyProblem(fields, tools);
   if (policy) throw didNotStart(policy);
   if (!driver.compileAgent) throw didNotStart(noAgentGrants(name));
@@ -147,11 +148,13 @@ async function compileForLaunch(
   if (writes && compiled.grants.tools !== tools) throw didNotStart(writeAgentsClaudeOnly(name));
   if (agent.skills.length > 0) {
     if (!driver.stageSkills) throw didNotStart(noAgentGrants(name));
-    if (agent.skillsDir === undefined)
+    if (agent.skillsDir === undefined) {
       throw didNotStart('its skills have no copy in the run folder to build its plugin from');
+    }
     // The plugin is built, and every later launch checked, against these (review M1).
-    if (agent.skillHashes === undefined)
+    if (agent.skillHashes === undefined) {
       throw didNotStart('its skills have no hashes from its run to check its plugin against');
+    }
     try {
       await driver.stageSkills(compiled.grants, agent.skillsDir);
     } catch (error) {
@@ -293,8 +296,9 @@ export async function prepareItemWorktree(
 ): Promise<{ cwd: string; scopeId: string }> {
   if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
   const clonePath = deps.resolveRepo(workspace, workItem.repo);
-  if (!clonePath)
+  if (!clonePath) {
     throw new Error(`Clone ${workItem.repo} into one of this workspace’s scopes first.`);
+  }
   const driver = deps.resolveDriver(workspace.provider.id);
   // Checking a PR out runs git hooks, and a repo whose hooks path lives in
   // its own tree (husky) would run the PR's — unattended, outside any

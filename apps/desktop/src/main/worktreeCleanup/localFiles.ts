@@ -254,8 +254,9 @@ export async function nestedRepos(
   const queue: string[] = [''];
   let visited = 0;
   while (queue.length > 0) {
-    if (now() > deadline || ++visited > limits.directories)
+    if (now() > deadline || ++visited > limits.directories) {
       return { paths: found, complete: false };
+    }
     const relative = queue.shift()!;
     let children: fs.Dirent[];
     try {

@@ -56,6 +56,7 @@ export function pruneSelected(workspaceId: string, order: readonly EntryKey[]) {
 
 export function clearSelection() {
   const state = useSessionSelectionStore.getState();
-  if (state.keys.length > 0 || state.anchor !== null)
+  if (state.keys.length > 0 || state.anchor !== null) {
     useSessionSelectionStore.setState({ ...EMPTY });
+  }
 }

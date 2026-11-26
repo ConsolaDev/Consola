@@ -90,13 +90,15 @@ function writeGitFolderRecord(gitDir: string): void {
 /** `env` without any config a login environment passes on git's command line (`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`). */
 function withoutPassedConfig(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const clean = { ...env };
-  for (const name of Object.keys(clean))
+  for (const name of Object.keys(clean)) {
     if (
       name === 'GIT_CONFIG_PARAMETERS' ||
       name === 'GIT_CONFIG_COUNT' ||
       /^GIT_CONFIG_(KEY|VALUE)_\d+$/.test(name)
-    )
+    ) {
       delete clean[name];
+    }
+  }
   return clean;
 }
 
@@ -333,9 +335,11 @@ async function buildRunClone(
       [gitDir, made.gitDir],
     ] as const) {
       if (created) fs.rmSync(target, { recursive: true, force: true });
-      else
-        for (const entry of fs.readdirSync(target))
+      else {
+        for (const entry of fs.readdirSync(target)) {
           fs.rmSync(path.join(target, entry), { recursive: true, force: true });
+        }
+      }
     }
     fs.rmSync(recordFor(gitDir), { force: true });
     throw error instanceof RunCheckoutError ? error : new RunCheckoutError(stage, describe(error));
@@ -438,14 +442,17 @@ export function gitFolderProblem(dir: string): string | null {
   const gitDir = runCloneGitDirFor(dir);
   const pointer = path.join(dir, '.git');
   const pointerStat = fs.lstatSync(pointer, { throwIfNoEntry: false });
-  if (!pointerStat?.isFile() || fs.readFileSync(pointer, 'utf8') !== pointerText(gitDir))
+  if (!pointerStat?.isFile() || fs.readFileSync(pointer, 'utf8') !== pointerText(gitDir)) {
     return ".git in the checkout is not Consola's pointer";
-  if (!fs.lstatSync(gitDir, { throwIfNoEntry: false })?.isDirectory())
+  }
+  if (!fs.lstatSync(gitDir, { throwIfNoEntry: false })?.isDirectory()) {
     return 'the git folder is not a folder';
+  }
   const link = firstLink(gitDir);
   if (link !== null) return `\`${link}\` in it is a link`;
-  for (const name of ['commondir', 'gitdir'])
+  for (const name of ['commondir', 'gitdir']) {
     if (fs.existsSync(path.join(gitDir, name))) return `it holds \`${name}\``;
+  }
   if (holdsReplaceRef(gitDir)) return '`refs/replace/` holds a ref';
   if (fs.existsSync(path.join(gitDir, 'info', 'grafts'))) return 'it holds `info/grafts`';
   const alternates = path.join(gitDir, 'objects', 'info', 'alternates');
@@ -459,8 +466,9 @@ export function gitFolderProblem(dir: string): string | null {
     return 'the record of its `config` is missing';
   }
   if (record.config !== sha256(path.join(gitDir, 'config'))) return '`config` changed';
-  if (record.attributes !== sha256(path.join(gitDir, 'info', 'attributes')))
+  if (record.attributes !== sha256(path.join(gitDir, 'info', 'attributes'))) {
     return '`info/attributes` changed';
+  }
   return null;
 }
 
@@ -578,10 +586,12 @@ export async function treeProblem(
 ): Promise<string | null> {
   for (const file of await changedPaths(dir)) {
     const stat = fs.lstatSync(path.join(dir, file), { throwIfNoEntry: false });
-    if (stat?.isFile() && stat.nlink > 1)
+    if (stat?.isFile() && stat.nlink > 1) {
       return `\`${step}\` left \`${file}\` hard-linked to another file; Consola commits only the checkout's own files`;
-    if (stat?.isSymbolicLink() && linkLeadsOut(dir, file, fs.readlinkSync(path.join(dir, file))))
+    }
+    if (stat?.isSymbolicLink() && linkLeadsOut(dir, file, fs.readlinkSync(path.join(dir, file)))) {
       return notOwnFile(step, file, LEADS_OUT);
+    }
   }
   const started = Date.now();
   const folders = [''];
@@ -589,15 +599,17 @@ export async function treeProblem(
   while (folders.length > 0) {
     const relative = folders.pop()!;
     visited += 1;
-    if (visited > limits.directories || Date.now() - started >= limits.deadlineMs)
+    if (visited > limits.directories || Date.now() - started >= limits.deadlineMs) {
       return WALK_CUT_SHORT;
+    }
     // A folder at a time, off the main thread: Electron's main process serves its windows between reads (F4).
     for (const entry of await fs.promises.readdir(path.join(dir, relative), {
       withFileTypes: true,
     })) {
       const inside = relative === '' ? entry.name : `${relative}/${entry.name}`;
-      if (entry.name.toLowerCase() === '.git' && relative !== '')
+      if (entry.name.toLowerCase() === '.git' && relative !== '') {
         return `\`${step}\` left a repository inside the checkout (\`${inside}\`); Consola commits only the checkout's own files`;
+      }
       if (entry.isDirectory()) folders.push(inside);
     }
   }
@@ -617,10 +629,11 @@ async function headProblem(
   );
   const who = session === undefined ? 'the step' : openedByYou(session);
   if (head !== `refs/heads/${branch}`) return `${who} moved \`HEAD\` off ${branch}`;
-  if (!(await answers(dir, ['merge-base', '--is-ancestor', before, `refs/heads/${branch}`])))
+  if (!(await answers(dir, ['merge-base', '--is-ancestor', before, `refs/heads/${branch}`]))) {
     return session === undefined
       ? `the step moved ${branch} off the commit it started from (${before.slice(0, 7)})`
       : `${who} moved ${branch} off the commit the run was at (${before.slice(0, 7)})`;
+  }
   return null;
 }
 
@@ -678,16 +691,18 @@ export async function settleRunClone(request: SettleRequest): Promise<SettleResu
     if (commit) {
       const refused = await stageChecked(dir, step);
       if (refused) return { ok: false, error: refused };
-      if (!(await answers(dir, ['diff', '--cached', '--quiet'])))
+      if (!(await answers(dir, ['diff', '--cached', '--quiet']))) {
         await runCloneGit(dir, ['commit', '-q', '--no-verify', '-m', commit.message]);
+      }
     } else {
       const left = await changedPaths(dir);
-      if (left.length > 0)
+      if (left.length > 0) {
         return { ok: false, error: `\`${step}\` left files changed: ${namedAtMostTen(left)}` };
+      }
     }
     const after = (await runCloneGit(dir, ['rev-parse', 'HEAD'])).trim();
     const names = await namesBetween(dir, before, after);
-    if (commit)
+    if (commit) {
       writePatch(
         attemptDir,
         await runCloneGit(dir, [
@@ -699,6 +714,7 @@ export async function settleRunClone(request: SettleRequest): Promise<SettleResu
           after,
         ]),
       );
+    }
     return { ok: true, after, files: names.length, flagged: flaggedPaths(names) };
   } catch (error) {
     return {
@@ -741,8 +757,9 @@ function linkedFolderOn(dir: string, file: string): string | null {
   const parts = file.split('/');
   for (let i = 1; i < parts.length; i++) {
     const folder = parts.slice(0, i).join('/');
-    if (fs.lstatSync(path.join(dir, folder), { throwIfNoEntry: false })?.isSymbolicLink())
+    if (fs.lstatSync(path.join(dir, folder), { throwIfNoEntry: false })?.isSymbolicLink()) {
       return folder;
+    }
   }
   return null;
 }
@@ -792,13 +809,15 @@ export async function stageByDescriptor(
     let mode: string;
     try {
       const opened = fs.fstatSync(fd);
-      if (!opened.isFile() || opened.nlink !== 1)
+      if (!opened.isFile() || opened.nlink !== 1) {
         return notOwnFile(who, file, ' hard-linked to another file');
+      }
       bytes = fs.readFileSync(fd);
       const now = fs.lstatSync(full, { throwIfNoEntry: false });
       // The path must still be the file read, reached by no linked folder.
-      if (!now || now.ino !== opened.ino || now.dev !== opened.dev || linkedFolderOn(dir, file))
+      if (!now || now.ino !== opened.ino || now.dev !== opened.dev || linkedFolderOn(dir, file)) {
         return notOwnFile(who, file, ', which changed while Consola read it');
+      }
       mode = (opened.mode & 0o111) !== 0 ? '100755' : '100644';
     } finally {
       fs.closeSync(fd);
@@ -853,7 +872,7 @@ export async function settleBetweenSteps(request: {
 }): Promise<SettleResult | null> {
   const { dir, branch, before, message, session } = request;
   const folder = gitFolderProblem(dir);
-  if (folder)
+  if (folder) {
     return {
       ok: false,
       error:
@@ -861,6 +880,7 @@ export async function settleBetweenSteps(request: {
           ? changedFolder(folder)
           : `${openedByYou(session)} changed this checkout's git folder (${folder}), so Consola will not commit in it`,
     };
+  }
   try {
     const moved = await headProblem(dir, branch, before, session);
     if (moved) return { ok: false, error: moved };
@@ -1000,8 +1020,9 @@ export async function fetchKeepRef(input: {
   const { source, dir, branch, head, keepRef } = input;
   const folder = gitFolderProblem(dir);
   if (folder) throw new Error(changedFolder(folder));
-  if (!keepRef.startsWith('refs/consola/'))
+  if (!keepRef.startsWith('refs/consola/')) {
     throw new Error(`${keepRef} is not a ref Consola keeps`);
+  }
   const env = {
     ...plainGit(withoutPassedConfig(process.env)),
     GIT_CONFIG_NOSYSTEM: '1',

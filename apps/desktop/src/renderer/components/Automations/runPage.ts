@@ -107,10 +107,12 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
     let ms: number | null = null;
     if (key === 'preview') ms = isHere ? span(created, until(Number.NaN)) : null;
     // A tool run starts the moment it is approved, so its start ends the wait for an older record too.
-    if (key === 'approval')
+    if (key === 'approval') {
       ms = span(created, until(firstOf(approved, agent ? Number.NaN : started)));
-    if (key === 'queue')
+    }
+    if (key === 'queue') {
       ms = span(firstOf(approved, run.mode === 'confirm' ? Number.NaN : created), until(started));
+    }
     if (key === 'run') ms = span(started, until(finished));
     return { key, state, ms };
   });
@@ -288,8 +290,9 @@ export function stopOffered(run: Pick<RunFacts, 'status'>): boolean {
  */
 export function leadDetail(run: RunFacts, now: Date, place: number | undefined): string {
   if (run.status === 'running') return `for ${formatDuration(run, now) ?? '0s'}`;
-  if (run.status === 'queued')
+  if (run.status === 'queued') {
     return place !== undefined ? `${place} in line` : formatAgo(run.createdAt, now);
+  }
   if (run.status === 'needs-approval') return `asked ${formatAgo(run.createdAt, now)}`;
   if (run.status === 'waiting') {
     const waiting = run.steps?.find((step) => step.status === 'waiting');
@@ -422,8 +425,9 @@ function stopPoint(
       if (has('approval') && !agent && !run.startedAt) return { key: 'preview', state: 'passed' };
       return { key: last, state: 'passed' };
     case 'failed':
-      if (run.startedAt || (!has('approval') && !has('preview') && !has('queue')))
+      if (run.startedAt || (!has('approval') && !has('preview') && !has('queue'))) {
         return { key: last, state: 'failed' };
+      }
       if (agent) {
         return run.approvedAt || !has('approval')
           ? { key: 'queue', state: 'failed' }
@@ -527,8 +531,9 @@ export function runNotes(run: RunFacts, history: RunFacts[]): RunNote[] {
       notes.push({ tone: 'bad', text: `${failures} failures in a row` });
     } else {
       const passes = leading('completed');
-      if (passes >= 3)
+      if (passes >= 3) {
         notes.push({ tone: 'neutral', text: `First failure after ${passes} passing runs` });
+      }
     }
   }
   return notes;
@@ -564,14 +569,16 @@ export function durationAgainstUsual(
     others.length % 2 === 1 ? others[middle] : (others[middle - 1] + others[middle]) / 2;
   const usual = formatElapsed(median);
   // Under two seconds either way is the same run to a person.
-  if (Math.abs(mine - median) < 2000 || median === 0)
+  if (Math.abs(mine - median) < 2000 || median === 0) {
     return { text: `usual ${usual}`, tone: 'usual' };
+  }
   const ratio = mine / median;
-  if (ratio >= 1.5)
+  if (ratio >= 1.5) {
     return {
       text: `${ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)}× its usual ${usual}`,
       tone: 'slow',
     };
+  }
   if (ratio <= 0.67) return { text: `faster than its usual ${usual}`, tone: 'fast' };
   return { text: `usual ${usual}`, tone: 'usual' };
 }
@@ -589,8 +596,9 @@ export function adjacentRuns(
 /** The tools a run's steps called, most-called first, as "Read 12 · Bash 6". */
 export function toolCounts(entries: ConversationEntry[]): Array<{ tool: string; count: number }> {
   const counts = new Map<string, number>();
-  for (const entry of entries)
+  for (const entry of entries) {
     if (entry.kind === 'step') counts.set(entry.tool, (counts.get(entry.tool) ?? 0) + 1);
+  }
   return [...counts]
     .map(([tool, count]) => ({ tool, count }))
     .sort((a, b) => b.count - a.count || a.tool.localeCompare(b.tool));
@@ -703,8 +711,9 @@ export function triggerStageWords(
     const label = isAgentRunPreview(run.result) ? run.result.item?.label : undefined;
     return { kicker: 'Inbox event', title: label ?? 'An item arrived', outcome: `Seen ${time}` };
   }
-  if (trigger.kind === 'poll')
+  if (trigger.kind === 'poll') {
     return { kicker: 'Check', title: 'Found by its check', outcome: `Checked ${time}` };
+  }
   if (trigger.by === 'agent') {
     return {
       kicker: 'Agent request',

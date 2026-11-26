@@ -376,8 +376,9 @@ export class BrowserService {
     const listeners = this.listenersFor(tabId, entry);
     for (const [event, listener] of listeners) guest.on(event as 'destroyed', listener);
     entry.unsubscribe = () => {
-      for (const [event, listener] of listeners)
+      for (const [event, listener] of listeners) {
         guest.removeListener(event as 'destroyed', listener);
+      }
     };
     this.guests.set(tabId, entry);
     // A sign-in this page raised while it was still unbound now has a tab.
@@ -866,8 +867,9 @@ export class BrowserService {
     timer.unref?.();
     pending.stop = () => {
       clearTimeout(timer);
-      for (const [event, listener] of listeners)
+      for (const [event, listener] of listeners) {
         guest.removeListener(event as 'destroyed', listener);
+      }
     };
     this.pending.set(guestId, pending);
   }

@@ -375,14 +375,17 @@ function platformName(platform: string): string {
 function writeAgentProblem(input: CompileAgentInput): string | null {
   const { harnessName, agent, checkout, host } = input;
   if (checkout !== 'run-owned') return WRITE_NEEDS_RUN_OWNED;
-  if (!host)
+  if (!host) {
     return `${harnessName} can't hold a write agent to its environment here: Consola was not told this machine's platform, deny list and Claude version.`;
+  }
   const environment = agent.environment;
-  if (!environment)
+  if (!environment) {
     return 'A write agent must name its environment (invariant 9); add `environment: <name>`.';
+  }
   if (environment.isolation === 'sandbox') {
-    if (host.platform !== 'darwin')
+    if (host.platform !== 'darwin') {
       return `\`isolation: sandbox\` is verified on macOS only so far; this machine runs ${platformName(host.platform)}.`;
+    }
     const settings = sandboxSettingsProblem(host.settingsFiles);
     if (settings !== null) return settings;
   }
@@ -555,8 +558,9 @@ function skillFiles(dir: string): Array<{ path: string; bytes: Uint8Array }> | n
     const at = relative === '' ? dir : path.join(dir, ...relative.split('/'));
     const stats = fs.lstatSync(at);
     if (stats.isDirectory()) {
-      for (const entry of fs.readdirSync(at).sort())
+      for (const entry of fs.readdirSync(at).sort()) {
         if (!walk(relative === '' ? entry : `${relative}/${entry}`)) return false;
+      }
       return true;
     }
     if (!stats.isFile()) return false;
@@ -587,31 +591,36 @@ export function stepPluginProblem(
   const top = folderEntries(pluginDir);
   if (!top) return `${pluginDir} is not a folder`;
   const expected = skills.length > 0 ? ['.claude-plugin', 'skills'] : ['.claude-plugin'];
-  if (top.join('\0') !== expected.join('\0'))
+  if (top.join('\0') !== expected.join('\0')) {
     return `the plugin holds ${top.join(', ') || 'nothing'}, not ${expected.join(' and ')}`;
+  }
   const manifestDir = path.join(pluginDir, '.claude-plugin');
-  if (folderEntries(manifestDir)?.join('\0') !== 'plugin.json')
+  if (folderEntries(manifestDir)?.join('\0') !== 'plugin.json') {
     return 'its .claude-plugin folder is not the manifest alone';
+  }
   const manifest = path.join(manifestDir, 'plugin.json');
   try {
     if (
       !fs.lstatSync(manifest).isFile() ||
       fs.readFileSync(manifest, 'utf8') !== STEP_PLUGIN_MANIFEST_TEXT
-    )
+    ) {
       return 'its manifest is not the one Consola writes';
+    }
   } catch {
     return 'its manifest could not be read';
   }
   if (skills.length === 0) return null;
   const held = folderEntries(path.join(pluginDir, 'skills'));
   const names = [...skills].sort();
-  if (held?.join('\0') !== names.join('\0'))
+  if (held?.join('\0') !== names.join('\0')) {
     return `its skills folder holds ${held?.join(', ') || 'nothing'}, not ${names.join(', ')}`;
+  }
   for (const name of names) {
     const files = skillFiles(path.join(pluginDir, 'skills', name));
     const hash = hashes[name];
-    if (files === null || hash === undefined || skillHash(files) !== hash)
+    if (files === null || hash === undefined || skillHash(files) !== hash) {
       return `skills/${name} is not the one its run holds`;
+    }
   }
   return null;
 }
@@ -655,8 +664,9 @@ export async function buildStepPlugin(
     // What it copied is what the run holds, or nothing is built: then the plugin as a launch will check it.
     for (const name of skills) {
       const files = skillFiles(path.join(staging, 'skills', name));
-      if (files === null || hashes[name] === undefined || skillHash(files) !== hashes[name])
+      if (files === null || hashes[name] === undefined || skillHash(files) !== hashes[name]) {
         throw notBuilt(`skills/${name} in the run folder is not the one its run holds`);
+      }
     }
     const problem = stepPluginProblem(staging, skills, hashes);
     if (problem !== null) throw notBuilt(problem);

@@ -8,8 +8,9 @@ const STEPS = '    steps:\n      - id: look\n        prompt: Look.\n';
 
 function definition(fields: string): RunDefinition {
   const parsed = parseFactorySpec(`version: 1\nautomations:\n  - name: a\n${fields}${STEPS}`);
-  if (parsed.issues.length > 0)
+  if (parsed.issues.length > 0) {
     throw new Error(parsed.issues.map((issue) => issue.message).join('; '));
+  }
   return { automation: parsed.automations[0] as StepsAutomation, version: 'v', actions: {} };
 }
 

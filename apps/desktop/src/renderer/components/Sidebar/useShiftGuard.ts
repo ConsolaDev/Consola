@@ -26,8 +26,9 @@ function editsText(event: KeyboardEvent): boolean {
  */
 function layoutTop(element: HTMLElement): number {
   let top = 0;
-  for (let node: Element | null = element; node instanceof HTMLElement; node = node.offsetParent)
+  for (let node: Element | null = element; node instanceof HTMLElement; node = node.offsetParent) {
     top += node.offsetTop;
+  }
   return top;
 }
 

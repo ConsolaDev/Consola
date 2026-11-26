@@ -115,8 +115,9 @@ function onPage<T>(
           contents.removeAllListeners('will-prevent-unload');
           return true;
         case 'restore-answer':
-          for (const answer of main.__unloadAnswers ?? [])
+          for (const answer of main.__unloadAnswers ?? []) {
             contents.on('will-prevent-unload', answer);
+          }
           return true;
         case 'close-window':
           // As its close button does.

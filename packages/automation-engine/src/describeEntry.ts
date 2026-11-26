@@ -22,10 +22,11 @@ const actionRuns = (name: string) => `${name} action`;
  * line, as the run takes them).
  */
 export function describeRun(automation: Automation): string {
-  if (isStepsEntry(automation))
+  if (isStepsEntry(automation)) {
     return `Steps: ${leafSteps(automation.steps)
       .map((step) => step.id)
       .join(' → ')}`;
+  }
   const { run } = automation;
   if (run.kind === 'tool') return `Tool: ${run.tool}`;
   return run.kind === 'action' ? actionRuns(run.name) : 'Prompt';
@@ -125,10 +126,11 @@ export function describeFlow(automation: StepsAutomation): string[] {
       : [];
   });
   const entryRetry = automation.onFailure?.retry ?? 0;
-  if (entryRetry > 0)
+  if (entryRetry > 0) {
     retryLines.push(
       `The whole run starts again by itself up to ${times(entryRetry)}, only if nothing in it acted${loops.length > 0 ? ', its loops from round 1' : ''}.`,
     );
+  }
   return [
     ...loopLines,
     ...gateLines,
@@ -140,8 +142,9 @@ export function describeFlow(automation: StepsAutomation): string[] {
 
 /** A tool run in-process, or agent sessions; an entry of commands only runs no agent, so it reads as a tool. */
 export function describeKind(automation: Automation): AutomationView['kind'] {
-  if (isStepsEntry(automation))
+  if (isStepsEntry(automation)) {
     return leafSteps(automation.steps).some((step) => step.kind === 'agent') ? 'agent' : 'tool';
+  }
   return automation.run.kind === 'tool' ? 'tool' : 'agent';
 }
 
@@ -380,8 +383,9 @@ function writeHead(agent: AgentRequirements, versions: WriteVersions): string {
   const running = Object.prototype.hasOwnProperty.call(versions.running, agent.name)
     ? versions.running[agent.name]
     : undefined;
-  if (running === undefined)
+  if (running === undefined) {
     return `${head} · checked on Claude ${versions.checkedOn}; this Mac's version is not known`;
+  }
   return running === versions.checkedOn
     ? `${head} · checked on Claude ${versions.checkedOn}`
     : `${head} · checked on Claude ${versions.checkedOn}; this Mac runs ${running}`;

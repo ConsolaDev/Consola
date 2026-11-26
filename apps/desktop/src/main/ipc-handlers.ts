@@ -1598,14 +1598,16 @@ export function setupIpcHandlers(): boolean {
       if (typeof workspaceId !== 'string' || !ids) return { ...emptyBatch, until: null };
       const snoozeWhen = when as SnoozeWhen | null;
       // A reset time is main's to know: the renderer only says "until it resets".
-      if (snoozeWhen && 'untilLimitResets' in snoozeWhen && snoozeWhen.untilLimitResets === true)
+      if (snoozeWhen && 'untilLimitResets' in snoozeWhen && snoozeWhen.untilLimitResets === true) {
         return sessionSnoozer.snooze(workspaceId, ids, (rootId) => limitResetFor(rootId), {
           by: 'person',
           reason: 'usage-limit',
         });
+      }
       const until = snoozeWhen && 'until' in snoozeWhen ? snoozeWhen.until : undefined;
-      if (typeof until !== 'number' || !Number.isFinite(until))
+      if (typeof until !== 'number' || !Number.isFinite(until)) {
         return { ...emptyBatch, until: null };
+      }
       return sessionSnoozer.snooze(workspaceId, ids, until, { by: 'person' });
     },
   );
@@ -2099,16 +2101,18 @@ export function setupIpcHandlers(): boolean {
         .find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
       const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
       const workItem = session?.workItem;
-      if (!workspace || !workItem)
+      if (!workspace || !workItem) {
         throw new Error('This session is not about a pull request or an issue.');
+      }
       if (workspace.provider?.id !== workItem.provider) {
         throw new Error(
           `This workspace has no ${workItem.provider} account bound to fetch it with.`,
         );
       }
       const driver = getProviderDriver(workspace.provider.id);
-      if (!driver.describeWorkItem)
+      if (!driver.describeWorkItem) {
         throw new Error(`Consola cannot describe ${workItem.provider} items yet.`);
+      }
       return driver.describeWorkItem(
         workItem,
         await composeProviderEnv(driver, workspace.provider.accountLogin),
@@ -2342,9 +2346,9 @@ export function setupIpcHandlers(): boolean {
       // with the run open, in the window holding it.
       notification.on('click', () => {
         const target = noticeTarget(notice);
-        if (target.kind === 'session')
+        if (target.kind === 'session') {
           focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
-        else
+        } else {
           showAutomations(
             notice.workspaceId,
             target.kind === 'automation'
@@ -2354,6 +2358,7 @@ export function setupIpcHandlers(): boolean {
                 : {},
             viewMemoryPort(),
           );
+        }
       });
       notification.show();
     },
@@ -2361,8 +2366,9 @@ export function setupIpcHandlers(): boolean {
       attentionRuns.refresh();
       const change: AutomationsChange = { workspaceId, snapshot };
       for (const window of consolaWindows()) {
-        if (!window.isDestroyed())
+        if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, change);
+        }
       }
     },
     every: (ms, run) => {
@@ -2547,8 +2553,9 @@ export function setupIpcHandlers(): boolean {
       ) {
         throw new Error('Workspace, automation, server and version required.');
       }
-      if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId))
+      if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId)) {
         throw new Error(`Unknown workspace: ${workspaceId}`);
+      }
       return automations.checkServer(workspaceId, name, server, version);
     },
   );
@@ -2566,8 +2573,9 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(
     IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS,
     (_event, workspaceId: unknown, name: unknown) => {
-      if (typeof workspaceId !== 'string' || typeof name !== 'string')
+      if (typeof workspaceId !== 'string' || typeof name !== 'string') {
         throw new Error('Workspace and automation required.');
+      }
       return automations.listRunTargets(workspaceId, name);
     },
   );

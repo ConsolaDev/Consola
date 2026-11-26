@@ -15,14 +15,16 @@ export function normalizeSecretValue(
   raw: string,
 ): { ok: true; value: string } | { ok: false; reason: string } {
   const value = raw.endsWith('\n') ? raw.slice(0, -1) : raw;
-  if (new TextEncoder().encode(value).length > MAX_SECRET_VALUE_BYTES)
+  if (new TextEncoder().encode(value).length > MAX_SECRET_VALUE_BYTES) {
     return { ok: false, reason: 'its value is over 64 KB' };
+  }
   if (value.includes('\0')) return { ok: false, reason: 'its value holds a NUL character' };
-  if ([...value].length < MIN_SECRET_VALUE_CHARS)
+  if ([...value].length < MIN_SECRET_VALUE_CHARS) {
     return {
       ok: false,
       reason: `its value is too short to mask safely (under ${MIN_SECRET_VALUE_CHARS} characters)`,
     };
+  }
   return { ok: true, value };
 }
 

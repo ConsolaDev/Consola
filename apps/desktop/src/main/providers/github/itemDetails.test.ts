@@ -180,8 +180,9 @@ describe('GitHub item details', () => {
         'ConsolaReviewThreads',
       ]),
     );
-    for (const line of calls())
+    for (const line of calls()) {
       expect(line).toMatch(/--hostname github\.com .*GH_TOKEN=stub-workspace-account$/);
+    }
     expect(calls().filter((line) => line.includes('--paginate --slurp'))).toHaveLength(3);
     expect(log()).toContain('-f owner=sprocket -f name=catalog-portal -F number=51');
   });

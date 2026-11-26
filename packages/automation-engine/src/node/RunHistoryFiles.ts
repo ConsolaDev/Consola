@@ -169,8 +169,9 @@ export class RunHistoryFiles implements RunHistory {
   }
 
   private fileFor(workspaceId: string): string {
-    if (!WORKSPACE_ID.test(workspaceId))
+    if (!WORKSPACE_ID.test(workspaceId)) {
       throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
+    }
     return path.join(this.dir, `${workspaceId}.jsonl`);
   }
 

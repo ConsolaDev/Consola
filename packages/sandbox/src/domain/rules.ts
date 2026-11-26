@@ -30,8 +30,9 @@ export function envProblem(env: unknown): string | null {
       return `${quoted(name)} is not a variable name: use letters, digits and _, not starting with a digit.`;
     }
     if (typeof value !== 'string') return `The variable ${name} needs a string value.`;
-    if (hasNul(value))
+    if (hasNul(value)) {
       return `The variable ${name} holds a NUL character, which no program can receive.`;
+    }
   }
   return null;
 }
@@ -102,8 +103,9 @@ export function commandProblem(command: Command): string | null {
     ['onStdout', onStdout],
     ['onStderr', onStderr],
   ] as const) {
-    if (listener !== undefined && typeof listener !== 'function')
+    if (listener !== undefined && typeof listener !== 'function') {
       return `${name} is not a function.`;
+    }
   }
   return envProblem(env);
 }

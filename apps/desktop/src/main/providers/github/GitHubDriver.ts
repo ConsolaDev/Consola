@@ -457,8 +457,9 @@ export class GitHubDriver implements GitProviderDriver {
         );
         return;
       case 'close':
-        if (mutation.reason && ref.type !== 'issue')
+        if (mutation.reason && ref.type !== 'issue') {
           throw new Error('Only an issue is closed with a reason.');
+        }
         await this.exec(
           [
             ref.type,
@@ -515,8 +516,9 @@ export class GitHubDriver implements GitProviderDriver {
           );
           return;
         }
-        if (mutation.event !== 'approve' && !mutation.body)
+        if (mutation.event !== 'approve' && !mutation.body) {
           throw new Error('A review comment is required.');
+        }
         await this.exec(
           [
             'pr',
@@ -707,8 +709,9 @@ export class GitHubDriver implements GitProviderDriver {
     const pages: unknown = JSON.parse(
       await this.exec(['api', '--hostname', WEB_HOST, endpoint, '--paginate', '--slurp'], env),
     );
-    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page)))
+    if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) {
       throw new Error('Unexpected GitHub list response.');
+    }
     return (pages as unknown[][]).flat();
   }
 
@@ -784,8 +787,9 @@ export class GitHubDriver implements GitProviderDriver {
       url.port ||
       url.username ||
       url.password
-    )
+    ) {
       return false;
+    }
     return (
       /^\/user-attachments\/assets\/[\w-]+$/.test(url.pathname) ||
       /^\/[\w.-]+\/[\w.-]+\/assets\/\d+\/[\w-]+$/.test(url.pathname)

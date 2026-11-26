@@ -60,16 +60,18 @@ function runtimeEngineImports(source: string): string[] {
       ts.isExternalModuleReference(node.moduleReference)
     ) {
       const expression = node.moduleReference.expression;
-      if (ts.isStringLiteralLike(expression) && isPackage(expression.text) && !node.isTypeOnly)
+      if (ts.isStringLiteralLike(expression) && isPackage(expression.text) && !node.isTypeOnly) {
         found.push(node.getText(tree));
+      }
     } else if (ts.isCallExpression(node)) {
       const callee = node.expression;
       const loads =
         callee.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(callee) && callee.text === 'require');
       const argument = node.arguments[0];
-      if (loads && argument && ts.isStringLiteralLike(argument) && isPackage(argument.text))
+      if (loads && argument && ts.isStringLiteralLike(argument) && isPackage(argument.text)) {
         found.push(node.getText(tree));
+      }
     }
     ts.forEachChild(node, visit);
   };
@@ -82,8 +84,9 @@ const files = (dir: string): string[] => {
   if (!fs.existsSync(absolute)) return [];
   return fs.readdirSync(absolute, { withFileTypes: true }).flatMap((entry) => {
     const relative = `${dir}/${entry.name}`;
-    if (entry.isDirectory())
+    if (entry.isDirectory()) {
       return entry.name === 'node_modules' || entry.name === 'dist' ? [] : files(relative);
+    }
     return /\.tsx?$/.test(entry.name) ? [relative] : [];
   });
 };

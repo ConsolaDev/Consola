@@ -32,10 +32,11 @@ const isSegment = (segment: string) =>
 /** A skill file's path as its segments; it never leaves the skill's folder. */
 function segmentsOf(name: string, relative: string): string[] {
   const segments = relative.split('/');
-  if (!isSegment(name) || !segments.every(isSegment))
+  if (!isSegment(name) || !segments.every(isSegment)) {
     throw new Error(
       `${JSON.stringify(`${name}/${relative}`)} is not a path inside a skill, so the applied version was not kept.`,
     );
+  }
   return segments;
 }
 
@@ -102,16 +103,18 @@ function readSkills(
 ): { skills: Record<string, AppliedSkill> } | { why: string } {
   const names = Object.keys(hashes).sort();
   const root = path.join(dir, folder);
-  if (!fs.existsSync(root))
+  if (!fs.existsSync(root)) {
     return names.length === 0
       ? { skills: {} }
       : { why: `its skill files are missing (${names.join(', ')})` };
+  }
   if (!fs.lstatSync(root).isDirectory()) return { why: `its ${folder} folder is not a folder` };
   const held = fs.readdirSync(root).sort();
-  if (held.join('\0') !== names.join('\0'))
+  if (held.join('\0') !== names.join('\0')) {
     return {
       why: `its ${folder} folder holds ${held.join(', ') || 'nothing'}, not the skills it names (${names.join(', ') || 'none'})`,
     };
+  }
   const skills: Record<string, AppliedSkill> = {};
   for (const name of names) {
     const files: AppliedSkill['files'] = [];
@@ -125,16 +128,18 @@ function readSkills(
         }
         return null;
       }
-      if (!stats.isFile() || relative === '')
+      if (!stats.isFile() || relative === '') {
         return `${folder}/${name}/${relative} is not a regular file`;
+      }
       files.push({ path: relative, bytes: new Uint8Array(fs.readFileSync(at)) });
       return null;
     };
     const problem = walk('');
     if (problem) return { why: problem };
     files.sort(byPath);
-    if (skillHash(files) !== hashes[name])
+    if (skillHash(files) !== hashes[name]) {
       return { why: `the files of skill ${name} are not the ones it applied from` };
+    }
     skills[name] = { hash: hashes[name], files };
   }
   return { skills };
@@ -232,8 +237,9 @@ export class AppliedFactoryFiles implements AppliedFactoryStore {
     } catch (error) {
       // The last version and its skill folder stay as they were.
       fs.rmSync(temporary, { force: true });
-      if (skillsFolder !== undefined)
+      if (skillsFolder !== undefined) {
         fs.rmSync(path.join(dir, skillsFolder), { recursive: true, force: true });
+      }
       throw error;
     }
     this.removeSkillFoldersBut(dir, skillsFolder);

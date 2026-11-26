@@ -172,8 +172,9 @@ function readServers(value: unknown): AgentServer[] | string {
       const [key] = Object.keys(item);
       const name = key.normalize('NFC');
       const listed = item[key];
-      if (!isServerName(name) || !Array.isArray(listed) || listed.length === 0)
+      if (!isServerName(name) || !Array.isArray(listed) || listed.length === 0) {
         return MESSAGES.servers;
+      }
       const tools: string[] = [];
       for (const tool of listed) {
         if (typeof tool !== 'string' || !TOOL_NAME_PATTERN.test(tool)) return MESSAGES.toolName;
@@ -252,8 +253,9 @@ export function parseAgentFile(
 
   for (const key of Object.keys(front)) {
     if (own(REFUSED_AGENT_KEYS, key)) issue(REFUSED_AGENT_KEYS[key], key, lineOf(key));
-    else if (!AGENT_KEYS.has(key))
+    else if (!AGENT_KEYS.has(key)) {
       issue(`Unrecognized key in an agent file: \`${key}\`.`, key, lineOf(key));
+    }
   }
 
   let tools: AgentTools = 'read-only';
@@ -265,11 +267,11 @@ export function parseAgentFile(
   // A write agent says where it works (invariant 9); a read-only one has no shell to contain.
   let environment: string | undefined;
   if (has('environment')) {
-    if (typeof front.environment !== 'string' || !AUTOMATION_NAME_PATTERN.test(front.environment))
+    if (typeof front.environment !== 'string' || !AUTOMATION_NAME_PATTERN.test(front.environment)) {
       issue(MESSAGES.environment, 'environment', lineOf('environment'));
-    else if (tools === 'read-only' && (!has('tools') || front.tools === 'read-only'))
+    } else if (tools === 'read-only' && (!has('tools') || front.tools === 'read-only')) {
       issue(MESSAGES.readOnlyEnvironment, 'environment', lineOf('environment'));
-    else environment = front.environment;
+    } else environment = front.environment;
   } else if (tools !== 'read-only') issue(MESSAGES.needsEnvironment, 'tools', lineOf('tools'));
 
   let description: string | undefined;
@@ -280,32 +282,32 @@ export function parseAgentFile(
       given.trim() !== '' &&
       !/[\r\n]/.test(given) &&
       !isVisibleText(given)
-    )
+    ) {
       issue(visibleTextOnly('`description`'), 'description', lineOf('description'));
-    else if (
+    } else if (
       typeof given === 'string' &&
       given.trim() !== '' &&
       !/[\r\n]/.test(given) &&
       Array.from(given).length <= MAX_DESCRIPTION_CHARS
-    )
+    ) {
       description = given;
-    else issue(MESSAGES.description, 'description', lineOf('description'));
+    } else issue(MESSAGES.description, 'description', lineOf('description'));
   }
 
   let harness: string | undefined;
   if (has('harness')) {
-    if (typeof front.harness === 'string' && HARNESS_ID_PATTERN.test(front.harness))
+    if (typeof front.harness === 'string' && HARNESS_ID_PATTERN.test(front.harness)) {
       harness = front.harness;
-    else issue(MESSAGES.harness, 'harness', lineOf('harness'));
+    } else issue(MESSAGES.harness, 'harness', lineOf('harness'));
   }
 
   let model: string | undefined;
   if (has('model')) {
-    if (typeof front.model !== 'string' || !MODEL_PATTERN.test(front.model))
+    if (typeof front.model !== 'string' || !MODEL_PATTERN.test(front.model)) {
       issue(MESSAGES.model, 'model', lineOf('model'));
-    else if (!isVisibleText(front.model))
+    } else if (!isVisibleText(front.model)) {
       issue(visibleTextOnly('`model`'), 'model', lineOf('model'));
-    else model = front.model;
+    } else model = front.model;
   }
 
   let mcpServers: AgentServer[] = [];
@@ -337,16 +339,17 @@ export function parseAgentFile(
       Number.isInteger(given) &&
       given >= 1 &&
       given <= MAX_TURNS_LIMIT
-    )
+    ) {
       maxTurns = given;
-    else issue(MESSAGES.maxTurns, 'max_turns', lineOf('max_turns'));
+    } else issue(MESSAGES.maxTurns, 'max_turns', lineOf('max_turns'));
   }
 
   const body = split.body;
   const bodyLine = split.kind === 'ok' ? split.bodyLine : 1;
   if (!/\S/.test(body)) issue(MESSAGES.emptyBody, '', bodyLine);
-  if (new TextEncoder().encode(body).length > MAX_AGENT_BODY_BYTES)
+  if (new TextEncoder().encode(body).length > MAX_AGENT_BODY_BYTES) {
     issue(MESSAGES.bigBody, '', bodyLine);
+  }
   if (hasTemplateBraces(body)) issue(MESSAGES.braces, '', bodyLine);
 
   if (issues.length > 0) return { issues };

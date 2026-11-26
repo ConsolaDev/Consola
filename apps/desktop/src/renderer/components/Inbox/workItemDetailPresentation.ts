@@ -149,10 +149,12 @@ export function itemStatus(
 ): Meta & { kind: StatusKind } {
   if (type === 'issue') {
     if (state === 'open') return { label: 'Open', tone: 'success', kind: 'issue-open' };
-    if (stateReason === 'not-planned')
+    if (stateReason === 'not-planned') {
       return { label: 'Closed as not planned', tone: 'neutral', kind: 'issue-not-planned' };
-    if (stateReason === 'duplicate')
+    }
+    if (stateReason === 'duplicate') {
       return { label: 'Closed as duplicate', tone: 'neutral', kind: 'issue-not-planned' };
+    }
     return { label: 'Closed', tone: 'merged', kind: 'issue-closed' };
   }
   if (state === 'merged') return { label: 'Merged', tone: 'merged', kind: 'pr-merged' };
@@ -448,20 +450,23 @@ export function eventSentence(
     case 'converted-to-draft':
       return { icon: 'draft', sentence: [{ text: 'marked this pull request as draft' }] };
     case 'closed':
-      if (type === 'pr')
+      if (type === 'pr') {
         return { icon: 'pr-closed', tone: 'error', sentence: [{ text: 'closed this' }] };
-      if (event.stateReason === 'not-planned')
+      }
+      if (event.stateReason === 'not-planned') {
         return {
           icon: 'not-planned',
           tone: 'neutral',
           sentence: [{ text: 'closed this as not planned' }],
         };
-      if (event.stateReason === 'duplicate')
+      }
+      if (event.stateReason === 'duplicate') {
         return {
           icon: 'not-planned',
           tone: 'neutral',
           sentence: [{ text: 'closed this as a duplicate' }],
         };
+      }
       return {
         icon: 'issue-closed',
         tone: 'merged',
@@ -539,8 +544,9 @@ function labelSentence(
   const removed = events
     .filter((event) => event.kind === 'unlabeled')
     .map((event) => ({ label: event.label }));
-  if (added.length && removed.length)
+  if (added.length && removed.length) {
     return [{ text: 'added' }, ...added, { text: 'and removed' }, ...removed];
+  }
   return added.length ? [{ text: 'added' }, ...added] : [{ text: 'removed' }, ...removed];
 }
 
@@ -605,8 +611,9 @@ export function buildStream(
       }
     } else if (item.kind === 'commit') {
       const commits = [item];
-      while (timeline[index + 1]?.kind === 'commit')
+      while (timeline[index + 1]?.kind === 'commit') {
         commits.push(timeline[++index] as WorkItemCommitItem);
+      }
       entries.push({ kind: 'commits', id: item.id, commits });
     } else if (isLabelEvent(item)) {
       const group = [item];
@@ -837,7 +844,7 @@ export function mergeRows(
   const summary = summarizeChecks(details.checks);
   if (summary.total > 0) {
     const detail = checksSentence(summary);
-    if (summary.failing)
+    if (summary.failing) {
       rows.push({
         key: 'checks',
         tone: 'error',
@@ -845,7 +852,7 @@ export function mergeRows(
         detail,
         blocking: true,
       });
-    else if (summary.pending)
+    } else if (summary.pending) {
       rows.push({
         key: 'checks',
         tone: 'warning',
@@ -853,7 +860,7 @@ export function mergeRows(
         detail,
         blocking: true,
       });
-    else if (summary.passing)
+    } else if (summary.passing) {
       rows.push({
         key: 'checks',
         tone: 'success',
@@ -861,7 +868,7 @@ export function mergeRows(
         detail,
         blocking: false,
       });
-    else
+    } else {
       rows.push({
         key: 'checks',
         tone: 'neutral',
@@ -869,6 +876,7 @@ export function mergeRows(
         detail,
         blocking: false,
       });
+    }
   }
 
   const base = details.baseBranch ?? 'the base branch';
@@ -1021,8 +1029,9 @@ export function threadRow(rows: DiffRow[], thread: Pick<WorkItemThread, 'line' |
   if (thread.line === undefined) return -1;
   return rows.findIndex((row) => {
     const anchor = rowAnchor(row);
-    if (thread.side === 'LEFT')
+    if (thread.side === 'LEFT') {
       return (row.kind === 'del' || row.kind === 'context') && row.oldLine === thread.line;
+    }
     return anchor?.side === 'RIGHT' && anchor.line === thread.line;
   });
 }

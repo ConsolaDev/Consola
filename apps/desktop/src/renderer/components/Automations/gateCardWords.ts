@@ -22,8 +22,9 @@ export function gateChoiceLabel(choice: string): string {
 
 /** Why the person may want to look again before answering: a newer revision of the item waits for this run to end. */
 export function newerRevisionLine(view: Pick<GateView, 'newerRevision'>): string | null {
-  if (view.newerRevision === 'pull-request')
+  if (view.newerRevision === 'pull-request') {
     return 'This pull request has new commits since the review (held until this run ends)';
+  }
   if (view.newerRevision === 'item') return 'This item has changed since this run read it';
   return null;
 }

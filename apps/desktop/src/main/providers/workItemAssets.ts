@@ -39,8 +39,9 @@ for (const [network, prefix] of [
   ['192.168.0.0', 16],
   ['198.18.0.0', 15],
   ['224.0.0.0', 3],
-] as const)
+] as const) {
   NON_PUBLIC.addSubnet(network, prefix, 'ipv4');
+}
 for (const [network, prefix] of [
   ['::', 128],
   ['::1', 128],
@@ -203,13 +204,14 @@ export function createWorkItemAssetCache(
         if (done) break;
         chunks.push(value);
         size += value.byteLength;
-        if (size > maxBytes)
+        if (size > maxBytes) {
           return forget(
             new Response(resume(chunks, reader), {
               status: 200,
               headers: { 'Content-Type': type },
             }),
           );
+        }
       }
       const bytes = new Uint8Array(size);
       let offset = 0;

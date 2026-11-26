@@ -66,8 +66,9 @@ export function CommentBox({ ref }: { ref?: Ref<MarkdownEditorHandle> }) {
     if (
       !busy &&
       (await perform({ kind: 'reopen', ...withComment }, `${noun} reopened.`, 'composer'))
-    )
+    ) {
       setBody('');
+    }
   };
   const dismiss = () => {
     setClosing(null);

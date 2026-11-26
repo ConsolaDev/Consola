@@ -1722,10 +1722,12 @@ describe('a run rejected at a gate', () => {
       ),
     ).toBe(true);
     expect(runWorked(turnedDownRun)).toBe(false);
-    for (const status of ['completed', 'failed', 'running'] as const)
+    for (const status of ['completed', 'failed', 'running'] as const) {
       expect(runWorked(run({ status }))).toBe(true);
-    for (const status of ['queued', 'needs-approval', 'waiting'] as const)
+    }
+    for (const status of ['queued', 'needs-approval', 'waiting'] as const) {
       expect(runWorked(run({ status }))).toBe(false);
+    }
   });
 
   it("calls a run turned away after it started 'rejected', never 'dismissed' (3-A code review M6)", () => {

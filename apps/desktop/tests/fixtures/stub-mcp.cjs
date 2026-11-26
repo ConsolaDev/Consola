@@ -48,8 +48,9 @@ function optionsOf(argv) {
 const options = optionsOf(process.argv.slice(2));
 
 function log(event) {
-  if (options.log)
+  if (options.log) {
     fs.appendFileSync(options.log, `${JSON.stringify({ ...event, at: Date.now() })}\n`);
+  }
 }
 
 if (options.pids) fs.appendFileSync(options.pids, `${process.pid}\n`);

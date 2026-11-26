@@ -16,8 +16,9 @@ import { parseAutomationEntry } from './entry';
  */
 export function appendAutomationEntry(text: string, entryYaml: string): string {
   const doc = parseDocument(text);
-  if (doc.errors.length > 0)
+  if (doc.errors.length > 0) {
     throw new Error(`factory.yml does not parse, so nothing was added: ${doc.errors[0].message}`);
+  }
   const entry = parseDocument(entryYaml);
   if (entry.errors.length > 0 || !isSeq(entry.contents) || entry.contents.items.length !== 1) {
     throw new Error('Expected exactly one automation, written as a list item.');
@@ -101,8 +102,9 @@ function automationsCount(doc: Document): number {
  */
 export function replaceAutomationEntry(text: string, name: string, entryYaml: string): string {
   const doc = parseDocument(text);
-  if (doc.errors.length > 0)
+  if (doc.errors.length > 0) {
     throw new Error(`factory.yml does not parse, so nothing was changed: ${doc.errors[0].message}`);
+  }
   const found = findEntry(text, doc, name);
   if (!found) throw new Error(`There is no automation named "${name}" in factory.yml.`);
   const entry = parseAutomationEntry(entryYaml);

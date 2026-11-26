@@ -102,8 +102,9 @@ export function readCellTokenClaims(
   nowSeconds: number,
 ): ReadResult<CellTokenClaims> {
   // NaN would compare false with every time, so a token would never expire.
-  if (!Number.isFinite(nowSeconds))
+  if (!Number.isFinite(nowSeconds)) {
     throw new TypeError('The time to read a token at is not a number.');
+  }
   if (!isRecord(payload)) return refused("the token's claims are not an object");
   const fields = fieldProblem(payload, CLAIMS, 'the token');
   if (fields !== null) return refused(fields);

@@ -170,9 +170,9 @@ class Processes {
         (error, stdout) => {
           if (!error) resolve(stdout.trim());
           // `ps` exits 1, printing nothing, for a process that does not exist.
-          else if (typeof error.code === 'number' && !error.killed && stdout.trim() === '')
+          else if (typeof error.code === 'number' && !error.killed && stdout.trim() === '') {
             resolve('');
-          else resolve(undefined);
+          } else resolve(undefined);
         },
       );
     });
@@ -344,8 +344,9 @@ class StderrSink {
 }
 
 function writeAll(fd: number, bytes: Buffer): void {
-  for (let offset = 0; offset < bytes.length; )
+  for (let offset = 0; offset < bytes.length; ) {
     offset += fs.writeSync(fd, bytes, offset, bytes.length - offset);
+  }
 }
 
 /** The first bytes of each stdout line, kept in step with `ReadBuffer`, so a line that is not JSON-RPC can be quoted. */
@@ -376,11 +377,12 @@ class LineHeads {
   }
 
   private grow(piece: Buffer): void {
-    if (this.partial.length < LINE_HEAD_BYTES)
+    if (this.partial.length < LINE_HEAD_BYTES) {
       this.partial = Buffer.concat([
         this.partial,
         piece.subarray(0, LINE_HEAD_BYTES - this.partial.length),
       ]);
+    }
   }
 }
 
@@ -498,8 +500,9 @@ function watchTraffic(transport: Transport): {
   transport.send = (message, options) => {
     if (isJSONRPCRequest(message)) {
       pending.add(message.id);
-      if (current && current.id === undefined && message.method === 'tools/call')
+      if (current && current.id === undefined && message.method === 'tools/call') {
         current.id = message.id;
+      }
     }
     const sent = send(message, options);
     if (!('id' in message)) {
@@ -516,8 +519,9 @@ function watchTraffic(transport: Transport): {
     if (isJSONRPCErrorResponse(message)) {
       lastError = message.error.message;
       if (message.id !== undefined) pending.delete(message.id);
-      if (current && current.id !== undefined && message.id === current.id)
+      if (current && current.id !== undefined && message.id === current.id) {
         current.error = { code: message.error.code, message: message.error.message };
+      }
     } else if (isJSONRPCResultResponse(message)) {
       pending.delete(message.id);
       if (current && current.id !== undefined && message.id === current.id) current.resulted = true;
@@ -555,12 +559,13 @@ async function listTools(
       ListToolsResultSchema,
       { timeout: remaining(), signal },
     );
-    for (const tool of result.tools)
+    for (const tool of result.tools) {
       tools.push({
         name: tool.name,
         inputSchema: tool.inputSchema,
         ...(tool.outputSchema !== undefined ? { outputSchema: tool.outputSchema } : {}),
       });
+    }
     cursor = result.nextCursor;
     if (cursor === undefined) break;
   }
@@ -636,18 +641,21 @@ async function callOver(input: {
   } catch (error) {
     // The SDK wraps an abort as a timeout (review Minor 2): the signal is asked first.
     if (signal.aborted) return unanswered('stopped', STOPPED);
-    if (state.error)
+    if (state.error) {
       return {
         kind: 'answered',
         isError: true,
         content: [{ type: 'text', text: state.error.message }],
         bytes: Buffer.byteLength(JSON.stringify(state.error)),
       };
-    if (input.problem()?.kind === 'too-large')
+    }
+    if (input.problem()?.kind === 'too-large') {
       return unanswered('too-large', `its answer was over ${sizeWords(input.maxMessageBytes)}`);
+    }
     if (state.resulted) return unanswered('unreadable', messageOf(error));
-    if (error instanceof McpError && error.code === ErrorCode.RequestTimeout)
+    if (error instanceof McpError && error.code === ErrorCode.RequestTimeout) {
       return unanswered('timeout', messageOf(error));
+    }
     return unanswered('closed', messageOf(error));
   } finally {
     link.letGo();
@@ -714,11 +722,13 @@ function sessionOver(input: {
     tools: input.tools,
     checkArguments: (tool, args, options) => checkArgumentsWith(validator, tool, args, options),
     async call(tool, args, options) {
-      if (input.closing())
+      if (input.closing()) {
         return { kind: 'unanswered', why: 'closed', detail: 'the session was closed' };
+      }
       const onCallAbort = input.onAbort(options.signal);
-      if (options.signal !== launch.signal)
+      if (options.signal !== launch.signal) {
         options.signal.addEventListener('abort', onCallAbort, { once: true });
+      }
       try {
         return await callOver({
           client: input.client,
@@ -872,12 +882,14 @@ async function connectStdio(
     link.letGo();
     if (launch.signal.aborted) return refuse(STOPPED);
     const problem = transport.problem;
-    if (problem?.kind === 'not-json-rpc')
+    if (problem?.kind === 'not-json-rpc') {
       return refuse(
         `it printed something that is not JSON-RPC on stdout: ${clipText(problem.line.replace(ESCAPES, '').replace(CONTROLS, '').trim(), REASON_LINE_CHARS)}`,
       );
-    if (problem?.kind === 'too-large')
+    }
+    if (problem?.kind === 'too-large') {
       return refuse(`it sent a message over ${sizeWords(context.maxMessageBytes)}`);
+    }
     // A server may answer with the timeout's own code: its answer is not a timeout.
     const serverError = watch.serverError();
     if (timedOut(error, serverError)) {
@@ -1034,8 +1046,9 @@ async function connectHttp(
   // can no longer come, so the connection is closed, and the request ends with it rather than at
   // its timeout. The SDK reports a broken stream only here (it resumes none, `maxRetries: 0`).
   transport.onerror = () => {
-    if (problem?.kind === 'too-large' || [...broken].some((id) => watch.awaiting(id)))
+    if (problem?.kind === 'too-large' || [...broken].some((id) => watch.awaiting(id))) {
       void transport.close();
+    }
   };
   const client = new Client(context.info);
   let session: McpSession | undefined;
@@ -1066,11 +1079,13 @@ async function connectHttp(
     link.letGo();
     if (launch.signal.aborted) return refuse(STOPPED);
     if (error instanceof RedirectRefused) return refuse(error.message, true);
-    if (problem?.kind === 'too-large')
+    if (problem?.kind === 'too-large') {
       return refuse(`it sent a message over ${sizeWords(context.maxMessageBytes)}`);
+    }
     const serverError = watch.serverError();
-    if (timedOut(error, serverError))
+    if (timedOut(error, serverError)) {
       return refuse(`it did not answer within ${formatDuration(launch.timeoutMs)}`);
+    }
     if (serverError !== undefined) return refuse(`it answered with an error: ${serverError}`);
     return refuse(clipText(failureWords(error), REASON_LINE_CHARS));
   }
@@ -1130,8 +1145,9 @@ export function nodeMcpClient(options: NodeMcpClientOptions): McpClientPort {
     async connect(launch) {
       try {
         if (launch.transport === 'stdio') {
-          if (!transports.includes('stdio'))
+          if (!transports.includes('stdio')) {
             return { ok: false, reason: 'this runner cannot start stdio servers' };
+          }
           return await connectStdio(launch, context);
         }
         return await connectHttp(launch, context);

@@ -74,8 +74,9 @@ export function renderBranch(template: string, values: BranchValues): string {
       return cleanBranchPart(values.itemKey);
     }
     if (name === 'item.number') {
-      if (values.itemNumber === undefined)
+      if (values.itemNumber === undefined) {
         throw new Error('This run has no item.number for its branch.');
+      }
       return cleanBranchPart(String(values.itemNumber));
     }
     if (name === 'run.id') return cleanBranchPart(values.runId.slice(0, 8));
@@ -97,8 +98,9 @@ export function refFormatProblem(name: string): string | null {
   if (name === 'HEAD') return '`HEAD` is not a branch name';
   if (name === '@') return '`@` alone is not a ref';
   if (name.startsWith('-')) return 'it starts with `-`';
-  if (REFUSED_CHARACTERS.test(name))
+  if (REFUSED_CHARACTERS.test(name)) {
     return 'it holds a space, a control character or one of `~ ^ : ? * [ \\`';
+  }
   if (name.includes('..')) return 'it holds `..`';
   if (name.includes('@{')) return 'it holds `@{`';
   if (name.endsWith('.')) return 'it ends with `.`';
@@ -131,12 +133,14 @@ export function branchTemplateProblem(template: string): string | null {
   const names = branchPlaceholderNames(template);
   const rest = template.replace(PLACEHOLDER, '');
   if (rest.includes('{{') || rest.includes('}}')) return ONLY_PLACEHOLDERS;
-  if (names.some((name) => !(BRANCH_PLACEHOLDERS as readonly string[]).includes(name)))
+  if (names.some((name) => !(BRANCH_PLACEHOLDERS as readonly string[]).includes(name))) {
     return ONLY_PLACEHOLDERS;
+  }
   const first = template.search(PLACEHOLDER);
   const literal = first === -1 ? template : template.slice(0, first);
-  if (literal.indexOf('/') < 1)
+  if (literal.indexOf('/') < 1) {
     return "A branch starts with a literal folder, e.g. `fix/{{item.key}}`, so an item's key is only ever its last part.";
+  }
   const sample = renderBranch(template, SAMPLE);
   return refFormatProblem(sample) === null
     ? null

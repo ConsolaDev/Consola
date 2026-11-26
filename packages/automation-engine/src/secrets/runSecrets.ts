@@ -49,12 +49,13 @@ export class RunSecrets {
     const settle = (outcome: SecretsRead) => {
       if (this.readingByRun.get(runId) !== token) return;
       this.readingByRun.delete(runId);
-      if (outcome.ok)
+      if (outcome.ok) {
         this.heldByRun.set(runId, {
           values: outcome.values,
           masks: outcome.masks,
           labels: outcome.labels,
         });
+      }
       onDone(outcome);
     };
     let reading: Promise<SecretsRead>;

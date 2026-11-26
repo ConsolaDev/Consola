@@ -24,8 +24,9 @@ function migrationsUpTo(lastTag: string): string {
   if (last < 0) throw new Error(`No migration is tagged ${lastTag}`);
   const entries = journal.entries.slice(0, last + 1);
   writeFileSync(join(folder, 'meta', '_journal.json'), JSON.stringify({ ...journal, entries }));
-  for (const { tag } of entries)
+  for (const { tag } of entries) {
     copyFileSync(join(MIGRATIONS, `${tag}.sql`), join(folder, `${tag}.sql`));
+  }
   return folder;
 }
 

@@ -193,8 +193,9 @@ function valueAt(
     }
     return { missing: GONE };
   }
-  if (record.outputs && own(record.outputs, path.name))
+  if (record.outputs && own(record.outputs, path.name)) {
     return { value: String(record.outputs[path.name]) };
+  }
   if (!written) return { missing: `${path.step} completed without it` };
   const content = folder.readArtifact(workspaceId, run.id, path.step, record.attempt, path.name);
   return content === null ? { missing: GONE } : { value: content };
@@ -225,8 +226,9 @@ function renderValues(
       }
       return found.value;
     });
-    if (!rendered.ok)
+    if (!rendered.ok) {
       return { ok: false, error: `${rendered.missing.text} has no value${why ? `: ${why}` : ''}` };
+    }
     bytes += utf8Bytes(rendered.text);
     if (bytes > ENV_VALUES_CAP_BYTES) return { ok: false, error: ENV_OVER_CAP };
     values.push({ name, template, value: rendered.text });
@@ -256,8 +258,9 @@ export function prepareCommand(input: {
   const { run, definition, stepId, cwd, workspaceId, folder, source, polled, previous } = input;
   const step = leafSteps(definition.automation.steps).find((candidate) => candidate.id === stepId);
   const record = run.steps?.find((candidate) => candidate.id === stepId);
-  if (step?.kind !== 'run' || !record)
+  if (step?.kind !== 'run' || !record) {
     return { ok: false, error: `Its definition has no command step ${stepId}.` };
+  }
   try {
     const rendered = renderValues(step, {
       run,
@@ -439,8 +442,9 @@ function keepStdout(
     };
   }
   // The record says only that a log stopped short; stdout's may be the one.
-  if (result.truncated)
+  if (result.truncated) {
     return { ok: false, error: 'Its logs were cut short, so its stdout may not be whole.' };
+  }
   if (format === 'json') {
     try {
       JSON.parse(text);
@@ -496,8 +500,9 @@ export function commandOutcome(input: {
   // First, whatever the exit: the file is Consola's, by its name and place, so it is left masked (review S9).
   const written = readOutputFileMasked(folder, command, secrets);
   // A timeout or a stop ends it, whatever the shell's exit says.
-  if (result.exitCode !== 0 || result.timedOut || result.stopped)
+  if (result.exitCode !== 0 || result.timedOut || result.stopped) {
     return fail(describeFailure(result, command.step.timeoutMs));
+  }
   if ('error' in written) return fail(written.error);
   // Masked before it is read, so no output it keeps (nor any line a problem repeats) can carry the token.
   const parsed = parseOutputFile(

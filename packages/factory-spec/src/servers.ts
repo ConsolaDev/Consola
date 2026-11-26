@@ -141,12 +141,12 @@ function parseServer(
   }
   let type: 'stdio' | 'http' | undefined;
   if ('type' in raw) {
-    if (raw.type === 'sse')
+    if (raw.type === 'sse') {
       bad(
         "The HTTP+SSE transport is deprecated (MCP 2025-03-26). Point `url` at the server's Streamable HTTP endpoint, usually `/mcp`.",
         ['type'],
       );
-    else if (raw.type === 'stdio' || raw.type === 'http') type = raw.type;
+    } else if (raw.type === 'stdio' || raw.type === 'http') type = raw.type;
     else bad('Consola speaks MCP over stdio and Streamable HTTP.', ['type']);
   }
   if ('command' in raw === 'url' in raw) {
@@ -154,15 +154,16 @@ function parseServer(
     return null;
   }
   const transport = 'command' in raw ? 'stdio' : 'http';
-  if (type !== undefined && type !== transport)
+  if (type !== undefined && type !== transport) {
     bad(`\`type: ${type}\` does not match: \`stdio\` needs \`command\`, \`http\` needs \`url\`.`, [
       'type',
     ]);
+  }
   let description: string | undefined;
   if ('description' in raw) {
-    if (typeof raw.description === 'string' && !/[\r\n]/.test(raw.description))
+    if (typeof raw.description === 'string' && !/[\r\n]/.test(raw.description)) {
       description = raw.description;
-    else bad('`description` is one line of text.', ['description']);
+    } else bad('`description` is one line of text.', ['description']);
   }
   const common = (secrets: string[] | null): ServerCommon => ({
     name,
@@ -193,8 +194,9 @@ function parseServer(
     return { ...common(secrets), transport, command, args, env };
   }
 
-  for (const key of ['args', 'env'])
+  for (const key of ['args', 'env']) {
     if (key in raw) bad(`\`${key}\` is for a server Consola starts (\`command\`).`, [key]);
+  }
   const url = readUrl(raw.url, bad);
   const secrets = secretsOf([]);
   const headers = readHeaders(raw.headers, secrets, bad);
@@ -264,19 +266,19 @@ function readEnv(
   }
   for (const [name, value] of Object.entries(raw)) {
     const at = ['env', name];
-    if (name.startsWith('CONSOLA_'))
+    if (name.startsWith('CONSOLA_')) {
       bad("`CONSOLA_` is Consola's own namespace; pick another name.", at);
-    else if (!ENV_NAME_PATTERN.test(name))
+    } else if (!ENV_NAME_PATTERN.test(name)) {
       bad('Use uppercase letters, digits and underscores, e.g. PR_NUMBER.', at);
-    else if (isRefusedEnvName(name))
+    } else if (isRefusedEnvName(name)) {
       bad(
         `\`${name}\` is refused: these names and prefixes are refused because they make a program run a value: ${REFUSED_ENV_LIST}.`,
         at,
       );
-    else if (typeof value !== 'string') bad(NUMBER_IN_QUOTES, at);
-    else if (value.includes('{{') || value.includes('${'))
+    } else if (typeof value !== 'string') bad(NUMBER_IN_QUOTES, at);
+    else if (value.includes('{{') || value.includes('${')) {
       bad("A server's `env:` is literal: name a secret in `secrets:` instead.", at);
-    else if (looksLikeCredential(name, value)) bad(CREDENTIAL, at);
+    } else if (looksLikeCredential(name, value)) bad(CREDENTIAL, at);
     else env[name] = value;
   }
   return env;

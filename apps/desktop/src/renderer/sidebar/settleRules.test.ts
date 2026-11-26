@@ -92,8 +92,9 @@ function world(specs: Spec[]) {
   const offerFor = (id: string) => {
     for (const root of forest()) {
       if (root.entry.key === sessionKey(id)) return settleOffer(root, false);
-      if (root.children.some((c) => c.entry.key === sessionKey(id)))
+      if (root.children.some((c) => c.entry.key === sessionKey(id))) {
         return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true);
+      }
     }
     throw new Error('no such row');
   };

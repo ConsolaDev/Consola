@@ -183,8 +183,9 @@ export async function readDiff(
     CONTENT_OUTPUT,
   );
   if (diff.error || !diff.stdout) return { ...nothing, isNew: false, isDeleted: !fileExists };
-  if (diff.stdout.includes('Binary files'))
+  if (diff.stdout.includes('Binary files')) {
     return { ...nothing, isBinary: true, isNew: false, isDeleted: false };
+  }
 
   // Old content from HEAD for a staged diff, from the index otherwise.
   const old = await git(
@@ -222,8 +223,9 @@ export async function unstageFile(rootPath: string, filePath: string): Promise<v
   if (!reset.error) return;
   // Before the first commit there is no HEAD to reset to: drop it from the index.
   const remove = await git(rootPath, ['rm', '--cached', '--', filePath]);
-  if (remove.error)
+  if (remove.error) {
     throw new Error(remove.stderr.trim() || gitError({ ...reset, error: reset.error }));
+  }
 }
 
 export async function commit(

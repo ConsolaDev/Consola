@@ -332,10 +332,11 @@ describe('approvalSkills (review M4)', () => {
     expect(approvalSkills(detail({ skillsProblem: 'Its skills could not be read.' }))).toEqual({
       problem: 'Its skills could not be read.',
     });
-    for (const gone of [null, detail({})])
+    for (const gone of [null, detail({})]) {
       expect(approvalSkills(gone)).toEqual({
         problem: "Its skills can't be shown from this run's folder.",
       });
+    }
   });
 });
 

@@ -28,8 +28,9 @@ export async function createWorkspaceFromFolders(
     });
   }
   const trimmed = name?.trim();
-  if (trimmed && trimmed !== workspace.name)
+  if (trimmed && trimmed !== workspace.name) {
     await store.updateWorkspace(workspace.id, { name: trimmed });
+  }
   await useNavigationStore.getState().setActiveWorkspace(workspace.id);
   return workspace;
 }

@@ -87,12 +87,13 @@ export function RunDetails({ workspace, runId }: { workspace: Workspace; runId: 
     };
   }, [runId, updatedAt]);
 
-  if (loadError && !loaded)
+  if (loadError && !loaded) {
     return (
       <div className="automations-error" role="alert">
         {loadError}
       </div>
     );
+  }
   if (!loaded) return <p className="automations-hint">Loading…</p>;
   // A notification or a stale panel can name a run that history has since dropped.
   if (!loaded.run) return <p className="automations-hint">This run is no longer in history.</p>;

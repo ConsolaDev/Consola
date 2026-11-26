@@ -7,15 +7,18 @@ import type { ItemTarget } from '../../shared/automations';
  * so the runner only ever sees a well-formed one.
  */
 export function asRunTarget(value: unknown): ItemTarget {
-  if (typeof value !== 'object' || value === null || Array.isArray(value))
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new Error('Not a run target.');
+  }
   const fields = value as Record<string, unknown>;
   const keys = Object.keys(fields);
   if (keys.length !== 1) throw new Error('Not a run target.');
-  if (keys[0] === 'key' && typeof fields.key === 'string' && fields.key !== '')
+  if (keys[0] === 'key' && typeof fields.key === 'string' && fields.key !== '') {
     return { key: fields.key };
-  if (keys[0] === 'url' && typeof fields.url === 'string' && fields.url !== '')
+  }
+  if (keys[0] === 'url' && typeof fields.url === 'string' && fields.url !== '') {
     return { url: fields.url };
+  }
   if (keys[0] === 'workItem' && typeof fields.workItem === 'object' && fields.workItem !== null) {
     const item = fields.workItem as Record<string, unknown>;
     if (

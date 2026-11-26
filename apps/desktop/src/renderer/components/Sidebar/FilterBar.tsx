@@ -83,16 +83,18 @@ export function FilterBar({
   // promises a row that isn't there.
   const counts = new Map<string, number>();
   for (const session of workspace.sessions) {
-    if (session.name.length > 0)
+    if (session.name.length > 0) {
       counts.set(session.scopeId, (counts.get(session.scopeId) ?? 0) + 1);
+    }
   }
   const listed = workspace.sessions.filter((session) => session.name.length > 0);
   const facets = deriveFacets(listed);
   const active = effectiveFilters(workspace, listed, chosen);
   const isActive = (key: FacetKey, value: string) => active[key]?.includes(value) ?? false;
   const labelCounts = new Map<string, number>();
-  for (const session of listed)
+  for (const session of listed) {
     for (const id of session.labelIds ?? []) labelCounts.set(id, (labelCounts.get(id) ?? 0) + 1);
+  }
   const narrowed = !!scope || hasActiveFilters(active);
   const chips = Object.entries(active).flatMap(([key, values]) =>
     (values ?? []).map((value) => ({

@@ -85,12 +85,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /** Why a step key may not sit beside `uses:`, or undefined. `server`: the step's own, when it names one. */
 function companionProblem(key: string, server: string | undefined): string | undefined {
-  if (key === 'prompt' || key === 'action' || key === 'run' || key === 'gate')
+  if (key === 'prompt' || key === 'action' || key === 'run' || key === 'gate') {
     return `A step names one thing to do; got uses and ${key}.`;
+  }
   if (key === 'agent' || key === 'max_turns' || key === 'environment') return NO_AGENT;
   if (key === 'env') return 'A tool takes its values in `with:`.';
-  if (key === 'secrets')
+  if (key === 'secrets') {
     return `A tool's credentials belong to its server: name them under \`mcpServers.${server ?? '<server>'}.secrets\`.`;
+  }
   if (key === 'artifacts' || key === 'reads') return READS_NOTHING;
   return undefined;
 }
@@ -104,10 +106,11 @@ function readReference(value: unknown): { server: string; tool: string } | { pro
   const server = value.slice(0, at);
   const tool = value.slice(at + 1);
   if (USES_REF_PATTERN.test(value)) return { server, tool };
-  if (MCP_SERVER_NAME_PATTERN.test(server) && tool.length > 0)
+  if (MCP_SERVER_NAME_PATTERN.test(server) && tool.length > 0) {
     return {
       problem: `\`${tool}\` is not a tool's name: MCP names are letters, digits, \`.\`, \`_\` and \`-\`, at most 128.`,
     };
+  }
   return { problem: REFERENCE };
 }
 
@@ -121,9 +124,9 @@ function walk(
   },
 ): void {
   if (typeof value === 'string') visit.text(value, path);
-  else if (Array.isArray(value))
+  else if (Array.isArray(value)) {
     value.forEach((item, index) => walk(item, [...path, index], visit));
-  else if (isRecord(value)) {
+  } else if (isRecord(value)) {
     visit.mapping?.(Object.keys(value), path);
     for (const [key, item] of Object.entries(value)) walk(item, [...path, key], visit);
   }
@@ -195,12 +198,12 @@ export function parseUsesStep(
   let outputs: Record<string, OutputType> = {};
   if ('outputs' in raw) {
     const given = raw.outputs;
-    if (isRecord(given) && given.from === 'stdout')
+    if (isRecord(given) && given.from === 'stdout') {
       bad(
         "A tool's outputs are its result's fields: declare them by name, e.g. `outputs: { ts: string }`.",
         ['outputs'],
       );
-    else {
+    } else {
       const declared = readers.outputs(given, bad);
       if (declared) outputs = declared;
     }

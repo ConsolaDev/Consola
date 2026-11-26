@@ -246,30 +246,37 @@ export const CHECKOUT_WAIT = "waiting for this item's checkout";
  */
 export function stepWords(run: RunListEntry): string | null {
   // A person's session in the run's own checkout holds it (slice 3-B): that is what it waits on.
-  if (run.waitingFor?.session !== undefined)
+  if (run.waitingFor?.session !== undefined) {
     return `waiting for you to close ${run.waitingFor.session}`;
-  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT)
+  }
+  if (run.status === 'queued' && run.summary === CHECKOUT_WAIT) {
     return waitingForWords(run) ?? CHECKOUT_WAIT;
-  if (run.status === 'waiting' && run.retryAt !== undefined && run.step?.status !== 'waiting')
+  }
+  if (run.status === 'waiting' && run.retryAt !== undefined && run.step?.status !== 'waiting') {
     return `retrying the run at ${clockTime(run.retryAt)}`;
+  }
   const step = run.step;
   if (!step) return null;
   if (run.status === 'waiting' && step.gate) return `waiting for you at ${step.id}`;
-  if (run.status === 'waiting' && step.retryAt !== undefined)
+  if (run.status === 'waiting' && step.retryAt !== undefined) {
     return `retrying ${step.id} at ${clockTime(step.retryAt)}`;
+  }
   if (
     run.status === 'running' &&
     step.status === 'running' &&
     step.loop !== undefined &&
     step.round !== undefined &&
     step.max !== undefined
-  )
+  ) {
     return `round ${step.round} of ${step.max} · ${step.id}`;
+  }
   if (run.status === 'running' && step.status === 'running') return `running · ${step.id}`;
-  if (run.status === 'running' && step.status === 'queued')
+  if (run.status === 'running' && step.status === 'queued') {
     return `waiting for a slot before ${step.id}`;
-  if (run.status === 'failed')
+  }
+  if (run.status === 'failed') {
     return step.status === 'not-run' ? `failed before ${step.id}` : `failed at ${step.id}`;
+  }
   return null;
 }
 
@@ -409,8 +416,9 @@ function dayLabel(at: Date, now: Date): string {
     day: 'numeric',
     ...(at.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
   });
-  if (days > 1 && days < 7)
+  if (days > 1 && days < 7) {
     return `${at.toLocaleDateString(undefined, { weekday: 'long' })}, ${date}`;
+  }
   return date;
 }
 
@@ -557,8 +565,9 @@ export function runAutomationOptions(
       inFile: false,
     });
   }
-  if (chosen !== null && !listed.has(chosen))
+  if (chosen !== null && !listed.has(chosen)) {
     options.push({ id: chosen, label: chosen, count: 0, inFile: false });
+  }
   return options;
 }
 
@@ -581,8 +590,9 @@ export function formatRunWhen(iso: string, now: Date): string {
   const days = calendarDaysBefore(at, now);
   if (days === 0) return time;
   if (days === 1) return `Yesterday, ${time}`;
-  if (days > 1 && days < 7)
+  if (days > 1 && days < 7) {
     return `${at.toLocaleDateString(undefined, { weekday: 'short' })}, ${time}`;
+  }
   const date = at.toLocaleDateString(undefined, {
     month: 'short',
     day: 'numeric',
@@ -620,8 +630,9 @@ export function formatCountdown(iso: string, now: Date): string {
   if (totalMinutes <= 0) return 'due now';
   if (totalMinutes < 60) return `in ${totalMinutes}m`;
   const hours = Math.floor(totalMinutes / 60);
-  if (hours < 24)
+  if (hours < 24) {
     return totalMinutes % 60 === 0 ? `in ${hours}h` : `in ${hours}h ${totalMinutes % 60}m`;
+  }
   const days = Math.floor(hours / 24);
   return hours % 24 === 0 ? `in ${days}d` : `in ${days}d ${hours % 24}h`;
 }
@@ -812,8 +823,9 @@ export function runsByDay<T extends RunFacts>(
     const index = days - 1 - calendarDaysBefore(at, now);
     if (index >= 0 && index < days) result[index].runs.push(run);
   }
-  for (const entry of result)
+  for (const entry of result) {
     entry.runs.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  }
   return result;
 }
 
@@ -912,12 +924,13 @@ export function approvalStep(
     return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };
   }
   if (automation.mode === 'confirm') {
-    if (steps)
+    if (steps) {
       return {
         kind: 'approve',
         title: 'You approve each run',
         detail: 'Its steps run when you press Start',
       };
+    }
     return {
       kind: 'approve',
       title: 'You approve each run',
@@ -1116,8 +1129,9 @@ export function latestRun(
   if (!run) return null;
   const label = runStatusLabel(run);
   if (run.status === 'waiting') {
-    if (isWaitingAtGate(run))
+    if (isWaitingAtGate(run)) {
       return { run, tone: run.status, label, detail: `asked ${formatAgo(run.updatedAt, now)}` };
+    }
     const retryAt =
       run.step?.retryAt ??
       run.steps?.find((step) => step.status === 'waiting')?.retryAt ??
@@ -1129,8 +1143,9 @@ export function latestRun(
       detail: retryAt ? `retries at ${clockTime(retryAt)}` : formatAgo(run.updatedAt, now),
     };
   }
-  if (run.status === 'running')
+  if (run.status === 'running') {
     return { run, tone: run.status, label, detail: `for ${formatDuration(run, now) ?? '0s'}` };
+  }
   if (run.status === 'queued') {
     const line = place?.(run.id);
     return {
@@ -1140,8 +1155,9 @@ export function latestRun(
       detail: line !== undefined ? `${line} in line` : formatAgo(run.createdAt, now),
     };
   }
-  if (run.status === 'needs-approval')
+  if (run.status === 'needs-approval') {
     return { run, tone: run.status, label, detail: formatAgo(run.createdAt, now) };
+  }
   return {
     run,
     tone: run.status,

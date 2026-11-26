@@ -94,8 +94,9 @@ export function readOutboxMessage(value: unknown): ReadResult<OutboxMessage> {
 function readChange(value: unknown): ReadResult<WorkspaceChange> {
   if (!isRecord(value)) return refused('`change` is not an object');
   const { type } = value;
-  if (!isWorkspaceChangeType(type))
+  if (!isWorkspaceChangeType(type)) {
     return refused('`change.type` is not a change the contract names');
+  }
   const fields = fieldProblem(value, CHANGE_FIELDS[type], `the \`${type}\` change`);
   if (fields !== null) return refused(fields);
   if (type === 'workspace.created') return read({ type });

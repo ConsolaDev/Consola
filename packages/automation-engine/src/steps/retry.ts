@@ -110,8 +110,9 @@ export function entryMayRetry(input: {
     if (record.kind === 'repeat' || !started(record)) return true;
     const step = steps.get(record.id);
     if (!step || step.kind === 'repeat' || step.kind === 'gate') return false;
-    if (step.kind === 'agent')
+    if (step.kind === 'agent') {
       return record.tools === undefined && !input.agentNamesServer(step.id);
+    }
     return step.dryRun === 'run';
   });
 }

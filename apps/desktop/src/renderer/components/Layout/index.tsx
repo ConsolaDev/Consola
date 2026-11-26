@@ -42,8 +42,9 @@ export function Layout() {
   // workspace, or, with none open, the workspace itself.
   const handleNewSession = () => {
     if (activeWorkspaceId) {
-      if (!useNewSessionDialogStore.getState().destination)
+      if (!useNewSessionDialogStore.getState().destination) {
         void createQuickSession(activeWorkspaceId);
+      }
     } else {
       void pickFoldersAndCreateWorkspace();
     }

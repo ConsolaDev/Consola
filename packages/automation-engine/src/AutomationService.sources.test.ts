@@ -701,8 +701,9 @@ describe('checking', () => {
     const yaml = factoryWith(busy('busy-a'), busy('busy-b'), RE_REVIEW_ENTRY);
     const h = await sourcesHarness({ yaml, maxConcurrentAgents: 0, maxConcurrentCommands: 2 });
     for (const automation of parseFactorySpec(yaml).automations) {
-      if (automation.trigger.kind === 'cron')
+      if (automation.trigger.kind === 'cron') {
         h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
+      }
     }
     await h.service.trigger(WORKSPACE_ID, 'busy-a');
     await h.service.trigger(WORKSPACE_ID, 'busy-b');

@@ -1154,8 +1154,9 @@ describe('a call of a factory server (5a-2 Task 8)', () => {
     });
     expect(post().call?.intentAt).toBeDefined();
     expect(post().call?.resultAt).toBeDefined();
-    for (const file of ['call.json', 'result.json', 'output.json'])
+    for (const file of ['call.json', 'result.json', 'output.json']) {
       expect(fs.existsSync(attemptFile(h, run.id, 'post', file)), file).toBe(true);
+    }
     expect(h.world.mcp.closes).toEqual(['slack']);
     expect(h.store.get(run.id)?.status).toBe('completed');
   });
@@ -1590,9 +1591,11 @@ describe('a server that echoes its credential (5a-2 Task 8, Review Focus 1)', ()
     walk(h.folder.runDir(WORKSPACE_ID, runId));
     const record = JSON.stringify(h.store.get(runId));
     if (forms.some((form) => record.includes(form))) found.push('the record');
-    for (const notice of h.notices)
-      if (forms.some((form) => `${notice.title} ${notice.body}`.includes(form)))
+    for (const notice of h.notices) {
+      if (forms.some((form) => `${notice.title} ${notice.body}`.includes(form))) {
         found.push('a notice');
+      }
+    }
     return found;
   };
 
@@ -2293,8 +2296,9 @@ describe("a server's literals on its views, never a value (review S1)", () => {
       h.service.getStepDetail(run.id, 'post'),
       check,
     ]);
-    for (const form of [...maskFormsOf(BOT_VALUE), ...maskFormsOf(TRACKER_VALUE)])
+    for (const form of [...maskFormsOf(BOT_VALUE), ...maskFormsOf(TRACKER_VALUE)]) {
       expect(views).not.toContain(form);
+    }
     gate.release();
     await h.flush();
   });
@@ -2446,12 +2450,13 @@ describe("a call inside a repeat: loop (the merge with slice 3; the 5a-2 review'
       attempt: 2,
       outputs: { ts: 'done' },
     });
-    for (const attempt of [1, 2])
+    for (const attempt of [1, 2]) {
       expect(
         fs.existsSync(
           path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'post', attempt), 'call.json'),
         ),
       ).toBe(true);
+    }
     expect(h.store.get(run.id)!.status).toBe('completed');
   });
 

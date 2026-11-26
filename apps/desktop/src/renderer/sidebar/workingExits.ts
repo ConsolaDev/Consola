@@ -68,7 +68,7 @@ export function createWorkingExits() {
         if (attention === 'working') {
           // Back before its grace ran out: it never left.
           if (state) state.deadline = null;
-          else
+          else {
             inWorking.set(key, {
               // Seen starting now, or already running when first seen.
               since: known?.has(key)
@@ -76,6 +76,7 @@ export function createWorkingExits() {
                 : Math.max(...membersOf(root).map((entry) => entry.activityAt)),
               deadline: null,
             });
+          }
           continue;
         }
         if (!state) continue;

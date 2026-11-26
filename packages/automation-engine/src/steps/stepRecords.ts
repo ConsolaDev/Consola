@@ -172,8 +172,9 @@ export function withRound(
   let next = records;
   if (round > 1) {
     for (const record of records) {
-      if (inner.has(record.id) && record.status !== 'pending')
+      if (inner.has(record.id) && record.status !== 'pending') {
         next = withNextAttempt(next, record.id, { status: 'pending', nowIso });
+      }
     }
   }
   return next.map((record) => {
@@ -256,8 +257,9 @@ export function withRetryDue(records: StepRun[], stepId: string, nowIso: string)
 export function restartSteps(records: StepRun[], nowIso: string): StepRun[] {
   let next = records;
   for (const record of records) {
-    if (record.status !== 'pending')
+    if (record.status !== 'pending') {
       next = withNextAttempt(next, record.id, { status: 'pending', nowIso });
+    }
   }
   return next.map((record) => {
     const { round: _round, max: _max, ...rest } = withoutExecutionMarks(record);
@@ -370,12 +372,13 @@ export function closeSteps(
   const updated = updates.reduce((current, update) => withUpdate(current, update, nowIso), records);
   return updated.map((record) => {
     if (NOT_REACHED.has(record.status)) return { ...record, status: 'not-run' };
-    if (isLoopRow(record) && LOOP_OPEN.has(record.status))
+    if (isLoopRow(record) && LOOP_OPEN.has(record.status)) {
       return {
         ...record,
         status: ending === 'failed' ? 'failed' : 'completed',
         finishedAt: record.finishedAt ?? nowIso,
       };
+    }
     return record;
   });
 }

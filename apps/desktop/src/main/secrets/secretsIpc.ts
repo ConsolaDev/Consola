@@ -48,8 +48,9 @@ export function registerSecretsIpc(deps: SecretsIpcDeps): void {
     if (
       typeof workspaceId !== 'string' ||
       !workspaces.getAll().some((workspace) => workspace.id === workspaceId)
-    )
+    ) {
       throw new Error('Unknown workspace.');
+    }
     return workspaceId;
   };
   ipc.handle(

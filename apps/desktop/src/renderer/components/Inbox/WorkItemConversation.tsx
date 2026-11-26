@@ -235,8 +235,9 @@ function DescriptionEditor({ onClose }: { onClose: () => void }) {
       !busy &&
       title.trim() &&
       (await perform({ kind: 'edit', title, body }, 'Changes saved.', 'description'))
-    )
+    ) {
       onClose();
+    }
   };
   return (
     <form
@@ -321,8 +322,9 @@ function ReferenceLink({ source }: { source: WorkItemReference }) {
             type: source.type,
             number: source.number,
           })
-        )
+        ) {
           event.preventDefault();
+        }
       }}
     >
       <strong>{source.title}</strong>{' '}
@@ -338,41 +340,46 @@ function Sentence({ segments }: { segments: Segment[] }) {
     <>
       {segments.map((segment, index) => {
         const space = index > 0 ? ' ' : '';
-        if ('text' in segment)
+        if ('text' in segment) {
           return (
             <span key={index}>
               {space}
               {segment.text}
             </span>
           );
-        if ('strong' in segment)
+        }
+        if ('strong' in segment) {
           return (
             <span key={index}>
               {space}
               <strong>{segment.strong}</strong>
             </span>
           );
-        if ('code' in segment)
+        }
+        if ('code' in segment) {
           return (
             <span key={index}>
               {space}
               <code className="inbox-detail-code">{segment.code}</code>
             </span>
           );
-        if ('del' in segment)
+        }
+        if ('del' in segment) {
           return (
             <span key={index}>
               {space}
               <del>{segment.del}</del>
             </span>
           );
-        if ('label' in segment)
+        }
+        if ('label' in segment) {
           return (
             <span key={index}>
               {space}
               <ItemLabel label={segment.label} />
             </span>
           );
+        }
         return (
           <span key={index}>
             {space}

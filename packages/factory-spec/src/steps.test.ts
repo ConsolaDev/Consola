@@ -248,10 +248,12 @@ describe('agent', () => {
   ])('takes an agent step %s', (_, item, expected) => {
     const step = firstStep<AgentStep>(inFolder(item));
     expect(step).toMatchObject({ kind: 'agent', ...expected });
-    if (!('prompt' in expected))
+    if (!('prompt' in expected)) {
       expect(Object.prototype.hasOwnProperty.call(step, 'prompt')).toBe(false);
-    if (!('action' in expected))
+    }
+    if (!('action' in expected)) {
       expect(Object.prototype.hasOwnProperty.call(step, 'action')).toBe(false);
+    }
   });
 
   it('keeps every other key of an agent step beside it', () => {
@@ -522,8 +524,9 @@ describe('a command', () => {
 
     it('is the lists the validator, its message and the prose share', () => {
       for (const name of REFUSED_ENV_NAMES) expect(isRefusedEnvName(name), name).toBe(true);
-      for (const prefix of REFUSED_ENV_PREFIXES)
+      for (const prefix of REFUSED_ENV_PREFIXES) {
         expect(isRefusedEnvName(`${prefix}X`), prefix).toBe(true);
+      }
       for (const name of ENV_PREFIX_EXCEPTIONS) expect(isRefusedEnvName(name), name).toBe(false);
       const message = refusedFor('BASH_ENV');
       for (const name of REFUSED_ENV_NAMES) expect(message, name).toContain(name);
@@ -1683,10 +1686,11 @@ describe('what a step may say about writing (slice 3-B)', () => {
       '.github/notes.md',
       'docs/{{item.key}}-{{item.number}}.md',
       'a/.claudex/b.md',
-    ])
+    ]) {
       expect(
         owned(`- prompt: x\n  artifacts: [{ name: spec, path: ${JSON.stringify(path)} }]`).issues,
       ).toEqual([]);
+    }
   });
 
   it.each([

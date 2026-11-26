@@ -58,15 +58,17 @@ export interface GateOffer {
  */
 export function gateOffer(entries: readonly StepEntry[], stepId: string): GateOffer | null {
   const step = flatSteps(entries).find((row) => row.step.id === stepId)?.step;
-  if (step?.kind === 'gate')
+  if (step?.kind === 'gate') {
     return { ask: step.ask, show: [...step.show], choices: gateChoices(step) };
-  if (step?.kind === 'repeat' && typeof step.onExhausted === 'object')
+  }
+  if (step?.kind === 'repeat' && typeof step.onExhausted === 'object') {
     return {
       ask: step.onExhausted.ask,
       show: [...step.onExhausted.show],
       choices: ['approve'],
       loop: step,
     };
+  }
   return null;
 }
 
@@ -82,11 +84,12 @@ export function gateMaterialRefs(
 ): Array<{ step: string; name: string }> {
   const offer = gateOffer(entries, stepId);
   if (!offer) return [];
-  if (offer.show.length > 0 || !offer.loop)
+  if (offer.show.length > 0 || !offer.loop) {
     return offer.show.flatMap((entry) => {
       const ref = parseReadRef(entry);
       return ref && !ref.previous ? [{ step: ref.step, name: ref.name }] : [];
     });
+  }
   const round = records.find((record) => record.id === stepId)?.round;
   return offer.loop.steps.flatMap((step) => {
     const record = records.find((candidate) => candidate.id === step.id);
@@ -117,9 +120,11 @@ export function gateRefusal(
 ): string | null {
   const row = run.steps?.find((record) => record.id === stepId);
   const offer = typeof stepId === 'string' ? gateOffer(entries, stepId) : null;
-  if (run.status !== 'waiting' || row?.status !== 'waiting' || !row.gate || !offer)
+  if (run.status !== 'waiting' || row?.status !== 'waiting' || !row.gate || !offer) {
     return notWaitingForYou(String(stepId));
-  if (decision === 'reject' || (typeof decision === 'string' && offer.choices.includes(decision)))
+  }
+  if (decision === 'reject' || (typeof decision === 'string' && offer.choices.includes(decision))) {
     return null;
+  }
   return `\`${String(decision)}\` is not one of \`${stepId}\`'s choices (${offer.choices.join(', ')}, or reject).`;
 }

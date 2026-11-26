@@ -171,10 +171,12 @@ function scannedAsText(path: string, bytes: Uint8Array): boolean {
  */
 function commandAtLoad(path: string, bytes: Uint8Array): string | undefined {
   const text = new TextDecoder('utf-8').decode(bytes);
-  if (text.includes(INLINE_COMMAND))
+  if (text.includes(INLINE_COMMAND)) {
     return `A skill may not run commands when it loads: \`${path}\` holds !\`.`;
-  if (FENCED_COMMAND.test(text))
+  }
+  if (FENCED_COMMAND.test(text)) {
     return `A skill may not run commands when it loads: \`${path}\` has a fenced block that opens with !.`;
+  }
   return undefined;
 }
 
@@ -237,8 +239,9 @@ export function parseSkill(
       });
     }
   }
-  if (entries.length > MAX_SKILL_FILES)
+  if (entries.length > MAX_SKILL_FILES) {
     folderIssue(`A skill holds at most ${MAX_SKILL_FILES} files.`);
+  }
   const total = files.reduce((sum, entry) => sum + entry.bytes.length, 0);
   if (total > MAX_SKILL_BYTES) folderIssue('A skill holds at most 2 MB.');
 
@@ -319,8 +322,9 @@ export function parseSkill(
         );
       } else description = given;
       for (const key of ['license', 'compatibility']) {
-        if (key in front && typeof front[key] !== 'string')
+        if (key in front && typeof front[key] !== 'string') {
           frontIssue(`Expected \`${key}\` to be text.`, key, lineOf(key));
+        }
       }
       if (
         'metadata' in front &&

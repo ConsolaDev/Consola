@@ -67,8 +67,9 @@ export class PullRequestResolver {
     const inspection = await this.deps.worktrees.inspect(session.cwd!);
     // A detached HEAD, a missing remote, or a remote on another host
     // leave nothing to look up — not a candidate rather than a guess.
-    if (!inspection?.isLinkedWorktree || !inspection.remoteBranch || !inspection.originUrl)
+    if (!inspection?.isLinkedWorktree || !inspection.remoteBranch || !inspection.originUrl) {
       return null;
+    }
     const repo = driver.repoOfRemote?.(inspection.originUrl);
     if (!repo) return null;
     return {

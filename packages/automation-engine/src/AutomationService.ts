@@ -1024,9 +1024,11 @@ export class AutomationService {
     // A gate that waited while Consola was closed still waits: say so again, once.
     for (const run of this.deps.store.runs()) if (waitingGateOf(run)) this.noticeGate(run);
     // A write step this load failed, as Consola quit while it changed the checkout (slice 3-B): say so, once.
-    for (const run of recovered)
-      if (run.status === 'failed' && run.steps?.some((step) => step.error === INTERRUPTED_WRITE))
+    for (const run of recovered) {
+      if (run.status === 'failed' && run.steps?.some((step) => step.error === INTERRUPTED_WRITE)) {
         this.notify(`${run.automationId} stopped while it wrote`, INTERRUPTED_WRITE, run.id);
+      }
+    }
     this.announcingAllows = true;
     this.stopTicking = this.deps.every(this.deps.tickMs ?? TICK_MS, () => void this.tick());
     // Catch up on anything missed while Consola was closed, and resume
@@ -1078,8 +1080,9 @@ export class AutomationService {
       const names = named.get(workspaceId) ?? new Set<string>();
       names.add(run.id);
       // An unfinished run reads its previous run's folder, even once history dropped that record.
-      if (run.previous && !TERMINAL_RUN_STATUSES.includes(run.status))
+      if (run.previous && !TERMINAL_RUN_STATUSES.includes(run.status)) {
         names.add(run.previous.runId);
+      }
       named.set(workspaceId, names);
     }
     for (const workspaceId of this.deps.store.workspacesWithStepsRuns()) {
@@ -1136,8 +1139,9 @@ export class AutomationService {
       factory.folder.unwatch();
       this.factories.delete(workspaceId);
       // Its checks have nowhere to report either: their results are dropped, as their entries are gone.
-      for (const [key, check] of this.checkCommands)
+      for (const [key, check] of this.checkCommands) {
         if (key.startsWith(`${workspaceId} `)) check.stop();
+      }
       for (const run of this.deps.store.runs()) {
         if (
           run.attribution.workspaceId === workspaceId &&
@@ -1224,8 +1228,9 @@ export class AutomationService {
     // One workspace's folder never stops another's: a load that throws is logged, and the rest go on.
     const loads = await Promise.allSettled(added.map((workspaceId) => this.load(workspaceId)));
     loads.forEach((load, index) => {
-      if (load.status === 'rejected')
+      if (load.status === 'rejected') {
         console.error(`Could not load ${added[index]}'s factory folder.`, load.reason);
+      }
     });
     if (added.length > 0 || removed.length > 0 || runningChanged) this.settleSchedules();
     // A settings edit can change a poll entry's version too: an action a step names.
@@ -1265,11 +1270,12 @@ export class AutomationService {
       const loaded = this.definitionOf(run);
       if ('problem' in loaded) {
         if (loaded.gone) this.failRun(run.id, loaded.problem);
-        else
+        else {
           console.error(
             `Run ${run.id}'s definition could not be read; it is left as it is.`,
             loaded.error,
           );
+        }
       }
     }
     void this.pump();
@@ -1395,8 +1401,9 @@ export class AutomationService {
   private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): boolean {
     if (!this.hasReviewAccount(workspaceId)) return false;
     const { parse } = factory.read;
-    if (parse.issues.some((issue) => issue.file === 'factory.yml' && !isEntryIssue(issue)))
+    if (parse.issues.some((issue) => issue.file === 'factory.yml' && !isEntryIssue(issue))) {
       return false;
+    }
     return !parse.automations.some(coversAssignedReviews);
   }
 
@@ -1780,11 +1787,12 @@ export class AutomationService {
       const inSet = new Map<string, SourceItem>();
       for (const item of snapshot.items) {
         // The set, not the filter: a draft is in it, and fires once it is ready.
-        if (event.inSet(item))
+        if (event.inSet(item)) {
           inSet.set(
             event.keyOf(item),
             event.toSourceItem(item, cloned && event.passesFilter(item)),
           );
+        }
       }
       this.fireFromSet(entry, [...inSet.values()], at);
     }
@@ -1834,12 +1842,13 @@ export class AutomationService {
     this.deps.store.setSeen(key, record);
     const byKey = new Map(current.map((item) => [item.key, item]));
     // Only a record of the same list fires anything, so `previous` is there.
-    for (const itemKey of fire)
+    for (const itemKey of fire) {
       this.fireItem(entry, byKey.get(itemKey)!, {
         since: previous!.at,
         at,
         firedUnder: definition,
       });
+    }
     return { fired: fire.length, baseline: previous?.definition !== definition };
   }
 
@@ -1859,10 +1868,11 @@ export class AutomationService {
     for (const run of this.deps.store.runs()) {
       const itemKey = run.trigger.item?.key;
       if (itemKey === undefined || open.has(itemKey) || !isRunOf(run, entry)) continue;
-      if (run.status === 'needs-approval' || (run.status === 'queued' && !run.startedAt))
+      if (run.status === 'needs-approval' || (run.status === 'queued' && !run.startedAt)) {
         open.set(itemKey, 'not-started');
-      else if (run.status === 'running' || run.status === 'queued' || run.status === 'waiting')
+      } else if (run.status === 'running' || run.status === 'queued' || run.status === 'waiting') {
         open.set(itemKey, 'working');
+      }
     }
     return open;
   }
@@ -1908,8 +1918,9 @@ export class AutomationService {
     }
     // The click opens the session, where the findings — or the reason — are.
     const { workspaceId } = run.attribution;
-    if (workspaceId)
+    if (workspaceId) {
       this.deps.notify({ ...notice, runId: run.id, workspaceId, needsApproval: false, sessionId });
+    }
     void this.pump();
     return { completed };
   }
@@ -1943,11 +1954,12 @@ export class AutomationService {
     if (!problem) return;
     this.initFailures.set(sessionId, problem);
     const session = this.sessionNamed(run, sessionId);
-    if (session)
+    if (session) {
       this.deps.stopAgent(
         session,
         stray ? 'it loaded a server it was not given' : 'a server it needs was not connected',
       );
+    }
   }
 
   /**
@@ -2045,8 +2057,9 @@ export class AutomationService {
     };
     const key = automationKey(entry);
     const record = this.deps.store.seen(key);
-    if (record?.items.includes(item.key))
+    if (record?.items.includes(item.key)) {
       this.deps.store.setSeen(key, markFired(record, item.key, item.rev));
+    }
     return entry.steps
       ? this.fireSteps(entry, trigger, item)
       : this.fireAgentOnItem(entry, trigger, item);
@@ -2150,8 +2163,9 @@ export class AutomationService {
       typeof number !== 'number' ||
       !Number.isInteger(number) ||
       number <= 0
-    )
+    ) {
       return null;
+    }
     if (type !== 'pr' && type !== 'issue') return null;
     return { provider: connection, repo, number, type };
   }
@@ -2422,8 +2436,9 @@ export class AutomationService {
     if (!entry) throw new Error(`No automation named "${name}" in ${factory.folder.filePath}.`);
     if (!pollOf(entry)) throw new Error(`${name} has no check command to allow.`);
     if (entry.version !== version) throw new Error('It changed since you looked; review it again.');
-    if (entry.problem)
+    if (entry.problem) {
       throw new Error(`${name} can't check while it has a problem: ${entry.problem}.`);
+    }
     const key = automationKey(entry);
     this.deps.store.accept(key, version);
     // Settled: should something take it back, that asks again.
@@ -2587,12 +2602,13 @@ export class AutomationService {
     }
     // Read for this check alone, before the entry is asked again: a rebinding meanwhile drops it unspawned.
     const secrets = await readSecrets(this.deps.secrets, workspaceId, trigger.secrets ?? []);
-    if (!secrets.ok)
+    if (!secrets.ok) {
       return {
         ok: false,
         error: `${secrets.error}; nothing ran.`,
         told: `${secrets.told}; nothing ran.`,
       };
+    }
     base = { env: base.env, secrets: [...base.secrets, ...secrets.masks] };
     if (!this.entryCheckedBy(entry, running)) return { dropped: true };
     const fail = (error: string): CheckEnd => ({
@@ -2629,8 +2645,9 @@ export class AutomationService {
       } finally {
         this.checkCommands.delete(key);
       }
-      if (result.exitCode !== 0 || result.timedOut || result.stopped)
+      if (result.exitCode !== 0 || result.timedOut || result.stopped) {
         return fail(describeFailure(result, trigger.timeoutMs));
+      }
 
       let stdout: string | null;
       try {
@@ -2669,8 +2686,9 @@ export class AutomationService {
       this.deps.store.acceptedVersion(key) !== running.acceptedVersion ||
       // Its secrets bound elsewhere since it started: its items would be filed under the wrong binding.
       stableStringify(this.fingerprintsOf(entry)) !== stableStringify(running.fingerprints)
-    )
+    ) {
       return null;
+    }
     return entry;
   }
 
@@ -2964,10 +2982,11 @@ export class AutomationService {
       const files = held[name];
       return !files || skillHash(files) !== definition.skills?.[name];
     });
-    if (changed !== undefined)
+    if (changed !== undefined) {
       return {
         skillsProblem: `Its skills in the run folder are not the ones its version holds (skills/${changed}).`,
       };
+    }
     return { skillTexts: names.map((name) => ({ name, text: skillMarkdown(held[name]!) })) };
   }
 
@@ -3124,8 +3143,9 @@ export class AutomationService {
       return;
     }
     if (run && isEngineRun(run) && TERMINAL_RUN_STATUSES.includes(run.status)) return;
-    if (run?.status !== 'running' || !isAgentRun(run))
+    if (run?.status !== 'running' || !isAgentRun(run)) {
       throw new Error(`Run ${runId} is not a running agent run.`);
+    }
     if (this.starting.has(runId)) {
       // No turn exists yet: remember, and end it the moment it does.
       this.stopRequested.add(runId);
@@ -3266,20 +3286,23 @@ export class AutomationService {
 
   public async retry(runId: string, stepId?: string): Promise<RunRecord> {
     const run = this.deps.store.get(runId);
-    if (!run || !isStepsRun(run) || run.status !== 'failed')
+    if (!run || !isStepsRun(run) || run.status !== 'failed') {
       throw new Error(`Run ${runId} is not a failed steps run.`);
+    }
     // Refused at approval or turned away in line: its approval never covered a start, so the click must not be one.
     if (!run.startedAt) throw new Error(NEVER_STARTED);
     // By the budget its own snapshot was approved with: raising `budget:` in the file cannot help this run.
     const loaded = this.definitionOf(run);
-    if ('definition' in loaded && isOverBudget(loaded.definition, run))
+    if ('definition' in loaded && isOverBudget(loaded.definition, run)) {
       throw new Error(OVER_BUDGET_RETRY);
+    }
     if (this.retrying.has(runId)) throw new Error(`Run ${runId} is already being retried.`);
     if ('problem' in loaded) throw new Error(loaded.problem);
     const target = retryTargetOf(run.steps ?? []);
     if (!target) throw new Error(`Run ${runId} has no step to retry.`);
-    if (stepId !== undefined && stepId !== target.id)
+    if (stepId !== undefined && stepId !== target.id) {
       throw new Error(`Run ${runId} can be retried only from ${target.id}.`);
+    }
 
     let prepared: PreparedCheckout | undefined;
     let made: RunRecord['checkout'] | undefined;
@@ -3309,8 +3332,9 @@ export class AutomationService {
           `Couldn't rebuild this run's checkout of ${owned.repo}: ${describeError(error).replace(/\.$/, '')}. Nothing was retried.`,
         );
       }
-      if (this.deps.store.get(runId)?.status !== 'failed')
+      if (this.deps.store.get(runId)?.status !== 'failed') {
         throw new Error(`Run ${runId} changed while its checkout was rebuilt; it was not retried.`);
+      }
     }
     // A retry is a boundary too, whatever the item: a person's session open in the run's own checkout refuses it.
     const ownCheckout = owned ? this.ownedCheckout(run) : null;
@@ -3341,8 +3365,9 @@ export class AutomationService {
           .catch((error: unknown) => {
             throw new Error(makeFailedMessage(owned.repo, error));
           });
-        if (this.deps.store.get(runId)?.status !== 'failed')
+        if (this.deps.store.get(runId)?.status !== 'failed') {
           throw new Error(`Run ${runId} changed while its checkout was made; it was not retried.`);
+        }
         made = {
           cwd: fresh.cwd,
           scopeId: fresh.scopeId,
@@ -3364,8 +3389,9 @@ export class AutomationService {
       this.retrying.set(runId, { dir: run.checkout!.cwd });
       try {
         resetTo = await this.resetWriteStep(run, writer);
-        if (this.deps.store.get(runId)?.status !== 'failed')
+        if (this.deps.store.get(runId)?.status !== 'failed') {
           throw new Error(`Run ${runId} changed while its checkout was reset; it was not retried.`);
+        }
       } finally {
         this.retrying.delete(runId);
         void this.pump();
@@ -3375,8 +3401,9 @@ export class AutomationService {
       const workspaceId = run.attribution.workspaceId!;
       const itemKey = run.trigger.item?.key;
       const dir = run.checkout?.cwd ?? this.deps.checkout.pathFor(workspaceId, workItem);
-      if (this.checkoutHeld(dir, itemKey) || this.deps.checkoutBusy(dir))
+      if (this.checkoutHeld(dir, itemKey) || this.deps.checkoutBusy(dir)) {
         throw new Error(RETRY_HELD);
+      }
       // A loop's next round re-prepares when it begins with an agent step, as a retried agent step does (review S11).
       const reprepare =
         target.kind === 'agent' ||
@@ -3385,10 +3412,11 @@ export class AutomationService {
         this.retrying.set(runId, { dir, itemKey });
         try {
           prepared = await this.deps.checkout.prepare({ workspaceId, workItem });
-          if (this.deps.store.get(runId)?.status !== 'failed')
+          if (this.deps.store.get(runId)?.status !== 'failed') {
             throw new Error(
               `Run ${runId} changed while its checkout was prepared; it was not retried.`,
             );
+          }
         } catch (error) {
           this.retrying.delete(runId);
           // A run on the item that waited for the claim may start now.
@@ -3606,13 +3634,13 @@ export class AutomationService {
     const { run, lane, stepId } = waiting;
     if (stepId) {
       // Only a restart leaves a queued step naming a session: it is picked up there, or runs again.
-      if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId)
+      if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId) {
         await this.resumeStep(run.id, stepId);
-      else if (!this.secretsReady(run, stepId)) return;
+      } else if (!this.secretsReady(run, stepId)) return;
       // After the gate: a call's server's secrets are read before it starts.
-      else if (this.stepsOf(run.id).find((step) => step.id === stepId)?.kind === 'uses')
+      else if (this.stepsOf(run.id).find((step) => step.id === stepId)?.kind === 'uses') {
         await this.startUsesStep(run.id, stepId);
-      else if (lane === 'agent') await this.startAgentStep(run.id, stepId);
+      } else if (lane === 'agent') await this.startAgentStep(run.id, stepId);
       else await this.startCommandStep(run.id, stepId);
       return;
     }
@@ -3643,12 +3671,14 @@ export class AutomationService {
     );
     const itemKey = run.trigger.item?.key;
     const key = automationKeyOf(run);
-    if (!verdict.giveBack || itemKey === undefined || key === undefined || !firedBySource(run))
+    if (!verdict.giveBack || itemKey === undefined || key === undefined || !firedBySource(run)) {
       return;
+    }
     const record = this.deps.store.seen(key);
     const { firedUnder } = (run.result ?? {}) as { firedUnder?: unknown };
-    if (record && firedUnder !== undefined && record.definition === firedUnder)
+    if (record && firedUnder !== undefined && record.definition === firedUnder) {
       this.deps.store.setSeen(key, forgetFired(record, itemKey));
+    }
   }
 
   /** Whether a run is still where the line saw it: queued, or, for a started run, with the same step queued. */
@@ -3755,8 +3785,9 @@ export class AutomationService {
   private firstLaneOf(run: RunRecord): Lane | null {
     const records = run.steps ?? [];
     const entry = this.entryOf(run);
-    if (!entry?.steps || entry.version !== run.actionVersion)
+    if (!entry?.steps || entry.version !== run.actionVersion) {
       return records[0] ? laneOfRecord(records[0]) : null;
+    }
     // At this version the entry's definition is the run's snapshot, and its source the one the run builds. A
     // guess at its lane: an `item.json` that cannot be read reads as none here, and fails the run when it starts.
     const itemOf = this.itemOfSource(run, entry.source);
@@ -3797,14 +3828,16 @@ export class AutomationService {
       return { go: true };
     }
     const entry = this.entryOf(run);
-    if (!entry)
+    if (!entry) {
       return {
         go: false,
         status: 'rejected',
         message: 'It is no longer in its workspace’s factory.',
       };
-    if (entry.problem)
+    }
+    if (entry.problem) {
       return { go: false, status: 'failed', message: `Not run: ${entry.problem}.` };
+    }
     if (entry.version !== run.actionVersion) {
       return {
         go: false,
@@ -3833,8 +3866,9 @@ export class AutomationService {
       if (!snapshot || snapshot.fetchedAt === 0) return { go: false, wait: true };
       const inbox = snapshot.items.find((candidate) => event.keyOf(candidate) === wanted.key);
       // The set, not the filter: a queued review is not dropped for going back to draft.
-      if (!inbox || !event.inSet(inbox))
+      if (!inbox || !event.inSet(inbox)) {
         return { go: false, status: 'rejected', message: source.goneReason };
+      }
       item = event.toSourceItem(inbox, event.passesFilter(inbox));
     } else {
       // A run on a chosen item has no set to leave: the Inbox's item when it holds it, else what it recorded.
@@ -3844,12 +3878,13 @@ export class AutomationService {
       return { go: true, item: inbox ? inboxSourceItem(inbox) : recordedItem(run, wanted) };
     }
     const byHand = fired ? this.startedByHand(entry, wanted.key, run.createdAt) : undefined;
-    if (byHand)
+    if (byHand) {
       return {
         go: false,
         status: 'rejected',
         message: `Already started by hand: “${byHand.name}”.`,
       };
+    }
     return { go: true, item };
   }
 
@@ -3984,11 +4019,12 @@ export class AutomationService {
     for (const run of this.deps.store.runs()) {
       if (run.status !== 'running') continue;
       if (isAgentRun(run)) used += lane === 'agent' ? 1 : 0;
-      else if (run.steps)
+      else if (run.steps) {
         // A loop's own row runs nothing: only its steps hold slots.
         used += run.steps.filter(
           (step) => step.status === 'running' && !isLoopRow(step) && laneOfRecord(step) === lane,
         ).length;
+      }
     }
     return used;
   }
@@ -4377,8 +4413,9 @@ export class AutomationService {
     const problem = leftoverProblem(left);
     if (problem) return { ok: false, error: problem };
     // Stopped, or Consola quit, while that was asked: the stop's end, or the next start, owns the step now.
-    if (!this.stepStillRunning(run.id, record.id, record.attempt))
+    if (!this.stepStillRunning(run.id, record.id, record.attempt)) {
       return { ok: false, error: 'It ended before Consola checked its checkout.' };
+    }
     const before = record.checkout?.before ?? head;
     const settled = await port.settle({
       dir,
@@ -4445,16 +4482,18 @@ export class AutomationService {
       const shown = await owned.port.showAt(owned.dir, after, path, MAX_PATH_ARTIFACT_BYTES);
       const rendered = { name: artifact.name, path };
       if (shown.ok) {
-        if (utf8Bytes(shown.text) > MAX_ARTIFACT_BYTES)
+        if (utf8Bytes(shown.text) > MAX_ARTIFACT_BYTES) {
           return { error: pathArtifactProblem(rendered, record.id, 'over-document') };
+        }
         read.push({ name: artifact.name, text: shown.text });
       } else if (shown.reason === 'missing') missing.push(rendered);
       else return { error: pathArtifactProblem(rendered, record.id, shown.reason) };
     }
-    if (missing.length > 0)
+    if (missing.length > 0) {
       return record.reminded
         ? { error: pathArtifactProblem(missing[0], record.id, 'missing') }
         : { remind: missing };
+    }
     const workspaceId = run.attribution.workspaceId!;
     const written = [
       ...(this.stepsOf(run.id).find((step) => step.id === record.id)?.artifacts ?? []),
@@ -4474,8 +4513,9 @@ export class AutomationService {
       if (at === -1) written.push({ name, bytes });
       else written[at] = { name, bytes };
     }
-    if (read.length > 0)
+    if (read.length > 0) {
       this.writeSteps(run.id, withStep(this.stepsOf(run.id), record.id, { artifacts: written }));
+    }
     return { ok: true };
   }
 
@@ -4491,8 +4531,9 @@ export class AutomationService {
   private async resetWriteStep(run: RunRecord, record: StepRun): Promise<string> {
     const owned = this.ownedCheckout(run);
     const before = record.checkout?.before;
-    if (!owned || 'problem' in owned || before === undefined)
+    if (!owned || 'problem' in owned || before === undefined) {
       throw new Error(owned && 'problem' in owned ? owned.problem : 'It has no working folder.');
+    }
     const { port, dir, branch, base } = owned;
     const left = leftoverProblem(
       await port.endStepProcesses({
@@ -4516,8 +4557,9 @@ export class AutomationService {
       ),
       keepOnly: true,
     });
-    if (!kept.ok)
+    if (!kept.ok) {
       console.warn(`Run ${run.id} kept no changes.patch for ${record.id}: ${kept.error}`);
+    }
     await port.reset(dir, before, branch);
     return before;
   }
@@ -4743,8 +4785,9 @@ export class AutomationService {
       );
       return;
     }
-    for (const update of next.updates)
+    for (const update of next.updates) {
       this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
+    }
     // A stop that landed between steps fails what it would start next: a step, the gate it would park at, or a
     // loop's next round or exhaustion gate (review S8). Quietly: the person made it.
     if (next.kind !== 'complete' && next.kind !== 'fail' && stopping) {
@@ -4797,7 +4840,7 @@ export class AutomationService {
     } else {
       if (this.entryRetryWait(runId, next.error, options.quiet === true)) return;
       this.finish(runId, 'failed', { error: next.error });
-      if (!options.quiet)
+      if (!options.quiet) {
         this.notify(
           next.overBudget
             ? `${run.automationId} went over its budget`
@@ -4805,6 +4848,7 @@ export class AutomationService {
           next.error,
           runId,
         );
+      }
     }
     void this.pump();
   }
@@ -4819,10 +4863,11 @@ export class AutomationService {
     runId: string,
     next: Extract<Advance, { kind: 'start' | 'ask' | 'round' }>,
   ): string {
-    if (next.kind === 'round')
+    if (next.kind === 'round') {
       return next.round > 1
         ? stoppedAfterRound(next.round - 1, next.blockId)
         : stoppedBefore(next.blockId);
+    }
     const row = this.stepsOf(runId).find((record) => record.id === next.stepId);
     return next.kind === 'ask' && row && isLoopRow(row)
       ? stoppedAfterRound(row.round ?? 1, next.stepId)
@@ -5068,8 +5113,9 @@ export class AutomationService {
     const polled = latestResult(this.checks.get(automationKey(entry)), entry.version)?.find(
       (candidate) => candidate.key === wanted.key,
     );
-    if (!polled || !heldRevision(this.deps.store.seen(key), polledSourceItem(polled, true)))
+    if (!polled || !heldRevision(this.deps.store.seen(key), polledSourceItem(polled, true))) {
       return {};
+    }
     return { newerRevision: wanted.type === 'pr' ? 'pull-request' : 'item' };
   }
 
@@ -5156,11 +5202,12 @@ export class AutomationService {
       try {
         material = await this.writeCheckoutMaterial(run, loaded.definition, stepId, queued.attempt);
       } catch (error) {
-        if (this.stepWaiting(runId, stepId, queued.attempt))
+        if (this.stepWaiting(runId, stepId, queued.attempt)) {
           this.settleStep(runId, stepId, {
             status: 'failed',
             error: checkoutReadProblem(stepId, error),
           });
+        }
         return;
       }
       // Its run may have ended while that was read, or Consola quit: nothing started.
@@ -5331,10 +5378,11 @@ export class AutomationService {
       const files = held[name];
       return !files || skillHash(files) !== definition.skills?.[name];
     });
-    if (changed !== undefined)
+    if (changed !== undefined) {
       return {
         error: `Its skills in the run folder are not the ones its version holds (skills/${changed}), so it did not start: run the automation again.`,
       };
+    }
     return {
       skillsDir: this.deps.runFolder.skillsDir(workspaceId, run.id),
       pluginDir: `${this.deps.runFolder.attemptDir(workspaceId, run.id, stepId, record.attempt)}/plugin`,
@@ -5510,11 +5558,12 @@ export class AutomationService {
           materialText(changes.text, changes.bytes),
         );
       } catch (error) {
-        if (this.stepWaiting(runId, stepId, command.attempt))
+        if (this.stepWaiting(runId, stepId, command.attempt)) {
           this.settleStep(runId, stepId, {
             status: 'failed',
             error: checkoutReadProblem(stepId, error),
           });
+        }
         return;
       }
     }
@@ -5749,9 +5798,9 @@ export class AutomationService {
     }
     let failed: { error: string; atTurnLimit: boolean } | null;
     if (initFailure !== undefined) failed = { error: initFailure, atTurnLimit: false };
-    else if (report)
+    else if (report) {
       failed = reportedFailure({ ...outcome, report }, { reminder: record.reminded === true });
-    else {
+    } else {
       const error = turnFailure(outcome);
       failed = error ? { error, atTurnLimit: false } : null;
     }
@@ -5785,8 +5834,9 @@ export class AutomationService {
     } catch (settling) {
       console.error(`Run ${run.id} could not keep what ${record.id} left.`, settling);
     }
-    if (this.stepStillRunning(run.id, record.id, record.attempt))
+    if (this.stepStillRunning(run.id, record.id, record.attempt)) {
       this.settleStep(run.id, record.id, { status: 'failed', error });
+    }
   }
 
   /** After something was awaited for a step: the service still runs, and the step's attempt is still running. */
@@ -5798,8 +5848,9 @@ export class AutomationService {
   private stepSettleThrew(runId: string, record: StepRun, error: unknown): void {
     console.error(`Run ${runId} could not settle ${record.id}.`, error);
     try {
-      if (this.stepStillRunning(runId, record.id, record.attempt))
+      if (this.stepStillRunning(runId, record.id, record.attempt)) {
         this.settleStep(runId, record.id, { status: 'failed', error: describeError(error) });
+      }
     } catch (failing) {
       console.error(`Run ${runId} could not be recorded as failed.`, failing);
     }
@@ -6006,8 +6057,9 @@ export class AutomationService {
         }
         this.honourStepStop(run.id, record.id, session.id);
       } catch (error) {
-        if (this.stepRunning(run.id, record.id, attempt))
+        if (this.stepRunning(run.id, record.id, attempt)) {
           this.settleStep(run.id, record.id, { status: 'failed', error: describeError(error) });
+        }
       } finally {
         this.doneStarting(run.id, record.id);
       }
@@ -6027,8 +6079,9 @@ export class AutomationService {
       this.stepsOf(runId).some(
         (step) => step.id !== stepId && step.status === 'running' && !isLoopRow(step),
       )
-    )
+    ) {
       return;
+    }
     this.starting.delete(runId);
     this.stopRequested.delete(runId);
   }
@@ -6098,10 +6151,11 @@ export class AutomationService {
       ...agentWritesOf(loaded.definition, stepId),
     });
     // Spent: its own failure says how many times it was tried; a person's stop says only that.
-    if (!may)
+    if (!may) {
       return used >= declared && !person
         ? withStep(steps, stepId, { error: retriesSpentError(error, used + 1) })
         : steps;
+    }
     const now = this.iso();
     this.deps.store.update(runId, {
       status: 'waiting',
@@ -6318,8 +6372,9 @@ export class AutomationService {
       if (step.kind === 'run' || step.kind === 'uses') this.runningCommands.get(runId)?.stop();
       else if (step.sessionId) this.endOrphanTurn(step.sessionId);
     }
-    if (!options.quiet)
+    if (!options.quiet) {
       this.notify(`${this.deps.store.get(runId)!.automationId} did not finish`, error, runId);
+    }
     void this.pump();
   }
 
@@ -6673,8 +6728,9 @@ export class AutomationService {
       this.resolve(workspaceId, automation, agents, skills, environments, servers),
     );
     const warnings = new Map<string, FactoryNotice>();
-    for (const entry of factory.resolved)
+    for (const entry of factory.resolved) {
       for (const warning of entry.warnings ?? []) warnings.set(stableStringify(warning), warning);
+    }
     factory.warnings = [...warnings.values()];
     factory.resolved = factory.resolved.map((entry) => this.withSecrets(entry));
   }
@@ -6705,17 +6761,20 @@ export class AutomationService {
     const named = new Set(resolved.map(automationKey));
     for (const [workspaceId, factory] of this.factories) {
       if (!holdsLists(factory)) continue;
-      for (const key of this.deps.store.seenKeys())
+      for (const key of this.deps.store.seenKeys()) {
         if (key.startsWith(`${workspaceId} `)) kept.add(key);
-      for (const key of this.deps.store.addedKeys())
+      }
+      for (const key of this.deps.store.addedKeys()) {
         if (key.startsWith(`${workspaceId} `)) named.add(key);
+      }
     }
     // A revocation is kept through a broken file too: the entry it guards is still in there.
     const revoked = new Set(named);
     for (const [workspaceId, factory] of this.factories) {
       if (!holdsLists(factory)) continue;
-      for (const key of this.deps.store.revokedKeys())
+      for (const key of this.deps.store.revokedKeys()) {
         if (key.startsWith(`${workspaceId} `)) revoked.add(key);
+      }
     }
     this.deps.store.keepSeen(kept);
     this.deps.store.keepAdded(named);
@@ -6816,8 +6875,9 @@ export class AutomationService {
           (this.deps.workItems.canParseUrls(connection) &&
             workItemSource(connection, ['pr', 'issue'])) ||
           undefined;
-        if (!workItems)
+        if (!workItems) {
           return unable(`${connection} cannot read work item URLs, so \`item:\` cannot name it`);
+        }
         if (workItems.itemsHaveRepo && automation.scope) {
           return unable(
             `scope: a ${connection} item works in a checkout of its own repository, so it takes no scope`,
@@ -6844,14 +6904,15 @@ export class AutomationService {
       const connection = workspace?.provider?.id;
       source =
         (connection !== undefined && workItemSource(connection, automation.appliesTo)) || undefined;
-      if (!source)
+      if (!source) {
         return unable(
           'applies_to needs a connection bound to this workspace; bind one in its settings',
         );
+      }
     }
 
     // The checks above are a steps entry's too; the rest are its own.
-    if (isStepsEntry(automation))
+    if (isStepsEntry(automation)) {
       return this.resolveSteps(
         workspaceId,
         automation,
@@ -6862,15 +6923,17 @@ export class AutomationService {
         source,
         event,
       );
+    }
     const { run } = automation;
 
     if (run.kind === 'tool') {
       if (run.namespace !== CONSOLA_NAMESPACE) {
         // A namespace that could name a factory server: its tool is a `uses:` step's.
-        if (MCP_SERVER_NAME_PATTERN.test(run.namespace))
+        if (MCP_SERVER_NAME_PATTERN.test(run.namespace)) {
           return unable(
             `\`${run.ref}\` is not one of Consola's tools. An MCP server's tool is a step: \`steps: [{ uses: ${run.ref}, with: … }]\``,
           );
+        }
         return unable(`unknown tool namespace "${run.namespace}"; only consola# tools exist today`);
       }
       const tool = this.deps.registry.get(run.tool);
@@ -6983,27 +7046,30 @@ export class AutomationService {
       if (step.kind !== 'agent') continue;
       if (step.agent !== undefined) {
         // `parseFactory` keeps no entry whose agent is not valid; this guards an entry saved on its own.
-        if (!Object.prototype.hasOwnProperty.call(agents, step.agent))
+        if (!Object.prototype.hasOwnProperty.call(agents, step.agent)) {
           return unable(
             `its step \`${step.id}\` names the agent \`${step.agent}\`, and agents/${step.agent}.md is not in this factory`,
           );
+        }
         const agent = agents[step.agent];
         // Nor any agent whose skill is not valid: the same guard, for what its run would copy.
         for (const skill of agent.skills) {
-          if (!Object.prototype.hasOwnProperty.call(skills, skill))
+          if (!Object.prototype.hasOwnProperty.call(skills, skill)) {
             return unable(
               `agents/${agent.name}.md names the skill \`${skill}\`, and skills/${skill}/ is not in this factory`,
             );
+          }
           stepSkills[skill] = skills[skill];
         }
         // Nor any write agent whose environment is not valid (slice 3-B): its launch is held to it.
         if (
           agent.environment !== undefined &&
           !Object.prototype.hasOwnProperty.call(environments, agent.environment)
-        )
+        ) {
           return unable(
             `agents/${agent.name}.md names the environment \`${agent.environment}\`, and environments/${agent.environment}.yaml is not in this factory`,
           );
+        }
         stepAgents[step.id] = agentRequirements(agent, environments);
         agentHashes[agent.name] = agent.hash;
       }
@@ -7033,8 +7099,9 @@ export class AutomationService {
     const prCheckout = prCheckoutProblem(automation, source);
     if (prCheckout) return unable(prCheckout);
 
-    if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run'))
+    if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run')) {
       return unable(NO_POSIX_SHELL);
+    }
     const hasAgentStep = steps.some((step) => step.kind === 'agent');
     // A step that names no agent runs on the workspace's default harness.
     const onDefault = steps.some((step) => step.kind === 'agent' && step.agent === undefined);
@@ -7053,11 +7120,13 @@ export class AutomationService {
       const [first] = problems;
       return unable(first.message, warnings, first.path === 'mcpServers' ? { recheck: true } : {});
     }
-    if (stops.length > 0)
+    if (stops.length > 0) {
       return unable(stops[0].message, warnings, { recheck: true, unasked: true });
+    }
     // A checkout the run owns needs a host that makes one (slice 3-B, Call 2).
-    if (isRunOwnedCheckout(automation.checkout) && !this.deps.runCheckout)
+    if (isRunOwnedCheckout(automation.checkout) && !this.deps.runCheckout) {
       return unable(NO_RUN_CHECKOUTS, warnings);
+    }
     // A write agent needs a host whose launch holds it to its environment (slice 3-B, Call 2):
     // last, so every other problem the entry has is said first.
     const writes = this.deps.writeAgents ? undefined : writeToolsOf(automation, agents);
@@ -7311,7 +7380,7 @@ export class AutomationService {
     try {
       this.deps.runFolder.writeDefinition(entry.workspaceId, run.id, definition);
       writing = 'skills';
-      if (definition.skills)
+      if (definition.skills) {
         this.deps.runFolder.writeSkills(
           entry.workspaceId,
           run.id,
@@ -7319,9 +7388,11 @@ export class AutomationService {
             Object.keys(definition.skills).map((name) => [name, skills[name].files]),
           ),
         );
+      }
       writing = 'item';
-      if (item?.object !== undefined)
+      if (item?.object !== undefined) {
         this.deps.runFolder.writeItem(entry.workspaceId, run.id, item.object);
+      }
     } catch (error) {
       // Recorded, so it is seen; ended, so it holds no place in line.
       const reason = describeError(error).trim().replace(/\.$/, '');
@@ -7647,8 +7718,9 @@ export class AutomationService {
   private waiting(runId: string): RunRecord {
     const run = this.deps.store.get(runId);
     if (!run) throw new Error(`No run ${runId}.`);
-    if (run.status !== 'needs-approval')
+    if (run.status !== 'needs-approval') {
       throw new Error(`Run ${runId} is ${run.status}, not waiting for approval.`);
+    }
     return run;
   }
 
@@ -7779,11 +7851,12 @@ export class AutomationService {
       () => readSecrets(this.deps.secrets, workspaceId, names),
       (outcome) => {
         if (outcome.ok) void this.pump();
-        else if (this.stepWaiting(run.id, stepId, attempt))
+        else if (this.stepWaiting(run.id, stepId, attempt)) {
           this.settleStep(run.id, stepId, {
             status: 'failed',
             error: `${outcome.error}. Nothing ran.`,
           });
+        }
       },
     );
     return false;
@@ -7809,8 +7882,9 @@ export class AutomationService {
     // Asked after the borrow, so values let go of while it was borrowed are missed here, not handed out.
     const names = command.step.secrets ?? [];
     const held = this.runSecrets.held(runId);
-    if (names.some((name) => held?.values[name] === undefined))
+    if (names.some((name) => held?.values[name] === undefined)) {
       throw new Error('its secrets were not read before it started');
+    }
     return {
       env: base.env,
       secrets: [...base.secrets, ...(held?.masks ?? [])],
@@ -7897,18 +7971,21 @@ export class AutomationService {
       const alsoInDryRun = step.dryRun === 'run' ? { alsoInDryRun: true as const } : {};
       if (step.server !== CONSOLA_NAMESPACE) {
         const mcp = this.deps.mcp;
-        if (!mcp)
+        if (!mcp) {
           return {
             problem: `this runner can't call MCP servers, so \`uses: ${step.server}#…\` can't run here`,
           };
+        }
         // `parseFactory` keeps no entry whose server is not valid; this guards an entry saved on its own.
-        if (!Object.prototype.hasOwnProperty.call(servers, step.server))
+        if (!Object.prototype.hasOwnProperty.call(servers, step.server)) {
           return { problem: noSuchServer(step) };
+        }
         const server = servers[step.server];
-        if (!mcp.transports.includes(server.transport))
+        if (!mcp.transports.includes(server.transport)) {
           return {
             problem: `this runner can't ${server.transport === 'stdio' ? 'start stdio' : 'call Streamable HTTP'} servers, so \`uses: ${step.server}#…\` can't run here`,
           };
+        }
         used[step.server] = server;
         serverHashes[step.server] = serverHash(server);
         calls[step.id] = {
@@ -7926,25 +8003,29 @@ export class AutomationService {
       if (!tool.automatable) return { problem: `${step.uses} cannot be run by an automation` };
       const known = Object.keys(tool.input);
       const stranger = Object.keys(step.with).find((name) => !known.includes(name));
-      if (stranger !== undefined)
+      if (stranger !== undefined) {
         return {
           problem: `with: \`${stranger}\` is not an argument of \`${step.uses}\` (${known.length > 0 ? `it has: ${known.join(', ')}` : 'it has none'})`,
         };
-      if (tool.mutating && step.dryRun === 'run')
+      }
+      if (tool.mutating && step.dryRun === 'run') {
         return {
           problem: `its step \`${step.id}\` calls \`${step.uses}\`, which changes things, so it can't have \`dry_run: run\``,
         };
+      }
       for (const argument of args) {
         if (argument.trust !== 'untrusted') continue;
         const role = roleOf(tool, argument.name);
-        if (role === 'prompt')
+        if (role === 'prompt') {
           return {
             problem: `\`${argument.name}\` is sent to a session as if you typed it; it takes only trusted values`,
           };
-        if (role === 'selector')
+        }
+        if (role === 'selector') {
           return {
             problem: `\`${argument.name}\` chooses what \`${step.uses}\` acts on; it takes only trusted values`,
           };
+        }
       }
       calls[step.id] = {
         ref: step.uses,
@@ -8143,10 +8224,11 @@ export class AutomationService {
             mode: 'preview',
           });
         } catch (error) {
-          if (this.started && this.stepWaiting(runId, stepId, attempt))
+          if (this.started && this.stepWaiting(runId, stepId, attempt)) {
             fail(
               `\`${step.uses}\`'s preview failed: ${clipText(maskSecrets(describeReason(error), this.masksOf(runId)), CALL_ERROR_CHARS)}. Nothing was sent.`,
             );
+          }
           return;
         }
         if (!this.started || !this.stepWaiting(runId, stepId, attempt)) return;
@@ -8169,8 +8251,9 @@ export class AutomationService {
           masks,
         ),
       );
-      if (preview)
+      if (preview) {
         this.deps.runFolder.writeJson(dir, 'result.json', inProcessResultFile(preview, masks));
+      }
     } catch (error) {
       fail(`Could not record what it would send (${describeReason(error)}). Nothing was sent.`);
       return;
@@ -8551,7 +8634,7 @@ export class AutomationService {
             object === null ? null : (maskDeep(object, masks) as Record<string, unknown>),
           );
           const output = outputArtifactOf(outcome, masks);
-          if (output)
+          if (output) {
             artifact = this.deps.runFolder.writeArtifact(
               workspaceId,
               runId,
@@ -8561,6 +8644,7 @@ export class AutomationService {
               output.content,
               output.format,
             );
+          }
         }
       }
       const verdict = callEnd(
@@ -8658,23 +8742,26 @@ export class AutomationService {
    */
   private endServersLeftRunning(): void {
     const recorded: Array<{ runId: string; stepId: string; group: ServerGroup }> = [];
-    for (const run of this.deps.store.runs())
+    for (const run of this.deps.store.runs()) {
       for (const step of run.steps ?? []) {
         const server = step.kind === 'uses' ? step.call?.server : undefined;
-        if (server && !server.ended)
+        if (server && !server.ended) {
           recorded.push({
             runId: run.id,
             stepId: step.id,
             group: { pgid: server.pgid, startedAt: server.startedAt },
           });
+        }
       }
+    }
     const ledgered = this.serverGroups.all();
     const mcp = this.deps.mcp;
     if (!mcp) {
-      if (recorded.length + ledgered.length > 0)
+      if (recorded.length + ledgered.length > 0) {
         console.error(
           `${recorded.length + ledgered.length} MCP server group(s) an earlier start left could not be ended: this runner has no MCP client.`,
         );
+      }
       return;
     }
     const same = (a: ServerGroup, b: ServerGroup | undefined) =>
@@ -8802,8 +8889,9 @@ export class AutomationService {
   }
 
   private broadcast(workspaceId: string): void {
-    if (this.factories.has(workspaceId))
+    if (this.factories.has(workspaceId)) {
       this.deps.broadcast(workspaceId, this.snapshot(workspaceId));
+    }
   }
 
   private iso(): string {
@@ -8853,10 +8941,11 @@ function actionNamed(
     return { action };
   }
   const missing = types.find((type) => !action.appliesTo.includes(type));
-  if (missing)
+  if (missing) {
     return {
       problem: `the ${name} action does not apply to ${missing === 'pr' ? 'pull requests' : 'issues'}`,
     };
+  }
   return { action };
 }
 
@@ -9187,8 +9276,9 @@ function currentStep(run: RunRecord): RunListEntry['step'] {
       at = unreached;
     }
   }
-  if (at < 0 && status === 'rejected')
+  if (at < 0 && status === 'rejected') {
     at = steps.findIndex((step) => step.gate?.decision === 'reject');
+  }
   if (at < 0) {
     for (let index = steps.length - 1; index >= 0 && at < 0; index--) {
       if (['completed', 'failed', 'reported'].includes(steps[index].status)) at = index;
@@ -9424,8 +9514,9 @@ function agentWithProblems(automation: Automation, read: FactoryParseResult): st
     if (step.kind !== 'agent' || step.agent === undefined) continue;
     if (Object.prototype.hasOwnProperty.call(read.agents, step.agent)) continue;
     const file = `agents/${step.agent}.md`;
-    if (read.present.includes(file) || read.present.includes('agents/'))
+    if (read.present.includes(file) || read.present.includes('agents/')) {
       return `its step \`${step.id}\` names the agent \`${step.agent}\`, which has problems of its own in ${file}; save it once they are fixed`;
+    }
   }
   return null;
 }
@@ -9481,9 +9572,11 @@ function callServersOf(
 ): Record<string, McpServerDefinition> | undefined {
   if (!isStepsEntry(automation)) return undefined;
   const called: Record<string, McpServerDefinition> = {};
-  for (const step of leafSteps(automation.steps))
-    if (step.kind === 'uses' && Object.prototype.hasOwnProperty.call(servers, step.server))
+  for (const step of leafSteps(automation.steps)) {
+    if (step.kind === 'uses' && Object.prototype.hasOwnProperty.call(servers, step.server)) {
       called[step.server] = servers[step.server];
+    }
+  }
   return Object.keys(called).length > 0 ? called : undefined;
 }
 

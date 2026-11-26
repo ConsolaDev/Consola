@@ -31,8 +31,9 @@ export async function prepareWorkspaceIcon(file: File): Promise<WorkspaceImageIc
       height,
     );
     const icon: WorkspaceImageIcon = { type: 'image', dataUrl: canvas.toDataURL('image/png') };
-    if (!isWorkspaceImageIcon(icon))
+    if (!isWorkspaceImageIcon(icon)) {
       throw new Error('Could not prepare the image. Try another file.');
+    }
     return icon;
   } finally {
     bitmap.close();

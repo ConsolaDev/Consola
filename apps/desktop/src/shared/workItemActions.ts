@@ -221,8 +221,9 @@ export function validateActionsWrite(
 
   for (const [section, actionId] of Object.entries(write.sectionDefaults)) {
     if (actionId === undefined) continue;
-    if (!isKnownSection(section))
+    if (!isKnownSection(section)) {
       return { ok: false, message: `Unknown inbox section: ${section}` };
+    }
     const action = write.actions.find((candidate) => candidate.id === actionId);
     if (!action) {
       return {

@@ -84,8 +84,9 @@ export function willRun(automation: Automation | null): WillRun {
   const will: WillRun = { commands: [], agents: [] };
   for (const { step } of flatSteps(automation?.steps ?? [])) {
     if (step.kind === 'run') will.commands.push({ step: step.id, command: step.run });
-    else if (step.kind === 'agent')
+    else if (step.kind === 'agent') {
       will.agents.push({ step: step.id, agent: step.agent ?? null, prompt: step.prompt ?? null });
+    }
   }
   return will;
 }

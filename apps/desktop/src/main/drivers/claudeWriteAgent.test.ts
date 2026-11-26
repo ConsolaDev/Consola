@@ -64,8 +64,9 @@ describe("a write agent's deny list (Call 21)", () => {
       '/h/.gemini',
       '/h/.config/gh',
       '/h/.claude.json',
-    ])
+    ]) {
       expect(list).toContain(folder);
+    }
   });
 
   it('names each entry through its real path where it exists', () => {

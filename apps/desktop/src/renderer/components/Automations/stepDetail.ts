@@ -127,11 +127,11 @@ export function turnLine(step: StepRun): string | null {
   const { turns, costUsd } = step.turn ?? {};
   const maxTurns = step.reminded ? undefined : step.turn?.maxTurns;
   const parts: string[] = [];
-  if (turns !== undefined)
+  if (turns !== undefined) {
     parts.push(
       maxTurns !== undefined ? `${turnsWords(turns)} of at most ${maxTurns}` : turnsWords(turns),
     );
-  else if (maxTurns !== undefined) parts.push(`At most ${turnsWords(maxTurns)}`);
+  } else if (maxTurns !== undefined) parts.push(`At most ${turnsWords(maxTurns)}`);
   if (costUsd !== undefined) parts.push(formatCostUsd(costUsd));
   if (step.model !== undefined) parts.push(step.model);
   return parts.length > 0 ? parts.join(' · ') : null;
@@ -144,8 +144,9 @@ export function turnLine(step: StepRun): string | null {
  */
 export function earlierCosts(step: StepRun): string | null {
   const previous = [...(step.previous ?? [])].sort((a, b) => a.attempt - b.attempt);
-  if (!previous.some((earlier) => earlier.costUsd !== undefined || earlier.turns !== undefined))
+  if (!previous.some((earlier) => earlier.costUsd !== undefined || earlier.turns !== undefined)) {
     return null;
+  }
   const listed = previous.map((earlier) => {
     const cost =
       earlier.costUsd !== undefined ? formatCostUsd(earlier.costUsd) : 'no cost reported';
@@ -184,8 +185,9 @@ export function writeRows(step: StepRun): Array<[string, string]> {
         ? `${before} → ${checkout.after.slice(0, 7)} · ${checkout.files ?? 0} files`
         : `started at ${before}, nothing committed`,
     ]);
-    if (checkout.flagged && checkout.flagged.length > 0)
+    if (checkout.flagged && checkout.flagged.length > 0) {
       rows.push(['Flagged', checkout.flagged.map((flagged) => `changed ${flagged}`).join(', ')]);
+    }
   }
   return rows;
 }
@@ -367,8 +369,9 @@ export function notRunReason(
   const gate = rejectedAtGate(run);
   if (gate !== undefined) return `The run was rejected at \`${gate}\` before this step.`;
   // Turned away after it started (3-A code review M6): it did start.
-  if (run.status === 'rejected' && run.startedAt !== undefined)
+  if (run.status === 'rejected' && run.startedAt !== undefined) {
     return 'The run was turned away before reaching it.';
+  }
   if (run.status === 'rejected') return 'The run was turned down before it started.';
   // A failed step inside a loop before the loop's own row, which fails with it (review S10).
   const failed =
@@ -485,23 +488,25 @@ export function stepSummary(
       return null;
     case 'passed': {
       const answer = step.gate;
-      if (answer?.decision !== undefined)
+      if (answer?.decision !== undefined) {
         return `answered ${answer.decision} by you${answer.at ? ` ${formatAgo(answer.at, now)}` : ''}`;
+      }
       if (step.note) return step.note;
       const parts: string[] = call ? [`Called ${call}`] : [];
       const outputs = Object.entries(step.outputs ?? {});
-      if (outputs.length > 0)
+      if (outputs.length > 0) {
         parts.push(
           `set ${outputs.map(([name, value]) => `${name} = ${shortValue(value)}`).join(', ')}`,
         );
+      }
       for (const artifact of step.artifacts ?? []) {
         const size = formatBytes(artifact.bytes);
         if (artifact.name === 'handover') parts.push(`wrote its handover (${size})`);
-        else if (artifact.name === 'output' && step.kind === 'run')
+        else if (artifact.name === 'output' && step.kind === 'run') {
           parts.push(`kept its stdout as output (${size})`);
-        else if (artifact.name === 'output' && step.kind === 'uses')
+        } else if (artifact.name === 'output' && step.kind === 'uses') {
           parts.push(`kept its result as output (${size})`);
-        else parts.push(`wrote ${artifact.name} (${size})`);
+        } else parts.push(`wrote ${artifact.name} (${size})`);
       }
       if (parts.length === 0 && step.kind === 'run') {
         const out = step.command?.stdoutBytes ?? 0;
@@ -538,11 +543,12 @@ export function failureWords(error: string | undefined): { text: string; quote: 
       : { text: `${how}.`, quote: null };
   }
   const timedOut = /^timed out after (.+)$/.exec(error);
-  if (timedOut)
+  if (timedOut) {
     return {
       text: `Its command ran past its ${timedOut[1]} timeout and was stopped.`,
       quote: null,
     };
+  }
   const sentence = error.charAt(0).toUpperCase() + error.slice(1);
   return { text: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`, quote: null };
 }

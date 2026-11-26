@@ -116,8 +116,9 @@ export function withKnownTools(
   return {
     ...agent,
     mcpServers: agent.mcpServers.map((server) => {
-      if (server.tools !== undefined || !Object.prototype.hasOwnProperty.call(known, server.name))
+      if (server.tools !== undefined || !Object.prototype.hasOwnProperty.call(known, server.name)) {
         return server;
+      }
       return { ...server, knownTools: [...known[server.name]] };
     }),
   };

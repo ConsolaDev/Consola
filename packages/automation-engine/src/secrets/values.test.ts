@@ -116,11 +116,13 @@ describe('maskFormsOf', () => {
     for (const value of [SEEDED, 'stub-pager-secret-1', 'abcdefgh', 'ééééééé1']) {
       const forms = maskFormsOf(value);
       expect(forms[0].length).toBeGreaterThanOrEqual(forms[forms.length - 1].length);
-      for (const form of forms)
+      for (const form of forms) {
         if (form !== value) expect([...form].length, form).toBeGreaterThanOrEqual(8);
+      }
       expect(new Set(forms).size).toBe(forms.length);
-      for (let i = 1; i < forms.length; i++)
+      for (let i = 1; i < forms.length; i++) {
         expect(forms[i - 1].length).toBeGreaterThanOrEqual(forms[i].length);
+      }
     }
   });
 

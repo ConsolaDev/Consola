@@ -200,8 +200,9 @@ export class TerminalManager {
       // An unattended turn needs a process of its own: queued into the
       // terminal a person opened, it would be typed into their composer,
       // and its run would wait for an exit that is not its.
-      if (options.unattended)
+      if (options.unattended) {
         throw new Error('This session already has a terminal, so its turn cannot run unattended.');
+      }
       // Asked for a new conversation while a pane, mounted during the
       // caller's await, started the old one: the record names the new
       // one, so the terminal moves to it rather than taking a prompt

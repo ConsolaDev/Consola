@@ -172,10 +172,12 @@ function normalizeRecord(value: unknown): AttentionRecord | null {
     delete record.snoozedUntil;
     delete record.snoozedAt;
   }
-  if (record.snoozedUntil !== undefined && SNOOZE_REASONS.has(row.snoozeReason as SnoozeReason))
+  if (record.snoozedUntil !== undefined && SNOOZE_REASONS.has(row.snoozeReason as SnoozeReason)) {
     record.snoozeReason = row.snoozeReason as SnoozeReason;
-  if (record.wokeAt !== undefined && WAKE_CAUSES.has(row.wakeCause as WakeCause))
+  }
+  if (record.wokeAt !== undefined && WAKE_CAUSES.has(row.wakeCause as WakeCause)) {
     record.wakeCause = row.wakeCause as WakeCause;
+  }
   return record;
 }
 
@@ -225,8 +227,9 @@ export class JsonAttentionLedger implements AttentionLedger {
     // Activity after a settle is what takes a session off the shelf (see
     // deriveAttention), so this is the moment it came back. A late edge that
     // lands before the settle leaves it where it was.
-    if (current && isShelved(current) && lastActiveAt > current.settledAt!)
+    if (current && isShelved(current) && lastActiveAt > current.settledAt!) {
       next.unsettledAt = lastActiveAt;
+    }
     this.commit(next);
   }
 

@@ -41,10 +41,11 @@ function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
     const bodies: Record<string, string> = {};
     for (const step of leafSteps(automation.steps ?? [])) {
-      if (step.kind === 'agent' && step.action)
+      if (step.kind === 'agent' && step.action) {
         bodies[step.id] = h.world.workspace.actions.find(
           (action) => action.name === step.action,
         )!.prompt;
+      }
     }
     const body = Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined;
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation, body));

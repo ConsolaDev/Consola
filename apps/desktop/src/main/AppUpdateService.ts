@@ -67,8 +67,9 @@ export class AppUpdateService {
   }
 
   async check(): Promise<AppUpdateState> {
-    if (this.disposed || this.busy || ['disabled', 'ready'].includes(this.state.status))
+    if (this.disposed || this.busy || ['disabled', 'ready'].includes(this.state.status)) {
       return this.getState();
+    }
     this.busy = true;
     this.set({ status: 'checking', message: undefined, progress: undefined, version: undefined });
     try {

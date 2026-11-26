@@ -1176,8 +1176,9 @@ function round(
   const block = entries.find((entry): entry is RepeatStep => entry.kind === 'repeat')!;
   let rows = stepRecordsOf(entries);
   for (const id of entries.filter((entry) => entry.kind !== 'repeat').map((entry) => entry.id)) {
-    if (entries.findIndex((entry) => entry.id === id) < entries.indexOf(block))
+    if (entries.findIndex((entry) => entry.id === id) < entries.indexOf(block)) {
       rows = withStep(rows, id, { status: 'completed', outputs: outputs[id] ?? {} });
+    }
   }
   for (let at = 1; at <= k; at++) {
     rows = withRound(rows, block, at, T0);

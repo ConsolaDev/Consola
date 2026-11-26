@@ -122,11 +122,13 @@ function batchData(result: BatchResult) {
  * refused rather than guessed at (JavaScript would read it as UTC midnight).
  */
 function parseUntil(until: string): number {
-  if (/^\d{4}-\d{2}-\d{2}$/.test(until.trim()))
+  if (/^\d{4}-\d{2}-\d{2}$/.test(until.trim())) {
     throw new Error('Give a time as well as a date, e.g. 2026-11-20T09:00.');
+  }
   const at = Date.parse(until);
-  if (!Number.isFinite(at))
+  if (!Number.isFinite(at)) {
     throw new Error(`Could not read "${until}" as an ISO 8601 date and time.`);
+  }
   return at;
 }
 
@@ -315,8 +317,9 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
       mutating: false,
       automatable: false,
       async run(_args, context) {
-        if (context.caller.kind !== 'agent')
+        if (context.caller.kind !== 'agent') {
           throw new Error('Only a session’s agent has a work item of its own.');
+        }
         const details = await deps.workItemContext(context.caller.sessionId);
         const cut = details.diff !== undefined && details.diff.length > MAX_DIFF_CHARS;
         return {
@@ -418,8 +421,9 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
       async run(args, context) {
         const actor =
           context.caller.kind === 'agent' ? { sessionId: context.caller.sessionId } : {};
-        if (args.work_item && args.item_key !== undefined)
+        if (args.work_item && args.item_key !== undefined) {
           throw new Error('Pass work_item or item_key, not both.');
+        }
         // Built from the validated fields only, never from the raw arguments.
         const target: ItemTarget | undefined = args.work_item
           ? {
@@ -496,8 +500,9 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
       fullToolsOnly: true,
       async run(args, context) {
         const { caller } = context;
-        if (caller.kind !== 'agent')
+        if (caller.kind !== 'agent') {
           throw new Error('Only a session’s agent can save an automation.');
+        }
         const self = deps
           .getWorkspaces()
           .find((workspace) => workspace.id === caller.workspaceId)
@@ -631,8 +636,9 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
       mutating: true,
       automatable: false,
       async run(args, context) {
-        if ((args.until === undefined) === (args.minutes === undefined))
+        if ((args.until === undefined) === (args.minutes === undefined)) {
           throw new Error('Give exactly one of until or minutes.');
+        }
         // Snoozing yourself is allowed, unlike the destructive tools that
         // `excludeSessionIds` guards: parking a session hides nothing for good,
         // and an agent waiting on CI is the case this is for.
@@ -709,7 +715,8 @@ function startPlace(
 
 /** The workspace whose automations an agent may see and run: its own. */
 function callerWorkspace(context: ToolContext): string {
-  if (context.caller.kind !== 'agent')
+  if (context.caller.kind !== 'agent') {
     throw new Error('Only a session’s agent has a workspace of its own.');
+  }
   return context.caller.workspaceId;
 }

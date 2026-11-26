@@ -119,8 +119,9 @@ export class WorkspaceService {
       !workspace ||
       id === beforeId ||
       (beforeId !== null && !this.workspaces.some((candidate) => candidate.id === beforeId))
-    )
+    ) {
       return;
+    }
     const next = this.workspaces.filter((candidate) => candidate.id !== id);
     const index =
       beforeId === null ? next.length : next.findIndex((candidate) => candidate.id === beforeId);
@@ -219,8 +220,9 @@ export class WorkspaceService {
               scopes: candidate.scopes.filter((scope) => scope.id !== scopeId),
               sessions: candidate.sessions.filter((session) => !removedSessionIds.has(session.id)),
               groups: candidate.groups.map((group) => {
-                if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId))
+                if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId)) {
                   return group;
+                }
                 const { conductorSessionId: _removed, ...rest } = group;
                 return rest;
               }),
@@ -403,8 +405,9 @@ export class WorkspaceService {
         ...workspace,
         labels,
         sessions: workspace.sessions.map((session) => {
-          if (!carried.has(session.id) || session.labelIds?.includes(removed.label.id))
+          if (!carried.has(session.id) || session.labelIds?.includes(removed.label.id)) {
             return session;
+          }
           return { ...session, labelIds: [...(session.labelIds ?? []), removed.label.id] };
         }),
       };
@@ -413,8 +416,9 @@ export class WorkspaceService {
 
   public assignLabel(workspaceId: string, sessionId: string, labelId: string): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
-    if (!workspace?.labels.some((label) => label.id === labelId))
+    if (!workspace?.labels.some((label) => label.id === labelId)) {
       throw new Error(`No label ${labelId}`);
+    }
     const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
     if (!session || session.labelIds?.includes(labelId)) return;
     this.updateSession(workspaceId, sessionId, {
@@ -638,8 +642,9 @@ export class WorkspaceService {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
-    if (session.kind !== 'interactive')
+    if (session.kind !== 'interactive') {
       throw new Error('Only your own sessions can switch harness.');
+    }
 
     const switched = switchedSession(session, change);
     this.commit(

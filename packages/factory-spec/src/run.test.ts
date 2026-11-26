@@ -712,8 +712,9 @@ describe('the version of what slice 3 adds (Task 5)', () => {
       { checkout: { pr: 'item' as const } },
       { budget: { usd: 5 } },
       { onFailure: { retry: 1 } },
-    ])
+    ]) {
       expect(automationVersion({ ...base, ...extra })).not.toBe('6dfd57fa0f97c2ff');
+    }
     expect(automationVersion({ ...base, budget: { usd: 5 } })).not.toBe(
       automationVersion({ ...base, budget: { usd: 6 } }),
     );

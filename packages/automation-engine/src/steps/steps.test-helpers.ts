@@ -754,8 +754,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     const files = () => filesOf(workspaceId);
     // As the adapter's: a name that is no name is never a path.
     const automationFile = (name: string) => {
-      if (!AUTOMATION_NAME_PATTERN.test(name))
+      if (!AUTOMATION_NAME_PATTERN.test(name)) {
         throw new Error(`Not an automation name: ${JSON.stringify(name)}.`);
+      }
       return `automations/${name}.yaml`;
     };
     return {
@@ -938,8 +939,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                 ? { pgid: recordedGroup.pgid, startedAt: recordedGroup.startedAt }
                 : undefined,
             );
-            if (world.mcp.connectGate)
+            if (world.mcp.connectGate) {
               await Promise.race([world.mcp.connectGate, abortedOf(launch.signal)]);
+            }
             if (server.hang) await abortedOf(launch.signal);
             if (launch.signal.aborted) return { ok: false, reason: 'it was stopped' };
             if (server.refuse) return { ok: false, ...server.refuse };

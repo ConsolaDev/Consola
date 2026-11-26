@@ -78,8 +78,9 @@ export function reportedFailure(
   { reminder = false }: { reminder?: boolean } = {},
 ): { error: string; atTurnLimit: boolean } | null {
   const failed = (error: string) => ({ error, atTurnLimit: false });
-  if (outcome.stopped)
+  if (outcome.stopped) {
     return failed(turnFailure({ exitCode: outcome.exitCode, stopped: outcome.stopped })!);
+  }
   const { report, exitCode } = outcome;
   const { result } = report;
   if (result?.subtype === 'error_max_turns') {
@@ -92,8 +93,9 @@ export function reportedFailure(
       atTurnLimit: true,
     };
   }
-  if (result && (result.isError || result.subtype !== 'success'))
+  if (result && (result.isError || result.subtype !== 'success')) {
     return failed(resultFailure(result));
+  }
   const line = lastOtherLine(report);
   if (!result) {
     return failed(
@@ -135,8 +137,9 @@ export function requiredServers(
   stepId: string,
 ): Array<{ name: string }> {
   const names: string[] = [];
-  for (const server of definition.agents?.[stepId]?.mcpServers ?? [])
+  for (const server of definition.agents?.[stepId]?.mcpServers ?? []) {
     if (!names.includes(server.name)) names.push(server.name);
+  }
   return names.map((name) => ({ name }));
 }
 
@@ -171,8 +174,9 @@ export function initProblem(
 ): string | null {
   for (const { name } of required) {
     const server = init.servers.find((candidate) => candidate.name === name);
-    if (!server)
+    if (!server) {
       return `\`${name}\` was not loaded: it was removed from ${harnessName}, or it is blocked by its URL.`;
+    }
     if (server.status !== 'connected') {
       const where = init.signInHint ? `${harnessName} (${init.signInHint})` : harnessName;
       return `\`${name}\` was not connected (${server.status}). Sign in to it in ${where}, then retry this step.`;

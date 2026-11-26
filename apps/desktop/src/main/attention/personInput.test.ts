@@ -29,7 +29,8 @@ describe('isPersonKey', () => {
       '\x1b[<0;10;5m',
       '\x1b[M !!',
       '\x1b]11;rgb:0000/0000/0000\x07',
-    ])
+    ]) {
       expect(isPersonKey(report)).toBe(false);
+    }
   });
 });

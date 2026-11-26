@@ -835,8 +835,9 @@ function reviewersOf(header: PullRequestHeader): WorkItemReviewer[] {
   const authorLogin = header.author?.login;
   const reviewers = new Map<string, WorkItemReviewer>();
   for (const review of header.latestReviews.nodes) {
-    if (review.state === 'PENDING' || !review.author || review.author.login === authorLogin)
+    if (review.state === 'PENDING' || !review.author || review.author.login === authorLogin) {
       continue;
+    }
     reviewers.set(`user:${review.author.login}`, {
       who: person(review.author),
       isTeam: false,

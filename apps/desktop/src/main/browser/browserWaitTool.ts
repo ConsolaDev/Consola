@@ -55,8 +55,9 @@ export function planWait(args: WaitArgs): WaitPlan {
   if (args.text !== undefined) return { kind: 'text', text: args.text, timeoutMs };
   if (args.ref !== undefined) return { kind: 'ref', ref: args.ref, timeoutMs };
   if (args.selector !== undefined) return { kind: 'selector', selector: args.selector, timeoutMs };
-  if (args.url !== undefined)
+  if (args.url !== undefined) {
     return { kind: 'url', url: args.url, glob: args.url.includes('*'), timeoutMs };
+  }
   return { kind: 'network-idle', timeoutMs };
 }
 

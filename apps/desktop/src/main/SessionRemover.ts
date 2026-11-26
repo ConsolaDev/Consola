@@ -24,8 +24,12 @@ export function releaseRemovedWorktreeWith(
   return ({ removedWorktree: removed }) => {
     if (!removed) return;
     if (deps.stillNamed(removed.path)) return;
-    if (removed.kind === 'run-owned' && (deps.runNames(removed.path) || deps.exists(removed.path)))
+    if (
+      removed.kind === 'run-owned' &&
+      (deps.runNames(removed.path) || deps.exists(removed.path))
+    ) {
       return;
+    }
     void deps
       .deleteKeepRef(removed.mainRepo, removed.keepRef)
       .catch((error: unknown) => console.error(`Could not delete ${removed.keepRef}:`, error));

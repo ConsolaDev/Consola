@@ -32,8 +32,9 @@ const LOOP_ENTRY = (head = '', mode = 'auto') =>
 /** Accept every entry in `yaml` at its version, as a person approving each once would. */
 function acceptEvery(h: StepsHarness, yaml: string): void {
   for (const automation of parseFactorySpec(yaml).automations) {
-    if (leafSteps(automation.steps ?? []).some((step) => step.kind === 'agent' && step.action))
+    if (leafSteps(automation.steps ?? []).some((step) => step.kind === 'agent' && step.action)) {
       throw new Error('no action steps here');
+    }
     h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
   }
 }

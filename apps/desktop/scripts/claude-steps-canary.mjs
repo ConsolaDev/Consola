@@ -492,8 +492,9 @@ async function settledMcpStatus(cli, withinMs) {
     const answer = await cli.ask({ subtype: 'mcp_status' });
     const servers = answer?.response?.mcpServers;
     if (!Array.isArray(servers)) return { answer, servers: [] };
-    if (!servers.some((s) => s?.status === 'pending') || Date.now() > until)
+    if (!servers.some((s) => s?.status === 'pending') || Date.now() > until) {
       return { answer, servers };
+    }
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 }
@@ -659,11 +660,12 @@ function consolaConfig(tools = ['ping']) {
  */
 function markerMcpServer(dir, marker, tools = []) {
   const file = path.join(dir, 'canary-marker-mcp-server.cjs');
-  if (!fs.existsSync(file))
+  if (!fs.existsSync(file)) {
     write(
       file,
       `require('node:fs').writeFileSync(process.argv[3], 'started\\n');\n${STUB_MCP_SOURCE}`,
     );
+  }
   return {
     command: process.execPath,
     args: [file, JSON.stringify(tools), path.join(root, marker)],
@@ -774,8 +776,9 @@ function bangMarkersLeft() {
 }
 
 function clearBangMarkers() {
-  for (const name of [BANG_CONTROL, ...BANG_SUPPORTING])
+  for (const name of [BANG_CONTROL, ...BANG_SUPPORTING]) {
     fs.rmSync(bangMarker(name), { force: true });
+  }
 }
 
 const S12_PROMPT =
@@ -808,8 +811,9 @@ function s12Flags(restricted) {
 
 function nestedSkillVerdict(events) {
   const texts = [...toolResultTexts(events), resultOf(events)?.result ?? ''].join('\n');
-  if (/NESTED-SKILL-MARKER-7714/.test(texts) || /Launching skill: x\b/.test(texts))
+  if (/NESTED-SKILL-MARKER-7714/.test(texts) || /Launching skill: x\b/.test(texts)) {
     return 'launched';
+  }
   if (/Unknown skill: x/.test(texts)) return 'unknown';
   return 'unclear';
 }
@@ -819,11 +823,12 @@ function nestedSkillVerdict(events) {
 
 /** Row 1's check over a stream; `typed` is what was typed into its PTY. */
 function checkStream(runResult, typed) {
-  if (runResult.killedForLogin)
+  if (runResult.killedForLogin) {
     return {
       status: 'SKIP',
       why: `the scratch profile found a login (${runResult.killedForLogin})`,
     };
+  }
   const { events, others } = jsonLines(runResult.text);
   const problems = [];
   const first = events[0];
@@ -833,8 +838,9 @@ function checkStream(runResult, typed) {
   } else {
     if (!Array.isArray(first.mcp_servers)) problems.push('init.mcp_servers is not an array');
     if (typeof first.model !== 'string') problems.push('init.model is not a string');
-    if (first.apiKeySource !== 'none')
+    if (first.apiKeySource !== 'none') {
       problems.push(`init.apiKeySource is ${first.apiKeySource}, not none`);
+    }
   }
   if (!last || last.type !== 'result') {
     problems.push(`the last event is ${last ? eventName(last) : 'missing'}, not result`);
@@ -842,10 +848,12 @@ function checkStream(runResult, typed) {
     if (last.is_error !== true) problems.push(`result.is_error is ${last.is_error}, not true`);
     if (typeof last.subtype !== 'string') problems.push('result.subtype is not a string');
     if (typeof last.num_turns !== 'number') problems.push('result.num_turns is not a number');
-    if (typeof last.total_cost_usd !== 'number')
+    if (typeof last.total_cost_usd !== 'number') {
       problems.push('result.total_cost_usd is not a number');
-    if (!Array.isArray(last.permission_denials))
+    }
+    if (!Array.isArray(last.permission_denials)) {
       problems.push('result.permission_denials is not an array');
+    }
     if (typeof last.result !== 'string') problems.push('result.result is not a string');
   }
   if (runResult.exitCode === 0) problems.push('the CLI exited 0');
@@ -859,10 +867,11 @@ function checkStream(runResult, typed) {
         rest = rest.split(echo.text).join('');
       }
     }
-    if (!isBlank(rest))
+    if (!isBlank(rest)) {
       problems.push(
         `line ${other.line} is not JSON: ${JSON.stringify(short(other.raw ?? other.text, 80))}`,
       );
+    }
   }
   const landed = echoes
     .map(
@@ -871,11 +880,12 @@ function checkStream(runResult, typed) {
     )
     .join('; ');
   const counts = `${events.length} events`;
-  if (problems.length)
+  if (problems.length) {
     return {
       status: 'FAIL',
       why: `${problems.join('; ')} (${counts}${landed ? `; ${landed}` : ''})`,
     };
+  }
   return {
     status: 'PASS',
     why: `${counts}, exit ${runResult.exitCode}${landed ? `; ${landed}` : ''}`,
@@ -955,10 +965,11 @@ async function row2() {
     const problems = [];
     if (prompt === -1) problems.push('no UserPromptSubmit');
     if (!failure) problems.push('no StopFailure');
-    else if (seen.indexOf('StopFailure') < prompt)
+    else if (seen.indexOf('StopFailure') < prompt) {
       problems.push('StopFailure came before UserPromptSubmit');
-    else if (typeof failure.json.error !== 'string')
+    } else if (typeof failure.json.error !== 'string') {
       problems.push('StopFailure has no string error');
+    }
     if (stream.status === 'FAIL') problems.push(`the stream: ${stream.why}`);
     const heard = `hooks heard: ${seen.join(', ') || 'none'}${failure ? ` (StopFailure error: ${failure.json.error})` : ''}`;
     return problems.length
@@ -997,12 +1008,15 @@ async function row3() {
     }
     const names = serverNames(status.response?.mcpServers);
     const problems = [];
-    if (names.length !== 1 || names[0] !== 'consola')
+    if (names.length !== 1 || names[0] !== 'consola') {
       problems.push(`mcp_status lists ${names.join(', ') || 'nothing'}, not exactly consola`);
-    if (JSON.stringify(initialize.response).includes('canary-x'))
+    }
+    if (JSON.stringify(initialize.response).includes('canary-x')) {
       problems.push("initialize names the checkout's skill canary-x");
-    if (hooks.posts.length)
+    }
+    if (hooks.posts.length) {
       problems.push(`the checkout's SessionStart hook posted ${hooks.posts.length} time(s)`);
+    }
     return problems.length
       ? { status: 'FAIL', why: problems.join('; ') }
       : { status: 'PASS', why: 'mcp_status: consola; no canary-x; no hook posted' };
@@ -1033,11 +1047,12 @@ async function row4() {
       ],
       { cwd: checkout, env: scratchEnv(), guard: true },
     );
-    if (result.killedForLogin)
+    if (result.killedForLogin) {
       return {
         status: 'SKIP',
         why: `the scratch profile found a login (${result.killedForLogin})`,
       };
+    }
     if (!fs.existsSync(file)) return { status: 'INFO', why: 'the headersHelper did not run' };
     const ranIn = fs.readFileSync(file, 'utf8').trim();
     const isCheckout = realpath(ranIn) === realpath(checkout);
@@ -1076,8 +1091,9 @@ async function blockedServerTurn(settings) {
 
 async function row5() {
   const result = await blockedServerTurn({ allowedMcpServers: [{ serverName: 'consola' }] });
-  if (result.killedForLogin)
+  if (result.killedForLogin) {
     return { status: 'SKIP', why: `the scratch profile found a login (${result.killedForLogin})` };
+  }
   const { events, others } = jsonLines(result.text);
   const init = initOf(events);
   const last = resultOf(events);
@@ -1085,8 +1101,9 @@ async function row5() {
   const warning = others.find((o) => /blocked/i.test(o.text) && o.text.includes('srvb'));
   const problems = [];
   if (!init) problems.push('no init');
-  if (!names.includes('consola'))
+  if (!names.includes('consola')) {
     problems.push(`init does not name consola (${names.join(', ') || 'none'})`);
+  }
   if (names.includes('srvb')) problems.push('init names srvb');
   if (!warning) problems.push('no non-JSON line names srvb as blocked');
   if (last?.is_error !== true || last?.subtype !== 'success') {
@@ -1153,11 +1170,12 @@ async function row7() {
   const { servers } = await settledMcpStatus(cli, 10_000);
   await cli.close();
   const entry = servers.find((s) => s?.name === 'consola');
-  if (!entry)
+  if (!entry) {
     return {
       status: 'FAIL',
       why: `mcp_status has no consola (${serverNames(servers).join(', ') || 'nothing'})`,
     };
+  }
   const tools = Array.isArray(entry.tools)
     ? entry.tools.map((t) => (typeof t === 'string' ? t : t?.name))
     : [];
@@ -1166,8 +1184,9 @@ async function row7() {
   if (typeof entry.scope !== 'string') problems.push('no string scope');
   if (typeof entry.config?.type !== 'string') problems.push('no config.type');
   if (entry.status !== 'connected') problems.push(`status ${entry.status}`);
-  if (!tools.includes('ping') || !tools.includes('poke'))
+  if (!tools.includes('ping') || !tools.includes('poke')) {
     problems.push(`tools name ${tools.join(', ') || 'nothing'}`);
+  }
   const keys = `keys: ${Object.keys(entry).join(', ')}; config: ${Object.keys(entry.config ?? {}).join(', ')}; scope ${entry.scope}; tools ${tools.join(', ')}`;
   return problems.length
     ? { status: 'FAIL', why: `${problems.join('; ')} (${keys})` }
@@ -1227,8 +1246,9 @@ async function row9() {
   const verdict = nestedSkillVerdict(events);
   const skills = initOf(events)?.skills ?? [];
   const saw = `init.skills ${skills.includes('x') ? 'names x' : 'has no x'}; ${JSON.stringify(short(resultOf(events)?.result, 100))}; $${(resultOf(events)?.total_cost_usd ?? 0).toFixed(4)}`;
-  if (verdict !== 'unknown' || skills.includes('x'))
+  if (verdict !== 'unknown' || skills.includes('x')) {
     return { status: 'FAIL', why: `skill x ${verdict}; ${saw}` };
+  }
   return {
     status: 'PASS',
     why: `"Unknown skill: x"; ${saw}; proven only if row 10, its control, shows x launching without --restricted`,
@@ -1290,16 +1310,18 @@ async function row11() {
   );
   const anywhere = result.stdout.includes('CANARY-MARKER-7');
   const saw = `${JSON.stringify(short(text, 100))}; marker ${anywhere ? 'appears' : 'appears nowhere'} in the stream; $${(resultOf(events)?.total_cost_usd ?? 0).toFixed(4)}`;
-  if (readItself)
+  if (readItself) {
     return {
       status: 'FAIL',
       why: `the turn read a CLAUDE.md itself, so this proves nothing; ${saw}`,
     };
-  if (!resultOf(events))
+  }
+  if (!resultOf(events)) {
     return {
       status: 'FAIL',
       why: `no result; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
     };
+  }
   return text.includes('CANARY-MARKER-7')
     ? { status: 'FAIL', why: saw }
     : { status: 'PASS', why: saw };
@@ -1322,11 +1344,12 @@ async function row12() {
   const text = resultOf(events)?.result ?? '';
   const tools = Array.isArray(init?.tools) ? init.tools : [];
   const saw = `init.agents: ${agents.join(', ') || 'none'}; ${JSON.stringify(short(text, 100))}; the step's tools ${tools.some((t) => /^(Agent|Task)$/.test(t)) ? 'include' : 'hold no'} Agent tool; $${(resultOf(events)?.total_cost_usd ?? 0).toFixed(4)}`;
-  if (!init)
+  if (!init) {
     return {
       status: 'FAIL',
       why: `no init; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
     };
+  }
   return agents.includes('canary') || result.stdout.includes('CANARY-AGENT-MARKER-3')
     ? { status: 'FAIL', why: saw }
     : { status: 'PASS', why: saw };
@@ -1339,17 +1362,19 @@ async function row13() {
       hooks: hookSettings(`${hooks.url}/hook`, ['UserPromptSubmit']),
       allowedMcpServers: [{ serverName: 'consola' }],
     });
-    if (result.killedForLogin)
+    if (result.killedForLogin) {
       return {
         status: 'SKIP',
         why: `the scratch profile found a login (${result.killedForLogin})`,
       };
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
     const names = serverNames(initOf(jsonLines(result.text).events)?.mcp_servers);
     const problems = [];
     if (!hooks.hookEvents().includes('UserPromptSubmit')) problems.push('no UserPromptSubmit');
-    if (!names.includes('consola'))
+    if (!names.includes('consola')) {
       problems.push(`init does not name consola (${names.join(', ') || 'none'})`);
+    }
     if (names.includes('srvb')) problems.push('init names srvb');
     const saw = `hooks heard: ${hooks.hookEvents().join(', ') || 'none'}; init: ${names.join(', ') || 'none'}`;
     return problems.length
@@ -1395,11 +1420,12 @@ async function row14() {
   );
   const secondResult = resultOf(jsonLines(second.stdout).events);
   const saw = `first: ${figures(firstResult)}; second: ${figures(secondResult)}; session ${id} in ${cwd}`;
-  if (!firstResult)
+  if (!firstResult) {
     return {
       status: 'FAIL',
       why: `the first turn had no result (exit ${first.exitCode}: ${short(first.stderr, 100)})`,
     };
+  }
   // What Consola relies on (the engine's `withTurnRecorded`, the plan's Call 12
   // fallback, built because this row found it on 2.1.330): a resumed turn's
   // `num_turns` and `--max-turns` are its own, and its `total_cost_usd` is the
@@ -1410,10 +1436,12 @@ async function row14() {
   const modelOut = (result) =>
     Object.values(result?.modelUsage ?? {}).reduce((sum, use) => sum + (use?.outputTokens ?? 0), 0);
   const broken = [];
-  if (secondResult?.subtype !== 'success')
+  if (secondResult?.subtype !== 'success') {
     broken.push('its --max-turns 1 counted earlier turns, so a reminder cap needs them added');
-  if (secondResult?.num_turns !== 1)
+  }
+  if (secondResult?.num_turns !== 1) {
     broken.push('num_turns is a running total, so summing it over-counts');
+  }
   const own = secondResult?.usage?.output_tokens;
   const runningTotal =
     typeof own === 'number' &&
@@ -1487,21 +1515,24 @@ function noModel(turn, flags) {
 
 async function row16() {
   const alias = await modelTurn(HAIKU);
-  if (alias.result.killedForLogin)
+  if (alias.result.killedForLogin) {
     return {
       status: 'SKIP',
       why: `the scratch profile found a login (${alias.result.killedForLogin})`,
     };
+  }
   const first = alias.init?.model;
   if (typeof first !== 'string') return { status: 'FAIL', why: noModel(alias, '--model haiku') };
-  if (!first.includes('haiku'))
+  if (!first.includes('haiku')) {
     return { status: 'FAIL', why: `--model haiku put the turn on ${first}, not a haiku model` };
+  }
   const full = await modelTurn(['--model', first]);
-  if (full.result.killedForLogin)
+  if (full.result.killedForLogin) {
     return {
       status: 'SKIP',
       why: `the scratch profile found a login (${full.result.killedForLogin})`,
     };
+  }
   const second = full.init?.model;
   if (typeof second !== 'string') return { status: 'FAIL', why: noModel(full, `--model ${first}`) };
   const saw = `--model haiku → init.model ${first}; --model ${first} → init.model ${second}`;
@@ -1510,14 +1541,16 @@ async function row16() {
 
 async function row17() {
   const turn = await modelTurn(['--model', 'haiku', '--model', 'opus']);
-  if (turn.result.killedForLogin)
+  if (turn.result.killedForLogin) {
     return {
       status: 'SKIP',
       why: `the scratch profile found a login (${turn.result.killedForLogin})`,
     };
+  }
   const model = turn.init?.model;
-  if (typeof model !== 'string')
+  if (typeof model !== 'string') {
     return { status: 'FAIL', why: noModel(turn, '--model haiku --model opus') };
+  }
   const saw = `--model haiku --model opus → init.model ${model}`;
   return model.includes('opus') && !model.includes('haiku')
     ? { status: 'PASS', why: `${saw}: the last one wins` }
@@ -1528,11 +1561,12 @@ async function row18() {
   const result = await run(readOnlyTurn('Say hi'), { cwd: neutral, env: profileEnv() });
   const events = jsonLines(result.stdout).events;
   const last = resultOf(events);
-  if (!last)
+  if (!last) {
     return {
       status: 'FAIL',
       why: `no result; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
     };
+  }
   const models = Object.keys(last.modelUsage ?? {});
   const problems = [];
   if (last.subtype !== 'success') problems.push(`result.subtype is ${last.subtype}`);
@@ -1572,10 +1606,12 @@ async function row19() {
   // The only failure: a turn that succeeded on some model, so a step on a
   // model its CLI lacks would run anyway and "a model not listed is a
   // warning" would be unsafe.
-  if (last?.is_error === false)
+  if (last?.is_error === false) {
     return { status: 'FAIL', why: `a turn on ${MISSING_MODEL} succeeded: ${saw}` };
-  if (last?.is_error === true || (!last && result.exitCode !== 0))
+  }
+  if (last?.is_error === true || (!last && result.exitCode !== 0)) {
     return { status: 'PASS', why: saw };
+  }
   return { status: 'INFO', why: `no successful result, in a shape this row does not know: ${saw}` };
 }
 
@@ -1631,8 +1667,9 @@ async function row20() {
     const initialize = await cli.ask({ subtype: 'initialize' });
     const { servers } = await settledMcpStatus(cli, 20_000);
     await cli.close();
-    if (initialize?.subtype !== 'success')
+    if (initialize?.subtype !== 'success') {
       return { status: 'FAIL', why: `no initialize answer (${initialize?.subtype})` };
+    }
     const names = serverNames(servers);
     const shapes = servers
       .map(
@@ -1641,24 +1678,29 @@ async function row20() {
       )
       .join('; ');
     const problems = [];
-    if (names.length !== 2 || !names.includes('srva') || !names.includes('remote'))
+    if (names.length !== 2 || !names.includes('srva') || !names.includes('remote')) {
       problems.push(
         `mcp_status lists ${names.join(', ') || 'nothing'}, not exactly srva and remote`,
       );
+    }
     for (const server of servers) {
-      if (typeof server?.name !== 'string' || typeof server?.status !== 'string')
+      if (typeof server?.name !== 'string' || typeof server?.status !== 'string') {
         problems.push(`an entry has no string name or status`);
-      else if (server.scope !== 'dynamic')
+      } else if (server.scope !== 'dynamic') {
         problems.push(`${server.name}'s scope is ${server.scope}, not dynamic`);
+      }
     }
     const srva = servers.find((s) => s?.name === 'srva');
     const http = servers.find((s) => s?.name === 'remote');
-    if (srva && srva.config?.type !== 'stdio')
+    if (srva && srva.config?.type !== 'stdio') {
       problems.push(`srva's config.type is ${srva.config?.type}, not stdio`);
-    if (http && http.config?.type !== 'http')
+    }
+    if (http && http.config?.type !== 'http') {
       problems.push(`remote's config.type is ${http.config?.type}, not http`);
-    if (http && http.config?.url !== remoteUrl)
+    }
+    if (http && http.config?.url !== remoteUrl) {
       problems.push(`remote's config.url is ${http.config?.url}, not ${remoteUrl}`);
+    }
     return problems.length
       ? { status: 'FAIL', why: `${problems.join('; ')} (${shapes})` }
       : { status: 'PASS', why: shapes };
@@ -1676,8 +1718,9 @@ async function row21() {
     env: scratchEnv(),
   });
   const [initialize] = answers;
-  if (initialize?.subtype !== 'success')
+  if (initialize?.subtype !== 'success') {
     return { status: 'FAIL', why: `no initialize answer (${initialize?.subtype})` };
+  }
   const response = initialize.response ?? {};
   const commands = commandNames(response);
   const skills = Array.isArray(response.skills)
@@ -1688,14 +1731,16 @@ async function row21() {
     const fields = otherArraysNaming(response, name);
     return fields.length ? ` (it is in ${fields.join(', ')})` : '';
   };
-  if (!commands.includes('consola-step:triage-notes'))
+  if (!commands.includes('consola-step:triage-notes')) {
     problems.push(
       `no commands entry names consola-step:triage-notes${where('consola-step:triage-notes')}`,
     );
-  if (!commands.includes('dataviz') && !skills.includes('dataviz'))
+  }
+  if (!commands.includes('dataviz') && !skills.includes('dataviz')) {
     problems.push(
       `dataviz is in neither commands[].name nor a top-level skills${where('dataviz')}`,
     );
+  }
   const saw = `commands lists ${commands.length} names${Array.isArray(response.skills) ? `, a top-level skills ${skills.length}` : ', no top-level skills'}: consola-step:triage-notes ${commands.includes('consola-step:triage-notes') ? 'among them' : 'absent'}, dataviz ${commands.includes('dataviz') ? 'among them' : 'absent'}`;
   return problems.length
     ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
@@ -1729,8 +1774,9 @@ async function row22() {
       env,
     });
     const [initialize] = answers;
-    if (initialize?.subtype !== 'success')
+    if (initialize?.subtype !== 'success') {
       return { status: 'FAIL', why: `no deny-list answer (${initialize?.subtype})` };
+    }
     const login = loginIn(initialize);
     if (login) return { status: 'SKIP', why: `its profile found a login (${login})` };
     const deny = commandNames(initialize.response)
@@ -1765,8 +1811,9 @@ async function row22() {
       ],
       { cwd: neutral, env, guard: true },
     );
-    if (result.killedForLogin)
+    if (result.killedForLogin) {
       return { status: 'SKIP', why: `its profile found a login (${result.killedForLogin})` };
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
     const { events, others } = jsonLines(result.text);
     const init = initOf(events);
@@ -1775,35 +1822,41 @@ async function row22() {
     const tools = Array.isArray(init.tools) ? init.tools : [];
     const skills = Array.isArray(init.skills) ? init.skills : [];
     const problems = [];
-    for (const name of ['consola', ROW22_PLAIN, 'remote'])
+    for (const name of ['consola', ROW22_PLAIN, 'remote']) {
       if (!names.includes(name)) problems.push(`init does not name ${name}`);
+    }
     if (names.includes('blocked')) problems.push('init names blocked');
-    for (const tool of [`mcp__${ROW22_PLAIN}__ping`, `mcp__${ROW22_PLAIN}__query_logs`, 'Skill'])
+    for (const tool of [`mcp__${ROW22_PLAIN}__ping`, `mcp__${ROW22_PLAIN}__query_logs`, 'Skill']) {
       if (!tools.includes(tool)) problems.push(`init.tools lack ${tool}`);
+    }
     // The dotted name: blocked by name, so the driver's refusal of it stands.
     const blockedLines = others.filter((o) => /blocked/i.test(o.text)).map((o) => o.text);
     const dottedTools = `mcp__${ROW22_DOTTED.replace(/[^A-Za-z0-9_-]/g, '_')}__`;
-    if (names.includes(ROW22_DOTTED) || tools.some((t) => t.startsWith(dottedTools)))
+    if (names.includes(ROW22_DOTTED) || tools.some((t) => t.startsWith(dottedTools))) {
       problems.push(
         `the CLI loaded ${ROW22_DOTTED} by name, so the driver's refusal of a stdio server named outside [A-Za-z0-9_-] (claudeAgent.ts, KEPT_BY_NAME) is to be re-decided`,
       );
-    else if (!blockedLines.some((text) => text.includes(ROW22_DOTTED)))
+    } else if (!blockedLines.some((text) => text.includes(ROW22_DOTTED))) {
       problems.push(
         `${ROW22_DOTTED} did not load, but no line says the CLI blocked it, so why is not shown`,
       );
-    if (!skills.includes('consola-step:triage-notes'))
+    }
+    if (!skills.includes('consola-step:triage-notes')) {
       problems.push('init.skills lack consola-step:triage-notes');
+    }
     const undenied = skills.filter(
       (name) => name !== 'consola-step:triage-notes' && !deny.includes(`Skill(${name})`),
     );
-    if (undenied.length)
+    if (undenied.length) {
       problems.push(`init.skills hold ${undenied.join(', ')}, with no deny rule`);
+    }
     if (!hooks.hookEvents().includes('UserPromptSubmit')) problems.push('no UserPromptSubmit');
     const refused = others.filter((o) => REFUSED_INPUT.test(o.text));
-    if (refused.length)
+    if (refused.length) {
       problems.push(
         `the CLI said: ${refused.map((o) => JSON.stringify(short(o.text, 100))).join('; ')}`,
       );
+    }
     const statuses = (init.mcp_servers ?? []).map((s) => `${s?.name} ${s?.status}`).join(', ');
     const saw = `init: ${statuses}; tools ${tools.filter((t) => t.startsWith('mcp__canary') || t === 'Skill').join(', ')}; ${skills.length} skills, ${deny.length} deny rules; hooks heard: ${hooks.hookEvents().join(', ') || 'none'}${blockedLines.length ? `; stderr: ${blockedLines.map((text) => JSON.stringify(short(text, 120))).join(', ')}` : ''}`;
     return problems.length
@@ -1832,18 +1885,20 @@ async function row23() {
   );
   const events = jsonLines(result.stdout).events;
   const last = resultOf(events);
-  if (!last)
+  if (!last) {
     return {
       status: 'FAIL',
       why: `no result; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
     };
+  }
   const denied = (Array.isArray(last.permission_denials) ? last.permission_denials : []).map(
     (d) => d?.tool_name,
   );
   const called = toolUses(events).map((use) => use.name);
   const saw = `permission_denials: ${denied.join(', ') || 'none'}; calls: ${called.join(', ') || 'none'}; $${(last.total_cost_usd ?? 0).toFixed(4)}`;
-  if (denied.includes('mcp__srva__ping'))
+  if (denied.includes('mcp__srva__ping')) {
     return { status: 'FAIL', why: `the allowed tool was denied; ${saw}` };
+  }
   if (denied.includes('mcp__srva__poke')) return { status: 'PASS', why: saw };
   // A model that never called poke shows nothing about narrowing either way.
   return called.includes('mcp__srva__poke')
@@ -1878,8 +1933,9 @@ async function row25() {
     (s) =>
       s?.scope === 'claudeai' && s?.status === 'connected' && typeof s?.config?.url === 'string',
   );
-  if (!connector)
+  if (!connector) {
     return { status: 'SKIP', why: 'no connected claude.ai connector in this profile' };
+  }
   // Killed at `init`, which comes before anything reaches the model: no turn runs.
   const result = await pty(
     [
@@ -1907,8 +1963,9 @@ async function row25() {
     (name) => name.startsWith('claude.ai ') && name !== connector.name,
   );
   const saw = `${connector.name} by ${connector.config.url}: init ${listed.map((s) => `${s?.name} ${s?.status}`).join(', ')}`;
-  if (kept?.status !== 'connected')
+  if (kept?.status !== 'connected') {
     return { status: 'FAIL', why: `${connector.name} is ${kept ? kept.status : 'absent'}; ${saw}` };
+  }
   return otherConnectors.length
     ? { status: 'FAIL', why: `init also names ${otherConnectors.join(', ')}; ${saw}` }
     : { status: 'PASS', why: saw };
@@ -1941,11 +1998,12 @@ async function row26() {
       ],
       { cwd: checkout, env: scratchEnv(), guard: true },
     );
-    if (result.killedForLogin)
+    if (result.killedForLogin) {
       return {
         status: 'SKIP',
         why: `the scratch profile found a login (${result.killedForLogin})`,
       };
+    }
     await new Promise((resolve) => setTimeout(resolve, 300));
     const init = initOf(jsonLines(result.text).events);
     if (!init) return { status: 'FAIL', why: `no init; exit ${result.exitCode}` };
@@ -1961,10 +2019,12 @@ async function row26() {
     if (!names.includes('consola')) problems.push('init does not name consola');
     if (names.includes('checkoutsrv')) problems.push('init names checkoutsrv');
     if (!tools.includes('mcp__consola__ping')) problems.push('init.tools lack mcp__consola__ping');
-    if (tools.includes('mcp__consola__steal'))
+    if (tools.includes('mcp__consola__steal')) {
       problems.push("init.tools hold mcp__consola__steal: the checkout's consola loaded");
-    if (checkoutHooks)
+    }
+    if (checkoutHooks) {
       problems.push(`the checkout's SessionStart hook posted ${checkoutHooks} time(s)`);
+    }
     if (skills.includes('canary-x')) problems.push("init.skills hold the checkout's canary-x");
     const saw = `init: ${names.join(', ') || 'none'}; consola's tools ${tools.filter((t) => t.startsWith('mcp__consola__')).join(', ') || 'none'}; markers ${started.join(', ') || 'none'}; checkout hook posts ${checkoutHooks}; canary-x ${skills.includes('canary-x') ? 'loaded' : 'absent'}`;
     return problems.length
@@ -1981,17 +2041,19 @@ const BANG_SKILLS = ['Skill(consola-step:bang-control)', 'Skill(consola-step:ban
 /** The verdict on what ran, for rows 27 and 28: a supporting file's command is the finding. */
 function bangVerdict(runs, saw) {
   const supporting = runs.filter((r) => r.left.some((name) => name !== BANG_CONTROL));
-  if (supporting.length)
+  if (supporting.length) {
     return {
       status: 'FAIL',
       why: `the CLI ran a command from a skill's supporting file (${supporting.map((r) => `${r.label}: ${r.left.join(', ')}`).join('; ')}), so factory-spec must scan every supporting file, binaries too (skills.ts, scannedAsText); ${saw}`,
     };
+  }
   const stepControl = runs.filter((r) => r.step && r.left.includes(BANG_CONTROL));
-  if (stepControl.length)
+  if (stepControl.length) {
     return {
       status: 'FAIL',
       why: `under the step's flags, SKILL.md's command ran (${stepControl.map((r) => r.label).join(', ')}): a step has a shell; ${saw}`,
     };
+  }
   return null;
 }
 
@@ -2031,11 +2093,12 @@ async function row27() {
       );
       const events = jsonLines(result.stdout).events;
       const init = initOf(events);
-      if (init && init.apiKeySource !== undefined && init.apiKeySource !== 'none')
+      if (init && init.apiKeySource !== undefined && init.apiKeySource !== 'none') {
         return {
           status: 'SKIP',
           why: `the scratch profile found a login (init.apiKeySource ${init.apiKeySource})`,
         };
+      }
       runs.push({
         label: `${label}, /${skill}`,
         step,
@@ -2050,11 +2113,12 @@ async function row27() {
   const verdict = bangVerdict(runs, saw);
   if (verdict) return verdict;
   const control = runs.find((r) => !r.step && r.label.endsWith('/bang-control'));
-  if (!control?.left.includes(BANG_CONTROL))
+  if (!control?.left.includes(BANG_CONTROL)) {
     return {
       status: 'INFO',
       why: `the control's own SKILL.md command did not run either, so this row shows nothing about supporting files; ${saw}`,
     };
+  }
   return { status: 'PASS', why: saw };
 }
 
@@ -2094,11 +2158,12 @@ async function row28() {
   const saw = `Skill ${skillCalls.join(', ') || 'never called'}; Read ${reads.join(', ') || 'nothing'}; ran ${left.join(', ') || 'nothing'}; ${JSON.stringify(short(last?.result, 100))}; $${(last?.total_cost_usd ?? 0).toFixed(4)}`;
   const verdict = bangVerdict([{ label: "the step's turn", step: true, left }], saw);
   if (verdict) return verdict;
-  if (!last)
+  if (!last) {
     return {
       status: 'FAIL',
       why: `no result; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
     };
+  }
   const loaded = skillCalls.some((name) => name.endsWith('bang-probe'));
   const readSupporting = reads.some((file) => /^(notes\.md|blob\.bin|refs\/run\.sh)$/.test(file));
   return loaded && readSupporting
@@ -2171,8 +2236,9 @@ function git(args, cwd) {
     GIT_COMMITTER_EMAIL: 'canary@localhost',
   });
   const result = spawnSync('git', args, { cwd, env, encoding: 'utf8' });
-  if (result.status !== 0)
+  if (result.status !== 0) {
     throw new Error(`git ${args.join(' ')}: ${short(result.stderr || result.stdout, 200)}`);
+  }
   return result.stdout.trim();
 }
 
@@ -2246,9 +2312,11 @@ ${body}
 /** `[name] exit=<n> <output>` lines from the turn's tool results. */
 function probeLines(events) {
   const lines = new Map();
-  for (const text of toolResultTexts(events))
-    for (const match of text.matchAll(/^\[([^\]]+)\] exit=(\d+) ?(.*)$/gm))
+  for (const text of toolResultTexts(events)) {
+    for (const match of text.matchAll(/^\[([^\]]+)\] exit=(\d+) ?(.*)$/gm)) {
       lines.set(match[1], { exit: Number(match[2]), out: match[3] });
+    }
+  }
   return lines;
 }
 
@@ -2497,9 +2565,11 @@ async function row29() {
     'w:.claude/settings.json',
     'w:.claude/skills/x/SKILL.md',
     'npmrc',
-  ])
-    if (!refused(lines.get(name)))
+  ]) {
+    if (!refused(lines.get(name))) {
       problems.push(`${name} was not refused (${short(lines.get(name)?.out ?? 'no line', 80)})`);
+    }
+  }
   const left = fs.readdirSync(outside);
   if (left.length) problems.push(`outside/ holds ${left.join(', ')}`);
   const said = (name, max = 120) =>
@@ -2557,19 +2627,21 @@ async function fileToolsRow(id, { sandbox, inside = [] }) {
   const said = JSON.stringify(facts.denials) + toolResultTexts(facts.events).join('\n');
   // The outside half.
   const outsideProblems = [];
-  if (!fs.existsSync(path.join(r.checkout, 'ft-inside.txt')))
+  if (!fs.existsSync(path.join(r.checkout, 'ft-inside.txt'))) {
     outsideProblems.push('ft-inside.txt was not written');
+  }
   for (const target of targets) {
     if (fs.existsSync(target)) outsideProblems.push(`${target} was written`);
-    else if (!triedOn(target))
+    else if (!triedOn(target)) {
       outsideProblems.push(`no Write was tried on ${path.basename(path.dirname(target))}/ft.txt`);
-    else if (!said.includes(target)) outsideProblems.push(`nothing names ${target} as refused`);
+    } else if (!said.includes(target)) outsideProblems.push(`nothing names ${target} as refused`);
   }
   // The pointer half.
   const pointerAfter = hashFile(pointer);
   const pointerProblems = [];
-  if (!triedOn('.git', ['Write', 'Edit']))
+  if (!triedOn('.git', ['Write', 'Edit'])) {
     pointerProblems.push('no Write or Edit was tried on .git, so the pointer is unproven');
+  }
   if (pointerAfter !== pointerBefore) pointerProblems.push(`the pointer changed (${pointerAfter})`);
   const subPointer = fs.existsSync(path.join(r.checkout, 'sub', '.git'))
     ? 'sub/.git written'
@@ -2587,8 +2659,9 @@ async function fileToolsRow(id, { sandbox, inside = [] }) {
 
 async function row30() {
   const { outsideProblems, pointerProblems, saw } = await fileToolsRow(30, { sandbox: false });
-  if (pointerProblems.length)
+  if (pointerProblems.length) {
     return { status: 'FAIL', why: `${pointerProblems.join('; ')}; ${saw}` };
+  }
   return outsideProblems.length
     ? { status: 'INFO', why: `HOST_EDIT_CHECKED = false (the card keeps its hedge); ${saw}` }
     : { status: 'PASS', why: `HOST_EDIT_CHECKED = true; ${saw}` };
@@ -2621,8 +2694,9 @@ async function row32() {
     const cloneGit = path.join(r.clone, '.git');
     tree.set('clone:packed-refs', hashFile(path.join(cloneGit, 'packed-refs')));
     tree.set('clone:HEAD', hashFile(path.join(cloneGit, 'HEAD')));
-    for (const [rel, hash] of hashTree(path.join(cloneGit, 'refs')))
+    for (const [rel, hash] of hashTree(path.join(cloneGit, 'refs'))) {
       tree.set(`clone:refs/${rel}`, hash);
+    }
     return tree;
   };
   const before = watched();
@@ -2661,12 +2735,16 @@ async function row32() {
     'HEAD',
     'grafts',
     'alternates',
-  ])
-    if (!refused(lines.get(name)))
+  ]) {
+    if (!refused(lines.get(name))) {
       problems.push(`${name} was not refused (${short(lines.get(name)?.out ?? 'no line', 80)})`);
-  for (const name of ['status', 'diff', 'log'])
-    if (lines.get(name)?.exit !== 0)
+    }
+  }
+  for (const name of ['status', 'diff', 'log']) {
+    if (lines.get(name)?.exit !== 0) {
       problems.push(`${name} exit ${lines.get(name)?.exit} (${short(lines.get(name)?.out, 80)})`);
+    }
+  }
   const changed = treeChanges(before, watched());
   if (changed.length) problems.push(`changed: ${changed.join(', ')}`);
   const saw = `${lineWords(lines)}; ${before.size} files hashed in the git folder and the clone's refs, ${changed.length} changed; ${money(facts.cost)}`;
@@ -2696,11 +2774,12 @@ async function row33() {
     { cwd: r.checkout },
   );
   const facts = turnFacts(result);
-  if (!facts.final)
+  if (!facts.final) {
     return {
       status: 'FAIL',
       why: `no result; exit ${result.exitCode}; ${short(result.stderr, 120)}`,
     };
+  }
   const saw = `${short(facts.final.result, 40)}; ${money(facts.cost)}`;
   return fs.existsSync(marker)
     ? { status: 'FAIL', why: `the repository's hook ran (marker-hook written); ${saw}` }
@@ -2746,13 +2825,16 @@ async function row34() {
     const insideCerts = Number(lines.get('certs')?.out ?? Number.NaN);
     const insidePs = Number(lines.get('ps-env')?.out ?? Number.NaN);
     const problems = [];
-    if (!refused(lines.get('cat-denied')))
+    if (!refused(lines.get('cat-denied'))) {
       problems.push(`the cat was not refused (${short(lines.get('cat-denied')?.out, 60)})`);
+    }
     if (result.stdout.includes(SECRET_TAIL)) problems.push('the secret appears in the stream');
-    if (outsideCerts > 0 && insideCerts !== 0)
+    if (outsideCerts > 0 && insideCerts !== 0) {
       problems.push(`certificates inside: ${insideCerts} (outside ${outsideCerts})`);
-    if (outsidePs > 0 && insidePs !== 0)
+    }
+    if (outsidePs > 0 && insidePs !== 0) {
       problems.push(`another process's environment inside: ${insidePs} (outside ${outsidePs})`);
+    }
     const notes = [
       outsideCerts === 0
         ? 'INFO the login keychain shows no certificate outside either, nothing to compare'
@@ -2829,17 +2911,20 @@ async function row36() {
     if (lines.size === 0) return noProbe(result, facts);
     const problems = [];
     const registry = lines.get('registry');
-    if (registry?.exit !== 0 || !/^200\b/.test(registry?.out ?? ''))
+    if (registry?.exit !== 0 || !/^200\b/.test(registry?.out ?? '')) {
       problems.push(`the registry did not answer 200 (${short(registry?.out, 60)})`);
+    }
     for (const name of ['example', 'direct-ip', 'dns', 'localhost', 'ssh']) {
       const line = lines.get(name);
       if (line === undefined || line.exit === 0) problems.push(`${name} did not fail`);
     }
     if (/^200\b/.test(lines.get('example')?.out ?? '')) problems.push('example.com answered 200');
-    if (/publickey|successfully authenticated|Hi /i.test(lines.get('ssh')?.out ?? ''))
+    if (/publickey|successfully authenticated|Hi /i.test(lines.get('ssh')?.out ?? '')) {
       problems.push(`ssh reached github.com (${short(lines.get('ssh')?.out, 60)})`);
-    if (local.posts.length)
+    }
+    if (local.posts.length) {
       problems.push(`the local listener heard ${local.posts.length} request(s)`);
+    }
     const saw = `${[...lines].map(([name, line]) => `${name} exit=${line.exit}${name === 'registry' || name === 'example' ? ` ${short(line.out, 12)}` : ''}`).join(', ')}; listener heard ${local.posts.length}; ${money(facts.cost)}`;
     return problems.length
       ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
@@ -2918,14 +3003,16 @@ async function row37() {
     (name) => !(name in given) && !CLI_OWN_NAMES.some((re) => re.test(name)),
   );
   const problems = [];
-  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR'])
+  for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR']) {
     if (names.includes(name)) problems.push(`${name} is in the shell's environment`);
+  }
   if (extra.length) problems.push(`names nobody gave: ${extra.join(', ')}`);
   if (missing.length) problems.push(`given but absent: ${missing.join(', ')}`);
-  if (lines.get('git-status')?.exit !== 0)
+  if (lines.get('git-status')?.exit !== 0) {
     problems.push(
       `git status exit ${lines.get('git-status')?.exit} (${short(lines.get('git-status')?.out, 80)})`,
     );
+  }
   // The conductor's ruling on this row (2026-11-22): the CLI's sandbox refuses `.git/config` and
   // `.git/hooks` in every folder it lets the shell write, so `git clone` and `git init` are refused there.
   for (const [id, made] of [
@@ -2938,10 +3025,11 @@ async function row37() {
     if (fs.existsSync(made)) problems.push(`${id} wrote ${path.relative(r.checkout, made)}`);
   }
   const other = (lines.get('git-other')?.out ?? '').trim();
-  if (other !== cloneBranch)
+  if (other !== cloneBranch) {
     problems.push(
       `git in the other repository answered ${JSON.stringify(other)}, not its own ${cloneBranch}`,
     );
+  }
   const saw = `names: ${names.join(' ')}; git status exit=${lines.get('git-status')?.exit}, clone exit=${lines.get('git-clone')?.exit} (${short(lines.get('git-clone')?.out, 80)}), init exit=${lines.get('git-init')?.exit} (${short(lines.get('git-init')?.out, 80)}), the other repository says ${JSON.stringify(other)}; ${money(facts.cost)}`;
   return problems.length
     ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
@@ -2969,8 +3057,9 @@ async function row38() {
   const denied = facts.denials.length > 0 || NOT_PERMITTED.test(said) || /denied/i.test(said);
   const saw = `${uses.length} Bash call(s), ${unsandboxed ? 'one asked for no sandbox' : 'none asked for no sandbox'}; denials ${facts.denials.length}; ${short(facts.final?.result, 80)}; ${money(facts.cost)}`;
   if (fs.existsSync(target)) return { status: 'FAIL', why: `outside/x was written; ${saw}` };
-  if (!uses.length)
+  if (!uses.length) {
     return { status: 'FAIL', why: `no Bash call was made, so nothing is shown; ${saw}` };
+  }
   return denied ? { status: 'PASS', why: saw } : { status: 'FAIL', why: `no denial named; ${saw}` };
 }
 
@@ -3023,13 +3112,16 @@ async function row39() {
     const names = serverNames(facts.init?.mcp_servers);
     const problems = [];
     if (lines.size === 0) problems.push('the probe did not run');
-    else if (!refused(lines.get('outside')) || fs.existsSync(path.join(outside, 'w.txt')))
+    else if (!refused(lines.get('outside')) || fs.existsSync(path.join(outside, 'w.txt'))) {
       problems.push('the outside write was not refused');
-    for (const name of ['consola', 'srva'])
+    }
+    for (const name of ['consola', 'srva']) {
       if (!names.includes(name)) problems.push(`init does not name ${name}`);
+    }
     if (names.includes('srvb')) problems.push('init names srvb');
-    if (loopback.posts.length > 0)
+    if (loopback.posts.length > 0) {
       problems.push(`the loopback listener heard ${loopback.posts.length} request(s)`);
+    }
     const saw = `init: ${names.join(', ') || 'none'}; ${lineWords(lines)}; loopback heard ${loopback.posts.length}; ${money(facts.cost)}`;
     return problems.length
       ? { status: 'FAIL', why: `${problems.join('; ')}; ${saw}` }
@@ -3064,11 +3156,12 @@ async function row40() {
   const reads = toolUses(facts.events).filter((use) => use.name === 'Read').length;
   const f = facts.final;
   const saw = `subtype ${f?.subtype}, is_error ${f?.is_error}, total_cost_usd ${f?.total_cost_usd}, num_turns ${f?.num_turns}, ${reads} of 5 read; ${short(f?.result ?? (Array.isArray(f?.errors) ? f.errors.join(' ') : ''), 100)}`;
-  if (!f)
+  if (!f) {
     return {
       status: 'INFO',
       why: `MAX_BUDGET_CHECKED = false: no result line (exit ${result.exitCode}; ${short(result.stderr, 100)})`,
     };
+  }
   return reads < 5 && f.subtype !== 'success'
     ? { status: 'PASS', why: `MAX_BUDGET_CHECKED = true; ${saw}` }
     : { status: 'INFO', why: `MAX_BUDGET_CHECKED = false; ${saw}` };
@@ -3127,13 +3220,15 @@ async function row49() {
   const findSaid = classify(lines.get('find'));
   const listSaid = classify(lines.get('list'));
   const saw = `find ${findSaid} (exit ${lines.get('find')?.exit}: ${short(lines.get('find')?.out, 120)}); list ${listSaid} (exit ${lines.get('list')?.exit}: ${short(lines.get('list')?.out, 160)}); outside the sandbox find said (exit ${outside.status}): ${short(outsideSaid, 120)}; ${money(facts.cost)}`;
-  if (findSaid === 'blocked' && listSaid !== 'answered')
+  if (findSaid === 'blocked' && listSaid !== 'answered') {
     return { status: 'PASS', why: `KEYCHAIN_SERVICE_BLOCKED = true; ${saw}` };
-  if (findSaid === 'answered' || listSaid === 'answered')
+  }
+  if (findSaid === 'answered' || listSaid === 'answered') {
     return {
       status: 'INFO',
       why: `KEYCHAIN_SERVICE_BLOCKED = false: the sandboxed shell reached the keychain service; ${saw}`,
     };
+  }
   return {
     status: 'INFO',
     why: `KEYCHAIN_SERVICE_BLOCKED unknown: neither answer was recognised; ${saw}`,
@@ -3224,8 +3319,9 @@ async function linkHalf(half, { sandbox }) {
   ]) {
     const mine = uses.filter((u) => u.name === name);
     if (mine.length === 0) untried.push(name);
-    for (const use of mine)
+    for (const use of mine) {
       outcomes.push(`${name} ${short(use.input?.[key], 20)} ${said(answers.get(use.id) ?? '')}`);
+    }
   }
   const shell = probe ? probeLines(facts.events).get('shell-ln') : undefined;
   const leaked = result.stdout.includes(LINKED_TAIL) || result.stdout.includes(SECRET_TAIL);
@@ -3255,16 +3351,18 @@ async function row50() {
     await linkHalf('host', { sandbox: false }),
   ];
   const saw = halves.map((h) => h.saw).join('. ');
-  if (halves.some((h) => h.leaked))
+  if (halves.some((h) => h.leaked)) {
     return {
       status: 'INFO',
       why: `FILE_TOOLS_LINKS_CHECKED = false: the file tools read through a link that leaves the checkout; ${saw}`,
     };
-  if (!halves.every((h) => h.tried))
+  }
+  if (!halves.every((h) => h.tried)) {
     return {
       status: 'INFO',
       why: `FILE_TOOLS_LINKS_CHECKED = false: not every tool was tried, so unproven; ${saw}`,
     };
+  }
   return { status: 'PASS', why: `FILE_TOOLS_LINKS_CHECKED = true; ${saw}` };
 }
 
@@ -3403,8 +3501,9 @@ async function row43() {
     const lines = probeLines(facts.events);
     if (lines.size === 0) return noProbe(result, facts);
     const problems = [];
-    for (const name of ['curl-unix', 'nc-unix'])
+    for (const name of ['curl-unix', 'nc-unix']) {
       if (lines.get(name)?.exit === 0) problems.push(`${name} exit 0`);
+    }
     if (heard.length) problems.push(`the socket heard ${heard.length} connection(s)`);
     const pinned = Object.keys(PINNED_SOCKET_KEYS).length
       ? `pinned ${JSON.stringify(PINNED_SOCKET_KEYS)}`
@@ -3475,11 +3574,12 @@ async function fileToolsDenyTurn(id, { deny = [], plugin } = {}) {
 async function row44() {
   const { leaked, attempted, saw } = await fileToolsDenyTurn(44);
   row44Passed = !leaked && attempted;
-  if (!attempted)
+  if (!attempted) {
     return {
       status: 'INFO',
       why: `FILE_TOOLS_DENY_CHECKED = false: not every tool was tried, so unproven; ${saw}`,
     };
+  }
   return leaked
     ? {
         status: 'INFO',
@@ -3513,11 +3613,12 @@ async function row45() {
       return dir;
     },
   });
-  if (!attempted)
+  if (!attempted) {
     return {
       status: 'INFO',
       why: `FILE_TOOLS_DENY_CHECKED = false: not every tool was tried; ${saw}`,
     };
+  }
   return leaked
     ? {
         status: 'INFO',
@@ -3584,14 +3685,18 @@ async function row46() {
   const lines = probeLines(facts.events);
   if (lines.size === 0) return noProbe(result, facts);
   const problems = [];
-  for (const name of ['ls', 'write', 'status', 'diff'])
-    if (lines.get(name)?.exit !== 0)
+  for (const name of ['ls', 'write', 'status', 'diff']) {
+    if (lines.get(name)?.exit !== 0) {
       problems.push(`${name} exit ${lines.get(name)?.exit} (${short(lines.get(name)?.out, 80)})`);
-  if (!refused(lines.get('commit')))
+    }
+  }
+  if (!refused(lines.get('commit'))) {
     problems.push(`the commit was not refused (${short(lines.get('commit')?.out, 80)})`);
+  }
   others.forEach((file, i) => {
-    if (!refused(lines.get(`cat-${i + 1}`)))
+    if (!refused(lines.get(`cat-${i + 1}`))) {
       problems.push(`${path.relative(h, file)} was not refused`);
+    }
   });
   if (result.stdout.includes(SECRET_TAIL)) problems.push('a secret appears in the stream');
   if (lines.get('profile')?.exit === 0) problems.push('the profile folder lists');
@@ -3630,8 +3735,9 @@ async function row47() {
   const after = hashFile(pointer);
   const problems = [];
   if (after !== before) problems.push(`the pointer changed (${after})`);
-  for (const [name] of POINTER_LINES.slice(0, 4))
+  for (const [name] of POINTER_LINES.slice(0, 4)) {
     if (lines.get(name)?.exit === 0) problems.push(`${name} was not refused`);
+  }
   const tools = toolUses(facts.events).filter(
     (use) =>
       ['Write', 'Edit'].includes(use.name) && String(use.input?.file_path ?? '').endsWith('.git'),
@@ -3676,8 +3782,9 @@ function processTable() {
 /** Whether `pid` descends from `ancestor` in `table`. */
 function descendsFrom(table, pid, ancestor) {
   const byPid = new Map(table.map((row) => [row.pid, row]));
-  for (let at = byPid.get(pid), hops = 0; at && hops < 64; at = byPid.get(at.ppid), hops++)
+  for (let at = byPid.get(pid), hops = 0; at && hops < 64; at = byPid.get(at.ppid), hops++) {
     if (at.ppid === ancestor) return true;
+  }
   return false;
 }
 
@@ -4009,8 +4116,9 @@ async function main() {
     versionRun.status === 0 ? versionRun.stdout.trim() : `unknown (${binary} --version failed)`;
   const tally = { PASS: 0, FAIL: 0, SKIP: 0, INFO: 0 };
   const wanted = ROWS.filter((row) => !opts.only || opts.only.has(row.id));
-  if (wanted.some((row) => row.needs === 'prompt' || row.needs === 'zero'))
+  if (wanted.some((row) => row.needs === 'prompt' || row.needs === 'zero')) {
     console.log(await preflight());
+  }
   for (const row of wanted) {
     let outcome;
     if (
@@ -4030,8 +4138,9 @@ async function main() {
         };
       }
     }
-    if (outcome.status === 'SKIP' && /found a login/.test(outcome.why) && !scratchLogin)
+    if (outcome.status === 'SKIP' && /found a login/.test(outcome.why) && !scratchLogin) {
       scratchLogin = outcome.why;
+    }
     tally[outcome.status] += 1;
     console.log(
       `${outcome.status} ${row.id} — ${row.name}${outcome.why ? `: ${outcome.why}` : ''}`,

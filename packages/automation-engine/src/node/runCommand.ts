@@ -140,8 +140,9 @@ class LogSink {
         lines[i].replace(ESCAPES, '').replace(CONTROLS, ''),
         this.secrets,
       ).trim();
-      if (line)
+      if (line) {
         return clipText(i === 0 && this.tailCutsLine ? `…${line}` : line, STDERR_LINE_MAX_CHARS);
+      }
     }
     return undefined;
   }
@@ -159,8 +160,9 @@ class LogSink {
     if (room <= 0 || this.failed) return;
     const piece = bytes.length > room ? bytes.subarray(0, room) : bytes;
     try {
-      for (let offset = 0; offset < piece.length; )
+      for (let offset = 0; offset < piece.length; ) {
         offset += fs.writeSync(this.fd, piece, offset, piece.length - offset);
+      }
       this.written += piece.length;
     } catch {
       // A log that cannot be written is a log cut short; the pipes keep draining.

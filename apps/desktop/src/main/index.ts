@@ -125,9 +125,9 @@ void app.whenReady().then(() => {
           existing ?? createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
         const openSettings = () =>
           target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, section);
-        if (target.webContents.isLoadingMainFrame())
+        if (target.webContents.isLoadingMainFrame()) {
           target.webContents.once('did-finish-load', openSettings);
-        else openSettings();
+        } else openSettings();
         if (target.isMinimized()) target.restore();
         if (!isBackgroundTest) {
           target.show();

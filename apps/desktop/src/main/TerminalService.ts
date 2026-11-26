@@ -119,13 +119,14 @@ export function descendantsOf(output: string, root: number): StepProcessRecord['
   const rows: Array<{ pid: number; ppid: number; pgid: number; started: string }> = [];
   for (const line of output.split('\n')) {
     const match = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.+?)\s*$/.exec(line);
-    if (match)
+    if (match) {
       rows.push({
         pid: Number(match[1]),
         ppid: Number(match[2]),
         pgid: Number(match[3]),
         started: match[4],
       });
+    }
   }
   const children = new Map<number, typeof rows>();
   for (const row of rows) children.set(row.ppid, [...(children.get(row.ppid) ?? []), row]);
@@ -221,8 +222,9 @@ export function turnSummary(report: TurnReport, exitCode: number): string {
   const result = report.result;
   if (!result) return `Ended without a result line (exit ${exitCode}).`;
   const figures: string[] = [];
-  if (result.turns !== undefined)
+  if (result.turns !== undefined) {
     figures.push(`${result.turns} ${result.turns === 1 ? 'turn' : 'turns'}`);
+  }
   if (result.costUsd !== undefined) figures.push(formatCostUsd(result.costUsd));
   const counted = figures.join(', ');
 
@@ -538,8 +540,9 @@ export class TerminalService extends EventEmitter {
 
   public write(data: string): void {
     // Print mode exits 0 on Ctrl+C: remember that the person stopped it.
-    if (this.unattendedTurn && data.includes('\x03'))
+    if (this.unattendedTurn && data.includes('\x03')) {
       this.unattendedStopReason ??= 'you pressed Ctrl+C';
+    }
     this.lastInputAt = Date.now();
     if (this.turnReader) {
       // Print mode reads no keys, and the PTY would echo any other key into
@@ -644,8 +647,9 @@ export class TerminalService extends EventEmitter {
   public switchRefusal(): string | null {
     const refusal = this.moveRefusal();
     if (refusal) return refusal;
-    if (this.isBusy)
+    if (this.isBusy) {
       return 'This session is in the middle of a turn. Let it finish, or stop it, before switching.';
+    }
     return null;
   }
 
@@ -691,8 +695,9 @@ export class TerminalService extends EventEmitter {
    * would spawn under whichever id it read first.
    */
   private moveRefusal(): string | null {
-    if (this.runningUnattended())
+    if (this.runningUnattended()) {
       return 'An automation is still running its turn in this session. Wait for it to finish.';
+    }
     if (this.isLaunching) return 'This session is still starting. Try again in a moment.';
     return null;
   }
@@ -898,11 +903,12 @@ export class TerminalService extends EventEmitter {
       }
 
       // Written before the spawn so it sits above whatever the turn prints.
-      if (unattended)
+      if (unattended) {
         this.writeNotice(
           unattendedNotice(reporting, this.options.toolPolicy, this.options.grants),
           formatInfo,
         );
+      }
       this.claudeProducedOutput = false;
       this.streamLimitNotice = false;
       const reader = reporting ? (this.driver.createTurnReader?.() ?? null) : null;
@@ -1098,13 +1104,14 @@ export class TerminalService extends EventEmitter {
   private spawnEnv(borrowed: { envVar: string; token: string } | null): NodeJS.ProcessEnv {
     const composed = this.driver.composeEnv(this.harness, getLoginEnv());
     const environment = this.options.grants?.environment;
-    if (this.writes() && environment?.isolation === 'sandbox')
+    if (this.writes() && environment?.isolation === 'sandbox') {
       return sandboxSessionEnv(
         composed,
         { envVar: this.driver.configDirEnvVar },
         environment.envNames,
         this.options.cwd,
       ).env;
+    }
     const env = layerProviderToken(composed, borrowed?.envVar ?? null, borrowed?.token ?? null);
     if (this.writes()) for (const name of GIT_FOLDER_VARIABLES) delete env[name];
     return env;
@@ -1139,8 +1146,9 @@ export class TerminalService extends EventEmitter {
     }
     if (this.stepRecord !== record) return;
     const known = new Set(record.descendants.map((entry) => `${entry.pid} ${entry.started}`));
-    for (const entry of descendantsOf(output, record.pgid))
+    for (const entry of descendantsOf(output, record.pgid)) {
       if (!known.has(`${entry.pid} ${entry.started}`)) record.descendants.push(entry);
+    }
   }
 
   /**
@@ -1502,8 +1510,9 @@ export class TerminalService extends EventEmitter {
   /** Ask the live process where it works, and emit it when that changed. */
   private readWorkingDirectory(): void {
     const pid = this.claudePty?.pid;
-    if (pid === undefined || !this.driver.readWorkingDirectory || this.workingDirectoryUnreadable)
+    if (pid === undefined || !this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) {
       return;
+    }
     let cwd: string | null;
     try {
       cwd = this.driver.readWorkingDirectory(this.harness, pid);

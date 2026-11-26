@@ -158,8 +158,9 @@ export function renderCallArguments(
   if (lacking !== undefined) return { skip: lacking };
   if (broken !== undefined) return { ok: false, error: broken };
   if (templated > MAX_TEMPLATED_BYTES) return { ok: false, error: OVER_TEMPLATED };
-  if (utf8Bytes(JSON.stringify(args)) > MAX_ARGUMENT_BYTES)
+  if (utf8Bytes(JSON.stringify(args)) > MAX_ARGUMENT_BYTES) {
     return { ok: false, error: OVER_ARGUMENTS };
+  }
   const trusts = definition.calls?.[step.id]?.arguments ?? [];
   const rendered = Object.keys(step.with).map(
     (name): RenderedArgument => ({
@@ -279,12 +280,14 @@ export function callOutputs(
 ): { ok: true; outputs: Record<string, OutputValue> } | { ok: false; error: string } {
   const names = Object.keys(declared);
   if (names.length === 0) return { ok: true, outputs: {} };
-  if (object === null)
+  if (object === null) {
     return { ok: false, error: `${HAPPENED} its result has no \`${names[0]}\`.` };
+  }
   const outputs: Record<string, OutputValue> = {};
   for (const name of names) {
-    if (!own(object, name))
+    if (!own(object, name)) {
       return { ok: false, error: `${HAPPENED} its result has no \`${name}\`.` };
+    }
     const type = declared[name];
     const raw = object[name];
     // Text is coerced as a command's is: "42" is an integer output's 42.
@@ -341,11 +344,12 @@ export function serverLaunchOf(
       if (broken === undefined && /[\r\n]/.test(values[name])) broken = name;
       return values[name];
     });
-    if (broken !== undefined)
+    if (broken !== undefined) {
       return {
         ok: false,
         error: `Couldn't use \`${broken}\` in a header: its value holds a line break. Nothing was sent.`,
       };
+    }
     headers[header] = value;
   }
   return { ok: true, launch: { transport: 'http', url: server.url, headers } };
@@ -375,8 +379,9 @@ export function outputSchemaProblem(
   if (!isRecord(outputSchema)) return null;
   const properties = isRecord(outputSchema.properties) ? outputSchema.properties : {};
   for (const name of Object.keys(declared)) {
-    if (!own(properties, name))
+    if (!own(properties, name)) {
       return `\`${ref}\`'s output schema has no \`${name}\`. Nothing was sent.`;
+    }
     const property = properties[name];
     const given = isRecord(property) ? property.type : undefined;
     const types =
@@ -384,8 +389,9 @@ export function outputSchemaProblem(
     // A property with no type takes anything.
     if (types.length === 0) continue;
     const wanted = acceptedTypes(declared[name]);
-    if (!types.some((type) => wanted.includes(type)))
+    if (!types.some((type) => wanted.includes(type))) {
       return `\`${ref}\` returns \`${name}\` as ${types.join(' or ')}, and this step declares it ${declared[name].type}. Nothing was sent.`;
+    }
   }
   return null;
 }
@@ -401,8 +407,9 @@ function textOf(block: unknown): string | undefined {
 
 /** The object outputs are read from: `structuredContent` when it is an object, else the text of the one text block parsed as a JSON object; null otherwise. */
 export function resultObjectOf(outcome: Answered): Record<string, unknown> | null {
-  if (outcome.structuredContent !== undefined)
+  if (outcome.structuredContent !== undefined) {
     return isRecord(outcome.structuredContent) ? outcome.structuredContent : null;
+  }
   if (outcome.content.length !== 1) return null;
   const text = textOf(outcome.content[0]);
   if (text === undefined) return null;
@@ -431,8 +438,9 @@ export function resultFileOf(outcome: Answered, masks: readonly string[]): CallR
     masks,
   );
   const text = JSON.stringify(result);
-  if (utf8Bytes(text) <= CALL_RESULT_CAP_BYTES)
+  if (utf8Bytes(text) <= CALL_RESULT_CAP_BYTES) {
     return { isError: outcome.isError, bytes: outcome.bytes, result };
+  }
   return {
     isError: outcome.isError,
     bytes: outcome.bytes,
@@ -446,9 +454,9 @@ export function outputArtifactOf(
   masks: readonly string[],
 ): { content: string; format: 'json' | 'text' } | null {
   let found: { content: string; format: 'json' | 'text' } | null = null;
-  if (outcome.structuredContent !== undefined)
+  if (outcome.structuredContent !== undefined) {
     found = { content: JSON.stringify(maskDeep(outcome.structuredContent, masks)), format: 'json' };
-  else if (outcome.content.length === 1) {
+  } else if (outcome.content.length === 1) {
     const text = textOf(outcome.content[0]);
     if (text !== undefined) found = { content: maskSecrets(text, masks), format: 'text' };
   }
@@ -490,19 +498,21 @@ export function callEnd(
   call: Pick<NonNullable<StepRun['call']>, 'isError' | 'landed'>;
 } {
   const { ref, timeoutMs, outcome, outputs } = input;
-  if (outcome.kind === 'unanswered')
+  if (outcome.kind === 'unanswered') {
     return {
       status: 'failed',
       error: mayHaveHappened(unansweredWhy(outcome, timeoutMs, masks)),
       call: {},
     };
+  }
   if (outcome.isError) {
     const text = outcome.content.map(textOf).find((found) => found !== undefined);
     const said =
       text === undefined ? 'it gave no text' : clipText(maskSecrets(text, masks), CALL_ERROR_CHARS);
     return { status: 'failed', error: `\`${ref}\` failed: ${said}`, call: { isError: true } };
   }
-  if (outputs && !outputs.ok)
+  if (outputs && !outputs.ok) {
     return { status: 'failed', error: outputs.error, call: { landed: true } };
+  }
   return { status: 'completed', call: { landed: true } };
 }

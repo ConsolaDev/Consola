@@ -109,11 +109,12 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     }
     const { agents, shells } = deps.liveTerminals();
     const found = ProcessCwdIndex.inTree(snapshot, dir, new Set(agents), new Set(shells));
-    if (found.kind === 'unknown')
+    if (found.kind === 'unknown') {
       return {
         kind: 'unknown',
         why: "the working directories of this Mac's processes could not be read",
       };
+    }
     return found;
   };
 
@@ -155,11 +156,13 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
     const held = holder(dir);
     if (held) return sessionHoldsRetry(held.name);
     const found = await lookIn(dir);
-    if (found.kind === 'unknown')
+    if (found.kind === 'unknown') {
       return `Consola couldn't check for processes left in the checkout: ${found.why}`;
+    }
     if (found.kind === 'present') {
-      if (who !== undefined)
+      if (who !== undefined) {
         return `\`${who}\`, opened by you, left a process running in this run's checkout`;
+      }
       const [first] = found.processes;
       return `a process outside Consola's sessions is running in this run's checkout (${first.command}, pid ${first.pid}); end it, then retry`;
     }
@@ -240,10 +243,11 @@ export function runOwnedCheckoutPort(deps: RunOwnedCheckoutDeps): RunCheckoutPor
       deps.underLock(dir, async () => {
         if (fs.existsSync(dir)) return;
         const { rebuilt } = await deps.restoreAt(dir);
-        if (!rebuilt)
+        if (!rebuilt) {
           throw new Error(
             `${dir} is gone and nothing records how to rebuild it, so Consola will not make it anew`,
           );
+        }
       }),
   };
 }

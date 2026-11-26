@@ -439,8 +439,9 @@ function useRunPages(
             }
           })
           .catch((reason: unknown) => {
-            if (id === request.current)
+            if (id === request.current) {
               setError(reason instanceof Error ? reason.message : String(reason));
+            }
           })
           .finally(() => {
             if (id === request.current) setLoading(false);
@@ -477,8 +478,9 @@ function useRunPages(
         else setOlder((prev) => mergeRunPages(prev, page.runs));
       })
       .catch((reason: unknown) => {
-        if (id === olderRequest.current)
+        if (id === olderRequest.current) {
           setError(reason instanceof Error ? reason.message : String(reason));
+        }
       })
       .finally(() => {
         if (id === olderRequest.current) setLoading(false);

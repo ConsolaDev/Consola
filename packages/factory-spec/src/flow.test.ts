@@ -537,10 +537,12 @@ describe('on_failure, budget and checkout', () => {
   it('leaves every new key out of an entry and a step that do not write it', () => {
     const result = steps('- id: look\n  prompt: Look.', '- id: fresh\n  run: echo');
     const automation = result.automations[0] as StepsAutomation;
-    for (const key of ['checkout', 'budget', 'onFailure'])
+    for (const key of ['checkout', 'budget', 'onFailure']) {
       expect(Object.prototype.hasOwnProperty.call(automation, key)).toBe(false);
-    for (const step of automation.steps)
+    }
+    for (const step of automation.steps) {
       expect(Object.prototype.hasOwnProperty.call(step, 'onFailure')).toBe(false);
+    }
   });
 
   it('takes a retry of 0 to 3 on an agent step, and a budget of cents', () => {

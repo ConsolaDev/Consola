@@ -703,8 +703,9 @@ test.describe('Home scopes and groups', () => {
     // Settle everything, then make the window short enough that the dock's
     // cap is smaller than the shelf.
     await page.evaluate(async () => {
-      for (const id of ['s1', 's2', 's3', 's4'])
+      for (const id of ['s1', 's2', 's3', 's4']) {
         await window.attentionAPI.settle('ws-folding-e2e', id);
+      }
     });
     const header = page.getByRole('button', { name: /^Settled/ });
     await expect(header.locator('.shelf-header-count')).toHaveText('4');

@@ -57,8 +57,9 @@ describe('resolveSection', () => {
   it('falls back to Appearance for a workspace section with no workspace open', () => {
     // Asked for by a door, or remembered from the last time the dialog was
     // open: either way there is no workspace record to edit.
-    for (const section of WORKSPACE_GROUP)
+    for (const section of WORKSPACE_GROUP) {
       expect(resolveSection(section, false)).toBe('appearance');
+    }
   });
 
   it('leaves an app-wide section alone, workspace or not', () => {

@@ -47,10 +47,11 @@ export function wakeMessage(
   names: Record<string, string>,
 ): string {
   const { applied } = result;
-  if (applied.length === 0)
+  if (applied.length === 0) {
     return asked.length === 1
       ? `${nameOf(names, asked[0])} is not snoozed.`
       : `None of those ${asked.length} sessions is snoozed.`;
+  }
   if (asked.length === 1) return `Woke ${nameOf(names, asked[0])}. It is back in the list.`;
   return `Woke ${sessions(applied.length)}. They are back in the list.`;
 }

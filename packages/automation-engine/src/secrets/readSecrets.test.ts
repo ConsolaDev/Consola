@@ -176,22 +176,25 @@ describe('readSecrets', () => {
         'boom',
         'too short',
         'gave no value',
-      ])
+      ]) {
         expect(words).not.toContain(where);
+      }
     }
   });
 
   it('never words an error with a value it held', () => {
     const errors = outcomes.flatMap((outcome) => (outcome.ok ? [] : [outcome.error, outcome.told]));
     expect(errors.length).toBeGreaterThanOrEqual(6);
-    for (const error of errors)
+    for (const error of errors) {
       for (const value of [
         A_VALUE,
         B_VALUE,
         'q7x2z',
         ...maskFormsOf(A_VALUE),
         ...maskFormsOf(B_VALUE),
-      ])
+      ]) {
         expect(error).not.toContain(value);
+      }
+    }
   });
 });

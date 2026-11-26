@@ -89,12 +89,15 @@ export function readCheckResult(input: {
   const keyPath = parsePath(trigger.key);
   const itemPath = parsePath(trigger.item?.path);
   const changedPath = parsePath(trigger.changed);
-  if (trigger.key !== undefined && !keyPath)
+  if (trigger.key !== undefined && !keyPath) {
     return fail(`Its key path ${echo(trigger.key)} is not a field path.`);
-  if (trigger.item && !itemPath)
+  }
+  if (trigger.item && !itemPath) {
     return fail(`Its item path ${echo(trigger.item.path)} is not a field path.`);
-  if (trigger.changed !== undefined && !changedPath)
+  }
+  if (trigger.changed !== undefined && !changedPath) {
     return fail(`Its changed path ${echo(trigger.changed)} is not a field path.`);
+  }
   if (!keyPath && !itemPath) return fail('It names neither a key nor an item.');
 
   const items: PolledItem[] = [];
@@ -107,8 +110,9 @@ export function readCheckResult(input: {
       return fail(`Item ${index} is ${kindOf(raw)}, not an object.`);
     }
     const object = raw as Record<string, unknown>;
-    if (utf8Bytes(JSON.stringify(object)) > MAX_CHECK_ITEM_BYTES)
+    if (utf8Bytes(JSON.stringify(object)) > MAX_CHECK_ITEM_BYTES) {
       return fail(`Item ${index} is over 64 KB.`);
+    }
 
     let key: string;
     let url = '';
@@ -143,8 +147,9 @@ export function readCheckResult(input: {
       else if (typeof value === 'number' && Number.isFinite(value)) key = String(value);
       else return fail(`Item ${index}'s key at \`${trigger.key}\` is not text or a number.`);
       const earlier = keyIndex.get(key);
-      if (earlier !== undefined)
+      if (earlier !== undefined) {
         return fail(`Items ${earlier} and ${index} have the same key "${echo(key)}".`);
+      }
       keyIndex.set(key, index);
     } else {
       return fail('It names neither a key nor an item.');
@@ -157,10 +162,11 @@ export function readCheckResult(input: {
       if (value === null || value === undefined) rev = '';
       else if (typeof value === 'string') rev = value;
       else if (typeof value === 'number' || typeof value === 'boolean') rev = String(value);
-      else
+      else {
         return fail(
           `Item ${index}'s \`${trigger.changed}\` is ${kindOf(value)}; \`changed:\` needs text, a number, true or false.`,
         );
+      }
     }
 
     const title =

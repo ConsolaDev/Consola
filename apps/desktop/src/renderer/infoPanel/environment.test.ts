@@ -245,8 +245,9 @@ describe('policyLine', () => {
 describe('offersFixInSession', () => {
   it('the work item pane pastes a fix only into a session with full tools (slice 3-B)', () => {
     expect(offersFixInSession({})).toBe(true);
-    for (const toolPolicy of ['read-only', 'edit', 'write'] as const)
+    for (const toolPolicy of ['read-only', 'edit', 'write'] as const) {
       expect(offersFixInSession({ toolPolicy })).toBe(false);
+    }
   });
 });
 

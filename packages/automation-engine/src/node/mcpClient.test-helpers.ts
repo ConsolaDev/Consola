@@ -448,8 +448,9 @@ export async function startHttpServer(options: HttpServerOptions = {}): Promise<
         const value = req.headers[name];
         if (typeof value === 'string') values[name] = value;
       }
-      for (const name of ['authorization', 'x-api-key'])
+      for (const name of ['authorization', 'x-api-key']) {
         values[name] = name in req.headers ? 'present' : 'absent';
+      }
       events.push({
         event: 'request',
         method: req.method ?? '',

@@ -277,8 +277,9 @@ export class SessionLauncher {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!workspace || !session) throw new Error('Its session was closed.');
-    if (session.toolPolicy !== 'read-only')
+    if (session.toolPolicy !== 'read-only') {
       throw new Error('Consola resumes a turn unattended only in a read-only session.');
+    }
     const opened = () => {
       if (this.terminals.has(session.instanceId)) throw new SessionOpenedError();
     };
@@ -321,18 +322,22 @@ export class SessionLauncher {
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!workspace || !session) throw new Error('Its session was closed.');
     // Any policy (slice 3-B): a write step is reminded as a read-only one is, under its own policy.
-    if (session.toolPolicy === undefined)
+    if (session.toolPolicy === undefined) {
       throw new Error('Consola reminds a step only in a session it started for that step.');
+    }
     const opened = () => {
-      if (this.terminals.has(session.instanceId))
+      if (this.terminals.has(session.instanceId)) {
         throw new Error('You opened its session before Consola could remind it.');
+      }
     };
     const terminal = this.terminals.get(session.instanceId);
-    if (terminal && !terminal.hasClaudeExited())
+    if (terminal && !terminal.hasClaudeExited()) {
       throw new Error('You opened its session before Consola could remind it.');
+    }
     const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
+    if (!cwd || !fs.existsSync(cwd)) {
       throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    }
     if (terminal) {
       const harness = this.harnesses
         .getAll()
@@ -413,8 +418,9 @@ export class SessionLauncher {
         initialPrompt: prompt,
         launchNotice: notice,
       });
-      if (!session.hasStarted)
+      if (!session.hasStarted) {
         this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });
+      }
       return;
     }
 
@@ -551,8 +557,9 @@ export class SessionLauncher {
         ? (await this.prepareCheckout(workspace, session)).notice
         : undefined;
     const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
+    if (!cwd || !fs.existsSync(cwd)) {
       throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    }
     return { cwd, ...(notice ? { notice } : {}) };
   }
 

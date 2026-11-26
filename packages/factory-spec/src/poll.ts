@@ -73,8 +73,9 @@ export function parsePollTrigger(
   const unlisted = Object.keys(value).filter(
     (key) => !(POLL_KEYS as readonly string[]).includes(key),
   );
-  for (const key of unlisted.filter((key) => TOOL_POLL_KEYS.has(key)))
+  for (const key of unlisted.filter((key) => TOOL_POLL_KEYS.has(key))) {
     bad(`\`${key}\` in a poll arrives with polls by MCP tool; it is not supported yet.`, [key]);
+  }
   const unknown = unlisted.filter((key) => !TOOL_POLL_KEYS.has(key));
   if (unknown.length > 0) {
     bad(

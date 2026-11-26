@@ -83,8 +83,9 @@ function argumentDetail(raw: unknown): string | undefined {
   for (const key of DETAIL_KEYS) {
     const value = (parsed as Record<string, unknown>)[key];
     if (typeof value === 'string' && value.trim() !== '') return oneLine(value);
-    if (Array.isArray(value) && value.every((part) => typeof part === 'string'))
+    if (Array.isArray(value) && value.every((part) => typeof part === 'string')) {
       return oneLine(value.join(' '));
+    }
   }
   return undefined;
 }
@@ -139,8 +140,9 @@ export async function codexConversationFromLines(
       typeof record.type !== 'string' ||
       !record.payload ||
       typeof record.payload !== 'object'
-    )
+    ) {
       continue;
+    }
     envelopes++;
     if (record.type !== 'response_item') continue;
 

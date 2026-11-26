@@ -45,8 +45,9 @@ export async function runActionInSession(
 ): Promise<RunActionInSessionResult> {
   const workspace = deps.getWorkspace(workspaceId);
   if (!workspace) return { ok: false, message: `Unknown workspace: ${workspaceId}` };
-  if (!workspace.provider)
+  if (!workspace.provider) {
     return { ok: false, message: 'This workspace has no provider account bound.' };
+  }
   const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
   if (!session) return { ok: false, message: 'That session no longer exists.' };
   const ref = session.workItem;

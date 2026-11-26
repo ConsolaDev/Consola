@@ -528,8 +528,9 @@ export class WorktreeService {
     if (dotGit?.isSymbolicLink()) throw refuse('its .git is a symbolic link');
     if (!dotGit?.isFile()) throw refuse('its .git is not the file a linked worktree has');
     const real = canonicalPathOrNull(dir);
-    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull))
+    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull)) {
       throw refuse('it is not in Consola’s worktree folder');
+    }
     await this.assertBelongsToClone(dir, clonePath, workItem, env);
     const [toplevel, gitDir, commonDir] = (
       await this.run(
@@ -561,12 +562,14 @@ export class WorktreeService {
       pointsAt = null;
     }
     // This folder's own `.git`, never wherever a link there leads.
-    if (pointsAt !== path.join(real, '.git'))
+    if (pointsAt !== path.join(real, '.git')) {
       throw refuse('its git dir belongs to another worktree');
+    }
     if (canonicalPathOrNull(toplevel) !== real) throw refuse(`it is inside ${toplevel}`);
     if (real === canonicalPathOrNull(clonePath)) throw refuse('it is the clone itself');
-    if (real === canonicalPathOrNull(this.worktreePathFor(workItem)))
+    if (real === canonicalPathOrNull(this.worktreePathFor(workItem))) {
       throw refuse('it is the Inbox’s worktree for this item');
+    }
   }
 
   /**

@@ -37,8 +37,9 @@ export function BrowserMoreMenu({ tabId }: BrowserMoreMenuProps) {
       .catch((error: unknown) => console.warn('In-app browser action failed:', error));
   };
   const run = (action: (tab: string) => Promise<void>) => {
-    if (tabId)
+    if (tabId) {
       action(tabId).catch((error: unknown) => console.warn('In-app browser action failed:', error));
+    }
   };
 
   return (

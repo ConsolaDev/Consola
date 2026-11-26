@@ -74,8 +74,9 @@ const WATCHING_ONE = 'Watching 1 item. It runs for new ones, and when `.head` ch
 /** The template's check command, exactly as its entry has it. */
 function templateCommand(): string {
   const parsed = parseAutomationEntry(reReviewEntry());
-  if (!parsed.ok)
+  if (!parsed.ok) {
     throw new Error(`The shipped template does not parse: ${JSON.stringify(parsed.issues)}`);
+  }
   const { trigger } = parsed.automation;
   if (trigger.kind !== 'poll') throw new Error('The shipped template is not a poll.');
   return trigger.run;

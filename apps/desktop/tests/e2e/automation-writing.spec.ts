@@ -342,8 +342,9 @@ async function setUpWriting(options: WritingOptions): Promise<Writing> {
     fs.mkdirSync(path.join(folder, 'agents'), { recursive: true });
     fs.mkdirSync(path.join(folder, 'environments'), { recursive: true });
     fs.writeFileSync(path.join(folder, `automations/${AUTOMATION}.yaml`), EXAMPLE.file);
-    for (const [file, text] of Object.entries(EXAMPLE.files))
+    for (const [file, text] of Object.entries(EXAMPLE.files)) {
       fs.writeFileSync(path.join(folder, file), text);
+    }
     fs.writeFileSync(
       path.join(folder, 'factory.yml'),
       `version: 1\nrepos: [${REPO}]\nautomations: []\n`,
@@ -497,10 +498,11 @@ async function fire(writing: Writing, keys: string[]): Promise<void> {
   writing.setItems(keys.map((key) => ({ key, summary: `Search box clips (${key})` })));
   await checkNow(writing);
   // Allow accepted the entry's version: each run it fires starts unattended, asking nothing.
-  for (const key of keys)
+  for (const key of keys) {
     await expect
       .poll(async () => (await runOn(writing, key)) !== undefined, { timeout: 30_000 })
       .toBe(true);
+  }
 }
 
 /** A run's status, with its error when it failed: what a wait shows when it is not what it waits for. */
@@ -650,8 +652,9 @@ test('a Jira bug becomes a pull request: fixed in a sandbox, reviewed clean on r
     expect(settings.sandbox).toMatchObject({ enabled: true, allowUnsandboxedCommands: false });
     const names = envNames(writing, fixConversation);
     expect(names).toContain('CI');
-    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GH_TOKEN', 'DUMMY_SECRET'])
+    for (const name of ['GIT_DIR', 'GIT_WORK_TREE', 'GIT_COMMON_DIR', 'GH_TOKEN', 'DUMMY_SECRET']) {
       expect(names, name).not.toContain(name);
+    }
 
     // The pull request, and the ticket moved.
     const created = lines(writing.files.ghCreated).map((line) => JSON.parse(line));
@@ -881,12 +884,13 @@ test('HEAD moved fails fix and pushes nothing; a process left behind is ended', 
     expect(() => process.kill(pid, 0)).toThrow(expect.objectContaining({ code: 'ESRCH' }));
     await expect.poll(() => standing(left, run.id), { timeout: 120_000 }).toBe('completed');
   } finally {
-    if (pid > 0)
+    if (pid > 0) {
       try {
         process.kill(pid, 'SIGKILL');
       } catch {
         // Already gone, as it should be.
       }
+    }
     await left.close();
   }
 });

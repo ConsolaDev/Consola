@@ -25,8 +25,9 @@ const RUN_JSON_FILES: ReadonlySet<string> = new Set<string>([
 export const MAX_DEFINITION_BYTES = 16 * 1024 * 1024;
 
 function token(what: string, value: string, pattern: RegExp): string {
-  if (typeof value !== 'string' || !pattern.test(value))
+  if (typeof value !== 'string' || !pattern.test(value)) {
     throw new Error(`Not a ${what}: ${JSON.stringify(value)}.`);
+  }
   return value;
 }
 
@@ -39,8 +40,9 @@ const SKILLS = 'skills';
 
 /** A skill's name as its folder is named (`skills/<name>/`), or a throw. */
 function skillName(name: string): string {
-  if (typeof name !== 'string' || !AUTOMATION_NAME_PATTERN.test(name))
+  if (typeof name !== 'string' || !AUTOMATION_NAME_PATTERN.test(name)) {
     throw new Error(`Not a skill name: ${JSON.stringify(name)}.`);
+  }
   return name;
 }
 
@@ -51,8 +53,9 @@ const isSegment = (segment: string) =>
 /** A skill file's path as its segments; it never leaves the skill's folder. */
 function segmentsOf(name: string, relative: string): string[] {
   const segments = typeof relative === 'string' ? relative.split('/') : [];
-  if (segments.length === 0 || !segments.every(isSegment))
+  if (segments.length === 0 || !segments.every(isSegment)) {
     throw new Error(`${JSON.stringify(`${name}/${relative}`)} is not a path inside a skill.`);
+  }
   return segments;
 }
 
@@ -76,8 +79,9 @@ function readSkillFolder(dir: string): Array<{ path: string; bytes: Uint8Array }
     const at = relative === '' ? dir : path.join(dir, ...relative.split('/'));
     const stats = fs.lstatSync(at);
     if (stats.isDirectory()) {
-      for (const entry of fs.readdirSync(at))
+      for (const entry of fs.readdirSync(at)) {
         if (!walk(relative === '' ? entry : `${relative}/${entry}`)) return false;
+      }
       return true;
     }
     if (!stats.isFile()) return false;
@@ -118,8 +122,9 @@ export class RunFolder implements RunFolderPort {
    * or `.../checks/`, compared by segments so `runs-evil` is not `runs`. Returns the resolved path.
    */
   private confine(file: string): string {
-    if (typeof file !== 'string' || file === '' || file.includes('\0'))
+    if (typeof file !== 'string' || file === '' || file.includes('\0')) {
       throw new Error(`Not a run folder path: ${JSON.stringify(file)}.`);
+    }
     const base = path.dirname(this.root('w'));
     const relative = path.relative(base, path.resolve(file));
     const parts = relative.split(path.sep);
@@ -172,8 +177,9 @@ export class RunFolder implements RunFolderPort {
   }
 
   public latestAttempt(workspaceId: string, runId: string, stepId: string): number | null {
-    if (!STEP_ID_PATTERN.test(stepId) && !LEGACY_STEP.test(stepId))
+    if (!STEP_ID_PATTERN.test(stepId) && !LEGACY_STEP.test(stepId)) {
       throw new Error(`Not a step id: ${JSON.stringify(stepId)}.`);
+    }
     let names: string[];
     try {
       names = fs.readdirSync(path.join(this.runDir(workspaceId, runId), stepId));
@@ -190,10 +196,12 @@ export class RunFolder implements RunFolderPort {
   }
 
   public attemptDir(workspaceId: string, runId: string, stepId: string, attempt: number): string {
-    if (!STEP_ID_PATTERN.test(stepId) && !LEGACY_STEP.test(stepId))
+    if (!STEP_ID_PATTERN.test(stepId) && !LEGACY_STEP.test(stepId)) {
       throw new Error(`Not a step id: ${JSON.stringify(stepId)}.`);
-    if (!Number.isInteger(attempt) || attempt < 1)
+    }
+    if (!Number.isInteger(attempt) || attempt < 1) {
       throw new Error(`Not an attempt number: ${JSON.stringify(attempt)}.`);
+    }
     return path.join(this.runDir(workspaceId, runId), stepId, String(attempt));
   }
 
@@ -297,8 +305,9 @@ export class RunFolder implements RunFolderPort {
   ): string {
     const dir = this.attemptDir(workspaceId, runId, stepId, attempt);
     if (name === 'output') {
-      if (format !== 'json' && format !== 'text')
+      if (format !== 'json' && format !== 'text') {
         throw new Error('The output artifact needs a format: json or text.');
+      }
       return path.join(dir, format === 'json' ? 'output.json' : 'output.txt');
     }
     return path.join(dir, `${token('artifact name', name, ARTIFACT_NAME_PATTERN)}.md`);
@@ -361,8 +370,9 @@ export class RunFolder implements RunFolderPort {
     file: 'checkout-changes.patch' | 'CLAUDE.md',
     text: string,
   ): void {
-    if (file !== 'checkout-changes.patch' && file !== 'CLAUDE.md')
+    if (file !== 'checkout-changes.patch' && file !== 'CLAUDE.md') {
       throw new Error(`Not a run file: ${JSON.stringify(file)}.`);
+    }
     writeAtomically(path.join(this.confine(dir), file), text);
   }
 
@@ -423,8 +433,9 @@ export class RunFolder implements RunFolderPort {
       if (isMissing(error)) return null;
       throw error;
     }
-    if (size > maxBytes)
+    if (size > maxBytes) {
       throw new Error(`${path.basename(file)} is ${size} bytes; the most read is ${maxBytes}.`);
+    }
     return fs.readFileSync(file, 'utf8');
   }
 

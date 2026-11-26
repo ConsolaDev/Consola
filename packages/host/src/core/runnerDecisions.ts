@@ -244,8 +244,9 @@ export function updateForExit(sessionId: string, end: SandboxEnd): SessionUpdate
           : "The session's sandbox ended before the session was ready.",
       );
     }
-    if (end.exitCode === 0)
+    if (end.exitCode === 0) {
       return failed("The session's start command ended before the session was ready.");
+    }
     return failed(
       end.lastStderrLine ??
         `The session's start command exited with code ${end.exitCode} before the session was ready.`,

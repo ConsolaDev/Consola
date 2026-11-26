@@ -107,11 +107,12 @@ function detailsFor(workspaceId: string, ref: WorkItemRef) {
       i.workItem.number === ref.number,
   );
   if (!item) throw new Error('This sample work item has no details.');
-  if (!itemDetails.has(key))
+  if (!itemDetails.has(key)) {
     itemDetails.set(
       key,
       details(item, workspace(workspaceId).provider?.accountLogin || 'alex-work'),
     );
+  }
   return itemDetails.get(key)!;
 }
 /** Apply what the pane asked for to the sample copy; the rest only says nothing was sent. */
@@ -126,8 +127,9 @@ function mutate(d: WorkItemDetails, m: WorkItemMutation) {
     viewerCanEdit: true,
   });
   if (m.kind === 'comment') d.timeline.push({ kind: 'comment', ...post(m.body) });
-  if ((m.kind === 'close' || m.kind === 'reopen') && m.comment)
+  if ((m.kind === 'close' || m.kind === 'reopen') && m.comment) {
     d.timeline.push({ kind: 'comment', ...post(m.comment) });
+  }
   if (m.kind === 'close') d.state = 'closed';
   if (m.kind === 'reopen') d.state = 'open';
   if (m.kind === 'ready') d.isDraft = m.draft;
@@ -197,8 +199,9 @@ function initialTerminal(options: TerminalCreateOptions) {
       : options.driverId === 'antigravity'
         ? '▲ Antigravity'
         : '✳ Claude Code';
-  if (options.instanceId === 'demo-retry')
+  if (options.instanceId === 'demo-retry') {
     return `${cyan(title)}\r\n${options.cwd}\r\n\r\n❯ Review PR #248 and fix the retry guard.\r\n\r\n${green('✓')} Read the PR diff and traced error handling.\r\n${green('✓')} Added a guard for non-retryable errors.\r\n${green('✓')} Added a regression test.\r\n${green('✓')} 8 tests passed (sample result).\r\n\r\nThe changes are ready for your review.\r\nInspect the diff, approve files, and try a commit.\r\n\r\n${cyan('Interactive demo · simulated agent output')}\r\nTry "run tests" or "help".\r\n\r\n❯ `;
+  }
   return `\x1b[1m${cyan(title)}\x1b[0m\r\n${options.cwd}\r\n\r\n${prompt ? `❯ ${prompt}\r\n\r\n` : ''}${prompt ? `${green('✓')} Read the pull request and related tests.\r\n\r\nFound an edge case: client errors are retried.\r\nAdd an isRetryable guard and a regression test.\r\n\r\n` : `${green('✓')} Your session is ready.\r\n\r\n`}${cyan('Interactive demo · simulated agent output')}\r\nTry "fix the retry guard", "run tests", or "help".\r\n\r\n❯ `;
 }
 function submit(instanceId: string, input: string) {
@@ -412,11 +415,14 @@ export function installMock() {
     },
     restoreLabel: async (id, removed) => {
       const w = workspace(id);
-      if (!w.labels.some((l) => l.id === removed.label.id))
+      if (!w.labels.some((l) => l.id === removed.label.id)) {
         w.labels.splice(Math.min(removed.index, w.labels.length), 0, removed.label);
-      for (const s of w.sessions)
-        if (removed.sessionIds.includes(s.id) && !s.labelIds?.includes(removed.label.id))
+      }
+      for (const s of w.sessions) {
+        if (removed.sessionIds.includes(s.id) && !s.labelIds?.includes(removed.label.id)) {
           s.labelIds = [...(s.labelIds || []), removed.label.id];
+        }
+      }
       publish();
     },
     assignLabel: async (id, sessionId, labelId) => {
@@ -461,8 +467,9 @@ export function installMock() {
     },
     removeScope: async (id, scopeId) => {
       const w = workspace(id);
-      if (w.sessions.some((s) => s.scopeId === scopeId))
+      if (w.sessions.some((s) => s.scopeId === scopeId)) {
         throw new Error('This repository still has sessions.');
+      }
       w.scopes = w.scopes.filter((s) => s.id !== scopeId);
       publish();
     },
@@ -635,8 +642,9 @@ export function installMock() {
     // two files changed since main.
     getBranchFacts: async (path) => {
       const branch = branchOf(path);
-      if (branch === 'main')
+      if (branch === 'main') {
         return { upstream: { ref: 'origin/main', ahead: 0, behind: 0 }, base: null };
+      }
       return {
         upstream: { ref: `origin/${branch}`, ahead: 1, behind: 0 },
         base: { ref: 'origin/main', files: 2, additions: 9, deletions: 1 },
@@ -694,8 +702,9 @@ export function installMock() {
   };
   const terminalAPI: Window['terminalAPI'] = {
     create: async (options) => {
-      if (!transcripts.has(options.instanceId))
+      if (!transcripts.has(options.instanceId)) {
         transcripts.set(options.instanceId, initialTerminal(options));
+      }
       return {
         replay: transcripts.get(options.instanceId)!,
         cols: options.cols ?? DEFAULT_DIMENSIONS.cols,

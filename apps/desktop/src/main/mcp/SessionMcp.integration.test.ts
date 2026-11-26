@@ -192,8 +192,9 @@ beforeEach(() => {
   runsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-mcp-runs-'));
   const folder = new RunFolder((workspaceId) => path.join(runsDir, workspaceId));
   const [automation] = parseFactorySpec(STEPS_FACTORY).automations;
-  if (!automation || !isStepsEntry(automation))
+  if (!automation || !isStepsEntry(automation)) {
     throw new Error('The steps fixture does not parse.');
+  }
   folder.writeDefinition('ws-3', 'run-steps', { automation, version: 'v1', actions: {} });
   stepsRun = runRecord({
     id: 'run-steps',

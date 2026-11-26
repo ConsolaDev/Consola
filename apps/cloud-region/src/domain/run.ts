@@ -533,9 +533,9 @@ function stringsIn(
   found: Array<[string, string]>,
 ): Array<[string, string]> {
   if (typeof value === 'string') found.push([at, value]);
-  else if (Array.isArray(value))
+  else if (Array.isArray(value)) {
     value.forEach((entry, i) => stringsIn(entry, `${at}[${i}]`, found));
-  else if (value !== null && typeof value === 'object') {
+  } else if (value !== null && typeof value === 'object') {
     for (const [key, entry] of Object.entries(value)) {
       found.push([at, key]);
       stringsIn(entry, `${at}.${key}`, found);
@@ -572,8 +572,9 @@ function stepDetailProblems(
         typeof value === 'string' ||
         typeof value === 'boolean' ||
         (typeof value === 'number' && Number.isFinite(value));
-      if (name === '' || !ok)
+      if (name === '' || !ok) {
         refuse(`${at}.outputs`, 'An output is a name and text, a number or true or false.');
+      }
     }
   }
   step.artifacts.forEach((artifact, i) => {
@@ -643,8 +644,9 @@ export function checkRun(
   const problems: RunProblem[] = [];
   const refuse = (field: string, message: string) => problems.push({ field, message });
 
-  if (!RUN_ID_PATTERN.test(run.id))
+  if (!RUN_ID_PATTERN.test(run.id)) {
     refuse('id', 'A run id is 1 to 128 letters, digits, ., _, : or -.');
+  }
   if (run.factoryId === '') refuse('factoryId', 'A run names its factory.');
   if (!Number.isSafeInteger(run.factoryVersion) || run.factoryVersion < 1) {
     refuse('factoryVersion', "A factory's versions are numbered from 1.");
@@ -741,8 +743,9 @@ export function checkRun(
     }
   }
 
-  if (run.costUsd !== null && !isMoney(run.costUsd))
+  if (run.costUsd !== null && !isMoney(run.costUsd)) {
     refuse('costUsd', 'A cost is a number from 0.');
+  }
   if (!isTime(run.createdAt)) refuse('createdAt', 'That is no ISO 8601 time.');
   if (!isTime(run.updatedAt)) refuse('updatedAt', 'That is no ISO 8601 time.');
   for (const [field, time] of [

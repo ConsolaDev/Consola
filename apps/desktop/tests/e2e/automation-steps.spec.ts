@@ -81,8 +81,9 @@ function flatten(text: string): string {
 /** The shipped template's steps, as the engine parses them: what the approval card must show. */
 function templateSteps() {
   const parsed = parseAutomationEntry(assignedReviewsEntry());
-  if (!parsed.ok)
+  if (!parsed.ok) {
     throw new Error(`The shipped template does not parse: ${JSON.stringify(parsed.issues)}`);
+  }
   const { steps } = parsed.automation;
   if (!steps) throw new Error('The shipped template has no steps.');
   return steps;
@@ -256,11 +257,12 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
     writeInbox(files.inbox, []);
     const outputs =
       options.outputs === undefined ? { verdict: 'request-changes' } : options.outputs;
-    if (outputs !== null)
+    if (outputs !== null) {
       fs.writeFileSync(
         files.outputs,
         typeof outputs === 'string' ? outputs : JSON.stringify(outputs),
       );
+    }
     const handover = options.handover === undefined ? HANDOVER : options.handover;
     if (handover !== null) fs.writeFileSync(files.handover, handover);
     const binaryPath = writeStubClaude(base);
@@ -1247,8 +1249,9 @@ test("a scheduled pipeline passes a command's output to an agent and its handove
     const entry = scheduledPipeline(notes);
     // The file means what this test says it does.
     const parsed = parseAutomationEntry(entry);
-    if (!parsed.ok)
+    if (!parsed.ok) {
       throw new Error(`The pipeline does not parse: ${JSON.stringify(parsed.issues)}`);
+    }
     expect(
       parsed.automation.steps?.map((step) =>
         step.kind === 'run' ? [step.id, step.run] : [step.id, step.kind],

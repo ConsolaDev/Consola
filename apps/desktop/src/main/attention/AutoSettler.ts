@@ -137,8 +137,9 @@ export class AutoSettler {
           !idle.every((session) =>
             this.eligible(session, attention.get(session.id), autoSettleDays * DAY_MS, now, held),
           )
-        )
+        ) {
           continue;
+        }
         targets.push(...settleTargets(workspace, tree, this.deps.ledger));
         moved.push(...tree.map((session) => session.id));
         explained.push(...tree.filter((session) => !mayBeEmpty(session)).map(({ id }) => id));

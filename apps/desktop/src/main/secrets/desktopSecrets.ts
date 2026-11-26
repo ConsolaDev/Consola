@@ -69,11 +69,12 @@ export function desktopSecretsPort(deps: DesktopSecretsDeps): SecretsPort {
         }
         case '1password': {
           const program = programs.onePassword(binding.op);
-          if (!program)
+          if (!program) {
             throw new SecretReadError(
               name,
               binding.op === undefined ? NO_OP_KEPT : 'a test run reads no 1Password',
             );
+          }
           return await deps.readOnePassword({
             program,
             env: await deps.loginEnv(),
@@ -86,8 +87,9 @@ export function desktopSecretsPort(deps: DesktopSecretsDeps): SecretsPort {
           const value = Object.prototype.hasOwnProperty.call(env, ref.name)
             ? env[ref.name]
             : undefined;
-          if (value === undefined)
+          if (value === undefined) {
             throw new SecretReadError(name, `your login environment has no \`${ref.name}\``);
+          }
           return value;
         }
       }

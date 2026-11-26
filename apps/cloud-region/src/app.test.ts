@@ -2159,8 +2159,9 @@ const personsRequest = (id: string, factoryId: string, overrides: Partial<RunWri
 
 async function recordRuns(...runs: RunWrite[]) {
   const store = createDrizzleStores(db).runs;
-  for (const run of runs)
+  for (const run of runs) {
     expect([run.id, (await recordRun(store, 'acme', run)).kind]).toEqual([run.id, 'recorded']);
+  }
 }
 
 type RunListBody = {

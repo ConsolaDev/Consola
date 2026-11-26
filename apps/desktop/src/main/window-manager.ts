@@ -129,8 +129,9 @@ export function createWindow(
   if (process.platform === 'darwin') {
     const quitShortcut = createQuitShortcut({
       notify: (state) => {
-        if (!window.isDestroyed())
+        if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, state);
+        }
       },
       conceal: () => {
         if (window.isDestroyed()) return;

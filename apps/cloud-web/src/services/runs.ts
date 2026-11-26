@@ -142,8 +142,9 @@ export function createRunsService(deps: CellDeps & { session?: CellSession } = {
         );
         if ('kind' in answer) return answer;
         const { data, error, response } = answer;
-        if (response.status === 200 && data && isRunList(data))
+        if (response.status === 200 && data && isRunList(data)) {
           return { kind: 'listed', list: data };
+        }
         if (response.status === 400 && codeOf(error) === 'invalid_request') {
           return { kind: 'invalid' };
         }

@@ -25,8 +25,9 @@ export function describeOutputType(type: OutputType): string {
     case 'number': {
       const noun = type.type === 'integer' ? 'an integer' : 'a number';
       const { minimum, maximum } = type;
-      if (minimum !== undefined && maximum !== undefined)
+      if (minimum !== undefined && maximum !== undefined) {
         return `${noun} from ${minimum} to ${maximum}`;
+      }
       if (minimum !== undefined) return `${noun} of at least ${minimum}`;
       if (maximum !== undefined) return `${noun} of at most ${maximum}`;
       return noun;

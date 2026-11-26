@@ -100,8 +100,9 @@ describe('HookSignals', () => {
     // again, over and over, and is no new turn: the next one reports at its stop.
     const hooks = signals('working');
     hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
-    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const)
+    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const) {
       hooks.statusChanged('i', status);
+    }
     expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: true });
   });
 

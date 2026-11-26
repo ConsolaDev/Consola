@@ -79,10 +79,11 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   }, [workspace.id, name, isNew]);
 
   if (!snapshot) return <p className="automations-hint">Loading…</p>;
-  if (!automation)
+  if (!automation) {
     return (
       <p className="automations-hint">factory.yml no longer has an automation named {name}.</p>
     );
+  }
 
   // What Activity would list for it, so "Open in Activity" shows the same runs.
   const runs = filterRuns(snapshot.runs, { ...NO_RUN_FILTER, automation: name }, now);
@@ -366,11 +367,11 @@ function RunsEmpty({ automation, now }: { automation: AutomationView; now: Date 
   let text: string;
   if (automation.problem) text = 'It will not run until the problem above is fixed.';
   else if (automation.source === 'poll') text = pollRunsEmptyWords(automation);
-  else if (automation.source === 'manual')
+  else if (automation.source === 'manual') {
     text = `It runs only when you or an agent start it. ${runNow}`;
-  else if (automation.onEvent)
+  } else if (automation.onEvent) {
     text = 'It fires when an Inbox refresh finds something new. Check now looks right away.';
-  else if (automation.nextRunAt) {
+  } else if (automation.nextRunAt) {
     const countdown = formatCountdown(automation.nextRunAt, now);
     text = `${countdown === 'due now' ? 'Its next run is due now' : `Its next run is ${countdown} (${formatDueAt(automation.nextRunAt, now)})`}. ${runNow}`;
   } else text = runNow;

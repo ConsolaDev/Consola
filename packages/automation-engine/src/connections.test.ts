@@ -340,8 +340,9 @@ describe('the per-item pieces a step prompt shares with the legacy one', () => {
 
   it('declares which item fields are trusted, and agrees with the shared list', () => {
     const { itemFields } = source();
-    for (const field of ['key', 'url', 'repo', 'number', 'type'])
+    for (const field of ['key', 'url', 'repo', 'number', 'type']) {
       expect(itemFields[field].trusted).toBe(true);
+    }
     expect(itemFields.title).toEqual({ type: { kind: 'string' }, trusted: false });
     expect(itemFields.author).toEqual({ type: { kind: 'string' }, trusted: false });
     expect(itemFields.number.type).toEqual({ kind: 'number' });
