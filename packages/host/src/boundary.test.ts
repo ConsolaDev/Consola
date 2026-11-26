@@ -573,7 +573,7 @@ describe('the dependency rule', () => {
       'bin.ts',
       'bin.test.ts',
     ].flatMap((file) =>
-      ['@consola/agent-ui', '@consola/cloud-contract', '@consola/sandbox/dist/index.js'].map(
+      ['@consola/agent-ui', '@consola/cloud-api', '@consola/sandbox/dist/index.js'].map(
         (specifier): [string, string, boolean] => [file, specifier, false],
       ),
     ),
