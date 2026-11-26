@@ -535,7 +535,7 @@ function watchTraffic(transport: Transport): {
     serverError: () => lastError,
     awaiting: (id) => pending.has(id),
     notificationsSent: (ms) =>
-      Promise.race([Promise.all([...notifying]).then(() => undefined), sleep(ms)]),
+      Promise.race([Promise.all(notifying).then(() => undefined), sleep(ms)]),
   };
 }
 

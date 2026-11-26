@@ -33,7 +33,8 @@
 // block: a failed chunk must cost a measurement, never a download.
 const analyticsKey = import.meta.env.VITE_POSTHOG_KEY;
 const analytics = analyticsKey
-  ? import('posthog-js')
+  ? // oxlint-disable-next-line unicorn/prefer-top-level-await -- loads beside the page, never ahead of it
+    import('posthog-js')
       .then(({ default: posthog }) => {
         posthog.init(analyticsKey, {
           api_host: '/cnsl',
@@ -144,6 +145,7 @@ async function loadDownload() {
     status.textContent = 'Check GitHub releases for the latest macOS download.';
   }
 }
+// oxlint-disable-next-line unicorn/prefer-top-level-await -- the demo below must not wait on GitHub
 void loadDownload();
 
 // The product demo uses the actual desktop renderer in an isolated iframe.

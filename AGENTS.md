@@ -33,7 +33,10 @@ every import from one is `any`, which the `no-unsafe-*` rules then report. A
 rule of the preset that stays off says why beside it in the config, and a
 rule turned off for one line names itself and its reason
 (`// oxlint-disable-next-line <rule> -- <why>`): an unused disable fails the
-check.
+check. A rule that is right here but has a backlog warns (the Rules of React,
+unsafe type assertions, non-null assertions in the desktop and the engine),
+each with a Linear issue to clear it; CI runs Oxlint with `--quiet`, as it
+runs Biome at error level, so warnings show in the editor.
 
 Individual builds:
 ```bash

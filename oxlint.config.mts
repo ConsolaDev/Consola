@@ -64,100 +64,114 @@ export default defineConfig({
         ],
       },
     ],
+    // Braces whenever a body is not on its condition's line: the body Biome
+    // wraps onto the next line is where a second statement could later look
+    // as if it were inside. One-line guards (`if (!x) return;`) stay.
+    curly: ['error', 'multi-line'],
+    // console.error, warn and info are how the main process, the servers and
+    // the engine report; a console.log or debug left in app code is caught.
+    // Programs whose output is the console are exempt below.
+    'no-console': ['error', { allow: ['error', 'warn', 'info'] }],
+    // `error`, or a name that says what was caught; never `e` or `err`.
+    'unicorn/catch-error-name': [
+      'error',
+      { ignore: ['^(cause|caught|failing|failure|reason|settling|thrown|timeout)$'] },
+    ],
+    // A nested function declaration that captures nothing moves out. Local
+    // arrow helpers stay beside their one caller, the code's way of writing
+    // them.
+    'unicorn/consistent-function-scoping': ['error', { checkArrowFunctions: false }],
 
-    // ---- Off in Biome too (biome.jsonc), for the same reasons ----
+    // ---- Right for this code, with a backlog: they warn until it is cleared ----
+    // CI runs Oxlint with --quiet, as it runs Biome: a warning shows in the
+    // editor, where it points at the line being changed.
 
-    // Terminal code matches escape and control characters on purpose.
+    // Biome's correctness.useExhaustiveDependencies warns on the same hooks
+    // while each is reviewed: adding a dependency can loop an effect.
+    'react/exhaustive-deps': 'warn',
+    // The Rules of React, from React's own hooks plugin, which recommends them
+    // with or without the React Compiler. Each finding needs its component
+    // changed by hand (CON-137: "Clear the Rules of React warnings",
+    // https://linear.app/consola/issue/CON-137).
+    'react/immutability': 'warn',
+    'react/purity': 'warn',
+    'react/refs': 'warn',
+    'react/set-state-in-effect': 'warn',
+    // Each finding needs a parse, not a mechanical edit (CON-115: "Parse
+    // instead of asserting", https://linear.app/consola/issue/CON-115). Off
+    // in tests, whose fakes are built with assertions on purpose.
+    'quality/no-chained-type-assertions': 'warn',
+    'typescript/no-unsafe-type-assertion': 'warn',
+
+    // ---- Off here, each with its reason ----
+
+    // Terminal input parsing, and the sanitizers that strip control
+    // characters from untrusted text (oneLine, a step's output, secrets),
+    // match them on purpose. Off in Biome too.
     'no-control-regex': 'off',
-    // Its fix, Object.hasOwn, needs the ES2022 lib; the code already uses the
-    // safe Object.prototype.hasOwnProperty.call form.
-    'prefer-object-has-own': 'off',
-    // style.noNonNullAssertion.
-    'typescript/no-non-null-assertion': 'off',
-
-    // ---- Rules of the preset that stay off here, each with its reason ----
-
+    // A namespace import is how each library the code uses is meant to be
+    // imported: Node's modules, Effect's and t3code's service modules, Radix
+    // primitives, drizzle's schema files, node-pty, esbuild. Even with those
+    // left out, what it flags is that same style.
+    'import/no-namespace': 'off',
+    // Every finding returns what an executor's own call gives back (a one-line
+    // arrow over setTimeout, once or listen, or an early `return resolve()`),
+    // which Promise ignores. None returns a value meant as the promise's
+    // result, the bug the rule is for.
+    'no-promise-executor-return': 'off',
+    // It already allows classes named ...Error or ...Exception. What it
+    // flags is DOM nodes and events, typed arrays and jose's error classes,
+    // which nothing narrows as plainly as instanceof.
+    '@nkzw/no-instanceof': 'off',
+    // `...(x ? { x } : {})` leaves a key out of a record written to a file,
+    // sent over IPC or compared in a test, rather than writing it undefined;
+    // the rule's alternative builds the same object in more statements.
+    'quality/no-conditional-empty-object-spread': 'off',
+    // It flags declared return types, which the code keeps as the function's
+    // contract even where inference would say more.
+    'quality/no-known-value-widening': 'off',
+    // It flags Record<string, unknown>, which is the type parsed JSON has
+    // while the isRecord guards narrow it.
+    'quality/no-unsafe-dictionary-type': 'off',
+    // It flags the ports that read a file or an answer and return unknown, so
+    // each caller parses it with its own schema.
+    'quality/no-unknown-returns': 'off',
+    // `object` is right for helpers that take any non-null value
+    // (hasOwnProperty checks, JSON messages).
+    'quality/no-object-parameters': 'off',
+    // Its alternative is iterator helpers, which no package's library has,
+    // or a flatMap that reads worse than .filter().map().
+    'quality/no-array-filter-map': 'off',
+    // Every finding is a control character (ESC, BEL, DEL, NUL, Ctrl+C) in
+    // terminal, PTY or sanitizing code, written as \x1b as terminal
+    // references write it.
+    'unicorn/no-hex-escape': 'off',
+    // What it flags is a copy before a loop, which is a snapshot: a listener
+    // the loop calls may subscribe another, which a live Set would then call
+    // in the same pass (Node's EventEmitter copies its listeners for the same
+    // reason). The code copies every such loop rather than judging which
+    // bodies can add. Its one other finding, terminalStore's
+    // `...{ status }`, keeps TypeScript (TS2783) from calling the property
+    // always overwritten by the spread after it.
+    'unicorn/no-useless-spread': 'off',
+    // It is not type-aware: it reports any object's push(), and its fix
+    // merges the calls. A ring buffer, a turn reader and a stderr tail have a
+    // push of their own, whose tests push in separate calls on purpose (a
+    // secret split across chunks); merged, three of them no longer compiled.
+    'unicorn/prefer-single-call': 'off',
     // It reports every member written in method syntax that is read off its
-    // object: store actions, injected dependencies, option callbacks. None
-    // of them uses `this`, and making each a property type changes nothing.
+    // object: store actions, injected dependencies, option callbacks. Each was
+    // checked: none uses `this`, so none can lose it.
     'typescript/unbound-method': 'off',
     // Every finding is an apostrophe in JSX text, which renders as written.
     // Oxlint's rule takes no list of characters to keep, so it is off rather
     // than every apostrophe in the copy written as &apos;.
     'react/no-unescaped-entities': 'off',
-    // Biome formats every file, so an unbraced body cannot hide behind
-    // misleading indentation, which is what curly guards against; the code
-    // writes one-line guards (`if (!x) return;`) by choice.
-    curly: 'off',
-    // `import * as path from 'node:path'` is how the code imports Node's
-    // modules and zod; named imports would collide with locals such as `path`.
-    'import/no-namespace': 'off',
-    // The main process, the servers and the scripts log with console; there
-    // is no logger to send it to instead.
-    'no-console': 'off',
-    // Every finding is a one-line arrow executor, `(resolve) =>
-    // setTimeout(resolve, ms)`, whose value Promise ignores.
-    'no-promise-executor-return': 'off',
-    // Custom error classes and DOM elements are narrowed with instanceof,
-    // and nothing else narrows them as precisely.
-    '@nkzw/no-instanceof': 'off',
-    // Biome's correctness.useExhaustiveDependencies warns on the same hooks
-    // while each is reviewed: adding a dependency can loop an effect.
-    'react/exhaustive-deps': 'warn',
-    // React Compiler's rules hold components to what the compiler can
-    // memoize; the apps do not run the compiler, and read refs and the clock
-    // during render on purpose.
-    'react/immutability': 'off',
-    'react/purity': 'off',
-    'react/refs': 'off',
-    'react/set-state-in-effect': 'off',
-    // Each finding needs a parse, not a mechanical edit (CON-115: "Parse
-    // instead of asserting", https://linear.app/consola/issue/CON-115).
-    'quality/no-chained-type-assertions': 'off',
-    'typescript/no-unsafe-type-assertion': 'off',
-    // `...(x ? { x } : {})` is how the code leaves a key out of a record it
-    // writes to a file or sends over IPC, rather than writing it undefined.
-    'quality/no-conditional-empty-object-spread': 'off',
-    // A declared return type is the function's contract, and the code keeps
-    // it even where inference would say more.
-    'quality/no-known-value-widening': 'off',
-    // Record<string, unknown> is how the code holds parsed JSON while it
-    // narrows it.
-    'quality/no-unsafe-dictionary-type': 'off',
-    // A JSON transform (compact, redact) takes and gives unknown by nature.
-    'quality/no-unknown-returns': 'off',
-    // `object` is right for helpers that take any non-null value
-    // (hasOwnProperty checks, JSON-RPC params).
-    'quality/no-object-parameters': 'off',
-    // .filter().map() reads plainer than flatMap or iterator helpers, which
-    // the ES2020 packages do not have.
-    'quality/no-array-filter-map': 'off',
-    // Its fix renames to `error_` wherever `error` is taken, and the code
-    // names a caught value for what it is (`thrown`, `caught`, `failure`).
-    'unicorn/catch-error-name': 'off',
-    // Helpers sit beside their one caller, most of them in a test's describe
-    // block.
-    'unicorn/consistent-function-scoping': 'off',
-    // Terminal code writes escape sequences as \x1b, as every terminal
-    // reference does.
-    'unicorn/no-hex-escape': 'off',
-    // Each copy snapshots a Map or Set that the loop body changes (deletes
-    // from, unsubscribes); iterating the live one would skip entries.
-    'unicorn/no-useless-spread': 'off',
-    // Separate pushes keep each palette row, and the comment above it, apart.
-    'unicorn/prefer-single-call': 'off',
-    // A JSON round trip is meant: it drops undefined and turns Dates into
-    // strings, as writing the value to a file does, and structuredClone
-    // does not.
-    'unicorn/prefer-structured-clone': 'off',
-    // CommonJS (the desktop's main process, the .cjs scripts) has no
-    // top-level await, and the renderer builds for ES2020.
-    'unicorn/prefer-top-level-await': 'off',
   },
   overrides: [
     {
       // These packages type-check against the ES2020 library, which has no
-      // Array#at, String#replaceAll or Error cause.
+      // Array#at, String#replaceAll, Error cause or Object.hasOwn.
       files: [
         'apps/desktop/**',
         'apps/website/**',
@@ -166,21 +180,71 @@ export default defineConfig({
       ],
       rules: {
         'preserve-caught-error': 'off',
+        'prefer-object-has-own': 'off',
         'unicorn/prefer-at': 'off',
         'unicorn/prefer-string-replace-all': 'off',
       },
     },
     {
+      // Cloudflare's preset narrows instead of asserting with `!`. These
+      // packages still assert in about 200 places, which Biome allowed, so it
+      // warns here until each is narrowed (CON-115); everywhere else it is an
+      // error.
+      files: [
+        'apps/desktop/**',
+        'apps/website/**',
+        'packages/automation-engine/**',
+        'packages/factory-spec/**',
+      ],
+      rules: { 'typescript/no-non-null-assertion': 'warn' },
+    },
+    {
+      // CommonJS has no top-level await: the desktop's main process and
+      // preload, the CommonJS packages and the .cjs scripts.
+      files: [
+        '**/*.cjs',
+        'apps/desktop/src/main/**',
+        'apps/desktop/src/preload/**',
+        'packages/automation-engine/**',
+        'packages/factory-spec/**',
+        'packages/sandbox/**',
+      ],
+      rules: { 'unicorn/prefer-top-level-await': 'off' },
+    },
+    {
+      // Programs whose output is the console: scripts, tools, CI's scripts,
+      // the fake CLIs tests run, and the servers' and seed's start-up lines.
+      files: [
+        '**/scripts/**',
+        'tools/**',
+        '.github/scripts/**',
+        '**/tests/fixtures/**',
+        'apps/cloud-global/src/main.ts',
+        'apps/cloud-region/src/main.ts',
+        'apps/cloud-region/src/seed.ts',
+        'apps/desktop/test-pty.js',
+      ],
+      rules: { 'no-console': 'off' },
+    },
+    {
       // Tests read back, as JSON, what the code under test wrote, and their
       // assertions are the check on it. The preset already lets a test pass
       // and read such a value; returning or calling it is allowed too, and in
-      // the e2e suite's helpers alike.
+      // the e2e suite's helpers alike. A test builds its fakes with
+      // assertions, keeps its helpers in its describe block, and round-trips
+      // values through JSON to get what a file or the wire would give, and
+      // (as the preset has it for *.test.* files) may assert with `!`.
       files: [
-        '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts}',
+        '**/*.{test,spec,integration,e2e}.{ts,tsx,mts,cts,js,mjs,cjs}',
         '**/*.test-helpers.{ts,tsx}',
         '**/tests/**',
       ],
       rules: {
+        'quality/no-chained-type-assertions': 'off',
+        'typescript/no-non-null-assertion': 'off',
+        'typescript/no-unsafe-type-assertion': 'off',
+        'unicorn/consistent-function-scoping': 'off',
+        'unicorn/prefer-structured-clone': 'off',
         'typescript/no-unsafe-argument': 'off',
         'typescript/no-unsafe-assignment': 'off',
         'typescript/no-unsafe-call': 'off',
