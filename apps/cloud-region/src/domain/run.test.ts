@@ -577,7 +577,7 @@ steps:
   });
 
   it('describes no call, in a loop or not, as it describes no gate (the merge of slice 3 and 5a)', () => {
-    const SHIP = `on: { manual: {} }
+    const SHIP = `on: manual
 scope: storefront
 steps:
   - id: fix
@@ -614,7 +614,7 @@ steps:
   });
 
   it('describes the steps inside a loop, and none for a gate or the loop itself', () => {
-    const SHIP = `on: { manual: {} }
+    const SHIP = `on: manual
 scope: storefront
 steps:
   - id: fix

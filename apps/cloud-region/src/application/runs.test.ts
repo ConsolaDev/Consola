@@ -424,7 +424,7 @@ steps:
 });
 
 describe('approvals', () => {
-  const DEPLOY = `on: { manual: {} }
+  const DEPLOY = `on: manual
 scope: storefront
 mode: confirm
 steps:

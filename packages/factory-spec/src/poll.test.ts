@@ -198,15 +198,18 @@ describe('on: poll', () => {
 });
 
 describe('on: manual', () => {
-  it('is a bare string or an empty mapping', () => {
-    for (const on of ['manual', '{ manual: {} }', '{ manual: null }']) {
-      const result = one(`    on: ${on}\n    run: { tool: consola#list_sessions }\n`);
-      expect(result.issues).toEqual([]);
-      expect(result.automations[0].trigger).toEqual({ kind: 'manual' });
+  it('is the word alone: any mapping under manual is refused, showing the one form', () => {
+    const result = one('    on: manual\n    run: { tool: consola#list_sessions }\n');
+    expect(result.issues).toEqual([]);
+    expect(result.automations[0].trigger).toEqual({ kind: 'manual' });
+    for (const on of ['{ manual: {} }', '{ manual: null }', '{ manual: { x: 1 } }']) {
+      expect(issues(one(`    on: ${on}\n    run: { tool: consola#list_sessions }\n`)), on).toEqual([
+        [
+          'automations[0].on.manual',
+          'A run on demand is the word alone: write `on: manual`, with nothing under it.',
+        ],
+      ]);
     }
-    expect(
-      issues(one('    on: { manual: { x: 1 } }\n    run: { tool: consola#list_sessions }\n')),
-    ).toEqual([['automations[0].on.manual', '`manual` takes nothing: write `on: manual`.']]);
   });
 
   it('refuses the triggers later slices bring, and bare words that are not one', () => {

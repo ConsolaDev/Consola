@@ -4,7 +4,7 @@ import type { FactoryFile } from './factory.js';
 import { sourceOf } from './runSource.js';
 
 const DEPLOY = `# Deploys the storefront.
-on: { manual: {} }
+on: manual
 applies_to: [pr]
 mode: confirm
 steps:

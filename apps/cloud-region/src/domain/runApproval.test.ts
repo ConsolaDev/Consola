@@ -10,7 +10,7 @@ import {
 } from './runApproval.js';
 import type { Team } from './team.js';
 
-const DEPLOY = `on: { manual: {} }
+const DEPLOY = `on: manual
 scope: storefront
 steps:
   - id: build
@@ -77,7 +77,7 @@ describe('willRun', () => {
   });
 
   it('lists the steps inside a loop, and nothing for a gate or the loop itself', () => {
-    const SHIP = `on: { manual: {} }
+    const SHIP = `on: manual
 scope: storefront
 steps:
   - id: fix
@@ -119,7 +119,7 @@ steps:
 
 describe('willRun, with a call (the merge of slice 3 and 5a)', () => {
   it('lists no call, in a loop or not, and never as an agent: the cell has no call to describe yet', () => {
-    const SHIP = `on: { manual: {} }
+    const SHIP = `on: manual
 scope: storefront
 steps:
   - id: fix

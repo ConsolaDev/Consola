@@ -2,7 +2,7 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
 import { AUTOMATION_NAME_PATTERN } from './names';
-import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
+import { MANUAL_IS_A_WORD, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
 import { ENTRY_PERMISSIONS_REASON } from './permissions';
 import { ENTRY_SECRETS_REASON } from './secrets';
@@ -282,7 +282,8 @@ const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
   } else if (kind === 'poll') {
     parsed = parsePollTrigger(on.poll, report, NOT_A_CONNECTION, CONNECTION_ID_PATTERN);
   } else if (kind === 'manual') {
-    parsed = parseManualTrigger(on.manual, report);
+    // One spelling: `on: manual`, read above; `{ manual: }` and `{ manual: {} }` say the same and are refused.
+    return fail(MANUAL_IS_A_WORD, ['manual']);
   } else if (Object.prototype.hasOwnProperty.call(LATER_TRIGGERS, kind)) {
     // Own keys only: `in` would take `constructor` or `toString` for a later trigger.
     return fail(LATER_TRIGGERS[kind], [kind]);

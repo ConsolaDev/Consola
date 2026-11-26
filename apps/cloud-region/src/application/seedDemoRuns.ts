@@ -163,7 +163,7 @@ steps:
   },
   {
     path: 'automations/deploy.yaml',
-    content: `on: { manual: {} }
+    content: `on: manual
 scope: storefront
 mode: confirm
 steps:

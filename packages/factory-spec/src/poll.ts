@@ -166,15 +166,6 @@ export function parsePollTrigger(
   };
 }
 
-/** `on: manual`, or `on: { manual: {} }` / `{ manual: null }`. */
-export function parseManualTrigger(value: unknown, fail: Fail): ManualTrigger | null {
-  if (
-    value !== undefined &&
-    value !== null &&
-    !(isRecord(value) && Object.keys(value).length === 0)
-  ) {
-    fail('`manual` takes nothing: write `on: manual`.', ['manual']);
-    return null;
-  }
-  return { kind: 'manual' };
-}
+/** `manual` written as a key of `on`, whatever stands after it: a run on demand is the word alone. */
+export const MANUAL_IS_A_WORD =
+  'A run on demand is the word alone: write `on: manual`, with nothing under it.';
