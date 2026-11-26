@@ -64,7 +64,11 @@ describe('parseAgentTeam', () => {
       ),
     ]);
     expect(issues).toEqual([]);
-    expect(team.orchestrator).toMatchObject({ name: 'lead', agentType: 'ORCHESTRATOR', harness: 'codex' });
+    expect(team.orchestrator).toMatchObject({
+      name: 'lead',
+      agentType: 'ORCHESTRATOR',
+      harness: 'codex',
+    });
     expect(team.agents.find((a) => a.name === 'helper')).toMatchObject({
       agentType: 'CUSTOM',
       description: 'Helps.',
@@ -116,7 +120,10 @@ describe('parseAgentTeam', () => {
     ],
     [
       'both agent and worker',
-      [ORCHESTRATOR, automation('a', `agent: orchestrator\nworker: orchestrator\n${GITHUB_OPENED}`)],
+      [
+        ORCHESTRATOR,
+        automation('a', `agent: orchestrator\nworker: orchestrator\n${GITHUB_OPENED}`),
+      ],
       'automations/a/automation.md',
       /`agent` and `worker` are one setting/,
     ],
