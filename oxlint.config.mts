@@ -24,7 +24,6 @@ export default defineConfig({
     'packages/agent-ui/src/t3/**',
     // Generated and compared byte for byte.
     'apps/cloud-web/src/domain/apiContract.ts',
-    'apps/cloud-web/src/domain/cellApiContract.ts',
   ],
   rules: {
     // ---- Rules of the preset, with this repository's options ----
@@ -217,9 +216,8 @@ export default defineConfig({
         'tools/**',
         '.github/scripts/**',
         '**/tests/fixtures/**',
-        'apps/cloud-global/src/main.ts',
-        'apps/cloud-region/src/main.ts',
-        'apps/cloud-region/src/seed.ts',
+        'apps/cloud-api/src/main.ts',
+        'apps/cloud-api/src/seed.ts',
         'apps/desktop/test-pty.js',
       ],
       rules: { 'no-console': 'off' },
