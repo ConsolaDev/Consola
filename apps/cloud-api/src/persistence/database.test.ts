@@ -20,8 +20,11 @@ const publicTables = (database: OpenDatabase) =>
     sql`select table_name from information_schema.tables where table_schema = 'public'`,
   ).then((rows) => rows.map((row) => row.table_name).sort());
 
+/** What the one schema holds: its tables, and Better Auth's relations between them. */
+const declared: unknown[] = Object.values(SCHEMA);
+
 /** Every table the one schema declares, by its name in the database. */
-const declaredTables = Object.values(SCHEMA)
+const declaredTables = declared
   .filter((value): value is PgTable => is(value, PgTable))
   .map((table) => getTableName(table))
   .sort();
