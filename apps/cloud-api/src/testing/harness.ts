@@ -38,6 +38,14 @@ export type Member = {
   headers: Headers;
 };
 
+/** The app composed again on the harness's database, with a configuration of its own. */
+export type Restarted = {
+  app: OpenAPIHono;
+  /** The rest of what `composeApi` built: the runner socket's hooks. */
+  api: Api;
+  config: CloudConfig;
+};
+
 export type Harness = {
   app: OpenAPIHono;
   auth: CloudAuth;
@@ -60,7 +68,18 @@ export type Harness = {
   removeMember(personId: string, workspaceId: string): Promise<void>;
   /** Gives the person `role` in the workspace, in `member` itself. */
   setRole(personId: string, workspaceId: string, role: WorkspaceRole): Promise<void>;
-  /** Closes the database. */
+  /**
+   * The app composed again on the same database, as a restart with `environment` added to the
+   * configuration would compose it: for a setting that names something a test makes first (the
+   * workspace a runner serves, say). Everyone signed in and every workspace made so far are still
+   * there, their cookies still sign them in, and `app` keeps answering too.
+   */
+  restart(environment: Record<string, string | undefined>): Promise<Restarted>;
+  /**
+   * Closes every runner's socket of every app composed, then the database. Closing again does
+   * nothing, so a test that closed the database itself (to see what a route answers without one)
+   * leaves nothing for the next to trip on.
+   */
   close(): Promise<void>;
 };
 
@@ -76,6 +95,8 @@ export async function startApi(
   await migrateDatabase(db);
   const api = await composeApi({ db, config }, [testUtils()]);
   const { app, auth } = api;
+  /** Every app composed on `db`, whose runner sockets `close` closes. */
+  const composed: Api[] = [api];
   // The plugin is passed in at runtime, so the type of `$context` does not know about it.
   const test = ((await auth.$context) as unknown as { test: TestHelpers }).test;
 
@@ -162,6 +183,26 @@ export async function startApi(
     };
   }
 
+  async function restart(environment: Record<string, string | undefined>): Promise<Restarted> {
+    const restartedConfig = loadConfig({
+      ...TEST_ENVIRONMENT,
+      ...options.environment,
+      ...environment,
+    });
+    const restarted = await composeApi({ db, config: restartedConfig }, [testUtils()]);
+    composed.push(restarted);
+    return { app: restarted.app, api: restarted, config: restartedConfig };
+  }
+
+  let closing: Promise<void> | null = null;
+  function close(): Promise<void> {
+    closing ??= (async () => {
+      for (const each of composed) each.closeRunnerSockets();
+      await db.close();
+    })();
+    return closing;
+  }
+
   return {
     app,
     auth,
@@ -172,6 +213,7 @@ export async function startApi(
     member,
     removeMember,
     setRole,
-    close: () => db.close(),
+    restart,
+    close,
   };
 }

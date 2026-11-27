@@ -233,12 +233,6 @@ const SHARED_PACKAGES = new Set([RUNNER_PROTOCOL, FACTORY_SPEC]);
  */
 const NEVER = ['@consola/*', 'consola'];
 
-/**
- * The HTTP suites that wait to be ported onto the one app (the plan's Task 6), which still import
- * what the two apps had. Task 6 removes this list.
- */
-const AWAITING_PORT = new Set(['accountsApp.test.ts', 'companyApp.test.ts']);
-
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
 const isTestFile = (file: string): boolean => /\.test\.(?:[cm]?[jt]s|tsx)$/.test(file);
 
@@ -463,14 +457,10 @@ function sourceFiles(dir = ''): string[] {
 
 describe('the dependency rule', () => {
   it('every source file keeps the dependency rule and the boundary', () => {
-    const violations = sourceFiles()
-      .filter((file) => !AWAITING_PORT.has(file))
-      .flatMap((file) => violationsOf(file, readFileSync(join(SRC, file), 'utf8')));
+    const violations = sourceFiles().flatMap((file) =>
+      violationsOf(file, readFileSync(join(SRC, file), 'utf8')),
+    );
     expect(violations).toEqual([]);
-  });
-
-  it('waits only on suites that are there', () => {
-    expect([...AWAITING_PORT].filter((file) => !sourceFiles().includes(file))).toEqual([]);
   });
 
   it('the checker sees both parts and the ring', () => {
