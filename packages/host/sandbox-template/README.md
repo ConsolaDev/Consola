@@ -121,7 +121,7 @@ Stdout is the runner's: the script prints nothing else there. Its tests are
 On Consola's E2B account, under the name the runner creates sandboxes from
 (`SESSION_TEMPLATE`, `consola-session`). Building again replaces it. To build
 another one beside it (a branch's own), set `CONSOLA_SESSION_TEMPLATE`
-(`consola-session-orchestrator`, say) for the build and for the runner that should
+(`consola-session-<branch>`, say) for the build and for the runner that should
 use it. From the repository root:
 
 ```bash
@@ -136,19 +136,18 @@ fff-node patch, and builds it with `@consola/sandbox/e2b`'s builder
 `E2B_API_KEY`, from the environment, or else from `packages/sandbox/.env`; it is
 never an argument and never printed. The build prints the template's id.
 
-**Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
-build prints here, and only the id.
+**Template id:** `hklvun2u4kalsi5no0ym`, last built 2026-11-27 from main at
+`791c3901` (build `1afb948c-0535-4167-80a6-fed95c84d795`). It runs agent runs
+too, so it is the one template every runner uses. Record the id the build
+prints here, and only the id. `consola-session-orchestrator`, which agent runs
+used before they reached main, was deleted on 2026-11-27.
 
 **Not yet rebuilt for a session with no repository** (CON-166, 2026-11-27).
-Both templates below were built before the start script learned to clone
-nothing, so on them a session with no repository fails at start with
-`consola-session-start: CONSOLA_REPOSITORY is not set.` Rebuild them
-(`template:build`, and again with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`)
-and record the new ids here; then drop this note.
-
-**`consola-session-orchestrator`** (the agent runs' template, which the runner uses
-with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`): `4s8mieamplpn8bzyi9vg`
-(built 2026-11-26).
+That build came from main, before the start script learned to clone nothing,
+so on it a session with no repository fails at start with
+`consola-session-start: CONSOLA_REPOSITORY is not set.` Rebuild it
+(`template:build`) once this lands on main, and record the build here; then
+drop this note.
 
 ## The sandbox's lifetime
 
