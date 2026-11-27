@@ -22,7 +22,10 @@ own copy:
   `typ`), `PASS_MAX_LIFETIME_SECONDS`, `PassClaims`, `passClaims` (builds the
   claims, throws on a grant the reader would refuse) and `readPassClaims`;
 - the start script's own line, `StartScriptLine` (`exit` with `clone-failed`),
-  read with `readStartScriptLine`. It is not one of the host's lines.
+  read with `readStartScriptLine`. It is not one of the host's lines;
+- a follow-up, what the cell sends an agent run's host for its orchestrator
+  (`FollowUp`, `readFollowUp`, `readFollowUpReceipt`; "Follow-ups", below).
+  It goes from the cell to the host directly, never over the runner's socket.
 
 It signs nothing and verifies nothing. The cell signs a pass; the host checks
 its signature, the time against now (`exp <= now` is expired, and the clock
@@ -90,6 +93,28 @@ one typing its first message or approving its commands.
   runner passes them on as they are and never interprets them.
 - Both sides cap the socket's frames at `RUNNER_SOCKET_FRAME_LIMIT_BYTES`
   (4 MiB), so an agent run fits in one `session.start`.
+
+## Follow-ups
+
+A person's message for a running agent run's orchestrator (`src/followUp.ts`),
+such as a reply in the Slack thread that started it. The cell sends it to the
+session's host straight away, at the `hostUrl` the runner reported:
+`POST <hostUrl>` + `FOLLOW_UP_PATH` with `Authorization: Bearer <pass>`, a
+pass for the person who wrote it (`sub`), and a JSON body of at most
+`FOLLOW_UP_BODY_MAX_BYTES`.
+
+- **The body** (`FollowUp`, read with `readFollowUp`) is exactly `key` (the
+  sender's idempotency key, `[A-Za-z0-9._:-]`, 128 at most), `text` (what the
+  person wrote, whole, not blank, `FOLLOW_UP_TEXT_MAX` characters at most) and
+  `authorLabel` (who wrote it in the sender's words, such as `a teammate in
+  Slack`: one line, no control character, `FOLLOW_UP_AUTHOR_LABEL_MAX` at
+  most). No name or email: the person is the pass's `sub`.
+- **The answer.** `200` with a `FollowUpReceipt` (`readFollowUpReceipt`):
+  `delivered`, or `already-delivered` when a follow-up with that key was
+  delivered before. The host decides and words everything else: the fence,
+  who wrote it, and where it goes (`packages/host/AGENTS.md`, "Agent runs").
+- The text is untrusted. The host fences it, and nothing puts it in a command
+  line or an environment variable.
 
 ## Changing the protocol
 
