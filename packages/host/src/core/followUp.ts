@@ -25,8 +25,12 @@ const longestBacktickRun = (text: string): number => {
 export const fenceFor = (text: string): string =>
   '`'.repeat(Math.max(3, longestBacktickRun(text) + 1));
 
-/** The key a follow-up's command and message ids are made of in the orchestrator's thread. */
-export const followUpKey = (key: string): string => `follow-up:${key}`;
+/**
+ * The key a follow-up's command and message ids are made of in the orchestrator's thread: the
+ * cell's key and `digest`, a hash of the message it becomes, so the same key with other words or
+ * another author is another message, and only the same follow-up sent again is the one before.
+ */
+export const followUpKey = (key: string, digest: string): string => `follow-up:${key}:${digest}`;
 
 /**
  * The message a follow-up becomes in the orchestrator's conversation: who wrote it and that it is

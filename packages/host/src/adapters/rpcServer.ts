@@ -509,7 +509,9 @@ const layerHandlers = (
           .pipe(
             Effect.map(({ sequence }) => ({ sequence })),
             Effect.mapError((error) => {
-              if (error._tag === 'NotOfferedError') return refused(error.message);
+              if (error._tag === 'NotOfferedError' || error._tag === 'HostIdRefused') {
+                return refused(error.message);
+              }
               // As t3's `ws.ts`: the orchestrator's refusal in t3's own words, in `message` and
               // `detail`, or its generic message when it has none.
               const detail = userFacingDispatchErrorMessage(error.cause);

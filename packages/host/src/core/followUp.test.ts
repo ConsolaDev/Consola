@@ -46,7 +46,7 @@ Can you check the cart page of sprocket/catalog-portal?
 });
 
 describe('followUpKey', () => {
-  it('keeps a follow-up’s ids apart from the run’s own (its prompt, its reports)', () => {
-    expect(followUpKey('slack:Ev0A1B2C3D4E')).toBe('follow-up:slack:Ev0A1B2C3D4E');
+  it('keeps a follow-up’s ids apart from the run’s own, and makes them of its message too', () => {
+    expect(followUpKey('slack:Ev0A1B2C3D4E', 'ab12')).toBe('follow-up:slack:Ev0A1B2C3D4E:ab12');
   });
 });

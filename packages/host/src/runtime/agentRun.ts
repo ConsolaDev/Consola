@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - A follow-up's ids carry a SHA-256 of its message.
 /**
  * An agent run (`packages/host/AGENTS.md`, "Agent runs"): the session's thread is the
  * orchestrator's, and every agent it dispatches is a thread of its own in the same project and
@@ -14,6 +15,7 @@
  * Nothing here is reachable by an RPC client: the host dispatches these commands itself, past
  * `decideCommand`, which governs what clients may send.
  */
+import { createHash } from 'node:crypto';
 import type { AgentRun, AgentRunAgent } from '@consola/runner-protocol';
 import { CommandId, MessageId, ThreadId } from '@t3tools/contracts';
 import type {
@@ -70,6 +72,7 @@ import {
   toolValue,
 } from '../core/agentRunTools.ts';
 import type { ToolAnswer, ToolCall, ToolListing } from '../core/agentRunTools.ts';
+import { hostCommandId, hostMessageId } from '../core/commandPolicy.ts';
 
 /** How long a model a run names may wait for the provider to list its models. */
 const MODELS_WAIT = Duration.seconds(15);
@@ -293,9 +296,9 @@ export const openAgentRun = (
       type: 'message.dispatch',
       createdBy: 'user',
       creationSource: 'web',
-      commandId: CommandId.make(`command:${threadId}:${key}`),
+      commandId: CommandId.make(hostCommandId(threadId, key)),
       threadId,
-      messageId: MessageId.make(`message:${threadId}:${key}`),
+      messageId: MessageId.make(hostMessageId(threadId, key)),
       text,
       attachments: [],
       modelSelection,
@@ -419,7 +422,7 @@ export const openAgentRun = (
           type: 'thread.create',
           createdBy: 'user',
           creationSource: 'web',
-          commandId: CommandId.make(`command:${id}:thread.create`),
+          commandId: CommandId.make(hostCommandId(id, 'thread.create')),
           threadId: id,
           projectId: input.projectId,
           title: `${agent.name} ${dispatchCount}`,
@@ -516,7 +519,7 @@ export const openAgentRun = (
         yield* orchestrator
           .dispatch({
             type: 'run.interrupt',
-            commandId: CommandId.make(`command:${child.id}:cancel:${each.id}`),
+            commandId: CommandId.make(hostCommandId(child.id, `cancel:${each.id}`)),
             threadId: child.id,
             runId: each.id,
             reason: 'Cancelled by the orchestrator.',
@@ -577,17 +580,15 @@ export const openAgentRun = (
     }: PersonFollowUp) {
       const ready = yield* Deferred.await(started).pipe(Effect.timeoutOption(FOLLOW_UP_START_WAIT));
       if (Option.isNone(ready)) return 'not-ready' as const;
+      const composed = followUpMessage(author, text);
+      const digest = createHash('sha256').update(composed, 'utf8').digest('hex');
       // Under the lock the evaluator and the tools hold, like every other dispatch of the run.
       return yield* lock.withPermits(1)(
         Effect.gen(function* () {
           const sent = yield* orchestrator.dispatch(
-            message(
-              orchestratorId,
-              followUpKey(key),
-              followUpMessage(author, text),
-              orchestratorModel,
-              { type: 'queue_after_active' },
-            ),
+            message(orchestratorId, followUpKey(key, digest), composed, orchestratorModel, {
+              type: 'queue_after_active',
+            }),
           );
           yield* readOrchestrator;
           yield* publish;
