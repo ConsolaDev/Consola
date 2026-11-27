@@ -5,6 +5,8 @@ import { createSlackInstallStateSigner } from './company/adapters/slack/installS
 import { linkTokens } from './company/adapters/slack/linkTokens.js';
 import { SLACK_CALLBACK_RESULTS } from './company/adapters/http/slackContract.js';
 import { slackApps } from './company/adapters/persistence/slackTables.js';
+import { createSlackStores } from './company/adapters/persistence/slackStores.js';
+import { LINKED_MESSAGE, requestSlackLink } from './company/application/slackLinks.js';
 import type { SlackManifest } from './company/domain/slack.js';
 import { ROUTES } from './compose.js';
 import { startApi } from './testing/harness.js';
@@ -154,6 +156,8 @@ const DEFAULT_ANSWERS: Record<string, unknown> = {
     bot_id: 'B0BOT',
   },
   'auth.revoke': { ok: true, revoked: true },
+  'chat.postEphemeral': { ok: true, message_ts: '1795000000.000200' },
+  'chat.postMessage': { ok: true, channel: 'D0DANA', ts: '1795000000.000200' },
 };
 
 /** Where the callback sent the browser, and how it ended. */
@@ -556,5 +560,177 @@ describe("a factory's Slack app", () => {
     expect((await ask('GET', FACTORY_SLACK, slackOf(factory.id), owner)).body.state).toBe(
       'not_set_up',
     );
+  });
+});
+
+describe('linking a Slack account', () => {
+  /** A one-time link a Slack user got from the factory's bot, as lane C's events make one. */
+  async function linkFor(owner: Member, factoryId: string, channelId = 'C0GENERAL') {
+    const { url } = await requestSlackLink(
+      {
+        links: createSlackStores(harness.db.company).links,
+        tokens: linkTokens,
+        clock: { nowSeconds: () => Math.floor(Date.now() / 1000) },
+      },
+      {
+        workspaceId: owner.workspaceId,
+        factoryId,
+        slackTeamId: 'T0SPROCKET',
+        slackUserId: 'U0DANA',
+        channelId,
+      },
+      WEB,
+    );
+    expect(url.startsWith(`${WEB}/#/slack/link/`)).toBe(true);
+    return url.slice(`${WEB}/#/slack/link/`.length);
+  }
+
+  const REQUEST = '/api/slack/link-requests/{token}';
+  const requestOf = (token: string) => `/api/slack/link-requests/${token}`;
+
+  it('shows the link, links the person once, and the bot says so where they wrote', async () => {
+    await start();
+    const owner = await harness.member('owner');
+    const factory = await factoryOf(owner);
+    const calls = fakeSlack();
+    logged();
+    await installed(owner, factory.id);
+    const token = await linkFor(owner, factory.id);
+
+    const shown = await ask('GET', REQUEST, requestOf(token), owner);
+    expect(shown).toEqual({
+      status: 200,
+      body: {
+        state: 'open',
+        workspaceId: owner.workspaceId,
+        inActiveWorkspace: true,
+        slackTeamId: 'T0SPROCKET',
+        slackUserId: 'U0DANA',
+        slackTeamName: 'Sprocket',
+        factory: { id: factory.id, name: 'Code review' },
+        expiresAt: expect.any(String),
+      },
+    });
+
+    const linked = await ask('POST', REQUEST, requestOf(token), owner);
+    expect(linked).toEqual({
+      status: 200,
+      body: {
+        id: expect.any(String),
+        slackTeamId: 'T0SPROCKET',
+        slackTeamName: 'Sprocket',
+        slackUserId: 'U0DANA',
+        linkedAt: expect.any(String),
+      },
+    });
+    const said = calls.filter((call) => call.method === 'chat.postEphemeral');
+    expect(said.map((call) => [call.authorization, JSON.parse(call.body)])).toEqual([
+      [`Bearer ${BOT_TOKEN}`, { channel: 'C0GENERAL', user: 'U0DANA', text: LINKED_MESSAGE }],
+    ]);
+
+    expect(await ask('POST', REQUEST, requestOf(token), owner)).toEqual({
+      status: 409,
+      body: { error: 'link_used' },
+    });
+    expect((await ask('GET', REQUEST, requestOf(token), owner)).body.state).toBe('used');
+
+    const mine = await ask('GET', '/api/slack/links', '/api/slack/links', owner);
+    expect(mine).toEqual({ status: 200, body: { links: [linked.body] } });
+  });
+
+  it('says it in a DM as a message', async () => {
+    await start();
+    const owner = await harness.member('owner');
+    const factory = await factoryOf(owner);
+    const calls = fakeSlack();
+    logged();
+    await installed(owner, factory.id);
+    const token = await linkFor(owner, factory.id, 'D0DANA');
+    expect((await ask('POST', REQUEST, requestOf(token), owner)).status).toBe(200);
+    const said = calls.filter((call) => call.method.startsWith('chat.'));
+    expect(said.map((call) => [call.method, JSON.parse(call.body)])).toEqual([
+      ['chat.postMessage', { channel: 'D0DANA', text: LINKED_MESSAGE }],
+    ]);
+  });
+
+  it('refuses a link of another workspace, one it does not have, and one that expired', async () => {
+    await start();
+    const owner = await harness.member('owner');
+    const factory = await factoryOf(owner);
+    const token = await linkFor(owner, factory.id);
+
+    const stranger = await harness.member('owner');
+    expect(await ask('GET', REQUEST, requestOf(token), stranger)).toEqual({
+      status: 200,
+      body: {
+        state: 'open',
+        workspaceId: owner.workspaceId,
+        inActiveWorkspace: false,
+        slackTeamId: 'T0SPROCKET',
+        slackUserId: 'U0DANA',
+        slackTeamName: null,
+        factory: null,
+        expiresAt: expect.any(String),
+      },
+    });
+    expect(await ask('POST', REQUEST, requestOf(token), stranger)).toEqual({
+      status: 409,
+      body: { error: 'other_workspace' },
+    });
+
+    for (const unknown of [linkTokens.newToken(), 'short']) {
+      expect(await ask('GET', REQUEST, requestOf(unknown), owner)).toEqual({
+        status: 404,
+        body: { error: 'link_not_found' },
+      });
+      expect(await ask('POST', REQUEST, requestOf(unknown), owner)).toEqual({
+        status: 404,
+        body: { error: 'link_not_found' },
+      });
+    }
+
+    const { links } = createSlackStores(harness.db.company);
+    const expired = linkTokens.newToken();
+    await links.createRequest({
+      tokenHash: linkTokens.hashOf(expired),
+      workspaceId: owner.workspaceId,
+      factoryId: factory.id,
+      slackTeamId: 'T0SPROCKET',
+      slackUserId: 'U0ELI',
+      channelId: 'C0GENERAL',
+      createdAt: new Date(Date.now() - 20 * 60_000),
+      expiresAt: new Date(Date.now() - 5 * 60_000),
+      usedAt: null,
+    });
+    expect(await ask('POST', REQUEST, requestOf(expired), owner)).toEqual({
+      status: 409,
+      body: { error: 'link_expired' },
+    });
+  });
+
+  it('never links one Slack account to two people, and unlinks only one’s own', async () => {
+    await start();
+    const owner = await harness.member('owner');
+    const factory = await factoryOf(owner);
+    const admin = await harness.member('admin', { workspace: owner.workspaceId });
+    const linked = await ask('POST', REQUEST, requestOf(await linkFor(owner, factory.id)), owner);
+    expect(linked.status).toBe(200);
+    expect(await ask('POST', REQUEST, requestOf(await linkFor(owner, factory.id)), admin)).toEqual({
+      status: 409,
+      body: { error: 'linked_to_someone_else' },
+    });
+
+    const route = '/api/slack/links/{linkId}';
+    expect(await ask('DELETE', route, `/api/slack/links/${linked.body.id}`, admin)).toEqual({
+      status: 404,
+      body: { error: 'link_not_found' },
+    });
+    expect(await ask('DELETE', route, `/api/slack/links/${linked.body.id}`, owner)).toEqual({
+      status: 204,
+      body: null,
+    });
+    expect((await ask('GET', '/api/slack/links', '/api/slack/links', owner)).body).toEqual({
+      links: [],
+    });
   });
 });

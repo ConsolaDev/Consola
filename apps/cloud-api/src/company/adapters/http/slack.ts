@@ -12,6 +12,13 @@ import type {
   SlackAppStatus,
   SlackInstallOutcome,
 } from '../../application/slackApps.js';
+import {
+  confirmSlackLink,
+  listMySlackLinks,
+  unlinkSlack,
+  viewSlackLink,
+} from '../../application/slackLinks.js';
+import type { NamedSlackLink, SlackLinkPorts } from '../../application/slackLinks.js';
 import type {
   LinkTokens,
   SecretSealer,
@@ -115,6 +122,14 @@ const statusAnswer = (status: SlackAppStatus) => ({
   installedAt: status.installedAt?.toISOString() ?? null,
 });
 
+const linkAnswer = (link: NamedSlackLink) => ({
+  id: link.id,
+  slackTeamId: link.slackTeamId,
+  slackTeamName: link.slackTeamName,
+  slackUserId: link.slackUserId,
+  linkedAt: link.linkedAt.toISOString(),
+});
+
 const isObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
@@ -143,6 +158,18 @@ export function registerSlackRoutes(app: OpenAPIHono, deps: SlackRouteDeps): voi
     clock: slack.clock,
     report: slack.report,
   };
+  const linkPorts: SlackLinkPorts | null = slack && {
+    links: slack.links,
+    apps: slack.apps,
+    teams: slack.teams,
+    factories: slack.factories,
+    tokens: slack.tokens,
+    sealer: slack.sealer,
+    slack: slack.api,
+    clock: slack.clock,
+    report: slack.report,
+  };
+
   // The factory's Slack app, for anyone who sees the factory.
   app.openapi({ ...getFactorySlack, middleware: [caller] as const }, async (c) => {
     if (!appPorts) return c.json(off, 503);
@@ -262,9 +289,47 @@ export function registerSlackRoutes(app: OpenAPIHono, deps: SlackRouteDeps): voi
   // No body carries the results, so the document names them itself, for clients to check theirs.
   app.openAPIRegistry.register('SlackCallbackResult', SlackCallbackResult);
 
-  // The Slack accounts people link: not built yet, so they answer that Slack is off.
-  app.openapi({ ...getSlackLinkRequest, middleware: [caller] as const }, (c) => c.json(off, 503));
-  app.openapi({ ...postSlackLinkRequest, middleware: [caller] as const }, (c) => c.json(off, 503));
-  app.openapi({ ...listSlackLinks, middleware: [caller] as const }, (c) => c.json(off, 503));
-  app.openapi({ ...deleteSlackLink, middleware: [caller] as const }, (c) => c.json(off, 503));
+  // A one-time link, as its page shows it.
+  app.openapi({ ...getSlackLinkRequest, middleware: [caller] as const }, async (c) => {
+    if (!linkPorts) return c.json(off, 503);
+    const answer = await viewSlackLink(linkPorts, c.var.caller, c.req.valid('param').token);
+    if (answer.kind === 'not-found') return c.json({ error: 'link_not_found' } as const, 404);
+    const { view } = answer;
+    return c.json({ ...view, expiresAt: view.expiresAt.toISOString() }, 200);
+  });
+
+  // Confirms a one-time link.
+  app.openapi({ ...postSlackLinkRequest, middleware: [caller] as const }, async (c) => {
+    if (!linkPorts) return c.json(off, 503);
+    const answer = await confirmSlackLink(linkPorts, c.var.caller, c.req.valid('param').token);
+    switch (answer.kind) {
+      case 'linked':
+        return c.json(linkAnswer(answer.link), 200);
+      case 'not-found':
+        return c.json({ error: 'link_not_found' } as const, 404);
+      case 'used':
+        return c.json({ error: 'link_used' } as const, 409);
+      case 'expired':
+        return c.json({ error: 'link_expired' } as const, 409);
+      case 'other-workspace':
+        return c.json({ error: 'other_workspace' } as const, 409);
+      case 'linked-to-another':
+        return c.json({ error: 'linked_to_someone_else' } as const, 409);
+    }
+  });
+
+  // The caller's own links in their active workspace.
+  app.openapi({ ...listSlackLinks, middleware: [caller] as const }, async (c) => {
+    if (!linkPorts) return c.json(off, 503);
+    const links = await listMySlackLinks(linkPorts, c.var.caller);
+    return c.json({ links: links.map(linkAnswer) }, 200);
+  });
+
+  // Removes one of the caller's own links.
+  app.openapi({ ...deleteSlackLink, middleware: [caller] as const }, async (c) => {
+    if (!linkPorts) return c.json(off, 503);
+    const answer = await unlinkSlack(linkPorts, c.var.caller, c.req.valid('param').linkId);
+    if (answer.kind === 'not-found') return c.json({ error: 'link_not_found' } as const, 404);
+    return c.body(null, 204);
+  });
 }
