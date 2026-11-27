@@ -1,3 +1,4 @@
+// @effect-diagnostics nodeBuiltinImport:off - A follow-up's ids carry a SHA-256 of its message.
 /**
  * An agent run (`packages/host/AGENTS.md`, "Agent runs"): the session's thread is the
  * orchestrator's, and every agent it dispatches is a thread of its own in the same project and
@@ -7,9 +8,14 @@
  * (`queue_after_active`), exactly once: one evaluator fiber decides every delivery, each marked
  * by its run's id, and t3 runs a command id it already accepted only once.
  *
+ * A person's follow-up, which the cell sends the host (`adapters/followUpHttp.ts`), goes to the
+ * orchestrator's thread the same way: fenced (`core/followUp.ts`), `queue_after_active`, and
+ * once per the cell's key, since its command id is made of the key.
+ *
  * Nothing here is reachable by an RPC client: the host dispatches these commands itself, past
  * `decideCommand`, which governs what clients may send.
  */
+import { createHash } from 'node:crypto';
 import type { AgentRun, AgentRunAgent } from '@consola/runner-protocol';
 import { CommandId, MessageId, ThreadId } from '@t3tools/contracts';
 import type {
@@ -26,6 +32,7 @@ import type {
   TurnItemId,
 } from '@t3tools/contracts';
 import * as Clock from 'effect/Clock';
+import * as Deferred from 'effect/Deferred';
 import * as Duration from 'effect/Duration';
 import * as Effect from 'effect/Effect';
 import * as Option from 'effect/Option';
@@ -54,6 +61,8 @@ import {
   reportReady,
 } from '../core/agentRun.ts';
 import type { AgentRunView, ChildFacts, Completion, OrchestratorFacts } from '../core/agentRun.ts';
+import { followUpKey, followUpMessage } from '../core/followUp.ts';
+import type { FollowUpAuthor } from '../core/followUp.ts';
 import {
   AGENT_RUN_TOOLS,
   DISPATCH_GUIDE,
@@ -63,11 +72,31 @@ import {
   toolValue,
 } from '../core/agentRunTools.ts';
 import type { ToolAnswer, ToolCall, ToolListing } from '../core/agentRunTools.ts';
+import { hostCommandId, hostMessageId } from '../core/commandPolicy.ts';
 
 /** How long a model a run names may wait for the provider to list its models. */
 const MODELS_WAIT = Duration.seconds(15);
 /** How long the evaluator waits for an event before it reads every thread again. */
 const EVALUATE_EVERY = Duration.seconds(1);
+/**
+ * How long a follow-up waits for the run's prompt to be sent: one that came first would start the
+ * orchestrator's conversation in its place. The prompt goes as the host is ready, before the cell
+ * can know its address, so this is a safety net; the cell waits longer for an answer.
+ */
+export const FOLLOW_UP_START_WAIT = Duration.seconds(5);
+
+/** A person's follow-up for the orchestrator, as the host read it: the cell's key, the text, who. */
+export type PersonFollowUp = {
+  readonly key: string;
+  readonly text: string;
+  readonly author: FollowUpAuthor;
+};
+
+/**
+ * What became of a follow-up: queued after the orchestrator's turn now, queued before under the
+ * same key, or `not-ready` while the run's prompt is not yet sent (`FOLLOW_UP_START_WAIT`).
+ */
+export type FollowUpDelivery = 'delivered' | 'already-delivered' | 'not-ready';
 
 /** What a dispatched agent's thread is read through, read-only (`rpcServer.ts`, `hostShell.ts`). */
 export type ChildThreadView = {
@@ -95,6 +124,13 @@ export type AgentRunHandle = {
   views(): Stream.Stream<AgentRunView>;
   /** Sends the run's prompt as the orchestrator's first message. Once the host listens. */
   readonly start: Effect.Effect<void, Orchestrator.OrchestratorV2Error>;
+  /**
+   * Hands a person's follow-up to the orchestrator's thread, fenced, after its turn: once per key,
+   * whoever sends it again. It waits for `start` first.
+   */
+  followUp(
+    input: PersonFollowUp,
+  ): Effect.Effect<FollowUpDelivery, Orchestrator.OrchestratorV2Error>;
   /** The tools `/mcp` lists. */
   readonly tools: readonly ToolListing[];
   /** Answers one tool call made by `caller`'s thread (whose token the request carried). */
@@ -175,6 +211,8 @@ export const openAgentRun = (
     const { sessionId, run, orchestrator } = input;
     const orchestratorId = input.threadId;
     const lock = yield* Semaphore.make(1);
+    // Open once the run's prompt is sent: a follow-up waits for it.
+    const started = yield* Deferred.make<void>();
     const wake = yield* Queue.sliding<void>(1);
     const dirty = new Set<string>();
     const children: Child[] = [];
@@ -258,9 +296,9 @@ export const openAgentRun = (
       type: 'message.dispatch',
       createdBy: 'user',
       creationSource: 'web',
-      commandId: CommandId.make(`command:${threadId}:${key}`),
+      commandId: CommandId.make(hostCommandId(threadId, key)),
       threadId,
-      messageId: MessageId.make(`message:${threadId}:${key}`),
+      messageId: MessageId.make(hostMessageId(threadId, key)),
       text,
       attachments: [],
       modelSelection,
@@ -384,7 +422,7 @@ export const openAgentRun = (
           type: 'thread.create',
           createdBy: 'user',
           creationSource: 'web',
-          commandId: CommandId.make(`command:${id}:thread.create`),
+          commandId: CommandId.make(hostCommandId(id, 'thread.create')),
           threadId: id,
           projectId: input.projectId,
           title: `${agent.name} ${dispatchCount}`,
@@ -481,7 +519,7 @@ export const openAgentRun = (
         yield* orchestrator
           .dispatch({
             type: 'run.interrupt',
-            commandId: CommandId.make(`command:${child.id}:cancel:${each.id}`),
+            commandId: CommandId.make(hostCommandId(child.id, `cancel:${each.id}`)),
             threadId: child.id,
             runId: each.id,
             reason: 'Cancelled by the orchestrator.',
@@ -535,6 +573,31 @@ export const openAgentRun = (
       }
     };
 
+    const personFollowUp = Effect.fn('AgentRun.personFollowUp')(function* ({
+      key,
+      text,
+      author,
+    }: PersonFollowUp) {
+      const ready = yield* Deferred.await(started).pipe(Effect.timeoutOption(FOLLOW_UP_START_WAIT));
+      if (Option.isNone(ready)) return 'not-ready' as const;
+      const composed = followUpMessage(author, text);
+      const digest = createHash('sha256').update(composed, 'utf8').digest('hex');
+      // Under the lock the evaluator and the tools hold, like every other dispatch of the run.
+      return yield* lock.withPermits(1)(
+        Effect.gen(function* () {
+          const sent = yield* orchestrator.dispatch(
+            message(orchestratorId, followUpKey(key, digest), composed, orchestratorModel, {
+              type: 'queue_after_active',
+            }),
+          );
+          yield* readOrchestrator;
+          yield* publish;
+          // t3 runs a command id it accepted only once, and says so of a second.
+          return sent.replayed === true ? ('already-delivered' as const) : ('delivered' as const);
+        }),
+      );
+    });
+
     const childView = (child: Child): ChildThreadView => ({
       threadId: child.id,
       agent: child.agent.name,
@@ -560,10 +623,12 @@ export const openAgentRun = (
               type: 'start_immediately',
             }),
           );
+          yield* Deferred.succeed(started, undefined);
           yield* readOrchestrator;
           yield* publish;
         }),
       ),
+      followUp: personFollowUp,
       tools: AGENT_RUN_TOOLS,
       callTool: (caller, name, args) => {
         const read = readToolCall(name, args);

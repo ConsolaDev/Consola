@@ -833,8 +833,7 @@ button.factory-row-toggle:hover {
   min-width: 0;
 }
 
-.content-inner,
-.content > .footer {
+.content-inner {
   box-sizing: border-box;
   width: 100%;
   max-width: 880px;
@@ -848,10 +847,6 @@ button.factory-row-toggle:hover {
   flex-direction: column;
   gap: 28px;
   padding-block: 32px 48px;
-}
-
-.content > .footer {
-  padding-block: 0 20px;
 }
 
 /* A wide section (`Section.layout`) has the whole space beside the sidebar and lays itself out. */

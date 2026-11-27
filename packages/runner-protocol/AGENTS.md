@@ -17,12 +17,17 @@ own copy:
   ended while the socket was down, each with its real end) and
   `session.update` (`status`, `hostUrl`, `title`, `error`, `agentRun`). Cell
   to runner: `session.start` (with `agentRun` for an agent run, below) and
-  `session.stop`. Read with `readRunnerMessage` and `readCellMessage`;
+  `session.stop`. Read with `readRunnerMessage` and `readCellMessage`.
+  `session.start`'s `repository` is optional: left out, the session has none
+  (below, "Agent runs");
 - the session pass both sides check: `PASS_AUDIENCE`, `PASS_TYPE` (the JWS
   `typ`), `PASS_MAX_LIFETIME_SECONDS`, `PassClaims`, `passClaims` (builds the
   claims, throws on a grant the reader would refuse) and `readPassClaims`;
 - the start script's own line, `StartScriptLine` (`exit` with `clone-failed`),
-  read with `readStartScriptLine`. It is not one of the host's lines.
+  read with `readStartScriptLine`. It is not one of the host's lines;
+- a follow-up, what the cell sends an agent run's host for its orchestrator
+  (`FollowUp`, `readFollowUp`, `readFollowUpReceipt`; "Follow-ups", below).
+  It goes from the cell to the host directly, never over the runner's socket.
 
 It signs nothing and verifies nothing. The cell signs a pass; the host checks
 its signature, the time against now (`exp <= now` is expired, and the clock
@@ -81,6 +86,13 @@ one typing its first message or approving its commands.
   whole `instructions`) and the factory `files` (128 at most, relative paths),
   which the runner writes under `AGENT_RUN_FACTORY_DIR`. The repository is
   cloned in `SESSION_REPOSITORY_DIR`.
+- **No repository.** A factory may name none, so a start may leave
+  `repository` out (absent, never `null`, which is refused). The session then
+  works in `SESSION_REPOSITORY_DIR` left empty, and the runner gives its
+  sandbox no git credentials. A start with no repository may name no
+  `checkout`, since there is nothing to fetch it from (refused, naming both).
+  A runner's `hello` still offers its repositories: a start that names one
+  names one the runner offers.
 - `session.update` may carry `agentRun` (`AgentRunReport`): the run's `state`,
   the orchestrator's last message as `summary`, and the `agents` it dispatched.
 - Read with `readAgentRun` and `readAgentRunReport`; a bad one refuses the
@@ -90,6 +102,30 @@ one typing its first message or approving its commands.
   runner passes them on as they are and never interprets them.
 - Both sides cap the socket's frames at `RUNNER_SOCKET_FRAME_LIMIT_BYTES`
   (4 MiB), so an agent run fits in one `session.start`.
+
+## Follow-ups
+
+A person's message for a running agent run's orchestrator (`src/followUp.ts`),
+such as a reply in the Slack thread that started it. The cell sends it to the
+session's host straight away, at the `hostUrl` the runner reported:
+`POST <hostUrl>` + `FOLLOW_UP_PATH` with `Authorization: Bearer <pass>`, a
+pass for the person who wrote it (`sub`), and a JSON body of at most
+`FOLLOW_UP_BODY_MAX_BYTES`.
+
+- **The body** (`FollowUp`, read with `readFollowUp`) is exactly `key` (the
+  sender's idempotency key, `[A-Za-z0-9._:-]`, 128 at most), `text` (what the
+  person wrote, whole, not blank, `FOLLOW_UP_TEXT_MAX` characters at most) and
+  `authorLabel` (who wrote it in the sender's words, such as `a teammate in
+  Slack`: one line, no control character, `FOLLOW_UP_AUTHOR_LABEL_MAX` at
+  most). No name or email: the person is the pass's `sub`.
+- **The answer.** `200` with a `FollowUpReceipt` (`readFollowUpReceipt`):
+  `delivered`, or `already-delivered` when the same follow-up (its key, text
+  and author) was delivered before. Other words or another author under a
+  used key are a follow-up of their own, never swallowed. The host decides and
+  words everything else: the fence, who wrote it, and where it goes
+  (`packages/host/AGENTS.md`, "Agent runs").
+- The text is untrusted. The host fences it, and nothing puts it in a command
+  line or an environment variable.
 
 ## Changing the protocol
 

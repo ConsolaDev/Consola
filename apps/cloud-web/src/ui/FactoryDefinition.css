@@ -10,7 +10,7 @@
 .definition {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 44px);
+  height: 100dvh;
   min-height: 460px;
 }
 

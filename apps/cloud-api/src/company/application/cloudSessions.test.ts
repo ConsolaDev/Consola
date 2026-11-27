@@ -65,6 +65,7 @@ function setup(connected: Offer | null = offer, passes: PassSigner | null = pass
     ids: { newId: () => `session-${++next}` },
     clock: { nowSeconds: () => now.value },
     passes,
+    hosts: { sendFollowUp: async () => 'failed' },
   };
   return { ports, channel, now };
 }

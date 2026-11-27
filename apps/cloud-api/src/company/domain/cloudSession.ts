@@ -40,11 +40,8 @@ export type AgentRunItem = {
   headSha: string;
 };
 
-/**
- * What started an agent run: an automation of a factory's team, on an item. A person's session
- * has none.
- */
-export type SessionOrigin = {
+/** What started an agent run an automation of a factory's team started, on an item. */
+export type AutomationOrigin = {
   kind: 'automation';
   factoryId: string;
   factoryName: string;
@@ -53,6 +50,43 @@ export type SessionOrigin = {
   agent: string;
   item: AgentRunItem;
 };
+
+/** The Slack message a request from Slack came from, and the thread Consola answers in. */
+export type SlackOriginMessage = {
+  /** The Slack workspace (`T…`). */
+  teamId: string;
+  /** The channel, or the direct message, it was written in. */
+  channelId: string;
+  /** The thread Consola answers in: the message's own, or the one it was written in. */
+  threadTs: string;
+  /** The message itself. */
+  messageTs: string;
+  /** Its permalink, from Slack (`chat.getPermalink`). */
+  permalink: string;
+  /** Its first line, cut: written by a person in Slack, shown as text. */
+  title: string;
+};
+
+/**
+ * What started a request from Slack: a person mentioned a factory's bot, or sent it a direct
+ * message, and its orchestrator takes it.
+ */
+export type SlackOrigin = {
+  kind: 'slack';
+  factoryId: string;
+  factoryName: string;
+  /** The agent that takes the first turn: the factory's orchestrator. */
+  agent: string;
+  /** `mention`: the bot was mentioned in a channel; `dm`: sent a direct message. */
+  via: 'mention' | 'dm';
+  message: SlackOriginMessage;
+};
+
+/**
+ * What started an agent run: an automation of a factory's team, on an item, or a request made in
+ * Slack. A person's session has none.
+ */
+export type SessionOrigin = AutomationOrigin | SlackOrigin;
 
 /**
  * One cloud session as the app records it. Times are whole seconds since the epoch.
@@ -73,7 +107,12 @@ export type CloudSession = {
    * run, which no person started.
    */
   personId: string | null;
-  repository: Repository;
+  /**
+   * The repository it works in, as `owner/name`. Null for an agent run of a factory that names
+   * none (a request from Slack): its sandbox starts in an empty folder, with no git credentials.
+   * A person's session, and an agent run on a pull request, always have one.
+   */
+  repository: Repository | null;
   harness: Harness;
   status: CloudSessionStatus;
   title: string | null;
@@ -88,7 +127,7 @@ export type CloudSession = {
   runnerId: string | null;
   createdAt: number;
   endedAt: number | null;
-  /** What started an agent run; null for a person's session. */
+  /** What started an agent run (an automation, or a request from Slack); null for a person's session. */
   origin: SessionOrigin | null;
   /** The last report the runner sent of an agent run; null until it sent one. */
   agentRun: AgentRunReport | null;

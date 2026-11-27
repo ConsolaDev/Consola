@@ -8,7 +8,7 @@ import {
 import type { AgentRun, Harness } from '@consola/runner-protocol';
 import type { CellFailureCode, CloudSession, SessionOrigin } from './cloudSession.js';
 import { REQUEST_TEXT_MAX_BYTES, stepRecordOf } from './run.js';
-import type { RunStatus, RunWrite, StepStatus, WaitingOn } from './run.js';
+import type { RunItem, RunStatus, RunWrite, StepStatus, WaitingOn } from './run.js';
 
 /**
  * Agent runs: a software factory led by one agent, an alternative to the steps design. A GitHub event
@@ -106,17 +106,25 @@ export function agentRunStart(
 export type AgentRunFacts = {
   /** The factory version whose files the run started from. */
   readonly factoryVersion: number;
-  /** What the run's first agent was sent: the automation's prompt, as planned for the event. */
+  /**
+   * What the run's first agent was sent: the automation's prompt, as planned for the event, or
+   * the request from Slack, as planned for the message.
+   */
   readonly text: string;
   /** When the run was recorded first, as an ISO 8601 time. */
   readonly createdAt: string;
+  /**
+   * Who started it, by their id: the linked person who asked in Slack. None (absent or null) for
+   * an automation's, which no person started.
+   */
+  readonly startedBy?: string | null;
 };
 
 /** The longest one-line summary of an ended agent run, in characters. */
 export const AGENT_RUN_SUMMARY_LINE_MAX = 300;
 
 /** How each failure the app decides reads on a run's page, as its error. */
-const FAILURE_WORDS: Record<CellFailureCode, string> = {
+export const FAILURE_WORDS: Record<CellFailureCode, string> = {
   runner_restarted: 'The runner restarted, and the sandbox this run worked in is gone.',
   runner_unreachable: 'The cell could not hand this run to its runner.',
   runner_failed: 'The runner says the run failed, and gave no reason.',
@@ -160,10 +168,10 @@ function summaryLine(summary: string | undefined): string | null {
 }
 
 /** Where an agent run stands: as a run, what it waits on, and as its one step. */
-type Standing = { status: RunStatus; waitingOn: WaitingOn | null; step: StepStatus };
+export type Standing = { status: RunStatus; waitingOn: WaitingOn | null; step: StepStatus };
 
 /** Where an agent run stands, by its session and the runner's last report of it. */
-function standingOf(session: CloudSession): Standing {
+export function standingOf(session: CloudSession): Standing {
   const state = session.agentRun?.state;
   switch (session.status) {
     case 'starting':
@@ -185,13 +193,54 @@ function standingOf(session: CloudSession): Standing {
 }
 
 /**
+ * Why an agent run failed, in words: the runner's message, or the app's sentence for its own code,
+ * or the agent's own say-so. Null while it has not failed.
+ */
+export function agentRunError(session: CloudSession): string | null {
+  if (standingOf(session).status !== 'failed') return null;
+  return (
+    session.error ??
+    (session.errorCode === null ? null : FAILURE_WORDS[session.errorCode]) ??
+    'The agent says its run failed.'
+  );
+}
+
+/** What started a run, as the Runs pages name it: the event (`pull_request`), or Slack's way. */
+function triggerDetailOf(origin: SessionOrigin): string {
+  return origin.kind === 'automation' ? origin.item.kind : `slack_${origin.via}`;
+}
+
+/** A run's item: the pull request an automation ran on, or the Slack message a request came from. */
+function itemOf(origin: SessionOrigin): RunItem {
+  if (origin.kind === 'slack') {
+    return {
+      url: origin.message.permalink,
+      title: origin.message.title,
+      kind: 'slack',
+      repo: null,
+      number: null,
+    };
+  }
+  return {
+    url: origin.item.url,
+    title: origin.item.title,
+    kind: 'pr',
+    repo: origin.item.repository,
+    number: origin.item.number,
+  };
+}
+
+/**
  * An agent run as the Runs pages show it: a **request** (the orchestrator spec, "A request is a
- * run"), since an automation of a team hands its event to an agent (by default the orchestrator) rather
- * than running steps of its own. Its one step is that agent (`orchestrator`), its trigger the
- * event, its item the pull request, its text what the agent was sent, and its conversation the
- * cloud session the agent works in. Its id is the session's. Where it stands follows the session
- * and the runner's last report (`standingOf`); an error is the runner's message or the app's
- * sentence for its own code. Null for a session that is no agent run.
+ * run"), since an automation of a team hands its event to an agent (by default the orchestrator)
+ * rather than running steps of its own, and a request from Slack hands a person's message to the
+ * orchestrator. Its one step is that agent (`orchestrator`), its trigger the event (`pull_request`,
+ * or `slack_mention` and `slack_dm`), its item the pull request or the Slack message, its text
+ * what the agent was sent, who started it (the person who asked in Slack, else nobody), and its
+ * conversation the cloud session the agent works in. Its id is the session's. Where it stands
+ * follows the session and the runner's last report (`standingOf`); an error is the runner's
+ * message or the app's sentence for its own code (`agentRunError`). Null for a session that is no
+ * agent run.
  */
 export function agentRunRecord(
   session: CloudSession,
@@ -202,12 +251,7 @@ export function agentRunRecord(
   if (origin === null) return null;
   const { status, waitingOn, step } = standingOf(session);
   const ended = status === 'completed' || status === 'failed' || status === 'cancelled';
-  const error =
-    status === 'failed'
-      ? (session.error ??
-        (session.errorCode === null ? null : FAILURE_WORDS[session.errorCode]) ??
-        'The agent says its run failed.')
-      : null;
+  const error = agentRunError(session);
   const startedAt = session.status === 'starting' ? null : ISO(session.createdAt);
   const finishedAt = session.endedAt === null ? null : ISO(session.endedAt);
   return {
@@ -219,15 +263,9 @@ export function agentRunRecord(
     status,
     waitingOn,
     trigger: 'event',
-    triggerDetail: origin.item.kind,
-    startedBy: null,
-    item: {
-      url: origin.item.url,
-      title: origin.item.title,
-      kind: 'pr',
-      repo: origin.item.repository,
-      number: origin.item.number,
-    },
+    triggerDetail: triggerDetailOf(origin),
+    startedBy: facts.startedBy ?? null,
+    item: itemOf(origin),
     runner: 'cloud',
     steps: [
       stepRecordOf({

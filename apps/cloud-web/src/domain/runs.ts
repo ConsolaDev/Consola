@@ -20,6 +20,10 @@ export type Phase = Schemas['Phase'];
 export type RunStatus = Schemas['RunStatus'];
 export type RunTrigger = Schemas['RunTrigger'];
 export type StepStatus = Schemas['StepStatus'];
+/**
+ * The pull request, issue or Slack message a run is about. A request from Slack is about its
+ * message (`kind: 'slack'`: its permalink and its first line, with no `repo` or `number`).
+ */
 export type RunItem = Schemas['RunItem'];
 export type PhaseCounts = Schemas['PhaseCounts'];
 export type RunSummary = Schemas['RunSummary'];

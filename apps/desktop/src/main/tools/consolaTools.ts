@@ -375,6 +375,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
 
     defineTool({
       name: 'list_automations',
+      partOfAutomations: true,
       description:
         'List your workspace’s automations (its factory.yml): schedule, mode (auto | confirm | ' +
         'notify), what each runs, the next run, whether it takes an item, of which type, and any ' +
@@ -390,6 +391,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
 
     defineTool({
       name: 'run_automation',
+      partOfAutomations: true,
       description:
         'Run one of your workspace’s automations now, by name (see consola_list_automations). ' +
         'A `notify` automation only reports; any other waits for the person to approve ' +
@@ -459,6 +461,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
 
     defineTool({
       name: 'automation_capabilities',
+      partOfAutomations: true,
       description:
         'Describe what an automation can be in your workspace: the entry grammar with an example per ' +
         'kind, the triggers, modes and tools that exist, and which of this workspace’s connections, ' +
@@ -475,6 +478,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
 
     defineTool({
       name: 'save_automation',
+      partOfAutomations: true,
       description:
         'Add an automation to your workspace’s factory.yml, or replace one of the same name. Call ' +
         'consola_automation_capabilities first, so the entry uses what exists here, and confirm ' +

@@ -101,6 +101,7 @@ function build(connected: Offer | null = offer, passSigner: PassSigner | null = 
     ids: { newId: () => `session-${++next}` },
     clock: { nowSeconds: () => 1000 },
     passes: passSigner,
+    hosts: { sendFollowUp: async () => 'failed' },
   };
   // The routes behind the real caller check: who is signed in, with which workspace active, is
   // whoever the test says, a member there, and every request names that workspace as shown.

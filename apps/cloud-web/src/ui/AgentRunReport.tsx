@@ -3,11 +3,9 @@ import {
   agentRunPhase,
   agentRunSummary,
   dispatchedAgents,
-  pullRequestLabel,
-  pullRequestUrl,
-  shortSha,
+  originFacts,
 } from '../domain/cloudSession';
-import type { AgentRun } from '../domain/cloudSession';
+import type { AgentRun, OriginFacts } from '../domain/cloudSession';
 import {
   AGENT_RUN_LABEL,
   DISPATCHED_STATUS_WORDS,
@@ -17,46 +15,89 @@ import {
   noSummaryWords,
 } from '../domain/cloudSessionMessages';
 import { hashOfFactoryPage } from '../domain/factoryNav';
+import { ServiceMark } from './serviceMarks';
 
 /**
- * What an agent run is, said above everything else on its page: an agent run, the automation
- * that started it in its factory (a link to the factory's definition), its pull request (a link
- * to GitHub, in a new tab) and the commit it checks out.
+ * What an agent run is, said above everything else on its page, by what started it
+ * (`originFacts`): an automation's run says the automation in its factory (a link to the
+ * factory's definition), its pull request (a link to GitHub, in a new tab) and the commit it
+ * checks out; a request from Slack says how it came (a mention, a direct message) to its factory,
+ * and its message (a link to Slack, in a new tab).
  */
 export function AgentRunFacts({ run }: { run: AgentRun }) {
-  const { origin } = run;
-  const pullRequest = pullRequestLabel(origin.item);
-  const url = pullRequestUrl(origin.item);
+  const facts = originFacts(run.origin);
   return (
     <>
       <span className="agent-run-kind">
         <Workflow size={13} aria-hidden="true" />
         {AGENT_RUN_LABEL}
       </span>
+      {facts.kind === 'slack' ? <SlackFacts facts={facts} /> : <AutomationFacts facts={facts} />}
+    </>
+  );
+}
+
+/** A request someone sent a factory's bot in Slack: how, to which factory, and the message. */
+function SlackFacts({ facts }: { facts: Extract<OriginFacts, { kind: 'slack' }> }) {
+  return (
+    <>
       <span>
-        <span className="agent-run-automation">{origin.automation}</span> in{' '}
-        <a className="agent-run-link" href={hashOfFactoryPage(origin.factoryId)}>
-          {origin.factoryName}
+        {facts.via} to{' '}
+        <a className="agent-run-link" href={hashOfFactoryPage(facts.factory.id)}>
+          {facts.factory.name}
         </a>
       </span>
-      {url ? (
+      {facts.url && <OpenInSlack url={facts.url} />}
+    </>
+  );
+}
+
+/** The Slack message a request came from, in a new tab. */
+export function OpenInSlack({ url }: { url: string }) {
+  return (
+    <a
+      className="agent-run-link"
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      title="The message in Slack"
+    >
+      <ServiceMark service="slack" size={12} />
+      Open in Slack
+      <ExternalLink size={12} aria-hidden="true" />
+      <span className="sr-only"> (opens Slack in a new tab)</span>
+    </a>
+  );
+}
+
+/** An automation's run on a pull request: the automation, the pull request and its commit. */
+function AutomationFacts({ facts }: { facts: Extract<OriginFacts, { kind: 'automation' }> }) {
+  return (
+    <>
+      <span>
+        <span className="agent-run-automation">{facts.automation}</span> in{' '}
+        <a className="agent-run-link" href={hashOfFactoryPage(facts.factory.id)}>
+          {facts.factory.name}
+        </a>
+      </span>
+      {facts.url ? (
         <a
           className="agent-run-link"
-          href={url}
+          href={facts.url}
           target="_blank"
           rel="noopener noreferrer"
-          title={`${pullRequest} on GitHub`}
+          title={`${facts.pullRequest} on GitHub`}
         >
-          {pullRequest}
+          {facts.pullRequest}
           <ExternalLink size={12} aria-hidden="true" />
           <span className="sr-only"> (opens GitHub in a new tab)</span>
         </a>
       ) : (
-        <span>{pullRequest}</span>
+        <span>{facts.pullRequest}</span>
       )}
-      <span className="agent-run-commit" title={`Commit ${origin.item.headSha}`}>
+      <span className="agent-run-commit" title={`Commit ${facts.headSha}`}>
         <GitCommitHorizontal size={13} aria-hidden="true" />
-        <span className="session-repository">{shortSha(origin.item.headSha)}</span>
+        <span className="session-repository">{facts.shortSha}</span>
       </span>
     </>
   );

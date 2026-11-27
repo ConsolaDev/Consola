@@ -1,3 +1,4 @@
+import type { Labs } from '../../shared/labs';
 import type { WorkspaceView } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
 import type { JsonStateFile } from './JsonStateFile';
@@ -51,6 +52,7 @@ export function normalizeView(value: unknown): WorkspaceView | null {
 export function resolveRememberedView(
   view: WorkspaceView,
   workspace: Workspace | undefined,
+  labs: Pick<Labs, 'automations'>,
 ): WorkspaceView {
   if (!workspace) return EMPTY_VIEW;
 
@@ -62,8 +64,10 @@ export function resolveRememberedView(
     activeSessionId: sessionStillExists ? view.activeSessionId : null,
     // Inbox also hosts integration setup, so it remains a valid destination
     // before an account is connected and after one is disconnected, and
-    // Automations offers templates before there is anything to run.
-    overlay: view.overlay,
+    // Automations offers templates before there is anything to run, on a
+    // computer that shows it (labs): a view left there by an earlier build
+    // or another profile lands on the session instead.
+    overlay: view.overlay === 'automations' && !labs.automations ? null : view.overlay,
   };
 }
 

@@ -3515,6 +3515,1110 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/factories/{factoryId}/slack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A factory’s Slack app
+         * @description Where the factory’s Slack app stands, its handle and Slack workspace, and the manifest and addresses it is set up with. Any member who sees the factory may read it.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The factory’s Slack app. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackAppStatus"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        /**
+         * Disconnect a factory’s Slack app
+         * @description Revokes the bot token, as far as Slack answers, and forgets everything Consola kept for the app: its credentials, its events, its links not used yet and its requests’ threads. The app itself stays in Slack, until someone deletes it there (`appSettingsUrl`). Only an owner or admin may.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Disconnected. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description Only an owner or admin of the workspace may (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The workspace has no such factory (`factory_not_found`), or it has no Slack app (`slack_not_set_up`). */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        } | {
+                            /** @enum {string} */
+                            error: "slack_not_set_up";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factories/{factoryId}/slack/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Save a factory’s Slack app credentials
+         * @description The app’s client ID, client secret and signing secret. The secrets are sealed before they are stored, and never answered. Saved with the client ID the app already has, an install stays; with another, it is forgotten. Only an owner or admin may.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SlackCredentials"];
+                };
+            };
+            responses: {
+                /** @description Saved: the factory’s Slack app now. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackAppStatus"];
+                    };
+                };
+                /** @description A credential is missing or not of the shape Slack gives it (`invalid_credentials`, each named). Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidSlackCredentials"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description Only an owner or admin of the workspace may (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factories/{factoryId}/slack/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start adding a factory’s Slack app to Slack
+         * @description Slack’s authorise page for the factory’s app, carrying a state signed for this person and factory, for ten minutes. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Where to send the person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackInstallAddress"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description Only an owner or admin of the workspace may (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The factory’s app has no credentials yet (`credentials_missing`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "credentials_missing";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/oauth/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Where Slack sends a person back after “Add to Slack”
+         * @description Every factory’s Slack app’s redirect URL, reached by a browser redirect from Slack with `code` and `state`, or `error`. It needs no session: the signed state names the workspace, the factory and the person, so it works on the tunnel’s address too. It never answers JSON: it always redirects to the factory’s settings in the web app, with how it ended in `?slack=`: one of `installed`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `factory_not_found`, `credentials_missing`, `credentials_changed`, `code_refused`, `not_a_bot`, `enterprise_install`, `app_taken`, `wrong_app`, `invalid`, `unavailable`, `not_configured`.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description To `<PUBLIC_URL>/?slack=<result>#/factories/<factoryId>/settings`, or, when the state names no factory, `<PUBLIC_URL>/?slack=<result>#/settings/connections`. */
+                302: {
+                    headers: {
+                        location: string;
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/link-requests/{token}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A one-time link, as its page shows it
+         * @description What the link page shows before the person confirms: whether it still works, the Slack account it links, and whether it is for the session’s active workspace.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The token of a one-time link Consola sent in Slack. */
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The link. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackLinkRequest"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description No link has that token. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "link_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Confirm a one-time link
+         * @description Links the Slack account the link names to the person, in the session’s active workspace, which must be the link’s. The link works once. The bot then says so in Slack, as far as Slack answers.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The token of a one-time link Consola sent in Slack. */
+                    token: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Linked, or linked already to this person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackLink"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description No link has that token. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "link_not_found";
+                        };
+                    };
+                };
+                /** @description The link was used already (`link_used`) or has expired (`link_expired`), is for another workspace than the session’s active one (`other_workspace`), or its Slack account is linked to someone else there (`linked_to_someone_else`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "link_used";
+                        } | {
+                            /** @enum {string} */
+                            error: "link_expired";
+                        } | {
+                            /** @enum {string} */
+                            error: "other_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "linked_to_someone_else";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** My Slack accounts linked in my active workspace */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The person’s links, oldest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackLinks"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/links/{linkId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Unlink one of my Slack accounts
+         * @description A person removes only their own links, in the session’s active workspace.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    linkId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Unlinked. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The person has no link with that id in the active workspace. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "link_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/slack/events/{factoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive one of Slack’s events for a factory’s app
+         * @description A factory’s Events API request URL. Slack calls it, with no session and no Origin, so it is outside the origin check. The body is Slack’s JSON, read as raw bytes and checked against `X-Slack-Signature` (`v0=` and the HMAC-SHA256 of `v0:<X-Slack-Request-Timestamp>:<body>` under the factory’s signing secret, compared in constant time), with a timestamp within five minutes, before anything else is read. Before the factory has a signing secret, only Slack’s check of the URL (`url_verification`) is answered, unchecked, and it changes nothing. An event (`event_callback`) must name the factory’s app and Slack workspace, is recorded once by its `event_id`, and is answered at once; a mention of the bot or a direct message to it then starts a request for the factory’s orchestrator.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Slack’s check of the URL, answered; or an event, received. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackChallenge"] | components["schemas"]["SlackEventReceived"];
+                    };
+                };
+                /** @description Signed, but the body is not what Slack sends. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_event";
+                        };
+                    };
+                };
+                /** @description No signature, a timestamp more than five minutes away, or not Slack’s signature over this body under the factory’s signing secret. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "bad_signature";
+                        };
+                    };
+                };
+                /** @description Signed, but the event names another Slack app or Slack workspace than the factory’s. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_app";
+                        };
+                    };
+                };
+                /** @description No factory has that id. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The factory’s app has no signing secret in Consola yet, so only Slack’s check of the URL is answered (`slack_not_set_up`); or it is not added to a Slack workspace yet, so no event is taken (`slack_not_installed`). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_set_up";
+                        } | {
+                            /** @enum {string} */
+                            error: "slack_not_installed";
+                        };
+                    };
+                };
+                /** @description Over the 1048576 bytes Consola reads. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "too_large";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` (`slack_not_configured`). Or the database did not answer, or the factory’s secret does not open with this server’s key (`unavailable`): Slack sends the event again. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -3578,6 +4682,11 @@ export interface components {
          * @enum {string}
          */
         GitHubCallbackResult: "choose" | "taken_elsewhere" | "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
+        /**
+         * @description How an “Add to Slack” ended, as the callback names it in the web app’s `?slack=`.
+         * @enum {string}
+         */
+        SlackCallbackResult: "installed" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "factory_not_found" | "credentials_missing" | "credentials_changed" | "code_refused" | "not_a_bot" | "enterprise_install" | "app_taken" | "wrong_app" | "invalid" | "unavailable" | "not_configured";
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {
             user: components["schemas"]["Person"];
@@ -3818,7 +4927,7 @@ export interface components {
             /** @description The request that started it, on an automation run one did. */
             parentId: string | null;
             trigger: components["schemas"]["RunTrigger"];
-            /** @description What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check. */
+            /** @description What the trigger was: the event's name (`pull_request.opened`; for a request from Slack, `slack_mention` or `slack_dm`), the cron schedule, or the poll's check. */
             triggerDetail: string | null;
             /** @description The id of the person who started it, who may no longer be a member; null for a run no person started. */
             startedBy: string | null;
@@ -3874,14 +4983,17 @@ export interface components {
          * @enum {string}
          */
         RunTrigger: "cron" | "event" | "poll" | "manual";
-        /** @description The pull request or issue a run is about. */
+        /** @description The pull request or issue a run is about, or the Slack message a request came from. */
         RunItem: {
-            /** @description Its page, an https address. */
+            /** @description Its page, an https address: for a Slack message, its permalink. */
             url: string;
-            /** @description Written by its author: text, never markup. */
+            /** @description Written by its author: text, never markup. For a Slack message, its first line. */
             title: string;
-            /** @enum {string|null} */
-            kind: "pr" | "issue" | null;
+            /**
+             * @description `pr`, `issue`, or `slack`: the Slack message a request came from, with no `repo` or `number`.
+             * @enum {string|null}
+             */
+            kind: "pr" | "issue" | "slack" | null;
             /** @description `owner/name`, when known. */
             repo: string | null;
             number: number | null;
@@ -4115,8 +5227,8 @@ export interface components {
             workspaceId: string;
             /** @description The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees. */
             personId: string | null;
-            /** @description The repository, as `owner/name`. */
-            repository: string;
+            /** @description The repository it works in, as `owner/name`. Null for an agent run of a factory that names none (a request from Slack), which starts in an empty folder with no git credentials. A person’s session, and an agent run on a pull request, always have one. */
+            repository: string | null;
             /**
              * @description The agent CLI the session runs.
              * @enum {string}
@@ -4144,8 +5256,8 @@ export interface components {
             createdAt: number;
             /** @description When it ended, in epoch seconds; null while it lives. */
             endedAt: number | null;
-            /** @description What started an agent run; null for a person's session. */
-            origin: components["schemas"]["CloudSessionOrigin"] | null;
+            /** @description What started an agent run: an automation (`CloudSessionOrigin`) or a request from Slack (`SlackSessionOrigin`); null for a person's session. */
+            origin: components["schemas"]["CloudSessionOrigin"] | components["schemas"]["SlackSessionOrigin"] | null;
             /** @description The runner's last report of an agent run; null until it sent one. */
             agentRun: components["schemas"]["AgentRunReport"] | null;
         };
@@ -4170,6 +5282,35 @@ export interface components {
                 title: string;
                 /** @description The commit the run checks out. */
                 headSha: string;
+            };
+        };
+        /** @description What started a request from Slack: a person mentioned a factory's bot, or sent it a direct message, and its orchestrator takes it. */
+        SlackSessionOrigin: {
+            /** @enum {string} */
+            kind: "slack";
+            factoryId: string;
+            factoryName: string;
+            /** @description The agent that takes the first turn: the orchestrator. */
+            agent: string;
+            /**
+             * @description `mention`: the bot was mentioned in a channel; `dm`: sent a direct message.
+             * @enum {string}
+             */
+            via: "mention" | "dm";
+            /** @description The Slack message the request came from. */
+            message: {
+                /** @description The Slack workspace (`T…`). */
+                teamId: string;
+                /** @description The channel, or the direct message. */
+                channelId: string;
+                /** @description The thread Consola answers in. */
+                threadTs: string;
+                /** @description The message itself. */
+                messageTs: string;
+                /** @description The message's permalink, from Slack. */
+                permalink: string;
+                /** @description The message's first line, cut: written by a person, shown as text. */
+                title: string;
             };
         };
         /** @description The runner's last report of an agent run, as it sent it. */
@@ -4283,6 +5424,141 @@ export interface components {
         GitHubWebhookRecorded: {
             /** @enum {string} */
             result: "recorded";
+        };
+        /** @description A factory’s Slack app, and how to set it up. */
+        SlackAppStatus: {
+            /** @description Whether the person may set the app up, change it and disconnect it: an owner or admin. */
+            canManage: boolean;
+            /**
+             * @description `not_set_up`: no credentials yet; `awaiting_install`: saved, not added to Slack yet; `installed`; `needs_reinstall`: Slack refused the bot token, so the app has to be added again.
+             * @enum {string}
+             */
+            state: "not_set_up" | "awaiting_install" | "installed" | "needs_reinstall";
+            /** @description The bot’s handle, without the `@`: as Slack said it at the install, else the manifest’s. */
+            handle: string;
+            /** @description The app’s client ID, once saved. Never a secret: no secret is ever answered. */
+            clientId: string | null;
+            appId: string | null;
+            /** @description The app’s page in Slack, once installed: where it is renamed and deleted. */
+            appSettingsUrl: string | null;
+            team: components["schemas"]["SlackTeam"] | null;
+            installedAt: string | null;
+            setup: {
+                manifest: components["schemas"]["SlackManifest"];
+                /** @description Slack’s “create an app from a manifest” page, with the manifest filled in. */
+                createAppUrl: string;
+                /** @description Where Slack sends the app’s events. */
+                requestUrl: string;
+                /** @description Where Slack sends a person back after “Add to Slack”. */
+                redirectUrl: string;
+            };
+        };
+        /** @description A Slack workspace: its id (`T…`) and its name. */
+        SlackTeam: {
+            id: string;
+            name: string;
+        };
+        /** @description The manifest the factory’s app is created from, in Slack’s format: named after the factory, its bot’s handle the factory’s name as a slug. */
+        SlackManifest: {
+            display_information: {
+                name: string;
+            };
+            features: {
+                app_home: {
+                    /** @enum {boolean} */
+                    home_tab_enabled: false;
+                    /** @enum {boolean} */
+                    messages_tab_enabled: true;
+                    /** @enum {boolean} */
+                    messages_tab_read_only_enabled: false;
+                };
+                bot_user: {
+                    display_name: string;
+                    /** @enum {boolean} */
+                    always_online: false;
+                };
+            };
+            oauth_config: {
+                redirect_urls: string[];
+                scopes: {
+                    bot: ("app_mentions:read" | "channels:history" | "channels:read" | "chat:write" | "groups:history" | "groups:read" | "im:history" | "im:read" | "im:write" | "mpim:history" | "reactions:read" | "reactions:write" | "users:read")[];
+                };
+            };
+            settings: {
+                event_subscriptions: {
+                    request_url: string;
+                    bot_events: ("app_mention" | "message.im" | "message.channels" | "message.groups" | "reaction_added" | "member_joined_channel")[];
+                };
+                /** @enum {boolean} */
+                org_deploy_enabled: false;
+                /** @enum {boolean} */
+                socket_mode_enabled: false;
+                /** @enum {boolean} */
+                token_rotation_enabled: false;
+            };
+        };
+        InvalidSlackCredentials: {
+            /** @enum {string} */
+            error: "invalid_credentials";
+            problems: ("client_id_missing" | "client_id_invalid" | "client_secret_missing" | "client_secret_invalid" | "signing_secret_missing" | "signing_secret_invalid")[];
+        };
+        /** @description From the app’s Basic Information page in Slack, under App Credentials. */
+        SlackCredentials: {
+            clientId: string;
+            clientSecret: string;
+            signingSecret: string;
+        };
+        SlackInstallAddress: {
+            url: string;
+        };
+        /** @description A one-time link, as its page shows it. */
+        SlackLinkRequest: {
+            /**
+             * @description A link works once (`used` after), for 15 minutes (`expired` after).
+             * @enum {string}
+             */
+            state: "open" | "used" | "expired";
+            /** @description The workspace the link links in. */
+            workspaceId: string;
+            /** @description Whether that is the session’s active workspace. Only then can it be confirmed; otherwise the page offers to switch (`PUT /api/me/workspace`). */
+            inActiveWorkspace: boolean;
+            slackTeamId: string;
+            slackUserId: string;
+            /** @description The Slack workspace’s name, as an app of the active workspace holds it; else null. */
+            slackTeamName: string | null;
+            /** @description The factory whose bot sent it, when the caller sees it in the active workspace; else null. */
+            factory: {
+                id: string;
+                name: string;
+            } | null;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        /** @description A Slack account linked to the person in the active workspace. No Slack name is kept. */
+        SlackLink: {
+            id: string;
+            slackTeamId: string;
+            /** @description The Slack workspace’s name, as an app of the workspace holds it; else null. */
+            slackTeamName: string | null;
+            slackUserId: string;
+            /** Format: date-time */
+            linkedAt: string;
+        };
+        SlackLinks: {
+            links: components["schemas"]["SlackLink"][];
+        };
+        /** @description Slack’s check of the request URL (`url_verification`), answered with its challenge. */
+        SlackChallenge: {
+            /** @description The `challenge` Slack sent, as it sent it. */
+            challenge: string;
+        };
+        /** @description What became of one of Slack’s events. */
+        SlackEventReceived: {
+            /**
+             * @description `accepted`: the event is recorded now, and handled after this answer. `duplicate`: the factory had this event already (Slack sent it again): nothing changed. `ignored`: a kind of request Consola does not take.
+             * @enum {string}
+             */
+            result: "accepted" | "duplicate" | "ignored";
         };
     };
     responses: never;

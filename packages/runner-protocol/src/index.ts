@@ -21,6 +21,18 @@ export {
   SESSION_REPOSITORY_DIR,
 } from './agentRun.js';
 export {
+  FOLLOW_UP_AUTHOR_LABEL_MAX,
+  FOLLOW_UP_BODY_MAX_BYTES,
+  FOLLOW_UP_OUTCOMES,
+  FOLLOW_UP_PATH,
+  FOLLOW_UP_TEXT_MAX,
+  type FollowUp,
+  type FollowUpOutcome,
+  type FollowUpReceipt,
+  readFollowUp,
+  readFollowUpReceipt,
+} from './followUp.js';
+export {
   type CellMessage,
   ENDED_STATUSES,
   type EndedSession,

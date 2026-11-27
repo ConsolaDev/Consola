@@ -3,6 +3,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { HomeView, ContentView, WorkspaceEmptyView } from '../Views';
 import { InboxView } from '../Inbox';
 import { AutomationsView } from '../Automations';
+import { labsBridge } from '../../services/labsBridge';
 
 export function MainContent() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
@@ -27,7 +28,7 @@ export function MainContent() {
   if (overlay === 'inbox') {
     return <InboxView workspace={workspace} />;
   }
-  if (overlay === 'automations') {
+  if (overlay === 'automations' && labsBridge.automations) {
     return <AutomationsView workspace={workspace} />;
   }
 

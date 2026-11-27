@@ -7,10 +7,12 @@
  *                                       skills/<name>/ belongs to it
  *
  * Any other file is not this module's: a factory may also hold the steps design's files
- * (`agents/<name>.md`, `automations/<name>.yaml`, `factory.yml`). Pure: no I/O.
+ * (`agents/<name>.md`, `automations/<name>.yaml`, `factory.yml`). The team takes one thing from
+ * `factory.yml`, its `repos:`, read as the steps design reads it (`factoryRepositories`), whose
+ * problems are the steps design's parser's to report. Pure: no I/O.
  */
 import { stringify } from 'yaml';
-import { isIgnoredFileName } from '../factory';
+import { factoryRepositories, isIgnoredFileName } from '../factory';
 import { readFrontmatter, splitFrontmatter } from '../frontmatter';
 import type {
   AgentTeam,
@@ -335,7 +337,8 @@ const byPath = (a: TeamFile, b: TeamFile) => (a.path < b.path ? -1 : a.path > b.
  * The team the files describe, and every problem with them. A file with a problem is left out
  * of the team (an automation naming such an agent is a problem too), so an automation in the
  * team can run as written. Files are read in path order; the team's lists keep that order.
- * Never throws.
+ * `repositories` is `factory.yml`'s `repos:` (`factoryRepositories`): a problem there is not one
+ * of the team's issues, as `parseFactory` reports it. Never throws.
  */
 export function parseAgentTeam(files: readonly TeamFile[]): {
   team: AgentTeam;
@@ -455,7 +458,13 @@ export function parseAgentTeam(files: readonly TeamFile[]): {
   }
 
   return {
-    team: { agents, automations, skills, ...(orchestrator ? { orchestrator } : {}) },
+    team: {
+      agents,
+      automations,
+      skills,
+      ...(orchestrator ? { orchestrator } : {}),
+      repositories: factoryRepositories(files),
+    },
     issues,
   };
 }

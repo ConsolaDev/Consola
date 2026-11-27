@@ -1,6 +1,6 @@
 export { CODE_REVIEW_TEAM_FILES } from './codeReviewTeam.generated';
 export { hasAgentTeam, parseAgentTeam } from './parse';
-export { planAgentRun } from './plan';
+export { planAgentRun, planSlackRequest } from './plan';
 export { matchPullRequestAutomations, pullRequestEventOf } from './pullRequest';
 export type {
   AgentRunPlaces,
@@ -9,6 +9,7 @@ export type {
   AgentType,
   ListFilter,
   PullRequestEvent,
+  SlackRequest,
   TeamAgent,
   TeamAutomation,
   TeamFile,

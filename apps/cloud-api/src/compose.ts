@@ -14,18 +14,33 @@ import { systemClock } from './company/adapters/clock/systemClock.js';
 import { createGitHubApp, loadGitHubAppKey } from './company/adapters/github/gitHubApp.js';
 import { createInstallChoiceSigner } from './company/adapters/github/installChoiceSigner.js';
 import { createInstallStateSigner } from './company/adapters/github/installStateSigner.js';
+import { createHostChannel } from './company/adapters/host/hostChannel.js';
 import { createWebhookSignatures } from './company/adapters/github/webhookSignatures.js';
 import { COMPANY_ROUTES, registerCompanyRoutes } from './company/adapters/http/app.js';
 import { GITHUB_ROUTES, registerGitHubRoutes } from './company/adapters/http/gitHub.js';
 import { GITHUB_WEBHOOK_PATH } from './company/adapters/http/gitHubContract.js';
+import { registerSlackRoutes, SLACK_ROUTES } from './company/adapters/http/slack.js';
+import {
+  registerSlackEventRoutes,
+  SLACK_EVENT_ROUTES,
+} from './company/adapters/http/slackEvents.js';
 import { randomIds } from './company/adapters/persistence/cloudSessions.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores as createCompanyStores } from './company/adapters/persistence/stores.js';
 import { createRunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import { createSlackStores } from './company/adapters/persistence/slackStores.js';
+import { createSecretSealer } from './company/adapters/sealing/secretSealer.js';
+import { createSlackInstallStateSigner } from './company/adapters/slack/installStateSigner.js';
+import { linkTokens } from './company/adapters/slack/linkTokens.js';
+import { createSlackApi } from './company/adapters/slack/slackApi.js';
 import type { RunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import { slackSignatures } from './company/adapters/slack/eventSignatures.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
 import { checkHealth as checkCompanyHealth } from './company/application/health.js';
+import { answeringInSlack } from './company/application/slackAnswers.js';
+import { handleSlackEvent } from './company/application/slackRequests.js';
+import { SLACK_EVENTS_PATH_PREFIX } from './company/domain/slack.js';
 import type { CloudSessionPorts } from './company/application/ports.js';
 import type { CloudConfig } from './config.js';
 import { createFrontDoor } from './http/frontDoor.js';
@@ -35,18 +50,40 @@ import type { AppDatabase } from './persistence/database.js';
 
 /**
  * Every route the app serves through its contract, in the order `composeApi` registers them:
- * accounts', company's, GitHub's and the ring's health check. `openapi.test.ts` checks that the
- * composed app serves these and nothing else but `OUTSIDE_THE_CONTRACT`.
+ * accounts', company's, GitHub's, Slack's and the ring's health check. `openapi.test.ts` checks
+ * that the composed app serves these and nothing else but `OUTSIDE_THE_CONTRACT`.
  */
-export const ROUTES = [...ACCOUNT_ROUTES, ...COMPANY_ROUTES, ...GITHUB_ROUTES, ...RING_ROUTES];
+export const ROUTES = [
+  ...ACCOUNT_ROUTES,
+  ...COMPANY_ROUTES,
+  ...GITHUB_ROUTES,
+  ...SLACK_ROUTES,
+  ...SLACK_EVENT_ROUTES,
+  ...RING_ROUTES,
+];
 
 /**
  * The paths Consola's origin check does not guard (`createFrontDoor`): every path under
  * Better Auth's `/api/auth/`, whose routes check their own trusted origins (`PUBLIC_URL`), as
- * they did before the apps merged; and GitHub's webhook deliveries, exactly that path, which
- * carry no cookie and no Origin, and are signed instead.
+ * they did before the apps merged; GitHub's webhook deliveries, exactly that path; and every
+ * factory's Slack events, under `SLACK_EVENTS_PATH_PREFIX`. The last two carry no cookie and no
+ * Origin, and are signed instead.
  */
-export const ORIGIN_EXEMPT = ['/api/auth/', GITHUB_WEBHOOK_PATH] as const;
+export const ORIGIN_EXEMPT = ['/api/auth/', GITHUB_WEBHOOK_PATH, SLACK_EVENTS_PATH_PREFIX] as const;
+
+/**
+ * Runs work once the answer that started it is sent: on the next turn of the event loop, so the
+ * answer goes first. A task that throws is logged in one line, with nothing of what it held.
+ */
+const afterTheAnswer =
+  (report: (line: string) => void) =>
+  (task: () => Promise<void>): void => {
+    setImmediate(() => {
+      task().catch(() => {
+        report('Work after an answer failed, and said nothing of why.');
+      });
+    });
+  };
 
 /** The app, assembled. */
 export type Api = {
@@ -87,6 +124,13 @@ export async function composeApi(
   const membership = createMembershipReader(db.accounts);
   const company = createCompanyStores(db.company);
   const gitHubStores = createGitHubStores(db.company);
+  // Slack is off without the key that seals its secrets.
+  const slackStores = createSlackStores(db.company);
+  const sealer = config.connectionSecretsKey
+    ? createSecretSealer(config.connectionSecretsKey)
+    : null;
+  /** Runs work once the answer or the change that called for it is done. */
+  const later = afterTheAnswer(report);
 
   const auth = createAuth(
     {
@@ -107,12 +151,24 @@ export async function composeApi(
       })
     : null;
 
-  // Every writer of a cloud session moves an agent run's run with it (`keepingRunsInStep`).
-  const sessions = keepingRunsInStep(company.cloudSessions, {
+  // Every writer of a cloud session moves an agent run's run with it (`keepingRunsInStep`), and,
+  // with Slack on, says in a request's Slack thread where its run stands (`answeringInSlack`).
+  const keptInStep = keepingRunsInStep(company.cloudSessions, {
     runs: company.runs,
     clock: systemClock,
     report,
   });
+  const sessions = sealer
+    ? answeringInSlack(keptInStep, {
+        slack: createSlackApi(),
+        apps: slackStores.apps,
+        requests: slackStores.requests,
+        sealer,
+        publicUrl: config.publicUrl,
+        later,
+        report,
+      })
+    : keptInStep;
   const passKey = config.runner ? await createPassSigner(config.runner.passPrivateKey) : null;
   const runner = createRunnerSocket({
     settings:
@@ -131,6 +187,9 @@ export async function composeApi(
     ids: randomIds,
     clock: systemClock,
     passes: passKey?.signer ?? null,
+    // A running session's host, at the address its runner reported, if the deployment calls it:
+    // a follow-up's way in.
+    hosts: createHostChannel({ addresses: config.sandboxHosts, report }),
   };
 
   const app = createFrontDoor({ publicUrl: config.publicUrl, originExempt: ORIGIN_EXEMPT });
@@ -171,6 +230,64 @@ export async function composeApi(
       // sessions' ports and the workspace's factories.
       agentRuns: { ...cloudSessions, factories: company.factories, runs: company.runs, report },
     },
+  });
+
+  registerSlackRoutes(app, {
+    whoIsAsking,
+    membership,
+    publicUrl: config.publicUrl,
+    slackPublicUrl: config.slackPublicUrl,
+    slack: sealer && {
+      teams: company.teams,
+      factories: company.factories,
+      apps: slackStores.apps,
+      links: slackStores.links,
+      sealer,
+      states: createSlackInstallStateSigner(config.authSecret),
+      api: createSlackApi(),
+      tokens: linkTokens,
+      clock: systemClock,
+      report,
+    },
+  });
+  // Each factory's Slack events: checked and recorded at once, and handled after the answer,
+  // since Slack wants one within three seconds.
+  registerSlackEventRoutes(app, {
+    slack: sealer
+      ? {
+          apps: slackStores.apps,
+          factories: company.factories,
+          events: slackStores.events,
+          sealer,
+          signatures: slackSignatures,
+          clock: systemClock,
+          later,
+          // A mention of the bot or a direct message to it, from someone who may talk to the
+          // factory, starts a request for its orchestrator.
+          handle: async (installed, callback) => {
+            await handleSlackEvent(
+              {
+                ...cloudSessions,
+                factories: company.factories,
+                runs: company.runs,
+                teams: company.teams,
+                membership,
+                apps: slackStores.apps,
+                links: slackStores.links,
+                requests: slackStores.requests,
+                slack: createSlackApi(),
+                sealer,
+                tokens: linkTokens,
+                publicUrl: config.publicUrl,
+                report,
+              },
+              installed,
+              callback,
+            );
+          },
+        }
+      : null,
+    log: console,
   });
 
   registerHealthRoute(app, [

@@ -36,7 +36,7 @@ import type { FactoryStore, TeamStore } from './ports.js';
 const NOT_FOUND = { kind: 'not-found' } as const;
 
 /** The factory, if the caller sees it now; null when there is none, or it is not theirs to see. */
-async function seenFactory(
+export async function seenFactory(
   teams: TeamStore,
   factories: FactoryStore,
   caller: Caller,

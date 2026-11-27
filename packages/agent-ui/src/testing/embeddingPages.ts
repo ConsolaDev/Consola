@@ -105,7 +105,6 @@ export const cloudWebSessionPage = async () => {
         <div class="session-body"><div class="session-chat"></div></div>
       </div>
     </main>
-    <footer class="footer"><span>Consola</span></footer>
   </div>
 </div>`,
   };

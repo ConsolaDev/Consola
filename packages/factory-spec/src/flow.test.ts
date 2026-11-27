@@ -822,7 +822,7 @@ describe('parseEntryCheckout: a checkout the run owns (slice 3-B)', () => {
       {
         path: 'automations[0].checkout.repo',
         message:
-          'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`.',
+          'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`: the owner is letters, digits and `-`, and the name is letters, digits, `-`, `_` and `.`, not starting with `.`.',
       },
       {
         path: 'automations[0].checkout.branch',

@@ -55,6 +55,8 @@ import type {
   AutomationsRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import { parseLabs } from '../shared/labs';
+import type { Labs } from '../shared/labs';
 import type { AutomationsAPI } from '../shared/automations';
 import type { SecretsAPI } from '../shared/secrets';
 import type { InboxSection } from '../shared/inboxSections';
@@ -763,6 +765,18 @@ contextBridge.exposeInMainWorld('windowAPI', {
   getComputerName: (): Promise<string | null> =>
     ipcRenderer.invoke(IPC_CHANNELS.APP_GET_COMPUTER_NAME),
 });
+
+/**
+ * Which hidden features this computer turned on (`~/.consola/labs.json`, read
+ * by main at launch). Passed as a launch argument like the window's context,
+ * so a hidden section is never drawn for one frame first.
+ */
+function readLabsArgument(): Labs {
+  const prefix = '--consola-labs=';
+  return parseLabs(process.argv.find((value) => value.startsWith(prefix))?.slice(prefix.length));
+}
+
+contextBridge.exposeInMainWorld('labsAPI', readLabsArgument());
 
 contextBridge.exposeInMainWorld('openInAPI', {
   list: () => ipcRenderer.invoke(IPC_CHANNELS.OPEN_IN_LIST),

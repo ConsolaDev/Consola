@@ -89,7 +89,10 @@ let host: SessionMcpHost;
 let conductorDeps: ConductorToolsDeps;
 let toolDeps: ConsolaToolDeps;
 let requestApproval: Mock<SessionServerDeps['approvals']['request']>;
-let build: (sessionId: string) => ReturnType<typeof buildSessionServer>;
+let build: (
+  sessionId: string,
+  labs?: { automations: boolean },
+) => ReturnType<typeof buildSessionServer>;
 
 function runRecord(fields: Partial<RunRecord> & { id: string }): RunRecord {
   const at = '2026-11-04T09:00:00.000Z';
@@ -296,7 +299,7 @@ beforeEach(() => {
       actionName: `consola#${toolName}`,
     }),
   }));
-  build = (sessionId) =>
+  build = (sessionId, labs = { automations: true }) =>
     buildSessionServer(sessionId, {
       registry,
       approvals: { request: requestApproval },
@@ -305,6 +308,7 @@ beforeEach(() => {
       // Their own suite covers them (browser/browserTools.test.ts).
       browserTools: { addTo: () => {} },
       getWorkspaces: workspaces,
+      labs,
     });
   host = new SessionMcpHost({
     shimEntryPath: () => '/fake/shim.js',
@@ -328,10 +332,13 @@ function firstText(result: { content?: unknown; [key: string]: unknown }): strin
   return (result.content as Array<{ type: string; text: string }>)[0].text;
 }
 
-async function clientFor(sessionId: string): Promise<Client> {
+async function clientFor(sessionId: string, labs?: { automations: boolean }): Promise<Client> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'fake-agent', version: '0.0.0' });
-  await Promise.all([build(sessionId).connect(serverTransport), client.connect(clientTransport)]);
+  await Promise.all([
+    build(sessionId, labs).connect(serverTransport),
+    client.connect(clientTransport),
+  ]);
   return client;
 }
 
@@ -340,6 +347,21 @@ describe('MCP surface (in-memory)', () => {
     const client = await clientFor('w-1');
     const tools = await client.listTools();
     expect(tools.tools.map((tool) => tool.name).sort()).toEqual(CONSOLA_TOOLS);
+    await client.close();
+  });
+
+  it('offers no automation tool, and no tool approved in its dashboard, while Automations is hidden (labs)', async () => {
+    const client = await clientFor('w-1', { automations: false });
+    const names = (await client.listTools()).tools.map((tool) => tool.name).sort();
+    const held = new Set([
+      'consola_automation_capabilities',
+      'consola_cleanup_stale_sessions',
+      'consola_delete_session',
+      'consola_list_automations',
+      'consola_run_automation',
+      'consola_save_automation',
+    ]);
+    expect(names).toEqual(CONSOLA_TOOLS.filter((name) => !held.has(name)));
     await client.close();
   });
 

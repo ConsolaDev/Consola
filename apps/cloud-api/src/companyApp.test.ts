@@ -61,6 +61,7 @@ import {
 import { recordRun } from './company/application/runs.js';
 import { NO_STEP_DETAIL } from './company/domain/run.js';
 import type { RunWrite, StepRecord } from './company/domain/run.js';
+import { SLACK_EVENTS_PATH_PREFIX } from './company/domain/slack.js';
 import { FIRST_TEAM_NAME } from './company/domain/team.js';
 import { ROUTES } from './compose.js';
 import { getHealth } from './http/health.js';
@@ -358,7 +359,9 @@ describe('the caller check', () => {
  * The routes that answer a request with no session, and what each answers a bare one: the health
  * check; GitHub's webhook deliveries, which are signed instead (with no webhook secret set, as
  * here, each is refused before it is read); GitHub's callback, a redirect that reads the session
- * itself and says in the redirect that there is none; and the runner's socket, behind the
+ * itself and says in the redirect that there is none; Slack's OAuth callback, a redirect whose
+ * signed state says who started it; a factory's Slack events, signed instead (with Slack off, as
+ * here, each is refused); and the runner's socket, behind the
  * runner's secret instead, which a bare request does not carry. Nothing else is open, but Better
  * Auth's own routes (`/api/auth/*`), where signing in happens.
  */
@@ -366,6 +369,8 @@ const OPEN_ROUTES: Record<string, number> = {
   'GET /api/health': 200,
   [`POST ${GITHUB_WEBHOOK_PATH}`]: 503,
   'GET /api/github/callback': 302,
+  'GET /api/slack/oauth/callback': 302,
+  [`POST ${SLACK_EVENTS_PATH_PREFIX}:factoryId`]: 503,
   'GET /api/runner': 401,
 };
 
@@ -433,7 +438,10 @@ describe('every route', () => {
   it('of company that changes something refuses another site, before the session is asked', async () => {
     const owner = await harness.member('owner');
     const changes = companyRoutes(harness.app).filter(
-      ({ method, path }) => CHANGES.has(method) && path !== GITHUB_WEBHOOK_PATH,
+      ({ method, path }) =>
+        CHANGES.has(method) &&
+        path !== GITHUB_WEBHOOK_PATH &&
+        !path.startsWith(SLACK_EVENTS_PATH_PREFIX),
     );
     expect(changes.length).toBeGreaterThan(10);
     for (const origin of ['https://sprocket.example', 'http://localhost:5176', null]) {

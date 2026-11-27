@@ -30,6 +30,28 @@
         ],
         "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
       },
+      "SlackCallbackResult": {
+        "type": "string",
+        "enum": [
+          "installed",
+          "cancelled",
+          "bad_state",
+          "expired",
+          "not_allowed",
+          "factory_not_found",
+          "credentials_missing",
+          "credentials_changed",
+          "code_refused",
+          "not_a_bot",
+          "enterprise_install",
+          "app_taken",
+          "wrong_app",
+          "invalid",
+          "unavailable",
+          "not_configured"
+        ],
+        "description": "How an “Add to Slack” ended, as the callback names it in the web app’s `?slack=`."
+      },
       "Me": {
         "type": "object",
         "properties": {
@@ -957,7 +979,7 @@
               "string",
               "null"
             ],
-            "description": "What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check."
+            "description": "What the trigger was: the event's name (`pull_request.opened`; for a request from Slack, `slack_mention` or `slack_dm`), the cron schedule, or the poll's check."
           },
           "startedBy": {
             "type": [
@@ -1157,11 +1179,11 @@
         "properties": {
           "url": {
             "type": "string",
-            "description": "Its page, an https address."
+            "description": "Its page, an https address: for a Slack message, its permalink."
           },
           "title": {
             "type": "string",
-            "description": "Written by its author: text, never markup."
+            "description": "Written by its author: text, never markup. For a Slack message, its first line."
           },
           "kind": {
             "type": [
@@ -1171,8 +1193,10 @@
             "enum": [
               "pr",
               "issue",
+              "slack",
               null
-            ]
+            ],
+            "description": "`pr`, `issue`, or `slack`: the Slack message a request came from, with no `repo` or `number`."
           },
           "repo": {
             "type": [
@@ -1196,7 +1220,7 @@
           "number"
         ],
         "additionalProperties": false,
-        "description": "The pull request or issue a run is about."
+        "description": "The pull request or issue a run is about, or the Slack message a request came from."
       },
       "PhaseCounts": {
         "type": "object",
@@ -2142,8 +2166,11 @@
             "description": "The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees."
           },
           "repository": {
-            "type": "string",
-            "description": "The repository, as `owner/name`."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The repository it works in, as `owner/name`. Null for an agent run of a factory that names none (a request from Slack), which starts in an empty folder with no git credentials. A person’s session, and an agent run on a pull request, always have one."
           },
           "harness": {
             "type": "string",
@@ -2225,10 +2252,13 @@
                 "$ref": "#/components/schemas/CloudSessionOrigin"
               },
               {
+                "$ref": "#/components/schemas/SlackSessionOrigin"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "What started an agent run; null for a person's session."
+            "description": "What started an agent run: an automation (`CloudSessionOrigin`) or a request from Slack (`SlackSessionOrigin`); null for a person's session."
           },
           "agentRun": {
             "anyOf": [
@@ -2334,6 +2364,84 @@
         ],
         "additionalProperties": false,
         "description": "What started an agent run: an automation of a factory's agent team, on an item."
+      },
+      "SlackSessionOrigin": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "slack"
+            ]
+          },
+          "factoryId": {
+            "type": "string"
+          },
+          "factoryName": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string",
+            "description": "The agent that takes the first turn: the orchestrator."
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "mention",
+              "dm"
+            ],
+            "description": "`mention`: the bot was mentioned in a channel; `dm`: sent a direct message."
+          },
+          "message": {
+            "type": "object",
+            "properties": {
+              "teamId": {
+                "type": "string",
+                "description": "The Slack workspace (`T…`)."
+              },
+              "channelId": {
+                "type": "string",
+                "description": "The channel, or the direct message."
+              },
+              "threadTs": {
+                "type": "string",
+                "description": "The thread Consola answers in."
+              },
+              "messageTs": {
+                "type": "string",
+                "description": "The message itself."
+              },
+              "permalink": {
+                "type": "string",
+                "description": "The message's permalink, from Slack."
+              },
+              "title": {
+                "type": "string",
+                "description": "The message's first line, cut: written by a person, shown as text."
+              }
+            },
+            "required": [
+              "teamId",
+              "channelId",
+              "threadTs",
+              "messageTs",
+              "permalink",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "The Slack message the request came from."
+          }
+        },
+        "required": [
+          "kind",
+          "factoryId",
+          "factoryName",
+          "agent",
+          "via",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "What started a request from Slack: a person mentioned a factory's bot, or sent it a direct message, and its orchestrator takes it."
       },
       "AgentRunReport": {
         "type": "object",
@@ -2714,6 +2822,552 @@
         ],
         "additionalProperties": false,
         "description": "The event is recorded for the workspace that holds its installation."
+      },
+      "SlackAppStatus": {
+        "type": "object",
+        "properties": {
+          "canManage": {
+            "type": "boolean",
+            "description": "Whether the person may set the app up, change it and disconnect it: an owner or admin."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "not_set_up",
+              "awaiting_install",
+              "installed",
+              "needs_reinstall"
+            ],
+            "description": "`not_set_up`: no credentials yet; `awaiting_install`: saved, not added to Slack yet; `installed`; `needs_reinstall`: Slack refused the bot token, so the app has to be added again."
+          },
+          "handle": {
+            "type": "string",
+            "description": "The bot’s handle, without the `@`: as Slack said it at the install, else the manifest’s."
+          },
+          "clientId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The app’s client ID, once saved. Never a secret: no secret is ever answered."
+          },
+          "appId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appSettingsUrl": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The app’s page in Slack, once installed: where it is renamed and deleted."
+          },
+          "team": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SlackTeam"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "installedAt": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "setup": {
+            "type": "object",
+            "properties": {
+              "manifest": {
+                "$ref": "#/components/schemas/SlackManifest"
+              },
+              "createAppUrl": {
+                "type": "string",
+                "description": "Slack’s “create an app from a manifest” page, with the manifest filled in."
+              },
+              "requestUrl": {
+                "type": "string",
+                "description": "Where Slack sends the app’s events."
+              },
+              "redirectUrl": {
+                "type": "string",
+                "description": "Where Slack sends a person back after “Add to Slack”."
+              }
+            },
+            "required": [
+              "manifest",
+              "createAppUrl",
+              "requestUrl",
+              "redirectUrl"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "canManage",
+          "state",
+          "handle",
+          "clientId",
+          "appId",
+          "appSettingsUrl",
+          "team",
+          "installedAt",
+          "setup"
+        ],
+        "additionalProperties": false,
+        "description": "A factory’s Slack app, and how to set it up."
+      },
+      "SlackTeam": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ],
+        "additionalProperties": false,
+        "description": "A Slack workspace: its id (`T…`) and its name."
+      },
+      "SlackManifest": {
+        "type": "object",
+        "properties": {
+          "display_information": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "features": {
+            "type": "object",
+            "properties": {
+              "app_home": {
+                "type": "object",
+                "properties": {
+                  "home_tab_enabled": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ]
+                  },
+                  "messages_tab_enabled": {
+                    "type": "boolean",
+                    "enum": [
+                      true
+                    ]
+                  },
+                  "messages_tab_read_only_enabled": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ]
+                  }
+                },
+                "required": [
+                  "home_tab_enabled",
+                  "messages_tab_enabled",
+                  "messages_tab_read_only_enabled"
+                ],
+                "additionalProperties": false
+              },
+              "bot_user": {
+                "type": "object",
+                "properties": {
+                  "display_name": {
+                    "type": "string"
+                  },
+                  "always_online": {
+                    "type": "boolean",
+                    "enum": [
+                      false
+                    ]
+                  }
+                },
+                "required": [
+                  "display_name",
+                  "always_online"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "app_home",
+              "bot_user"
+            ],
+            "additionalProperties": false
+          },
+          "oauth_config": {
+            "type": "object",
+            "properties": {
+              "redirect_urls": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "scopes": {
+                "type": "object",
+                "properties": {
+                  "bot": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "app_mentions:read",
+                        "channels:history",
+                        "channels:read",
+                        "chat:write",
+                        "groups:history",
+                        "groups:read",
+                        "im:history",
+                        "im:read",
+                        "im:write",
+                        "mpim:history",
+                        "reactions:read",
+                        "reactions:write",
+                        "users:read"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "bot"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "redirect_urls",
+              "scopes"
+            ],
+            "additionalProperties": false
+          },
+          "settings": {
+            "type": "object",
+            "properties": {
+              "event_subscriptions": {
+                "type": "object",
+                "properties": {
+                  "request_url": {
+                    "type": "string"
+                  },
+                  "bot_events": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "app_mention",
+                        "message.im",
+                        "message.channels",
+                        "message.groups",
+                        "reaction_added",
+                        "member_joined_channel"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "request_url",
+                  "bot_events"
+                ],
+                "additionalProperties": false
+              },
+              "org_deploy_enabled": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "socket_mode_enabled": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              },
+              "token_rotation_enabled": {
+                "type": "boolean",
+                "enum": [
+                  false
+                ]
+              }
+            },
+            "required": [
+              "event_subscriptions",
+              "org_deploy_enabled",
+              "socket_mode_enabled",
+              "token_rotation_enabled"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "display_information",
+          "features",
+          "oauth_config",
+          "settings"
+        ],
+        "additionalProperties": false,
+        "description": "The manifest the factory’s app is created from, in Slack’s format: named after the factory, its bot’s handle the factory’s name as a slug."
+      },
+      "InvalidSlackCredentials": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string",
+            "enum": [
+              "invalid_credentials"
+            ]
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "client_id_missing",
+                "client_id_invalid",
+                "client_secret_missing",
+                "client_secret_invalid",
+                "signing_secret_missing",
+                "signing_secret_invalid"
+              ]
+            }
+          }
+        },
+        "required": [
+          "error",
+          "problems"
+        ],
+        "additionalProperties": false
+      },
+      "SlackCredentials": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "clientSecret": {
+            "type": "string"
+          },
+          "signingSecret": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "clientId",
+          "clientSecret",
+          "signingSecret"
+        ],
+        "description": "From the app’s Basic Information page in Slack, under App Credentials."
+      },
+      "SlackInstallAddress": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "SlackLinkRequest": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "used",
+              "expired"
+            ],
+            "description": "A link works once (`used` after), for 15 minutes (`expired` after)."
+          },
+          "workspaceId": {
+            "type": "string",
+            "description": "The workspace the link links in."
+          },
+          "inActiveWorkspace": {
+            "type": "boolean",
+            "description": "Whether that is the session’s active workspace. Only then can it be confirmed; otherwise the page offers to switch (`PUT /api/me/workspace`)."
+          },
+          "slackTeamId": {
+            "type": "string"
+          },
+          "slackUserId": {
+            "type": "string"
+          },
+          "slackTeamName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Slack workspace’s name, as an app of the active workspace holds it; else null."
+          },
+          "factory": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The factory whose bot sent it, when the caller sees it in the active workspace; else null."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "state",
+          "workspaceId",
+          "inActiveWorkspace",
+          "slackTeamId",
+          "slackUserId",
+          "slackTeamName",
+          "factory",
+          "expiresAt"
+        ],
+        "additionalProperties": false,
+        "description": "A one-time link, as its page shows it."
+      },
+      "SlackLink": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "slackTeamId": {
+            "type": "string"
+          },
+          "slackTeamName": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Slack workspace’s name, as an app of the workspace holds it; else null."
+          },
+          "slackUserId": {
+            "type": "string"
+          },
+          "linkedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "slackTeamId",
+          "slackTeamName",
+          "slackUserId",
+          "linkedAt"
+        ],
+        "additionalProperties": false,
+        "description": "A Slack account linked to the person in the active workspace. No Slack name is kept."
+      },
+      "SlackLinks": {
+        "type": "object",
+        "properties": {
+          "links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SlackLink"
+            }
+          }
+        },
+        "required": [
+          "links"
+        ],
+        "additionalProperties": false
+      },
+      "SlackChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "The `challenge` Slack sent, as it sent it."
+          }
+        },
+        "required": [
+          "challenge"
+        ],
+        "additionalProperties": false,
+        "description": "Slack’s check of the request URL (`url_verification`), answered with its challenge."
+      },
+      "SlackEventReceived": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "ignored"
+            ],
+            "description": "`accepted`: the event is recorded now, and handled after this answer. `duplicate`: the factory had this event already (Slack sent it again): nothing changed. `ignored`: a kind of request Consola does not take."
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "What became of one of Slack’s events."
       }
     },
     "parameters": {}
@@ -8766,6 +9420,1910 @@
                           "type": "string",
                           "enum": [
                             "webhooks_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories/{factoryId}/slack": {
+      "get": {
+        "summary": "A factory’s Slack app",
+        "description": "Where the factory’s Slack app stands, its handle and Slack workspace, and the manifest and addresses it is set up with. Any member who sees the factory may read it.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The factory’s Slack app.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackAppStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Disconnect a factory’s Slack app",
+        "description": "Revokes the bot token, as far as Slack answers, and forgets everything Consola kept for the app: its credentials, its events, its links not used yet and its requests’ threads. The app itself stays in Slack, until someone deletes it there (`appSettingsUrl`). Only an owner or admin may.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only an owner or admin of the workspace may (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no such factory (`factory_not_found`), or it has no Slack app (`slack_not_set_up`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "factory_not_found"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_set_up"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories/{factoryId}/slack/credentials": {
+      "put": {
+        "summary": "Save a factory’s Slack app credentials",
+        "description": "The app’s client ID, client secret and signing secret. The secrets are sealed before they are stored, and never answered. Saved with the client ID the app already has, an install stays; with another, it is forgotten. Only an owner or admin may.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SlackCredentials"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Saved: the factory’s Slack app now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackAppStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A credential is missing or not of the shape Slack gives it (`invalid_credentials`, each named). Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidSlackCredentials"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only an owner or admin of the workspace may (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/factories/{factoryId}/slack/install": {
+      "post": {
+        "summary": "Start adding a factory’s Slack app to Slack",
+        "description": "Slack’s authorise page for the factory’s app, carrying a state signed for this person and factory, for ten minutes. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Where to send the person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackInstallAddress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Only an owner or admin of the workspace may (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The factory’s app has no credentials yet (`credentials_missing`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "credentials_missing"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/oauth/callback": {
+      "get": {
+        "summary": "Where Slack sends a person back after “Add to Slack”",
+        "description": "Every factory’s Slack app’s redirect URL, reached by a browser redirect from Slack with `code` and `state`, or `error`. It needs no session: the signed state names the workspace, the factory and the person, so it works on the tunnel’s address too. It never answers JSON: it always redirects to the factory’s settings in the web app, with how it ended in `?slack=`: one of `installed`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `factory_not_found`, `credentials_missing`, `credentials_changed`, `code_refused`, `not_a_bot`, `enterprise_install`, `app_taken`, `wrong_app`, `invalid`, `unavailable`, `not_configured`.",
+        "responses": {
+          "302": {
+            "description": "To `<PUBLIC_URL>/?slack=<result>#/factories/<factoryId>/settings`, or, when the state names no factory, `<PUBLIC_URL>/?slack=<result>#/settings/connections`.",
+            "headers": {
+              "location": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/link-requests/{token}": {
+      "get": {
+        "summary": "A one-time link, as its page shows it",
+        "description": "What the link page shows before the person confirms: whether it still works, the Slack account it links, and whether it is for the session’s active workspace.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The token of a one-time link Consola sent in Slack."
+            },
+            "required": true,
+            "description": "The token of a one-time link Consola sent in Slack.",
+            "name": "token",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The link.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackLinkRequest"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No link has that token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "link_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Confirm a one-time link",
+        "description": "Links the Slack account the link names to the person, in the session’s active workspace, which must be the link’s. The link works once. The bot then says so in Slack, as far as Slack answers.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The token of a one-time link Consola sent in Slack."
+            },
+            "required": true,
+            "description": "The token of a one-time link Consola sent in Slack.",
+            "name": "token",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Linked, or linked already to this person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackLink"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No link has that token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "link_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The link was used already (`link_used`) or has expired (`link_expired`), is for another workspace than the session’s active one (`other_workspace`), or its Slack account is linked to someone else there (`linked_to_someone_else`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "link_used"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "link_expired"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "other_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "linked_to_someone_else"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/links": {
+      "get": {
+        "summary": "My Slack accounts linked in my active workspace",
+        "responses": {
+          "200": {
+            "description": "The person’s links, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlackLinks"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/links/{linkId}": {
+      "delete": {
+        "summary": "Unlink one of my Slack accounts",
+        "description": "A person removes only their own links, in the session’s active workspace.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "linkId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Unlinked."
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The person has no link with that id in the active workspace.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "link_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` to seal Slack’s secrets with.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "slack_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/events/{factoryId}": {
+      "post": {
+        "summary": "Receive one of Slack’s events for a factory’s app",
+        "description": "A factory’s Events API request URL. Slack calls it, with no session and no Origin, so it is outside the origin check. The body is Slack’s JSON, read as raw bytes and checked against `X-Slack-Signature` (`v0=` and the HMAC-SHA256 of `v0:<X-Slack-Request-Timestamp>:<body>` under the factory’s signing secret, compared in constant time), with a timestamp within five minutes, before anything else is read. Before the factory has a signing secret, only Slack’s check of the URL (`url_verification`) is answered, unchecked, and it changes nothing. An event (`event_callback`) must name the factory’s app and Slack workspace, is recorded once by its `event_id`, and is answered at once; a mention of the bot or a direct message to it then starts a request for the factory’s orchestrator.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slack’s check of the URL, answered; or an event, received.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SlackChallenge"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SlackEventReceived"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed, but the body is not what Slack sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_event"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No signature, a timestamp more than five minutes away, or not Slack’s signature over this body under the factory’s signing secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "bad_signature"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed, but the event names another Slack app or Slack workspace than the factory’s.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_app"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No factory has that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The factory’s app has no signing secret in Consola yet, so only Slack’s check of the URL is answered (`slack_not_set_up`); or it is not added to a Slack workspace yet, so no event is taken (`slack_not_installed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_set_up"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_installed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the 1048576 bytes Consola reads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` (`slack_not_configured`). Or the database did not answer, or the factory’s secret does not open with this server’s key (`unavailable`): Slack sends the event again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_configured"
                           ]
                         }
                       },

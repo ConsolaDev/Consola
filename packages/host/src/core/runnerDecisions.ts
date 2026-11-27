@@ -29,7 +29,7 @@ export const SESSION_TEMPLATE = 'consola-session';
 
 /**
  * The variable naming another template to build and start sessions from, in place of
- * `SESSION_TEMPLATE`: a branch can build its own (`consola-session-orchestrator`, say) while another
+ * `SESSION_TEMPLATE`: a branch can build its own (`consola-session-<branch>`, say) while another
  * runner keeps using the real one. It is not a secret.
  */
 export const SESSION_TEMPLATE_VARIABLE = 'CONSOLA_SESSION_TEMPLATE';
@@ -516,13 +516,14 @@ export type RunnerOffer = {
 
 /**
  * Why a start asks for something the runner does not offer, or null. The cell checks the same
- * before it sends one; the runner checks again, and starts no sandbox for it.
+ * before it sends one; the runner checks again, and starts no sandbox for it. A start that names
+ * no repository asks for none, so only its harness is checked.
  */
 export function offerRefusal(
   offer: RunnerOffer,
   start: Pick<SessionStart, 'repository' | 'harness'>,
 ): string | null {
-  if (!offer.repositories.includes(start.repository)) {
+  if (start.repository !== undefined && !offer.repositories.includes(start.repository)) {
     return `This runner does not offer ${start.repository}.`;
   }
   if (!offer.harnesses.includes(start.harness)) {
@@ -544,6 +545,10 @@ export type SandboxSecrets = {
  * the runner writes, `agentRunFilesFor`), the commit to check out when it names one
  * (`CONSOLA_CHECKOUT_REF`, `CONSOLA_CHECKOUT_SHA`), and the git token as `GH_TOKEN`, so `gh` acts
  * as the token's user for the agent.
+ *
+ * A session with no repository gets no `CONSOLA_REPOSITORY`, so the start script clones nothing
+ * and leaves its folder empty, and no git token at all, neither `GIT_TOKEN` nor `GH_TOKEN`: its
+ * agents can push nowhere.
  */
 export function sandboxEnvFor(
   start: SessionStart,
@@ -553,12 +558,15 @@ export function sandboxEnvFor(
   const env: Record<string, string> = {
     CONSOLA_SESSION_ID: start.sessionId,
     CONSOLA_HARNESS: start.harness,
-    CONSOLA_REPOSITORY: start.repository,
+    ...(start.repository !== undefined ? { CONSOLA_REPOSITORY: start.repository } : {}),
     CONSOLA_PASS_PUBLIC_KEY: start.passPublicKeyPem,
     CONSOLA_SESSION_IDLE_MINUTES: String(idleMinutes),
   };
+  // The token is the repository's: a session with none is given none.
   const gitToken =
-    secrets.gitToken !== undefined && secrets.gitToken !== '' ? secrets.gitToken : null;
+    start.repository !== undefined && secrets.gitToken !== undefined && secrets.gitToken !== ''
+      ? secrets.gitToken
+      : null;
   if (gitToken !== null) env.GIT_TOKEN = gitToken;
   const apiKey = secrets.apiKeys[start.harness];
   if (apiKey !== undefined && apiKey !== '') env[HARNESS_API_KEYS[start.harness]] = apiKey;

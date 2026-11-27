@@ -27,7 +27,8 @@ The app is built in layers, and imports point inward only.
   connections (`connections.ts`: the answers of `/api/connections`, a
   Connect's results and what the callback sent the page back with,
   `readGitHubReturn`, the choice of an installation and its answers, the
-  services that come later) and their sentences (`connectionMessages.ts`); why what a workspace holds could not be read,
+  services that come after GitHub and Slack) and their sentences
+  (`connectionMessages.ts`); why what a workspace holds could not be read,
   and its sentence (`refusal.ts`: `Refusal`, `messageForRefusal`); teams (`teams.ts`:
   `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`, `addableTo`,
   `TeamsState`, `TeamChange`) and their sentences (`teamMessages.ts`);
@@ -58,12 +59,16 @@ The app is built in layers, and imports point inward only.
   `yamlTokens.ts`), approving one (`runApproval.ts`) and the pages'
   sentences (`runMessages.ts`; see "Runs"); cloud sessions
   (`cloudSession.ts`: the contract's session types, `sessionLabel`,
+  `repositoryWords`, `repositoryTitle`, `showsRepository`,
   `pollIntervalMs`, `listPollIntervalMs`, `chatMounted`, `shouldRenewPass`,
   `keepsShownOn`, `sessionScreen`, an agent run's reading, `isAgentRun`,
   `agentRunPhase`, `pullRequestLabel`, `pullRequestUrl`, `shortSha`, and the
   answers), where the section is
   (`sessionsRoute.ts`) and their sentences (`cloudSessionMessages.ts`; see
-  "Sessions"); where the
+  "Sessions"); Slack as a connection (`slack.ts`: a factory's app, its states
+  and setup steps, `checkSlackCredentials`, `isSlackAddress`, the callback's
+  results, the link page's hash and `linkPageView`, and the answers) and its
+  sentences (`slackMessages.ts`; see "Slack"); where the
   running source is (`source.ts`); and how the address names a dashboard
   section (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`)
   and a settings page
@@ -81,7 +86,7 @@ The app is built in layers, and imports point inward only.
   workspace's calls the API, naming the workspace and reading the caller's
   refusals; `teams.ts`: `teamsService`;
   `factories.ts`: `factoriesService`, a factory's files saved included; `runs.ts`: `runsService`;
-  `cloudSessions.ts`: `cloudSessionsService`), Better
+  `cloudSessions.ts`: `cloudSessionsService`; `slack.ts`: `slackService`), Better
   Auth's client (`authClient.ts`: `signInWithGoogle`, `signOut`), the
   clipboard (`clipboard.ts`: `copyText`) and the address bar
   (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
@@ -89,15 +94,17 @@ The app is built in layers, and imports point inward only.
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
   `gitHubRedirect.ts`: `takeGitHubReturn`, `goToGitHub`; `runsAddress.ts`:
   `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`,
-  `showRunPlace`), whether the
+  `showRunPlace`; `slackAddress.ts`: `currentSlackLinkToken`,
+  `onSlackLinkChange`, `leaveSlackLink`, `takeSlackResult`, `goToSlack`), whether the
   page is in view (`pageVisibility.ts`), and the browser's storage, for a
   convenience only (`foldStore.ts`: `readUnfolded`, `writeUnfolded`;
   `runPagePrefs.ts`, what this browser keeps of a run's page;
   `definitionBanner.ts`, whether the definition's banner was hidden). A service
   answers in domain types and sentences, never in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
-  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the narrow page's
-  topbar with `SignOutButton`), the dashboard (`Dashboard.tsx` with its
+  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, the one-time link from
+  Slack's `SlackLinkPage`, and the narrow page's topbar with
+  `SignOutButton`), the dashboard (`Dashboard.tsx` with its
   sidebar's workspace menu, `WorkspaceSwitcher`, and `AccountMenu`, its list
   of sections `sections.tsx` with each section's page, such as
   `OverviewPage.tsx` with `RegionMap` and `CopySlug`, `RunsSection.tsx`
@@ -112,7 +119,7 @@ The app is built in layers, and imports point inward only.
   and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage` (its
   `FactoryFileTree`, `EditorTabs`, `CodeEditor`, `ProblemsPanel` and the
   edits it keeps while the person is away, `factoryDrafts.ts`),
-  `FactorySettingsPage` and `SourceChoice`), Settings
+  `FactorySettingsPage` with `FactorySlackSection`, and `SourceChoice`), Settings
   (`SettingsDialog.tsx`, its pages in `settingsPages.tsx`: `GeneralPage.tsx`
   with `WorkspaceIconPicker`, `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
   `TeamCard.tsx` and `TeamNameForm.tsx`), the pieces they share (`Avatar`,
@@ -122,8 +129,8 @@ The app is built in layers, and imports point inward only.
   know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
-  the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
-  `vite.config.ts` defines.
+  the build constant (`__CONSOLA_COMMIT__`) that `vite.config.ts` defines.
+  There is no version constant: the cloud runs a commit, not a release.
 
 ## The dependency rule
 
@@ -417,6 +424,8 @@ lists its factories, drawn as the desktop app draws its sidebar.
   changeable yet (`SourceChoice`). Whoever sees a factory may rename and move
   it, so there is no `canManage` to read; each sends
   `PATCH /api/factories/{factoryId}` with its one field. There is no delete.
+- **Slack** (`FactorySlackSection`, under Settings; see "Slack") is the
+  factory's own Slack app.
 - **New factory** is a dialog over the dashboard (`NewFactoryDialog`, a
   native modal `<dialog>` drawn as the desktop's dialogs): a name
   (`checkFactoryName`, the API's rule), the team that owns it (chosen for
@@ -564,6 +573,27 @@ the factory's orchestrator; the automations it starts are its children.
   by itself; the person's choice wins. The info panel's rows and an address
   naming one open it, scroll to it and light it once (`reveal.ts`). No line
   is drawn from one automation to another: no flow graph, by decision.
+- **A request from Slack** (CON-144) says so wherever its item would show: its
+  item is the message (`kind: 'slack'`, its permalink and first line, no
+  `repo` or `number`), its `triggerDetail` says how it came (`slack_mention`,
+  `slack_dm`) and `startedBy` is the linked person. The run's domain reads an
+  item's kind as any word (`itemKindOf`), so `slackSourceOf` finds Slack by
+  either sign: the row's tag is Slack's mark and "Slack", the info panel's
+  row "Mentioned in Slack" or "Direct message in Slack" with Open in Slack,
+  and the header's link opens the message. Its Conversation tab opens with the
+  same line (`conversationSlackSource`: the session's origin once read, else
+  the run's record), which names the repository it works in once the session
+  is read, or "No repository" for a factory that names none (CON-166). The
+  run's record holds no repository for a Slack request (its item is the
+  message), so the list's row and the info panel name none.
+- **A session's origin is read by its kind, never assumed.** An agent run is
+  started by an automation on a pull request (`kind: 'automation'`, with an
+  `item`) or by a request from Slack (`kind: 'slack'`: its factory, its
+  orchestrator, `via` (`mention` or `dm`) and its message, with no `item`).
+  Every reader goes through `originFacts`, which branches on `kind`;
+  `AgentRunFacts` says an automation's run as before and a Slack request as
+  "Mentioned in Slack to <factory>" with Open in Slack. Only `agent` is read
+  directly, since both have it.
 - **Text a run carries is untrusted** (a request may be a pasted ticket): it
   is shown as text, never markup, and an item's address is a link only on
   `https:` (`safeItemUrl`), which the API also holds it to.
@@ -601,7 +631,8 @@ id, and every status is the API's.
   its status (a dot, hollow while it starts, the accent while it runs, quiet
   once stopped, red once failed, and its word), its name (`sessionLabel`: the
   title, or "Session" and the id's first eight characters), its repository and
-  harness as tags, and when it started. It reads again as often as its
+  harness as tags ("No repository" for a session with none, `repositoryWords`),
+  and when it started. It reads again as often as its
   liveliest session asks (`listPollIntervalMs`), every 30 s once none can
   change, never while the tab is hidden; a refresh that fails while the API
   is out keeps the rows.
@@ -614,7 +645,11 @@ id, and every status is the API's.
   offer, or a body the API could not read, is said under the form.
 - **A session** (`SessionPage`): the run page's header (Sessions / name, a
   status chip, and Stop while it starts or runs, which asks first, in place),
-  a line of its facts, then what `sessionScreen` says. Starting: its words,
+  a line of its facts, then what `sessionScreen` says. The facts name its
+  repository for a person's session and a request from Slack
+  (`showsRepository`), "No repository" for one with none, which works in an
+  empty folder with no git credentials (the API's `repository: null`); an
+  automation's run names it in its pull request. Starting: its words,
   read again every 2 s. Running: the chat under the warning that changes not
   pushed to a branch are lost, read again every 10 s. Stopped or failed: the
   words, with no chat and so no composer, and no more reads. A failure says
@@ -650,9 +685,10 @@ id, and every status is the API's.
 ### Agent runs
 
 An agent run is a cloud session an automation of a factory's agent team
-started on a pull request (`origin` set), which nobody types into: its first
-agent (the orchestrator) dispatches others and posts on the pull request. Every
-member opens and may stop one.
+started on a pull request, or a request from Slack started (`origin` set, by
+its `kind`: see "Runs"), which nobody types into: its first agent (the
+orchestrator) dispatches others and posts its answer (on the pull request, or
+in the Slack thread). Every member opens and may stop one.
 
 - **It is in Runs, not in Sessions.** The API lists each agent run as a run,
   a request whose `conversation` is its session
@@ -741,7 +777,7 @@ under a topbar of their own.
   first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
   the hash only. A page sent back with a result before the hash (sign-in's
-  `?error=`, GitHub's `?github=` and `&choice=`) reads and clears it in its own service, with
+  `?error=`, GitHub's `?github=` and `&choice=`, Slack's `?slack=`) reads and clears it in its own service, with
   `history.replaceState` of `pathname + search + hash`, which keeps the
   section.
 - **Every member sees every section.** What a person may do on a page is the
@@ -801,7 +837,9 @@ under a topbar of their own.
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/FactoryDefinition.css`,
   `ui/NewFactoryDialog.css`,
-  `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
+  `ui/SourceChoice.css`, `ui/FactorySlack.css`, `ui/SlackLinkPage.css`,
+  `ui/GeneralPage.css`,
+  `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
   `ui/ApprovalCard.css`, `ui/RequestAutomations.css`, `ui/Sessions.css`),
   imported by the page.
@@ -867,14 +905,19 @@ takes the icon off). A pick is set at once (`setWorkspaceIcon`), then the page
 loads again (`onWorkspaceChanged`); anyone else sees the tile and no picker,
 and the server refuses them whatever the page shows. An uploaded image, which
 the desktop also offers, is not offered: it would put a person's file in
-the API's accounts.
+the API's accounts. The page ends with the link to the running source
+(`Footer`, AGPL §13), the commit's first seven characters, under a hairline.
+The dashboard has no footer of its own; only the narrow page (sign-in, the
+create form) shows the same link at its foot.
 
 ### Connections
 
 Settings' Connections page (`ui/ConnectionsPage.tsx`, with its own
 `ConnectionsPage.css`, at `#/settings/connections`) shows what the active
-workspace is connected to: GitHub, and the services that come later
-(`LATER_SERVICES`), listed as not connected. The API is `cloud-api` (its
+workspace is connected to: GitHub, Slack (`ui/SlackConnection.tsx`; see
+"Slack"), and the services that come later (`LATER_SERVICES`), listed as not
+connected. Each of GitHub and Slack sits in the Connected group once it is
+connected, else in Available. The API is `cloud-api` (its
 `AGENTS.md`, "Connections"), and it decides everything: the page shows Connect
 and Disconnect only when the server says `canManage`, and the server refuses
 anyone else whatever the page shows.
@@ -936,7 +979,8 @@ anyone else whatever the page shows.
   GitHub's list once that delivery has arrived.
 - **Its look is Notion's and the like.** A connected service sits in the
   Connected group, a rounded list with each account indented under it; GitHub
-  before anything is connected sits in Available with Connect; the services
+  before anything is connected sits in Available with Connect, and Slack with
+  where to set it up; the services
   that come later are a grid of tiles. A service is known by its mark
   (`ui/serviceMarks.tsx`: each owner's trademark, shown only to name the
   service; GitHub's in the text colour), and an account by GitHub's picture of
@@ -946,10 +990,77 @@ anyone else whatever the page shows.
   ("Just connected", `justConnectedId`): the newest installation, only if it
   is minutes old. An installation says when it was connected in words for the
   last few days (`connectedSentence`).
+- **Slack is each factory's own**, so nothing is connected from this page: it
+  lists the factories with an app (`slackService.loadConnections`: the
+  factories the person sees, each one's app read, those not set up left out),
+  each its tile, name, `@handle in <Slack workspace>`, state and a link to the
+  factory's settings, where it is set up; then "Your Slack accounts", the
+  person's own links in the workspace, each its Slack workspace, its Slack id,
+  when it was linked (`linkedSentence`) and Unlink, which asks nothing: the bot
+  sends a new link at the next mention. Slack is connected once a factory has
+  an app or the person a link (`slackConnected`). Slack off on the server says
+  so, with no list. How an "Add to Slack" that named no factory ended
+  (`?slack=`) is said here.
 - Motion plays once, as a row arrives or an answer lands (a staggered rise,
   the success check drawing itself, the connected dot's ping), and none plays
   under `prefers-reduced-motion`. Escape inside Disconnect's question answers
   Keep instead of closing Settings.
+
+## Slack
+
+Slack is a connection of each factory's own (CON-144, the Linear design
+"Cloud · Design: Slack as a Connection (CON-144)"): every factory has a Slack
+app with its own `@handle`, which people mention, or message, to send the
+factory's orchestrator a request. The API is the authority on everything
+(`apps/cloud-api`'s Slack routes, `slackContract.ts`), reached through
+`slackService` (`services/slack.ts`), which names the workspace as every
+service does. With Slack off on the server (no `CONNECTION_SECRETS_KEY`),
+every Slack route answers 503 `slack_not_configured`, and each page says so
+plainly (`not-configured`).
+
+- **A factory's Slack app** (`ui/FactorySlackSection.tsx`, with its own
+  `FactorySlack.css`, under the factory's Settings): Slack's mark, the app's
+  name (`@handle in <Slack workspace>` once installed) and its state's chip
+  (`SLACK_STATE_WORDS`), then, until it is in Slack, the setup's three steps
+  (`slackSteps`): **Create in Slack**, Slack's create-app page with the
+  factory's manifest filled in (`setup.createAppUrl`, linked only on Slack's
+  own address, `isSlackAddress`), or Copy the manifest; the **credentials**,
+  Client ID, Client Secret and Signing Secret, checked as the API checks them
+  (`checkSlackCredentials`, its rules copied) and sent once, the secrets in
+  password fields and never kept after the save; and **Add to Slack**, which
+  waits for the credentials and sends the person to Slack's authorise page
+  (`goToSlack`, only on Slack's address). Once installed: `/invite @handle`
+  with Copy, and Disconnect, which asks first, in place, and links the app's
+  page in Slack, where it is deleted. An app Slack no longer accepts
+  (`needs_reinstall`) says so, with Add to Slack again. Only owners and admins
+  (`canManage`) see the controls; a member sees the state and who to ask.
+- **How "Add to Slack" ended** comes back as `?slack=<result>` before the
+  factory's settings (or Connections, with no factory), from the API's
+  callback. It is read once and cleared (`takeSlackResult`) and said in a
+  notice (`messageForSlackResult`); a result this build does not know is
+  `unknown`, never shown raw. `SLACK_RESULTS` must hold exactly the contract's
+  `SlackCallbackResult` (`satisfies`, and the sentences' exhaustive switch).
+- **Every change shows what the API answered**: a save of the credentials
+  shows the app it answers; Disconnect reads the app again.
+- **The one-time link page** (`ui/SlackLinkPage.tsx`, `SlackLinkPage.css`) is
+  the hash `#/slack/link/<token>`, the address the bot sends someone it does
+  not know yet (`<PUBLIC_URL>/#/slack/link/<token>`). `App.tsx` shows it in the
+  narrow column whoever is signed in, before the dashboard
+  (`currentSlackLinkToken`, `onSlackLinkChange`). Signed out, it is the
+  sign-in card with its own title, which signs in back to the link
+  (`signInWithGoogle(returnTo)`: Better Auth takes a relative callback with a
+  hash). Signed in, it reads the link for the session's active workspace
+  (`GET /api/slack/link-requests/{token}`, which says whether the link is for
+  it: `inActiveWorkspace`) and asks "Link Slack account U… in <Slack
+  workspace> to you in <workspace>?" with Link. A link for another of the
+  person's workspaces offers Switch (`switchWorkspace`, then the page loads
+  again and reads the link again); one for a workspace the person's list does
+  not hold says they are not a member; one used, expired or unknown says to
+  mention the factory's bot again for a new one. Once linked, it says to send
+  the request again in Slack. What it shows is `linkPageView`'s, a pure
+  function of who is signed in, their workspaces, the link and the confirm.
+  Leaving it replaces its entry with the dashboard (`leaveSlackLink`), so back
+  does not return to a link that has done its work.
 
 ## Adding a feature
 

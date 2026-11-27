@@ -218,13 +218,8 @@ export function resultOfChoice(
 /** Another service, listed beside GitHub, that a workspace cannot connect yet. */
 export type LaterService = { id: string; name: string; purpose: string };
 
-/** The services that come after GitHub (after the POC: Slack and Linear first). */
+/** The services that come after GitHub and Slack (Linear first). */
 export const LATER_SERVICES: readonly LaterService[] = [
-  {
-    id: 'slack',
-    name: 'Slack',
-    purpose: 'Post a run’s results to a channel, and start one from a message.',
-  },
   {
     id: 'linear',
     name: 'Linear',

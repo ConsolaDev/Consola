@@ -22,7 +22,8 @@ It holds two kinds of data, in two parts of the app (below):
   (decided 2026-11-22: Consola hosts the runners and keeps what a workspace
   makes): its teams, factories with their files, runs and the answers to
   them, cloud sessions, GitHub installations, the tokens minted for them and
-  GitHub's events.
+  GitHub's events, and each factory's Slack app with the Slack accounts people
+  linked.
 
 Until 2026-11-26 these were two apps, `cloud-global` and a regional cell,
 joined by an outbox, a cell token and an event relay. They were merged
@@ -37,7 +38,7 @@ boundary between them and the two rules are what keep it so.
 src/
   shared/       the regions and the workspace roles: plain TypeScript, no I/O
   accounts/     domain/ application/ adapters/{auth,persistence,http}
-  company/      domain/ application/ adapters/{persistence,http,github,token,runner,clock}
+  company/      domain/ application/ adapters/{persistence,http,github,slack,sealing,token,runner,clock}
   compose.ts  main.ts  config.ts  startupError.ts  seed.ts    the composition ring
   http/         the ring's front door (frontDoor.ts) and health check (health.ts)
   persistence/  the ring's one database and its migrations (database.ts)
@@ -109,9 +110,9 @@ a company table, and carries `workspace_id`, or an accounts table, added to
   key.
 - **No names or emails.** No company column's name contains `email`. A column
   named `name`, or ending in `_name`, fails unless the allow-list in the test
-  names it with what it holds: today `team.name` (the team's name) and
-  `factory.name` (the factory's). So `person_name`, `author_email` and
-  `display_name` fail.
+  names it with what it holds: today `team.name` (the team's name),
+  `factory.name` (the factory's) and `slack_app.team_name` (the Slack
+  workspace's). So `person_name`, `author_email` and `display_name` fail.
 - **No reaching across.** Company code never imports accounts' files or Better
   Auth (`src/boundary.test.ts`), and the accounts tables live only in
   `accounts/adapters/persistence`. Company shares the one database client, so
@@ -176,9 +177,11 @@ Each part is built in rings, and imports point inward only.
   (`caller.ts`: `admitCaller`, `Caller`), teams (`team.ts`), factories
   (`factory.ts`) and their templates (`factoryTemplates.ts`), runs (`run.ts`,
   `runApproval.ts`, `runSource.ts`), cloud sessions (`cloudSession.ts`),
-  agent runs (`agentRun.ts`), and GitHub: who may connect it, whether a
-  Connect's state finishes in this session, which installations a person
-  administers and whether a choice of them is this session's to make
+  agent runs (`agentRun.ts`) and their follow-ups (`followUp.ts`:
+  `followUpBody`, `followUpReach`; `hostAddress.ts`: `hostAddressAllowed`,
+  the session host addresses the app calls), and GitHub: who may connect it,
+  whether a Connect's state finishes in this session, which installations a
+  person administers and whether a choice of them is this session's to make
   (`connections.ts`: `mayManageConnections`, `checkInstallState`,
   `checkInstaller`, `administeredInstallations`, `newInstallChoice`,
   `choiceOutcome`, `checkInstallChoice`, `candidateOf`), what a webhook delivery's
@@ -186,35 +189,47 @@ Each part is built in rings, and imports point inward only.
   that installation changed (`webhooks.ts`: `readDeliveryHeaders`,
   `installationOfEvent`, `changesInstallation`), and what each GitHub token's
   purpose may have and whether GitHub granted it (`gitHubTokens.ts`:
-  `TOKEN_PURPOSES`, `scopeFor`, `grantedAsAsked`). It is plain TypeScript,
+  `TOKEN_PURPOSES`, `scopeFor`, `grantedAsAsked`), and Slack (`slack.ts`: a
+  factory's app and its states, the manifest, the credentials check, the
+  "Add to Slack" state, one-time links). It is plain TypeScript,
   with no I/O, and no package but the two shared ones (below).
 - `company/application/` holds the use cases: `checkHealth`; the teams' in
   `teams.ts`; the factories' in `factories.ts` (`factoryTemplates` too); the
   runs' in `runs.ts`; `seedDemoRuns` and `seedCodeReviewTeam`; the agent runs'
   `startAgentRunsFor` and `startAgentRun` in `agentRuns.ts`; the cloud
   sessions' `sessionOptions`, `startSession`, `listSessions`, `getSession`,
-  `stopSession`, `applyRunnerUpdate` and `issuePass`; a runner's
-  `runnerConnected`, in `runners.ts`; and GitHub's `listConnections`,
+  `stopSession`, `applyRunnerUpdate` and `issuePass`; an agent run's
+  `sendFollowUp`, in `followUps.ts`; a runner's `runnerConnected`, in
+  `runners.ts`; and GitHub's `listConnections`,
   `startGitHubInstall`, `finishGitHubInstall`, `readGitHubChoice`,
   `connectChosenInstallation`, `disconnectGitHub`, `receiveGitHubWebhook` and
   `mintGitHubToken`. `ports.ts` holds the stores,
   the probes, the `MembershipReader`, the `TeamStore`, the `FactoryStore`, the
   `RunStore`, the `CloudSessionStore`, the `RunnerChannel`, the `PassSigner`,
-  `Ids`, the `Clock` and the `AgentRunPorts`; `gitHubPorts.ts` holds GitHub's:
+  the `HostChannel`, `Ids`, the `Clock`, the `AgentRunPorts` and the
+  `FollowUpPorts`; `gitHubPorts.ts` holds GitHub's:
   the GitHub App, the Connect state's signer and the choice's
   (`InstallChoiceSigner`), the webhook signatures, the
-  installation and token-mint stores, and the `GitHubEventStore`. A use case
+  installation and token-mint stores, and the `GitHubEventStore`;
+  `slackPorts.ts` holds Slack's: the `SlackApi`, the `SecretSealer`, the
+  "Add to Slack" state's signer, `LinkTokens` and the Slack stores. Slack's
+  use cases are `getSlackApp`, `saveSlackCredentials`, `startSlackInstall`,
+  `finishSlackInstall` and `disconnectSlack` (`slackApps.ts`), and
+  `requestSlackLink`, `linkedPersonOf`, `viewSlackLink`, `confirmSlackLink`,
+  `listMySlackLinks` and `unlinkSlack` (`slackLinks.ts`). A use case
   is a plain function that takes its ports first.
 - `company/adapters/` implements the ports with a library, one folder each:
-  - `persistence/` is Drizzle: the tables (`tables.ts`, and GitHub's
+  - `persistence/` is Drizzle: the tables (`tables.ts`, GitHub's
     `github_installation`, `github_token_mint` and `github_event` in
-    `gitHubTables.ts`), one store per port, which `stores.ts` and
-    `gitHubStores.ts` (`createGitHubStores`) build, and `openWorkspace`
-    (`teams.ts`);
-  - `http/` is company's contract (`contract.ts`, and GitHub's routes in
-    `gitHubContract.ts`), the routes (`app.ts`: `COMPANY_ROUTES` and
-    `registerCompanyRoutes`; `gitHub.ts`: `GITHUB_ROUTES` and
-    `registerGitHubRoutes`; and each area's own file: `teams.ts`,
+    `gitHubTables.ts`, and Slack's in `slackTables.ts`, which company's
+    `schema` holds with `tables.ts`), one store per port, which `stores.ts`,
+    `gitHubStores.ts` (`createGitHubStores`) and `slackStores.ts`
+    (`createSlackStores`) build, and `openWorkspace` (`teams.ts`);
+  - `http/` is company's contract (`contract.ts`, GitHub's routes in
+    `gitHubContract.ts`, Slack's in `slackContract.ts`), the routes (`app.ts`:
+    `COMPANY_ROUTES` and `registerCompanyRoutes`; `gitHub.ts`: `GITHUB_ROUTES`
+    and `registerGitHubRoutes`; `slack.ts`: `SLACK_ROUTES` and
+    `registerSlackRoutes`; and each area's own file: `teams.ts`,
     `factories.ts`, `runs.ts`, `cloudSessions.ts`, `webhooks.ts`), and the
     caller check in front of them (`caller.ts`, below, "Who is asking"). Each
     route asks a use case and maps its answer to a status and a body;
@@ -225,6 +240,13 @@ Each part is built in rings, and imports point inward only.
     (`signedTokens.ts`) under a key of its own, and the webhook signature
     check (`webhookSignatures.ts`). It is the only code that holds the GitHub
     App's private key, client secret and webhook secret;
+  - `slack/` is Slack's Web API over `fetch` (`slackApi.ts`), the signed
+    state of an "Add to Slack" (`installStateSigner.ts`) and the one-time
+    links' tokens (`linkTokens.ts`), with `node:crypto`;
+  - `sealing/` seals and opens the secrets kept for connections (Slack's
+    client and signing secrets and bot tokens) with AES-256-GCM under
+    `CONNECTION_SECRETS_KEY` (`secretSealer.ts`). It is the only code that
+    names a cipher (`src/boundary.test.ts`, `SEALING`);
   - `token/` is jose: the `PassSigner`, on the app's pass key, with the public
     half it derives (`passSigner.ts`);
   - `clock/` is the machine's clock, the `Clock`;
@@ -232,7 +254,11 @@ Each part is built in rings, and imports point inward only.
     runner: the runner's socket, a route of its own on `@hono/node-ws`
     (`runnerSocket.ts`), which calls `runnerConnected` and
     `applyRunnerUpdate` itself. With no runner configured, its channel is
-    `noRunner`, which answers that none is connected.
+    `noRunner`, which answers that none is connected;
+  - `host/` is the `HostChannel`, how the app reaches a running session's
+    host, over `fetch`, at the address its runner reported
+    (`hostChannel.ts`), to an address the deployment calls
+    (`SANDBOX_HOST_SUFFIXES`, `LOCAL_SANDBOXES`; below, "Agent runs").
 
 ### The composition ring
 
@@ -279,7 +305,7 @@ Each part is built in rings, and imports point inward only.
 - `src/startupError.ts` words a failure to start, with every secret the
   configuration holds hidden: `BETTER_AUTH_SECRET`, the Google and GitHub
   client secrets, the webhook secret, the database's address and any password
-  in it, `RUNNER_SECRET` and `PASS_PRIVATE_KEY`.
+  in it, `RUNNER_SECRET`, `PASS_PRIVATE_KEY` and `CONNECTION_SECRETS_KEY`.
 - `src/config.ts` parses the environment, `REGION` included (one of
   `REGIONS`, `eu` when unset). It is shared configuration that any adapter may
   read, so it stays a pure parser with no I/O, and imports only `shared/`,
@@ -317,11 +343,17 @@ Each part is built in rings, and imports point inward only.
     - `adapters/github` never imports `hono`, a database library or `jose`. It
       signs its app token with `node:crypto`, and reaches the routes only as
       the `GitHubApp`, `InstallStateSigner` and `InstallChoiceSigner` ports;
+    - `adapters/slack` and `adapters/sealing` never import `hono`, a database
+      library or `jose`; they reach the routes only as their ports, which
+      `compose.ts` hands in. No file but `adapters/sealing` names a cipher
+      (`createCipheriv`, `createDecipheriv`), tests aside;
     - `adapters/clock` imports no package;
     - `adapters/runner` may import `hono` and `@hono/*` (`@hono/node-ws`),
       since the runner's socket is a route, and never a database library or
       `jose`: it is handed the pass key's public half as a string, and never
-      signs.
+      signs;
+    - `adapters/host` never imports `hono`, a database library or `jose`: it
+      is handed a signed pass, and calls the host with `fetch`.
 - The ring's folders have rules of their own. `http/` imports neither part,
   only `shared/`, and no database, auth or token library: the front door and
   the health check are handed what they need. `persistence/` imports only
@@ -334,7 +366,8 @@ Each part is built in rings, and imports point inward only.
   counts: a path inside one is refused.
   - `@consola/runner-protocol` (`packages/runner-protocol`, MIT), what the app
     and its runners say to each other: the messages over a runner's socket,
-    the readers of a repository and a harness, and the session pass's claims.
+    the readers of a repository and a harness, the session pass's claims, and
+    a follow-up for an agent run's host.
     The protocol calls the app's side of the socket the cell. It does no I/O,
     which its own boundary test proves. Before changing it, read
     `packages/runner-protocol/AGENTS.md`.
@@ -416,8 +449,12 @@ header. The workspace is the session's active one, and the role is read from
 - **Routes without a session.** `GET /api/health`, GitHub's webhooks
   (`POST /api/github/webhooks`, signed instead, below), the GitHub callback
   (`GET /api/github/callback`, a redirect, which reads the session itself
-  through `whoIsAsking`) and the runner's socket (`GET /api/runner`, behind
-  the runner's secret) take no `requireCaller` and no `x-consola-workspace`,
+  through `whoIsAsking`), Slack's callback (`GET /api/slack/oauth/callback`,
+  a redirect whose signed state says who started it, below, "Slack"), Slack's
+  events (`POST /api/slack/events/{factoryId}`, signed with the factory's
+  signing secret, below, "Requests from Slack") and the runner's socket
+  (`GET /api/runner`, behind the runner's secret) take no `requireCaller` and
+  no `x-consola-workspace`,
   since no page calls them through the client. A new one needs a reason as
   good, and the company suite's "every route" test has to name it
   (`OPEN_ROUTES`).
@@ -506,9 +543,11 @@ parts. Two kinds of path are exempt (`ORIGIN_EXEMPT` in `compose.ts`, handed
 to the front door as `originExempt`, where an entry ending in `/` names every
 path under it and any other one exact path): everything under `/api/auth/`,
 Better Auth's own routes, which check their own trusted origins
-(`PUBLIC_URL`); and GitHub's webhook deliveries,
+(`PUBLIC_URL`); GitHub's webhook deliveries,
 `POST /api/github/webhooks`, which carry no cookie and no Origin, and whose
-signature is what is checked ("Webhooks"). `src/accountsApp.test.ts` pins
+signature is what is checked ("Webhooks"); and every factory's Slack events,
+under `/api/slack/events/` (`SLACK_EVENTS_PATH_PREFIX`), signed the same way
+("Requests from Slack"). `src/accountsApp.test.ts` pins
 accounts' route list, so a new route is added there on purpose.
 
 ## A workspace is born whole
@@ -1158,6 +1197,12 @@ workspace's runner runs for a person, or an agent run an automation started
 offers the repository and the harness, and hands the start or stop to the
 runner through the `RunnerChannel` port.
 
+- **The repository** (`repository`, `owner/name`) is the one the session
+  works in. A person's session always names one, chosen from the runner's
+  offer, and so does an agent run on a pull request. It is null only for an
+  agent run of a factory that names none (a request from Slack, below), which
+  the runner starts in an empty folder with no git credentials; the column is
+  nullable since `0002_session_without_repository`.
 - **Routes** (declared in `company/adapters/http/contract.ts`, registered by
   `cloudSessionRoutes` in `adapters/http/cloudSessions.ts`, behind
   `requireCaller`): `GET /api/cloud-sessions/options`
@@ -1244,7 +1289,8 @@ in `company/domain/agentRun.ts`, the use cases in
   one run per automation `matchPullRequestAutomations` finds. A team with
   issues starts nothing; any other event starts nothing. Whatever fails there
   is logged, ids and names only, never the payload, and the event's answer
-  stays.
+  stays. A mention of a factory's Slack bot, or a direct message to it, starts
+  one too, for its orchestrator (below, "Requests from Slack").
 - **The row** is a `cloud_session` with no `person_id`, its `origin`
   (`{ kind: 'automation', factoryId, factoryName, automation, agent, item:
   { kind: 'pull_request', repository, number, url, title, headSha } }`) and
@@ -1285,6 +1331,44 @@ in `company/domain/agentRun.ts`, the use cases in
   harness (`harness_not_offered`), or the plan throws or the reader refuses it
   (`agent_run_invalid`, the reason logged). A start the socket cannot send is
   `runner_unreachable`, as a person's is.
+- **Follow-ups** (`sendFollowUp(ports, { workspaceId, sessionId }, { key,
+  text, author: { personId, label } })`, `application/followUps.ts`). The app
+  hands a running agent run's orchestrator a person's message, such as a reply
+  in the Slack thread it answers in (CON-144's E2 calls it; no route does).
+  `followUpBody` checks it with the protocol's `readFollowUp` first (`invalid`,
+  naming the field), and `followUpReach` the session: an agent run of that
+  workspace, `running`, with a host address. A row still `starting`, or
+  running with no address yet, is `starting`; an ended row, a person's
+  session, another workspace's or none is `not_running`, and nothing is sent.
+  Whether the author may talk to the run is the caller's to decide first. Then
+  the app signs a pass for the author (`sub`) in the session's workspace for
+  `FOLLOW_UP_PASS_SECONDS` (60) and sends it with the follow-up straight to the
+  session's host (`HostChannel`, `adapters/host/hostChannel.ts`): `POST
+  <hostUrl>/agent-run/follow-ups`, the pass as bearer, the label as
+  `authorLabel` (a label such as `a teammate in Slack`, never a name). No
+  runner relays it: the app calls the address the runner reported, which the
+  protocol checked only as an origin, so before anything is sent the adapter
+  asks `hostAddressAllowed` (`domain/hostAddress.ts`) whether the deployment
+  calls it: `https:` under one of `SANDBOX_HOST_SUFFIXES` (`e2b.app`, E2B's
+  exposed ports, when unset) on the default port, never an IP address; or
+  `http:` on `127.0.0.1`, `localhost` or `[::1]` only with
+  `LOCAL_SANDBOXES=true` (sandboxes on this machine). Another address is
+  `host_not_allowed`, logged with the session's id alone. The name is not
+  resolved again, so one under an allowed suffix that points at a private
+  address is not caught: a known limit of the POC. The host fences the text, says who
+  wrote it, and queues it after the orchestrator's turn once, keyed by `key`
+  and the message it becomes (`packages/host/AGENTS.md`, "Agent runs"), so
+  other words or another author under a used key are a follow-up of their own.
+  Answers: `delivered`; `already_delivered` (the same follow-up, its key,
+  author and text, reached it before, and this changed nothing);
+  `starting` (the host has not sent the run's first message yet, `503`);
+  `not_running` (the host there refused the pass or runs no agent run, `401`
+  or `404`); and `host_unreachable` (no answer within `HOST_CALL_TIMEOUT_MS`,
+  15 s, a redirect, which is never followed, any other status or receipt, or
+  no pass key); and `host_not_allowed` (above: nothing was sent). Sending the same follow-up again after `starting` or
+  `host_unreachable` is safe: its key and content keep it once. A run whose sandbox stopped is `not_running`; what
+  picks it up again is CON-39's and 41.8's. The adapter logs nothing, neither
+  the pass nor the text.
 - **Templates.** `GET /api/factory-templates` (`listFactoryTemplates`)
   answers `FACTORY_TEMPLATES` (`domain/factoryTemplates.ts`): today one,
   `code-review-team`, factory-spec's `CODE_REVIEW_TEAM_FILES`. The web app
@@ -1312,6 +1396,119 @@ in `company/domain/agentRun.ts`, the use cases in
   - `--api-url <url>`: where the API is, `http://127.0.0.1:<PORT>` by
     default (3100);
   - `--env <file>`: the env file to read, `apps/cloud-api/.env` by default.
+
+## Requests from Slack
+
+A factory's Slack app (CON-144, "Cloud · Design: Slack as a Connection
+(CON-144)",
+https://linear.app/consola/document/cloud-design-slack-as-a-connection-con-144-b235f62bdf94)
+sends its events to the factory's own address. A mention of its bot, or a
+direct message to it, from someone who may talk to the factory, starts a
+request for the factory's orchestrator: an agent run (above), which Consola
+answers in the same Slack thread. Slack is on only with
+`CONNECTION_SECRETS_KEY`; without it, the route answers 503
+`slack_not_configured`.
+
+- **The route.** `POST /api/slack/events/{factoryId}` (`postSlackEvent` in
+  `company/adapters/http/slackEventsContract.ts`, served by
+  `slackEvents.ts`). It is in the contract, like GitHub's webhooks, with its
+  request in words only, outside the origin check (`ORIGIN_EXEMPT`) and in
+  the company suite's `OPEN_ROUTES`. A body over `SLACK_EVENT_MAX_BYTES`
+  (1 MB) is 413 `too_large` before it is read, and the body is read as bytes.
+- **The checks, in order** (`receiveSlackEvent`, `application/slackEvents.ts`):
+  1. the factory exists (`FactoryStore.workspaceOf`, its one call not scoped
+     by a workspace), else 404 `factory_not_found`;
+  2. with no app for it, so no signing secret yet, only Slack's check of the
+     URL (`url_verification`) is answered with its challenge, unchecked,
+     which changes nothing; anything else is 409 `slack_not_set_up`;
+  3. the signature (`adapters/slack/eventSignatures.ts`): a timestamp within
+     five minutes either way, and `X-Slack-Signature` equal to `v0=` and the
+     HMAC-SHA256 of `v0:<timestamp>:<body>` under the factory's signing
+     secret, compared in constant time; else 401 `bad_signature`. A secret
+     this server's key cannot open is 503 `unavailable`;
+  4. the body, as Slack writes one (`readSlackEnvelope`), else 400
+     `invalid_event`;
+  5. `url_verification`, answered 200 `{ challenge }`; any other type but
+     `event_callback` is 200 `{ result: 'ignored' }`;
+  6. an event needs the app added to Slack (409 `slack_not_installed`), and
+     must name its app and Slack workspace (403 `wrong_app`);
+  7. only what release 1 handles goes on (`readSlackEvent`, below): anything
+     else the app is subscribed to (channel messages, reactions, joins, a
+     bot's messages) is 200 `{ result: 'ignored' }`, recorded nowhere and
+     logged at debug level only. The subscriptions stay in the manifest, so
+     release 2 needs no reinstall;
+  8. each `event_id` is recorded once per factory (`slack_event`), so one
+     Slack sends again is 200 `{ result: 'duplicate' }` and changes nothing;
+  9. it is 200 `{ result: 'accepted' }` at once, since Slack wants an answer
+     within three seconds, and handled after the answer (`later`, which
+     `compose.ts` makes with `setImmediate`).
+
+  A database that does not answer is 503 `unavailable`, and Slack sends the
+  event again. One line is logged per request (`slackEventLine`), with ids
+  only: never a challenge, a body, a signature or a secret, and nothing the
+  request names before it is known.
+- **What is taken** (`readSlackEvent`, `domain/slackEvents.ts`): an
+  `app_mention`, its text without the bot's mention, and a `message` with
+  `channel_type: im`. The thread is `thread_ts ?? ts`. Anything with
+  `bot_id` or a `subtype`, the bot's own messages and edits are dropped, and
+  so, in release 1, are channel messages without a mention and reactions.
+- **Who may talk** (`admitSlackMessage`, `application/slackRequests.ts`), in
+  this order, each refusal a reply only the author sees (ephemeral in a
+  channel, a plain message in a direct message, which is theirs and the bot's
+  alone), in their thread if they wrote in one: an author from another Slack workspace than the app's
+  (Slack Connect: `user_team`, `source_team` or `team` names another, or the
+  channel is shared with another organisation, `is_ext_shared_channel`, and
+  the event names none) is refused with no link. A shared channel alone
+  refuses nobody, since the app's own people talk there too; an author with no link gets a one-time link
+  (`requestSlackLink`), unless one sent them for the factory and channel is
+  still open (`SlackLinkStore.openRequestOf`), which they are pointed to,
+  since only its hash is kept; a linked person no longer a member, read live through
+  the `MembershipReader`, is refused; and so is a member who cannot see the
+  factory (`factoriesSeenBy`). A message with no text is asked for one.
+- **The start** (`startSlackRequest`). First the checks, each refusal said in
+  the thread, with nothing recorded or sent: the factory's latest files hold
+  a team with no issues and an orchestrator; the runner offers the first
+  repository `factory.yml`'s `repos:` lists (in any case), when it lists one,
+  and the orchestrator's harness (`claude` when it names none), in the words an
+  automation's run gets (`FAILURE_WORDS`); no request is open in the thread
+  already (release 1 answers with that run's link and starts nothing); and
+  Slack gives the message's permalink (`chat.getPermalink`). The plan is
+  factory-spec's `planSlackRequest`, read back with `readAgentRun` and no
+  `checkout`, so the default branch is used (`slackRequestStart`). A factory
+  that lists no repository (CON-166) starts its request with none: the
+  session's `repository` is null, the runner's offer of repositories is not
+  asked, the `session.start` leaves `repository` out, and the runner starts
+  the sandbox in an empty folder with no git token (`packages/host/AGENTS.md`,
+  "The `runner` command"); the prompt says so. Then, in
+  this order: the cloud session (an agent run, `personId` null, title
+  `<factory> · Slack: <first line>` cut to 200 characters, origin
+  `{ kind: 'slack', factoryId, factoryName, agent, via, message: { teamId,
+  channelId, threadTs, messageTs, permalink, title } }`); the thread
+  (`slack_request`, whose foreign key needs the session first); the run
+  (`agentRunRecord`: a request whose item is `{ kind: 'slack', url: the
+  permalink, title: the first line }`, `trigger` `event`, `triggerDetail`
+  `slack_mention` or `slack_dm`, `startedBy` the linked person, kept from the
+  first record by `keepingRunsInStep`); and the start, handed to the runner
+  (`handToRunner`). If it went, Consola reacts 👀 and says "On it. Follow
+  along in Consola: <run link>", the run's page on `PUBLIC_URL`
+  (`#/runs/<id>`).
+- **Answering in the thread** (`answeringInSlack`,
+  `application/slackAnswers.ts`), beside `keepingRunsInStep`: after every
+  change to a session that lands, once the change is done, Consola says
+  where a request from Slack stands, once per state, moved first by
+  `markPosted`'s compare-and-set: the first time it waits on a person, when
+  it is done (the orchestrator's summary in a `markdown` block of at most
+  12,000 characters, with a plain-text fallback of at most 4,000, each cut
+  with "… the rest is in the run"), and when it failed or was cancelled
+  ("The run stopped: <why, in words>"). No Slack token or tool goes into the
+  sandbox.
+- **Slack is never trusted, nor allowed to change a run.** Slack's text
+  reaches only the plan (factory-spec fences it) and Slack replies, never a
+  command line, an environment variable or a log line, and a summary never
+  broadcasts (`withoutBroadcasts`). The bot speaks through `botOf`, which
+  logs every failed call with ids and Slack's code; a dead token
+  (`isDeadTokenError`) marks the factory's app `needs_reinstall`; and no
+  Slack failure changes a session or a run.
 
 ## The runner's socket
 
@@ -1378,6 +1575,84 @@ calls this side of the socket the cell.
   the runner named, for its workspace; otherwise each rejects, and the use
   cases already answer that.
 
+## Slack
+
+Each factory has a Slack app of its own, so each has its own name and
+`@handle` (CON-144, "Cloud · Design: Slack as a Connection (CON-144)",
+https://linear.app/consola/document/cloud-design-slack-as-a-connection-con-144-b235f62bdf94).
+A workspace's owners and admins create it from Consola's manifest, paste its
+credentials and add it to Slack (`mayManageConnections`); every member who
+sees the factory (`factoriesSeenBy`) sees where it stands. README.md,
+"Connect a factory to Slack", has the set-up.
+
+- **Off without the key.** `CONNECTION_SECRETS_KEY`, 32 bytes in base64,
+  seals every secret Consola keeps for Slack (`adapters/sealing`). With none,
+  every Slack route answers 503 `slack_not_configured` and the callback
+  redirects with `not_configured`; the service still starts. A key of another
+  shape stops it. A sealed secret opens only with the key that sealed it.
+- **Where Slack reaches the API.** `SLACK_PUBLIC_URL` (a tunnel's address in
+  development), else `PUBLIC_URL` (`config.slackPublicUrl`): each factory's
+  manifest names `<it>/api/slack/events/<factory id>` and
+  `<it>/api/slack/oauth/callback`. The callback sends the browser back to
+  `PUBLIC_URL`.
+- **The routes** (`slackContract.ts`, `slack.ts`). Behind `requireCaller`:
+  `GET /api/factories/{factoryId}/slack` (the state, handle, client and app
+  ids, the Slack workspace, the manifest, the create-app URL and Slack's two
+  URLs; never a secret), `PUT …/slack/credentials` (sealed; every problem
+  named, 400 `invalid_credentials`, whatever the body's shape),
+  `POST …/slack/install` (Slack's authorise page, `no-store`; 409
+  `credentials_missing` before credentials), `DELETE …/slack` (forgets the
+  app, its events, its link requests and its requests' threads, then revokes
+  the bot token as far as Slack answers; 404 `slack_not_set_up`), `GET` and
+  `POST /api/slack/link-requests/{token}` (a one-time link's page, and
+  confirming it), `GET /api/slack/links` and `DELETE /api/slack/links/{linkId}`
+  (the caller's own links in the active workspace). A change is 403
+  `not_allowed` to a member, before anything is read.
+- **The callback** (`GET /api/slack/oauth/callback`, `finishSlackInstall`)
+  needs no session: Slack's redirect reaches it on Slack's address, where the
+  cookie may not be. It is a GET, so the origin check leaves it alone. In
+  order: the state is one Consola signed (HMAC-SHA256 under a key derived
+  from `BETTER_AUTH_SECRET` for this purpose alone) and in time (ten
+  minutes); the person it names is still an owner or admin; the factory is
+  there and its app has credentials that open; Slack exchanges the code
+  (`oauth.v2.access`) with that app's own client ID and secret; the grant is
+  a bot token for one Slack workspace, not an Enterprise Grid org; the
+  factory was not installed with another app; no other factory holds this
+  app id (`slack_app_app_unique`). It always redirects to
+  `<PUBLIC_URL>/?slack=<result>#/factories/<factoryId>/settings`, or
+  `#/settings/connections` when the state names no factory
+  (`SLACK_CALLBACK_RESULTS`). A token not kept is not revoked: Slack hands
+  one app the same bot token, which a factory may already hold.
+- **Linking.** `requestSlackLink` makes a one-time link for a Slack user who
+  wrote to a factory's bot before linking: 32 random bytes in base64url, only
+  its SHA-256 kept, 15 minutes, naming the workspace, the factory, the Slack
+  workspace, the user and the channel, at `<PUBLIC_URL>/#/slack/link/<token>`
+  (the web app routes by the hash, so the token reaches no server log). The
+  page's `GET` names the Slack workspace and the factory only for a link of
+  the caller's active workspace, and the factory only when they see it.
+  Confirming needs the link's workspace active (409 `other_workspace`), uses
+  the link once under a row lock (409 `link_used`, `link_expired`) and never
+  links one Slack account to two people in a workspace (409
+  `linked_to_someone_else`); the bot then says so where the person wrote, as
+  far as Slack answers. `linkedPersonOf` answers who a Slack user is.
+- **The tables** (`slackTables.ts`), each with its `workspace_id`, people by
+  id only, secrets as sealed text: `slack_app` (one per factory: client and
+  app ids, the Slack workspace, the bot, the handle, the sealed client
+  secret, signing secret and bot token, who configured and installed it,
+  `needs_reinstall`), `slack_person_link` (unique by workspace, Slack
+  workspace and user), `slack_link_request` (by the token's hash),
+  `slack_event` (unique by factory and Slack's `event_id`) and
+  `slack_request` (the thread a request's cloud session was started from,
+  and what Consola last posted there, moved by a compare-and-set). Each goes
+  with its factory, and a request's thread with its session too.
+- **Slack's Web API** (`adapters/slack/slackApi.ts`) sends a token only in
+  the `Authorization` header and never logs. `ok: false` is a refusal with
+  Slack's code, 429 is `ratelimited`, anything else `unavailable` with a
+  reason that names the method and the status. A code that says a token is
+  dead (`isDeadTokenError`) marks the app `needs_reinstall`.
+- **Events** (`POST /api/slack/events/{factoryId}`) and the requests they
+  start are declared and served beside these, on the same stores and ports.
+
 ## Adding a feature
 
 1. Pick the part. What a workspace holds is `company`; people, sign-in,
@@ -1435,6 +1710,8 @@ against the contract:
 - `src/gitHubApp.test.ts`: Connections, the callback (from installing and
   from signing in), the choice of an installation, webhooks, and tokens
   through the use case;
+- `src/slackApp.test.ts`: a factory's Slack app, its callback and the links,
+  with Slack behind `fetch`;
 - `src/companyApp.test.ts`: teams, factories, runs, approvals and cloud
   sessions. Its "every route" test asks every route the app has without a
   session and expects 401 from all but the ones that need none
@@ -1475,7 +1752,8 @@ is therefore also tested directly, on the store.
 - `drizzle/` holds the one migration chain, for both parts, written by
   `pnpm --filter @consola/cloud-api db:generate --name <what>` after a schema
   changes. `drizzle.config.ts` reads accounts' `auth-schema.ts` and company's
-  `tables.ts` and `gitHubTables.ts`. The migrations apply when the API starts,
+  `tables.ts`, `gitHubTables.ts` and `slackTables.ts`. The migrations apply
+  when the API starts,
   and `db:generate` should then report no schema changes, which
   `src/persistence/database.test.ts` checks (above, "Tests"). The chain started
   again at `0000_init` when the apps merged, so a database from before it is

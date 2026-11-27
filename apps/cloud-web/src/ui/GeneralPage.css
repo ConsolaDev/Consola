@@ -48,6 +48,12 @@
   opacity: 0.6;
 }
 
+/* The link to the running source closes the page, set off from its options by a hairline. */
+.general > .footer {
+  padding-top: 16px;
+  border-top: 1px solid var(--gray-a5);
+}
+
 .general .settings-chip {
   display: inline-flex;
   align-items: center;

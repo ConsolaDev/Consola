@@ -277,7 +277,7 @@
 .session-page {
   display: flex;
   flex-direction: column;
-  height: calc(100dvh - 44px);
+  height: 100dvh;
   min-height: 480px;
 }
 

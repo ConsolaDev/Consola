@@ -91,6 +91,12 @@ canary passes on the new version.
    For an agent run on a commit (`CONSOLA_CHECKOUT_REF`, `CONSOLA_CHECKOUT_SHA`),
    it then fetches that ref through the same helper and checks the commit out
    detached; anything but `HEAD` at that commit prints the same one line.
+
+   A session with no repository (an agent run of a factory that names none)
+   has no `CONSOLA_REPOSITORY`, and no git token either: the script clones
+   nothing, configures no repository and makes `/workspace/repo` empty, where
+   the host works. A commit to check out needs a repository: with
+   `CONSOLA_CHECKOUT_REF` and no repository, it says so on stderr and exits 1.
 3. Writes `$CONSOLA_PASS_PUBLIC_KEY` to `/workspace/.consola/pass-public-key.pem`.
 4. For a Codex session, signs Codex in: `codex login --with-api-key`, the key
    from `$OPENAI_API_KEY` on stdin. Codex reads no API key from its
@@ -104,8 +110,8 @@ canary passes on the new version.
    "$CONSOLA_AGENT_RUN"` (the run the runner wrote at
    `/workspace/.consola/agent-run.json`, its factory files under
    `/workspace/factory`). Its first stdout line is `ready`
-   (stderr carries the folder warning first). An agent run's sandbox also has
-   `GH_TOKEN`, the git token, which `gh` reads as it is.
+   (stderr carries the folder warning first). An agent run's sandbox with a
+   repository also has `GH_TOKEN`, the git token, which `gh` reads as it is.
 
 Stdout is the runner's: the script prints nothing else there. Its tests are
 `src/bundle.test.ts`.
@@ -115,7 +121,7 @@ Stdout is the runner's: the script prints nothing else there. Its tests are
 On Consola's E2B account, under the name the runner creates sandboxes from
 (`SESSION_TEMPLATE`, `consola-session`). Building again replaces it. To build
 another one beside it (a branch's own), set `CONSOLA_SESSION_TEMPLATE`
-(`consola-session-orchestrator`, say) for the build and for the runner that should
+(`consola-session-<branch>`, say) for the build and for the runner that should
 use it. From the repository root:
 
 ```bash
@@ -130,12 +136,18 @@ fff-node patch, and builds it with `@consola/sandbox/e2b`'s builder
 `E2B_API_KEY`, from the environment, or else from `packages/sandbox/.env`; it is
 never an argument and never printed. The build prints the template's id.
 
-**Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
-build prints here, and only the id.
+**Template id:** `hklvun2u4kalsi5no0ym`, last built 2026-11-27 from main at
+`791c3901` (build `1afb948c-0535-4167-80a6-fed95c84d795`). It runs agent runs
+too, so it is the one template every runner uses. Record the id the build
+prints here, and only the id. `consola-session-orchestrator`, which agent runs
+used before they reached main, was deleted on 2026-11-27.
 
-**`consola-session-orchestrator`** (the agent runs' template, which the runner uses
-with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`): `4s8mieamplpn8bzyi9vg`
-(built 2026-11-26).
+**Not yet rebuilt for a session with no repository** (CON-166, 2026-11-27).
+That build came from main, before the start script learned to clone nothing,
+so on it a session with no repository fails at start with
+`consola-session-start: CONSOLA_REPOSITORY is not set.` Rebuild it
+(`template:build`) once this lands on main, and record the build here; then
+drop this note.
 
 ## The sandbox's lifetime
 

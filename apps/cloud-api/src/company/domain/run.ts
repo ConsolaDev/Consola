@@ -72,8 +72,13 @@ export const STEP_STATUSES = [
 ] as const;
 export type StepStatus = (typeof STEP_STATUSES)[number];
 
-export const ITEM_KINDS = ['pr', 'issue'] as const;
+/** What a run's item is: a pull request, an issue, or the Slack message a request came from. */
+export const ITEM_KINDS = ['pr', 'issue', 'slack'] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
+
+/** The items an automation run on demand may take (factory-spec's `appliesTo`). */
+export const APPLIES_TO_KINDS = ['pr', 'issue'] as const;
+export type AppliesToKind = (typeof APPLIES_TO_KINDS)[number];
 
 // The engine's words are all the app's: a status the engine records is never refused here.
 type Missing<Engine, Cell> = Exclude<Engine, Cell> extends never ? true : Exclude<Engine, Cell>;
@@ -82,7 +87,10 @@ const engineStepStatusesHeld: Missing<StepRunStatus, StepStatus> = true;
 void engineRunStatusesHeld;
 void engineStepStatusesHeld;
 
-/** The item a run is about: a pull request or an issue, as its runner saw it. */
+/**
+ * The item a run is about: a pull request or an issue, as its runner saw it, or the Slack message
+ * a request came from (its permalink and first line).
+ */
 export type RunItem = {
   /** Its page: an https address, never another scheme. */
   readonly url: string;

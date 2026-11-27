@@ -928,6 +928,9 @@ export function installMock() {
     onChanged: () => () => {},
   };
   // "Open in" offers two apps, with no icons, and opens nothing.
+  // The public site shows what everyone sees: every lab off, so no Automations.
+  const labsAPI: Window['labsAPI'] = { automations: false };
+
   const openInAPI: Window['openInAPI'] = {
     list: async () => [
       { id: 'vscode', label: 'VS Code', kind: 'app' },
@@ -965,6 +968,7 @@ export function installMock() {
     secretsAPI,
     browserAPI,
     openInAPI,
+    labsAPI,
   };
   Object.assign(window, bridge);
   // Sample repository links are illustrative; do not take visitors to invented PRs.

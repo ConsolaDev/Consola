@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import { labsBridge } from '../services/labsBridge';
 import { windowBridge } from '../services/windowBridge';
 import { SettingsModal } from '../components/Dialogs/SettingsModal';
 import {
@@ -63,7 +64,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     const hasWorkspace = hasActiveWorkspace();
     setState((current) => ({
       open: true,
-      section: resolveSection(section ?? current.section, hasWorkspace),
+      section: resolveSection(section ?? current.section, hasWorkspace, labsBridge),
     }));
   }, []);
 
