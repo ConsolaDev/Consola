@@ -120,10 +120,11 @@ const callback = {
   api_app_id: 'A0SPROCKET',
   event_id: 'Ev0MENTION',
   event: {
-    type: 'reaction_added',
+    type: 'app_mention',
     user: 'U0ALICE',
-    reaction: 'eyes',
-    item: { type: 'message', channel: 'C0CATALOG', ts: '1795000000.000100' },
+    text: '<@U0BOT> price the catalog in euros',
+    ts: '1795000000.000100',
+    channel: 'C0CATALOG',
   },
 };
 
@@ -137,6 +138,7 @@ describe("Slack's events, through the whole API", () => {
   });
 
   it('checks, records and accepts an event, outside the origin check', async () => {
+    const calls = standInForSlack();
     await installSlackApp();
     expect(await answered(await send(callback, { secret: 'another' }))).toEqual([
       401,
@@ -148,6 +150,21 @@ describe("Slack's events, through the whole API", () => {
       { result: 'accepted' },
     ]);
     expect(await answered(await send(callback))).toEqual([200, { result: 'duplicate' }]);
+    // Handled once, after its answer: its unlinked author is sent a link, once.
+    await vi.waitFor(() =>
+      expect(calls.map((call) => call.method)).toEqual(['chat.postEphemeral']),
+    );
+  });
+
+  it('answers an event release 1 does not handle, and records none', async () => {
+    await installSlackApp();
+    const reaction = {
+      ...callback,
+      event_id: 'Ev0REACTION',
+      event: { type: 'reaction_added', user: 'U0ALICE', reaction: 'eyes' },
+    };
+    expect(await answered(await send(reaction))).toEqual([200, { result: 'ignored' }]);
+    expect(await answered(await send(reaction))).toEqual([200, { result: 'ignored' }]);
   });
 
   it('names no factory it does not have', async () => {

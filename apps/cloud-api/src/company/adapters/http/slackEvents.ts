@@ -9,7 +9,7 @@ import { postSlackEvent } from './slackEventsContract.js';
 export const SLACK_EVENT_ROUTES = [postSlackEvent];
 
 /** Where the route logs: ids and outcomes, never a body, a signature or a secret. */
-export type SlackEventLog = Pick<Console, 'info' | 'warn'>;
+export type SlackEventLog = Pick<Console, 'debug' | 'info' | 'warn'>;
 
 /**
  * The line logged for an outcome, and how loud. The factory is named only once it is known to
@@ -17,7 +17,7 @@ export type SlackEventLog = Pick<Console, 'info' | 'warn'>;
  * anyone's words. Never a challenge, a body, a signature or a secret.
  */
 export function slackEventLine(outcome: SlackEventOutcome): {
-  level: 'info' | 'warn';
+  level: 'debug' | 'info' | 'warn';
   line: string;
 } {
   switch (outcome.kind) {
@@ -48,10 +48,11 @@ export function slackEventLine(outcome: SlackEventOutcome): {
         level: 'warn',
         line: `Refused a signed Slack event for factory ${outcome.factoryId}: ${outcome.reason}.`,
       };
+    // Every message in a channel the bot is in is one: only worth a line when debugging.
     case 'ignored':
       return {
-        level: 'info',
-        line: `Ignored Slack's ${outcome.type} for factory ${outcome.factoryId}.`,
+        level: 'debug',
+        line: `Ignored Slack's ${outcome.type} for factory ${outcome.factoryId}${outcome.reason === undefined ? '' : `: ${outcome.reason}`}.`,
       };
     case 'not-installed':
       return {

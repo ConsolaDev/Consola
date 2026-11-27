@@ -1,4 +1,4 @@
-import { isInstalled, readSlackEnvelope } from '../domain/slackEvents.js';
+import { isInstalled, readSlackEnvelope, readSlackEvent } from '../domain/slackEvents.js';
 import type { InstalledSlackApp, SlackEventCallback } from '../domain/slackEvents.js';
 import type { SignedSlackRequest, SlackSignatures } from './slackEventPorts.js';
 import type { SecretSealer, SlackAppStore, SlackEventStore } from './slackPorts.js';
@@ -32,8 +32,12 @@ export type SlackEventOutcome =
   | { kind: 'bad-signature'; factoryId: string; why: 'stale' | 'mismatch' }
   /** Signed, but not what Slack sends. `reason` names what. */
   | { kind: 'invalid'; factoryId: string; reason: string }
-  /** Something Slack sends that Consola does not take (`app_rate_limited`, say). */
-  | { kind: 'ignored'; factoryId: string; type: string }
+  /**
+   * Something Slack sends that Consola does not take: another kind of request
+   * (`app_rate_limited`, say), or an event release 1 does not handle (a channel message, a
+   * reaction, a bot's message), which is not recorded. `reason` says why, for an event.
+   */
+  | { kind: 'ignored'; factoryId: string; type: string; reason?: string }
   /** An event for an app not added to a Slack workspace yet. */
   | { kind: 'not-installed'; factoryId: string }
   /** An event that names another app or Slack workspace than the factory's. */
@@ -97,8 +101,10 @@ export function whatFailed(error: unknown): string {
  * 4. the body, as Slack writes one;
  * 5. Slack's check of the URL, answered;
  * 6. an event (`event_callback`) must name the app and the Slack workspace it was added to;
- * 7. it is recorded once by its `event_id`, so one Slack sends again changes nothing;
- * 8. it is accepted at once, and handled after the answer (`later`).
+ * 7. only an event release 1 handles (`readSlackEvent`: a mention of the bot, a direct message to
+ *    it) goes on; any other is `ignored`, and not recorded;
+ * 8. it is recorded once by its `event_id`, so one Slack sends again changes nothing;
+ * 9. it is accepted at once, and handled after the answer (`later`).
  *
  * A database that does not answer, or a secret this server cannot open, is `unavailable`, never
  * thrown: Slack sends the event again.
@@ -150,6 +156,12 @@ export async function receiveSlackEvent(
   if (!isInstalled(app)) return { kind: 'not-installed', factoryId };
   if (callback.apiAppId !== app.install.appId || callback.teamId !== app.install.teamId) {
     return { kind: 'wrong-app', factoryId, eventId: callback.eventId };
+  }
+  // Only what release 1 handles is recorded: the app is subscribed to more, so that release 2
+  // needs no reinstall, and the rest is answered and forgotten.
+  const taken = readSlackEvent(callback.event, app.install.botUserId);
+  if (taken.kind === 'dropped') {
+    return { kind: 'ignored', factoryId, type: callback.eventType, reason: taken.reason };
   }
 
   let recorded: Awaited<ReturnType<SlackEventStore['record']>>;

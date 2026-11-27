@@ -265,6 +265,41 @@ describe('receiveSlackEvent, once the app is added to a Slack workspace', () => 
     });
   });
 
+  it('ignores what release 1 does not handle before recording anything, and hands nothing on', async () => {
+    const posted = {
+      type: 'message',
+      channel_type: 'channel',
+      user: 'U0ALICE',
+      text: 'lunch?',
+      ts: '1795000000.000200',
+      channel: 'C0CATALOG',
+    };
+    const fromTheBot = { ...mentionEvent, user: 'U0BOT', bot_id: 'B0BOT' };
+    for (const [event, reason] of [
+      [{ type: 'reaction_added', user: 'U0ALICE', reaction: 'eyes' }, 'a reaction'],
+      [{ type: 'member_joined_channel', user: 'U0ALICE' }, 'someone joined a channel'],
+      [posted, 'a message in a channel, with no mention of the bot'],
+      [fromTheBot, 'a bot wrote it'],
+    ] as const) {
+      expect(
+        await receiveSlackEvent(ports(), request(callback({ event_id: 'Ev0OTHER', event }))),
+      ).toEqual({
+        kind: 'ignored',
+        factoryId: factory.id,
+        type: event.type,
+        reason,
+      });
+    }
+    await afterTheAnswer();
+    expect(handled).toEqual([]);
+    // Nothing recorded: the id is new to the factory still.
+    expect(
+      await receiveSlackEvent(ports(), request(callback({ event_id: 'Ev0OTHER' }))),
+    ).toMatchObject({
+      kind: 'accepted',
+    });
+  });
+
   it('changes nothing for an event Slack sends again, however it was signed', async () => {
     expect(await receiveSlackEvent(ports(), request(callback()))).toMatchObject({
       kind: 'accepted',

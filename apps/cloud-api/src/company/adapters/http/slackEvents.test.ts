@@ -73,7 +73,10 @@ function build(on = true) {
   const log = (line: string) => {
     lines.push(line);
   };
-  registerSlackEventRoutes(app, { slack: on ? ports : null, log: { info: log, warn: log } });
+  registerSlackEventRoutes(app, {
+    slack: on ? ports : null,
+    log: { debug: log, info: log, warn: log },
+  });
   return { app, stores };
 }
 
@@ -189,6 +192,65 @@ describe("Slack's events route", () => {
     expect(await asked(await send(app, callback()))).toEqual([200, { result: 'accepted' }]);
     expect(await asked(await send(app, callback()))).toEqual([200, { result: 'duplicate' }]);
     expect(handled).toEqual(['Ev0MENTION']);
+  });
+
+  it('answers an event release 1 does not handle, records nothing and logs it at debug level', async () => {
+    const { stores } = build();
+    await install(stores);
+    const debug: string[] = [];
+    const quiet = new OpenAPIHono();
+    registerSlackEventRoutes(quiet, {
+      slack: {
+        apps: stores.apps,
+        factories: createDrizzleStores(db).factories,
+        events: stores.events,
+        sealer: markingSealer,
+        signatures: slackSignatures,
+        clock: { nowSeconds: () => NOW },
+        later: () => {},
+        handle: async () => {},
+      },
+      log: {
+        debug: (line: string) => debug.push(line),
+        info: (line: string) => lines.push(line),
+        warn: (line: string) => lines.push(line),
+      },
+    });
+    const reaction = callback({
+      event_id: 'Ev0REACTION',
+      event: { type: 'reaction_added', user: 'U0ALICE', reaction: 'eyes' },
+    });
+    const channelMessage = callback({
+      event_id: 'Ev0CHANNEL',
+      event: {
+        type: 'message',
+        channel_type: 'channel',
+        user: 'U0ALICE',
+        text: 'lunch?',
+        ts: '1795000000.000200',
+        channel: 'C0CATALOG',
+      },
+    });
+    for (const body of [reaction, reaction, channelMessage]) {
+      const response = await send(quiet, body);
+      expect([response.status, await answerOf(response)]).toEqual([200, { result: 'ignored' }]);
+    }
+    expect(lines).toEqual([]);
+    expect(debug).toEqual([
+      `Ignored Slack's reaction_added for factory ${factory.id}: a reaction.`,
+      `Ignored Slack's reaction_added for factory ${factory.id}: a reaction.`,
+      `Ignored Slack's message for factory ${factory.id}: a message in a channel, with no mention of the bot.`,
+    ]);
+    // Never recorded: the same id is still new to the factory.
+    expect(
+      await stores.events.record({
+        workspaceId: 'sprocket',
+        factoryId: factory.id,
+        eventId: 'Ev0REACTION',
+        at: new Date(NOW * 1000),
+      }),
+    ).toBe('recorded');
+    expect(handled).toEqual([]);
   });
 
   it('says an app not added to Slack yet takes no event', async () => {

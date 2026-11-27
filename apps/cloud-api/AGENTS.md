@@ -1332,9 +1332,14 @@ answers in the same Slack thread. Slack is on only with
      `event_callback` is 200 `{ result: 'ignored' }`;
   6. an event needs the app added to Slack (409 `slack_not_installed`), and
      must name its app and Slack workspace (403 `wrong_app`);
-  7. each `event_id` is recorded once per factory (`slack_event`), so one
+  7. only what release 1 handles goes on (`readSlackEvent`, below): anything
+     else the app is subscribed to (channel messages, reactions, joins, a
+     bot's messages) is 200 `{ result: 'ignored' }`, recorded nowhere and
+     logged at debug level only. The subscriptions stay in the manifest, so
+     release 2 needs no reinstall;
+  8. each `event_id` is recorded once per factory (`slack_event`), so one
      Slack sends again is 200 `{ result: 'duplicate' }` and changes nothing;
-  8. it is 200 `{ result: 'accepted' }` at once, since Slack wants an answer
+  9. it is 200 `{ result: 'accepted' }` at once, since Slack wants an answer
      within three seconds, and handled after the answer (`later`, which
      `compose.ts` makes with `setImmediate`).
 
