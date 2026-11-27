@@ -15,15 +15,20 @@ import type { CSSProperties } from 'react';
 import {
   accountCount,
   CONNECTIONS_UNAVAILABLE,
+  connectAccountLabel,
   connectedAtLong,
   connectedSentence,
   DISCONNECT_QUESTION,
   GITHUB_ASK_HINT,
+  GITHUB_CHOICE_HINT,
+  GITHUB_CHOICE_LABEL,
   GITHUB_CONNECT_HINT,
   GITHUB_NOT_CONFIGURED,
   GITHUB_PURPOSE,
+  INSTALL_ELSEWHERE,
   INSTALLATION_GONE,
   LATER_SERVICES_HINT,
+  messageForChoiceFailure,
   messageForConnectFailure,
   messageForDisconnectFailure,
   messageForGitHubResult,
@@ -37,16 +42,25 @@ import {
   isSuccess,
   justConnectedId,
   LATER_SERVICES,
+  resultOfChoice,
 } from '../domain/connections';
 import type {
+  ChoiceState,
   Connections,
   ConnectionsState,
   GitHubAccount,
+  GitHubCandidate,
   GitHubConnection,
   GitHubResult,
 } from '../domain/connections';
-import { disconnectGitHub, loadConnections, startGitHubConnect } from '../services/api';
-import { goToGitHub, takeGitHubResult } from '../services/gitHubRedirect';
+import {
+  connectChosenGitHub,
+  disconnectGitHub,
+  loadConnections,
+  loadGitHubChoice,
+  startGitHubConnect,
+} from '../services/api';
+import { goToGitHub, takeGitHubReturn } from '../services/gitHubRedirect';
 import './ConnectionsPage.css';
 import type { SectionProps } from './sections';
 import { ServiceMark } from './serviceMarks';
@@ -66,11 +80,20 @@ function rise(index: number): CSSProperties {
  * connected; only owners and admins see Connect and Disconnect, as the server says
  * (`canManage`), and the server refuses anyone else whatever the page shows. How the last
  * Connect ended (`?github=`) is read once, as the page mounts, and the account it added is
- * marked.
+ * marked; a Connect that waits on the person's choice of account (`?github=choose&choice=`) shows
+ * the accounts to choose from instead.
  */
 export function ConnectionsPage({ workspace }: SectionProps) {
-  const [arrival] = useState(() => ({ result: takeGitHubResult(), at: Date.now() }));
-  const [noticeOpen, setNoticeOpen] = useState(true);
+  const [arrival] = useState(() => ({ returned: takeGitHubReturn(), at: Date.now() }));
+  const [notice, setNotice] = useState<{ result: GitHubResult | 'unknown'; at: number } | null>(
+    () =>
+      arrival.returned?.kind === 'ended'
+        ? { result: arrival.returned.result, at: arrival.at }
+        : null,
+  );
+  const [choice, setChoice] = useState<string | null>(() =>
+    arrival.returned?.kind === 'choose' ? arrival.returned.choice : null,
+  );
   const [state, setState] = useState<ConnectionsState | null>(null);
   const latest = useRef(0);
   const title = useRef<HTMLHeadingElement>(null);
@@ -92,7 +115,9 @@ export function ConnectionsPage({ workspace }: SectionProps) {
     };
   }, [load]);
 
-  const { result } = arrival;
+  // A notice or a choice that goes takes the button that had the keyboard with it, so the
+  // keyboard lands on the page's title.
+  const toTitle = () => title.current?.focus();
 
   return (
     <div className="settings-section connections">
@@ -106,13 +131,30 @@ export function ConnectionsPage({ workspace }: SectionProps) {
         </p>
       </div>
 
-      {result !== null && noticeOpen && (
+      {notice !== null && (
         <Notice
-          result={result}
+          good={isSuccess(notice.result)}
+          message={messageForGitHubResult(notice.result)}
           onDismiss={() => {
-            setNoticeOpen(false);
-            // The button goes with the notice, so the keyboard lands on the page's title.
-            title.current?.focus();
+            setNotice(null);
+            toTitle();
+          }}
+        />
+      )}
+
+      {choice !== null && (
+        <GitHubChoice
+          workspaceId={workspaceId}
+          choice={choice}
+          onConnected={(result) => {
+            setChoice(null);
+            setNotice({ result, at: Date.now() });
+            toTitle();
+            void load();
+          }}
+          onDismiss={() => {
+            setChoice(null);
+            toTitle();
           }}
         />
       )}
@@ -124,8 +166,8 @@ export function ConnectionsPage({ workspace }: SectionProps) {
           workspaceId={workspaceId}
           connections={state.connections}
           justConnected={
-            result === 'connected'
-              ? justConnectedId(state.connections.github.installations, arrival.at)
+            notice?.result === 'connected'
+              ? justConnectedId(state.connections.github.installations, notice.at)
               : null
           }
           onChanged={load}
@@ -141,13 +183,14 @@ export function ConnectionsPage({ workspace }: SectionProps) {
 
 /** How the last Connect ended, said once, with a check that draws itself when it went well. */
 function Notice({
-  result,
+  good,
+  message,
   onDismiss,
 }: {
-  result: GitHubResult | 'unknown';
+  good: boolean;
+  message: string;
   onDismiss: () => void;
 }) {
-  const good = isSuccess(result);
   return (
     <div className={good ? 'connections-notice done' : 'connections-notice problem'} role="status">
       {good ? (
@@ -164,7 +207,7 @@ function Notice({
       ) : (
         <CircleAlert className="connections-notice-icon" size={16} aria-hidden="true" />
       )}
-      <p>{messageForGitHubResult(result)}</p>
+      <p>{message}</p>
       <button
         type="button"
         className="connections-notice-close"
@@ -184,6 +227,155 @@ function ServiceTile({ service, live = false }: { service: string; live?: boolea
       <ServiceMark service={service} />
       {live && <span className="connections-presence" aria-hidden="true" />}
     </span>
+  );
+}
+
+/**
+ * The accounts a person who signed in to GitHub may connect: those they own with the app
+ * installed already, which no workspace holds. Drawn as the Connected group is (GitHub, then each
+ * account under it, with Connect <account>), with Install on another account last. The API reads
+ * them from the signed choice, and checks everything again when one is chosen; how that ends is
+ * the page's notice, and the choice goes.
+ */
+function GitHubChoice({
+  workspaceId,
+  choice,
+  onConnected,
+  onDismiss,
+}: {
+  workspaceId: string;
+  choice: string;
+  onConnected: (result: GitHubResult) => void;
+  onDismiss: () => void;
+}) {
+  const [state, setState] = useState<ChoiceState | null>(null);
+  // The account being connected, or the install page being opened.
+  const [pending, setPending] = useState<number | 'install' | null>(null);
+  const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    let current = true;
+    void loadGitHubChoice({ id: workspaceId }, choice).then((answer) => {
+      if (current) setState(answer);
+    });
+    return () => {
+      current = false;
+    };
+  }, [workspaceId, choice]);
+
+  async function connect(candidate: GitHubCandidate) {
+    setPending(candidate.id);
+    setFailure(null);
+    const answer = await connectChosenGitHub(
+      { id: workspaceId },
+      { choice, installationId: candidate.id },
+    );
+    if (answer.kind === 'connected' || answer.kind === 'already-connected') {
+      onConnected(resultOfChoice(answer));
+      return;
+    }
+    setFailure(messageForChoiceFailure(answer));
+    setPending(null);
+  }
+
+  async function installElsewhere() {
+    setPending('install');
+    setFailure(null);
+    const answer = await startGitHubConnect({ id: workspaceId });
+    if (answer.kind === 'started') {
+      // The page is left for GitHub's install page, which sends the person back here.
+      goToGitHub(answer.installUrl);
+      return;
+    }
+    setFailure(
+      answer.kind === 'signed-out'
+        ? messageForChoiceFailure(answer)
+        : messageForConnectFailure(answer),
+    );
+    setPending(null);
+  }
+
+  if (state === null) return <Loading />;
+  if (state.kind !== 'loaded') {
+    return <Notice good={false} message={messageForChoiceFailure(state)} onDismiss={onDismiss} />;
+  }
+
+  const { candidates } = state;
+  return (
+    <div className="connections-group">
+      <div className="connections-group-head">
+        <h3 className="connections-group-label">{GITHUB_CHOICE_LABEL}</h3>
+        <button
+          type="button"
+          className="connections-ghost"
+          disabled={pending !== null}
+          onClick={onDismiss}
+        >
+          Not now
+        </button>
+      </div>
+      <ul className="connections-list">
+        <li className="connections-service connections-rise">
+          <ServiceTile service="github" />
+          <div className="connections-text">
+            <span className="connections-name">GitHub</span>
+            <span className="connections-description">{GITHUB_CHOICE_HINT}</span>
+          </div>
+        </li>
+        {candidates.map((candidate, index) => (
+          <li
+            key={candidate.id}
+            className="connections-account connections-rise"
+            style={rise(index + 1)}
+          >
+            <AccountAvatar account={candidate.account} gone={false} />
+            <div className="connections-text">
+              <span className="connections-account-name">
+                <span className="connections-name">{candidate.account.login}</span>
+              </span>
+              <span className="connections-meta">{accountKind(candidate.account)}</span>
+            </div>
+            <div className="connections-actions">
+              <button
+                type="button"
+                className="settings-button accent"
+                disabled={pending !== null}
+                onClick={() => void connect(candidate)}
+              >
+                {pending === candidate.id && (
+                  <LoaderCircle className="connections-spin" size={16} aria-hidden="true" />
+                )}
+                {pending === candidate.id
+                  ? 'Connecting…'
+                  : connectAccountLabel(candidate.account.login)}
+              </button>
+            </div>
+          </li>
+        ))}
+        <li className="connections-rise" style={rise(candidates.length + 1)}>
+          <button
+            type="button"
+            className="connections-add"
+            disabled={pending !== null}
+            onClick={() => void installElsewhere()}
+          >
+            <span className="connections-add-icon" aria-hidden="true">
+              {pending === 'install' ? (
+                <LoaderCircle className="connections-spin" size={16} />
+              ) : (
+                <Plus size={16} />
+              )}
+            </span>
+            {pending === 'install' ? 'Opening GitHub…' : INSTALL_ELSEWHERE}
+          </button>
+        </li>
+      </ul>
+      {failure && (
+        <p className="connections-error" role="alert">
+          {failure}
+        </p>
+      )}
+    </div>
   );
 }
 

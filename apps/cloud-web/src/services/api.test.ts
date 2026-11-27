@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  connectChosenGitHub,
   createApi,
   createWorkspace,
   disconnectGitHub,
   loadConnections,
+  loadGitHubChoice,
   loadMe,
   loadWorkspaces,
   setWorkspaceIcon,
@@ -392,11 +394,12 @@ describe('loadConnections', () => {
 });
 
 describe('startGitHubConnect', () => {
-  const url = 'https://github.com/apps/consola-dev/installations/new?state=s';
+  const url = 'https://github.com/login/oauth/authorize?client_id=Iv23li&state=s';
+  const installUrl = 'https://github.com/apps/consola-dev/installations/new?state=s';
 
-  it('is started with the address on GitHub, asked for the workspace the page shows', async () => {
-    const api = at(200, { url });
-    expect(await startGitHubConnect(ACME, api)).toEqual({ kind: 'started', url });
+  it('is started with the addresses on GitHub, asked for the workspace the page shows', async () => {
+    const api = at(200, { url, installUrl });
+    expect(await startGitHubConnect(ACME, api)).toEqual({ kind: 'started', url, installUrl });
     expect(api.calls).toEqual([
       { method: 'POST', url: `${ORIGIN}/api/connections/github/install`, workspace: 'w1' },
     ]);
@@ -421,9 +424,12 @@ describe('startGitHubConnect', () => {
       'javascript:alert(1)',
       '/api/elsewhere',
     ]) {
-      expect(await startGitHubConnect(ACME, at(200, { url: elsewhere }))).toEqual({
-        kind: 'unavailable',
-      });
+      for (const body of [
+        { url: elsewhere, installUrl },
+        { url, installUrl: elsewhere },
+      ]) {
+        expect(await startGitHubConnect(ACME, at(200, body))).toEqual({ kind: 'unavailable' });
+      }
     }
   });
 
@@ -433,9 +439,139 @@ describe('startGitHubConnect', () => {
       at(409, { error: 'no_active_workspace' }),
       at(409, { error: 'workspace_switched' }),
       at(200, {}),
+      at(200, { url }),
       unreachable,
     ]) {
       expect(await startGitHubConnect(ACME, api)).toEqual({ kind: 'unavailable' });
+    }
+  });
+});
+
+describe('loadGitHubChoice', () => {
+  const candidates = [
+    { id: 41, account: { id: 9001, login: 'sprocket', type: 'Organization' } },
+    { id: 63, account: { id: 7, login: 'dana', type: 'User' } },
+  ];
+
+  it('is loaded with the candidates, asked with the choice for the workspace the page shows', async () => {
+    const api = at(200, { candidates });
+    expect(await loadGitHubChoice(ACME, 'eyJ3.c2ln+/=', api)).toEqual({
+      kind: 'loaded',
+      candidates,
+    });
+    expect(api.calls).toEqual([
+      {
+        method: 'GET',
+        url: `${ORIGIN}/api/connections/github/choice?choice=eyJ3.c2ln%2B%2F%3D`,
+        workspace: 'w1',
+      },
+    ]);
+  });
+
+  it('names each refusal of the choice', async () => {
+    for (const [status, error, reason] of [
+      [400, 'bad_choice', 'bad-choice'],
+      [403, 'not_allowed', 'not-allowed'],
+      [409, 'choice_for_another_workspace', 'other-workspace'],
+      [410, 'choice_expired', 'expired'],
+    ] as const) {
+      expect(await loadGitHubChoice(ACME, 'c', at(status, { error }))).toEqual({
+        kind: 'refused',
+        reason,
+      });
+    }
+  });
+
+  it('is signed out on 401, and switched when the session has another workspace open', async () => {
+    expect(await loadGitHubChoice(ACME, 'c', at(401, { error: 'signed_out' }))).toEqual({
+      kind: 'signed-out',
+    });
+    for (const api of [
+      at(409, { error: 'no_active_workspace' }),
+      at(409, { error: 'workspace_switched' }),
+      at(403, { error: 'not_a_member' }),
+    ]) {
+      expect(await loadGitHubChoice(ACME, 'c', api)).toEqual({ kind: 'switched' });
+    }
+  });
+
+  it('is unavailable on any other answer, or candidates of another shape', async () => {
+    for (const api of [
+      at(400, { error: 'invalid_request' }),
+      at(500, { error: 'boom' }),
+      at(200, {}),
+      at(200, { candidates: [{ id: '41', account: candidates[0]?.account }] }),
+      at(200, { candidates: [{ id: 41, account: { login: 'sprocket', type: 'Enterprise' } }] }),
+      at(200, '<html>ok</html>'),
+      unreachable,
+    ]) {
+      expect(await loadGitHubChoice(ACME, 'c', api)).toEqual({ kind: 'unavailable' });
+    }
+  });
+});
+
+describe('connectChosenGitHub', () => {
+  const chosen = { choice: 'eyJ3.c2ln', installationId: 41 };
+
+  it('is connected, sending the choice and the installation for the workspace the page shows', async () => {
+    const calls: Array<{ url: string; workspace: string | null; body: string }> = [];
+    const api = {
+      baseUrl: ORIGIN,
+      fetch: async (request: Request) => {
+        calls.push({
+          url: `${request.method} ${request.url}`,
+          workspace: request.headers.get('x-consola-workspace'),
+          body: await request.text(),
+        });
+        return Response.json({ result: 'connected' });
+      },
+    };
+    expect(await connectChosenGitHub(ACME, chosen, api)).toEqual({ kind: 'connected' });
+    expect(calls).toEqual([
+      {
+        url: `POST ${ORIGIN}/api/connections/github/choice`,
+        workspace: 'w1',
+        body: JSON.stringify(chosen),
+      },
+    ]);
+  });
+
+  it('is already connected when the workspace held it', async () => {
+    expect(
+      await connectChosenGitHub(ACME, chosen, at(200, { result: 'already_connected' })),
+    ).toEqual({ kind: 'already-connected' });
+  });
+
+  it('names each refusal of the choice', async () => {
+    for (const [status, error, reason] of [
+      [400, 'bad_choice', 'bad-choice'],
+      [400, 'not_a_candidate', 'not-a-candidate'],
+      [403, 'not_allowed', 'not-allowed'],
+      [409, 'choice_for_another_workspace', 'other-workspace'],
+      [409, 'installation_taken', 'taken'],
+      [410, 'choice_expired', 'expired'],
+    ] as const) {
+      expect(await connectChosenGitHub(ACME, chosen, at(status, { error }))).toEqual({
+        kind: 'refused',
+        reason,
+      });
+    }
+    expect(await connectChosenGitHub(ACME, chosen, at(401, { error: 'signed_out' }))).toEqual({
+      kind: 'signed-out',
+    });
+  });
+
+  it('is unavailable on any other answer, a stale page included', async () => {
+    for (const api of [
+      at(403, { error: 'bad_origin' }),
+      at(403, { error: 'not_a_member' }),
+      at(409, { error: 'workspace_switched' }),
+      at(400, { error: 'invalid_request' }),
+      at(415, { error: 'unsupported_media_type' }),
+      at(200, { result: 'maybe' }),
+      unreachable,
+    ]) {
+      expect(await connectChosenGitHub(ACME, chosen, api)).toEqual({ kind: 'unavailable' });
     }
   });
 });

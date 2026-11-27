@@ -2,8 +2,10 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { components } from './apiContract';
 import {
   accountCount,
+  connectAccountLabel,
   connectedAtLong,
   connectedSentence,
+  messageForChoiceFailure,
   messageForGitHubResult,
   repositoryCount,
 } from './connectionMessages';
@@ -15,10 +17,19 @@ import {
   isSuccess,
   JUST_CONNECTED_MS,
   justConnectedId,
+  MAX_CHOICE_LENGTH,
   readGitHubResult,
+  readGitHubReturn,
+  resultOfChoice,
   whenConnected,
 } from './connections';
-import type { GitHubConnection, GitHubResult } from './connections';
+import type {
+  ChoiceState,
+  ChooseAnswer,
+  GitHubCandidate,
+  GitHubConnection,
+  GitHubResult,
+} from './connections';
 
 describe("a Connect's result", () => {
   it('is read when the page knows it', () => {
@@ -51,6 +62,91 @@ describe("a Connect's result", () => {
     // A result the API gains fails the typecheck here until the page names it.
     expectTypeOf<GitHubResult>().toEqualTypeOf<components['schemas']['GitHubCallbackResult']>();
     expect(new Set(GITHUB_RESULTS).size).toBe(GITHUB_RESULTS.length);
+  });
+});
+
+describe('what the callback sent the page back with', () => {
+  it('is a Connect that ended, as `?github=` names it', () => {
+    expect(readGitHubReturn('connected', null)).toEqual({ kind: 'ended', result: 'connected' });
+    expect(readGitHubReturn('taken', 'ignored')).toEqual({ kind: 'ended', result: 'taken' });
+    expect(readGitHubReturn('something_new', null)).toEqual({ kind: 'ended', result: 'unknown' });
+  });
+
+  it('is a choice to make, with the choice the API signed', () => {
+    expect(readGitHubReturn('choose', 'eyJ3.c2ln')).toEqual({
+      kind: 'choose',
+      choice: 'eyJ3.c2ln',
+    });
+  });
+
+  it('is a Connect that did not finish for a choose with no choice, or one too long', () => {
+    for (const choice of [null, '', 'x'.repeat(MAX_CHOICE_LENGTH + 1)]) {
+      expect(readGitHubReturn('choose', choice)).toEqual({ kind: 'ended', result: 'unknown' });
+    }
+    expect(readGitHubReturn('choose', 'x'.repeat(MAX_CHOICE_LENGTH))).toMatchObject({
+      kind: 'choose',
+    });
+  });
+
+  it('is nothing without a result', () => {
+    expect(readGitHubReturn(null, null)).toBeNull();
+    expect(readGitHubReturn(null, 'eyJ3.c2ln')).toBeNull();
+  });
+});
+
+describe('a choice of account', () => {
+  const sprocket: GitHubCandidate = {
+    id: 41,
+    account: { id: 9001, login: 'sprocket', type: 'Organization' },
+  };
+
+  it('names each account on its button', () => {
+    expect(connectAccountLabel(sprocket.account.login)).toBe('Connect sprocket');
+  });
+
+  it('ends as the Connect results the page already says', () => {
+    expect(resultOfChoice({ kind: 'connected' })).toBe('connected');
+    expect(resultOfChoice({ kind: 'already-connected' })).toBe('already_connected');
+    expect(isSuccess(resultOfChoice({ kind: 'connected' }))).toBe(true);
+  });
+
+  it('has a sentence for every way it cannot be shown', () => {
+    const states: Exclude<ChoiceState, { kind: 'loaded' }>[] = [
+      { kind: 'refused', reason: 'bad-choice' },
+      { kind: 'refused', reason: 'expired' },
+      { kind: 'refused', reason: 'other-workspace' },
+      { kind: 'refused', reason: 'not-allowed' },
+      { kind: 'signed-out' },
+      { kind: 'switched' },
+      { kind: 'unavailable' },
+    ];
+    const sentences = states.map(messageForChoiceFailure);
+    for (const sentence of sentences) expect(sentence).toMatch(/\.$/);
+    // Each refusal says its own reason.
+    expect(new Set(sentences.slice(0, 4)).size).toBe(4);
+    expect(messageForChoiceFailure({ kind: 'refused', reason: 'expired' })).toMatch(/too long/);
+    expect(messageForChoiceFailure({ kind: 'refused', reason: 'bad-choice' })).toMatch(
+      /another session/,
+    );
+  });
+
+  it('has a sentence for every way choosing can fail', () => {
+    const answers: Exclude<ChooseAnswer, { kind: 'connected' | 'already-connected' }>[] = [
+      { kind: 'refused', reason: 'not-a-candidate' },
+      { kind: 'refused', reason: 'taken' },
+      { kind: 'refused', reason: 'expired' },
+      { kind: 'signed-out' },
+      { kind: 'unavailable' },
+    ];
+    for (const answer of answers) expect(messageForChoiceFailure(answer)).toMatch(/\.$/);
+    expect(messageForChoiceFailure({ kind: 'refused', reason: 'taken' })).toMatch(
+      /Another Consola workspace/,
+    );
+  });
+
+  it('says a choose that carried no choice as a Connect that did not finish', () => {
+    expect(messageForGitHubResult('choose')).toBe(messageForGitHubResult('unknown'));
+    expect(isSuccess('choose')).toBe(false);
   });
 });
 
