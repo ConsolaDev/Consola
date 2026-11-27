@@ -2,7 +2,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { drizzle } from 'drizzle-orm/pglite';
 import type { WorkspaceRole } from '../../../shared/workspaceRole.js';
-import type { FakeMembership } from '../../application/testMembership.js';
+import type { FakeMembership } from '../../application/membership.test-helpers.js';
 import type { Database, OpenDatabase } from './database.js';
 import { schema } from './schema.js';
 import { createTeamStore, openWorkspace } from './teams.js';

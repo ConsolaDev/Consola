@@ -9,7 +9,7 @@ import { createFactoryStore } from './factories.js';
 import { createRunStore } from './runs.js';
 import { runs as runTable } from './tables.js';
 import { createTeamStore, openWorkspace } from './teams.js';
-import { openTestDatabase } from './testDatabase.js';
+import { openTestDatabase } from './database.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

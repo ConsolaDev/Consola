@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
+import {
+  makeTestWorkspace,
+  openTestDatabase,
+} from '../adapters/persistence/database.test-helpers.js';
 import type { Caller } from '../domain/caller.js';
 import type { Factory, FactoryFile } from '../domain/factory.js';
 import type { Team } from '../domain/team.js';
@@ -14,8 +17,8 @@ import {
   saveFactoryFiles,
 } from './factories.js';
 import type { FactoryStore, TeamStore } from './ports.js';
-import { callerAs as caller, fakeMembership } from './testMembership.js';
-import type { FakeMembership } from './testMembership.js';
+import { callerAs as caller, fakeMembership } from './membership.test-helpers.js';
+import type { FakeMembership } from './membership.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

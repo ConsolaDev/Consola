@@ -26,6 +26,9 @@ import { describe, expect, it } from 'vitest';
  *   (`compose.ts`, `persistence/`, `http/`, `testing/`…), which brings the other part and Better
  *   Auth in. So company's tests use a fake `MembershipReader`. Nothing but a test imports
  *   `testing/`.
+ * - **Test code** is a test (`*.test.ts`) or a test's helpers (`*.test-helpers.ts`), held alike.
+ *   The build leaves it out of `dist`, so nothing else imports it, and nothing else imports a
+ *   development dependency.
  */
 
 const SRC = import.meta.dirname;
@@ -253,7 +256,30 @@ const SHARED_PACKAGES = new Set([RUNNER_PROTOCOL, FACTORY_SPEC]);
 const NEVER = ['@consola/*', 'consola'];
 
 const SOURCE_EXTENSION = /\.(?:[cm]?[jt]s|tsx)$/;
-const isTestFile = (file: string): boolean => /\.test\.(?:[cm]?[jt]s|tsx)$/.test(file);
+
+/**
+ * Test code: a test (`*.test.ts`), or a test's helpers (`*.test-helpers.ts`, beside the module
+ * they help test). `tsconfig.build.json` leaves both out of `dist`, so a file that is not test
+ * code never imports one, and a helper is held to what a test is.
+ */
+const isTestFile = (file: string): boolean => /\.test(?:-helpers)?\.(?:[cm]?[jt]s|tsx)$/.test(file);
+
+/** What `tsconfig.build.json` must leave out of `dist`: all the test code above, and `testing/`. */
+const BUILD_LEAVES_OUT = ['src/**/*.test.ts', 'src/**/*.test-helpers.ts', 'src/testing/**'];
+
+/**
+ * The app's development dependencies, which `dist` never has, so only what it leaves out (test
+ * code and `testing/`) imports them: a helper that imports `drizzle-kit` and is not named as test
+ * code would ship, and break.
+ */
+const DEV_DEPENDENCIES = (() => {
+  const manifest = JSON.parse(readFileSync(join(SRC, '..', 'package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  const shipped = new Set(Object.keys(manifest.dependencies ?? {}));
+  return Object.keys(manifest.devDependencies ?? {}).filter((name) => !shipped.has(name));
+})();
 
 /** Stand-in for an import whose specifier is not a plain string, which nothing can check. */
 const NON_LITERAL = '<non-literal specifier>';
@@ -428,7 +454,7 @@ function violationsOf(file: string, source: string): string[] {
       // the other part, nor for the ring, which brings it in.
       if (part !== null && partOf(target) !== part && !partMayReach(target)) return true;
       if (test) return false;
-      if (isTestFile(`${target}.ts`)) return true; // test code would be compiled into dist
+      if (isTestFile(`${target}.ts`)) return true; // test code, which dist leaves out
       const reached = layerOf(target);
       return !reached || !own?.reaches.includes(reached.at);
     }
@@ -439,6 +465,9 @@ function violationsOf(file: string, source: string): string[] {
       return true;
     }
     if (test) return false;
+    // Not among dist's packages, unless dist leaves the file out too, as it does `testing/`.
+    const shipped = own?.at !== 'testing';
+    if (shipped && DEV_DEPENDENCIES.includes(packageName(specifier))) return true;
     return own?.refuses.some((pattern) => matches(pattern, specifier)) ?? false;
   };
 
@@ -478,6 +507,23 @@ describe('the dependency rule', () => {
       violationsOf(file, readFileSync(join(SRC, file), 'utf8')),
     );
     expect(violations).toEqual([]);
+  });
+
+  it('leaves out of dist all the test code it reads as test code', () => {
+    const build = JSON.parse(readFileSync(join(SRC, '..', 'tsconfig.build.json'), 'utf8')) as {
+      exclude: string[];
+    };
+    expect(build.exclude).toEqual(expect.arrayContaining(BUILD_LEAVES_OUT));
+    expect(DEV_DEPENDENCIES).toEqual(expect.arrayContaining(['drizzle-kit', 'vitest']));
+    const helpers = sourceFiles().filter((file) => file.includes('.test-helpers.'));
+    expect(helpers).toEqual(
+      expect.arrayContaining([
+        'company/application/membership.test-helpers.ts',
+        'company/adapters/persistence/database.test-helpers.ts',
+        'accounts/adapters/persistence/database.test-helpers.ts',
+      ]),
+    );
+    expect(helpers.filter((file) => !isTestFile(file))).toEqual([]);
   });
 
   it('names only layers that exist as what a part may reach outside itself', () => {
@@ -547,7 +593,7 @@ describe('the dependency rule', () => {
     ],
     ['company/adapters/http/x.test.ts', '../../../accounts/domain/person.js', false],
     ['accounts/adapters/persistence/x.test.ts', '../../../company/application/ports.js', false],
-    ['company/application/x.test.ts', '../adapters/persistence/testDatabase.js', true],
+    ['company/application/x.test.ts', '../adapters/persistence/database.test-helpers.js', true],
     // Nor out of their part at all, but for what both parts share: the ring brings the other
     // part and Better Auth in.
     ['company/application/x.test.ts', '../../compose.js', false],
@@ -715,6 +761,31 @@ describe('the dependency rule', () => {
     ['seed.ts', './accounts/adapters/persistence/membershipReader.js', true],
     ['company/domain/x.ts', './y.test.js', false],
     ['company/domain/x.test.ts', '../adapters/http/app.js', true],
+    // A test's helpers are test code: only test code imports them, and they are held to what a
+    // test is.
+    ['company/adapters/persistence/x.ts', './database.test-helpers.js', false],
+    ['company/application/x.ts', './membership.test-helpers.js', false],
+    ['accounts/adapters/persistence/x.ts', './database.test-helpers.js', false],
+    ['compose.ts', './company/adapters/persistence/database.test-helpers.js', false],
+    ['company/application/x.test.ts', './membership.test-helpers.js', true],
+    ['company/application/x.test.ts', '../adapters/persistence/database.test-helpers.js', true],
+    ['company/adapters/persistence/x.test-helpers.ts', '../../application/ports.js', true],
+    ['company/adapters/persistence/x.test-helpers.ts', 'drizzle-kit/api', true],
+    [
+      'company/adapters/persistence/x.test-helpers.ts',
+      '../../../accounts/adapters/persistence/database.test-helpers.js',
+      false,
+    ],
+    ['company/adapters/persistence/x.test-helpers.ts', '../../../compose.js', false],
+    ['company/application/x.test-helpers.ts', 'better-auth', false],
+    ['accounts/adapters/persistence/x.test-helpers.ts', '../../../testing/harness.js', false],
+    // A development dependency is not in dist, so only test code imports one.
+    ['company/adapters/persistence/x.ts', 'drizzle-kit/api', false],
+    ['accounts/adapters/persistence/x.ts', 'drizzle-kit', false],
+    ['compose.ts', 'vitest', false],
+    ['main.ts', 'ws', false],
+    ['x.test.ts', 'ws', true],
+    ['testing/x.ts', 'vitest', true],
     ['company/domain/x.ts', '../../../desktop/src/x.js', false],
     ['x.test.ts', '../../desktop/src/x.js', false],
     ['compose.ts', 'consola', false],

@@ -41,7 +41,7 @@ src/
   compose.ts  main.ts  config.ts  startupError.ts  seed.ts    the composition ring
   http/         the ring's front door (frontDoor.ts) and health check (health.ts)
   persistence/  the ring's one database and its migrations (database.ts)
-  testing/      the HTTP suites' helpers (harness.ts), for tests alone
+  testing/      the HTTP suites' helpers (harness.ts), for the ring's tests alone
 ```
 
 - `accounts` holds people, sign-in, sessions, workspaces and membership. Its
@@ -334,10 +334,16 @@ Each part is built in rings, and imports point inward only.
     schema and parser every runner shares, with which `company` checks the
     files it stores (below, "Factories"). It parses texts it is handed and
     does no I/O.
-- Test files (`*.test.ts`) are exempt from the layer rules, because they wire
-  real pieces together the way `compose.ts` does. A part's test still leaves
+- Test code is exempt from the layer rules, because it wires real pieces
+  together the way `compose.ts` does. Test code is a test (`*.test.ts`) or a
+  test's helpers (`*.test-helpers.ts`, beside the module they help test, such
+  as `database.test-helpers.ts`), held alike. A part's test code still leaves
   its part only for `shared/` and `config.ts`, never for the other part or
-  the ring, and a company test never imports Better Auth.
+  the ring, and company's never imports Better Auth.
+- `tsconfig.build.json` leaves test code and `testing/` out of `dist`, so
+  nothing else imports them, and nothing else imports a development
+  dependency (`drizzle-kit`, `vitest`, `ws`…), which `dist` does not have. A
+  helper a test needs is named `*.test-helpers.ts`, or it ships.
 
 `src/boundary.test.ts` enforces the rule and the boundary. It reads every
 file's imports from the TypeScript syntax tree (`import`, `import type`,
@@ -1300,12 +1306,14 @@ calls this side of the socket the cell.
 ## Tests
 
 A test sits beside its module and is named after it (`healthProbe.ts`,
-`healthProbe.test.ts`). Rules in `domain` are tested alone. Stores and use
+`healthProbe.test.ts`), and so do its helpers, if several tests share them
+(`database.test-helpers.ts`), which the build leaves out of `dist` ("The
+dependency rule"). Rules in `domain` are tested alone. Stores and use
 cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. Company's tests make each
 `Caller` with `admitCaller` and use a fake `MembershipReader`
-(`company/application/testMembership.ts`: `fakeMembership`, `callerAs`);
-they never import an accounts file.
+(`company/application/membership.test-helpers.ts`: `fakeMembership`,
+`callerAs`); they never import an accounts file.
 
 The ring's tests check the whole app: `src/rules.test.ts` (the two rules),
 `src/boundary.test.ts` (the parts and the layers) and `src/openapi.test.ts`

@@ -4,7 +4,7 @@ import type { Database } from './database.js';
 import { createMembershipReader } from './membershipReader.js';
 import type { MembershipReader } from './membershipReader.js';
 import { schema } from './schema.js';
-import { openTestDatabase } from './testDatabase.js';
+import { openTestDatabase } from './database.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { openTestDatabase } from './testDatabase.js';
+import { openTestDatabase } from './database.test-helpers.js';
 
 // The app's one database and its one migration chain are the composition's, and their tests are
 // there (`src/persistence/database.test.ts`). This pins what accounts' own tables refuse.

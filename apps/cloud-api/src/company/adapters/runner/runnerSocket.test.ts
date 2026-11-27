@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import WebSocket from 'ws';
 import type { CloudSessionStore } from '../../application/ports.js';
 import type { CloudSession, CloudSessionStatus } from '../../domain/cloudSession.js';
-import { openTestDatabase } from '../persistence/testDatabase.js';
+import { openTestDatabase } from '../persistence/database.test-helpers.js';
 import type { Database } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
 import { createPassSigner } from '../token/passSigner.js';

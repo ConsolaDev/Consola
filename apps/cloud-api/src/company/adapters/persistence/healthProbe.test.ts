@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createHealthProbe } from './healthProbe.js';
-import { openTestDatabase } from './testDatabase.js';
+import { openTestDatabase } from './database.test-helpers.js';
 
 describe('the health probe', () => {
   it('says the database answers while it is open', async () => {
