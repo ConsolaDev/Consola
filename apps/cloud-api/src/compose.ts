@@ -40,10 +40,12 @@ import type { AppDatabase } from './persistence/database.js';
 export const ROUTES = [...ACCOUNT_ROUTES, ...COMPANY_ROUTES, ...GITHUB_ROUTES, ...RING_ROUTES];
 
 /**
- * The paths Consola's origin check does not guard (`createFrontDoor`): GitHub's webhook
- * deliveries, which carry no cookie and no Origin, and are signed instead.
+ * The paths Consola's origin check does not guard (`createFrontDoor`): every path under
+ * Better Auth's `/api/auth/`, whose routes check their own trusted origins (`PUBLIC_URL`), as
+ * they did before the apps merged; and GitHub's webhook deliveries, exactly that path, which
+ * carry no cookie and no Origin, and are signed instead.
  */
-export const ORIGIN_EXEMPT = [GITHUB_WEBHOOK_PATH] as const;
+export const ORIGIN_EXEMPT = ['/api/auth/', GITHUB_WEBHOOK_PATH] as const;
 
 /** The app, assembled. */
 export type Api = {

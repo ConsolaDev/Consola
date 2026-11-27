@@ -4,6 +4,8 @@ import { createFrontDoor, describeApi } from './frontDoor.js';
 
 const WEB = 'http://localhost:5175';
 const HOOKS = '/api/hooks';
+/** An exempt prefix, as Better Auth's `/api/auth/` is. */
+const SIGNED = '/api/signed/';
 
 const NewThing = z.object({ name: z.string() });
 const body = {
@@ -44,7 +46,7 @@ const postBroken = createRoute({
 
 /** The front door with a few dummy routes behind it, as a part would register its own. */
 function door() {
-  const app = createFrontDoor({ publicUrl: WEB, originExempt: [HOOKS] });
+  const app = createFrontDoor({ publicUrl: WEB, originExempt: [HOOKS, SIGNED] });
   app.openapi(postThing, (c) => c.json({ name: c.req.valid('json').name }, 201));
   app.openapi(putThing, (c) => c.json({ name: c.req.valid('json').name }, 201));
   app.openapi(listThings, (c) => c.body(null, 200));
@@ -54,6 +56,10 @@ function door() {
   });
   app.delete('/api/things', (c) => c.body(null, 204));
   app.patch('/api/things', (c) => c.body(null, 204));
+  // Paths under the exempt prefix, and two beside it that are not under it.
+  app.all('/api/signed/*', (c) => c.body(null, 202));
+  app.all('/api/signed', (c) => c.body(null, 202));
+  app.all('/api/signedout/x', (c) => c.body(null, 202));
   return app;
 }
 
@@ -144,6 +150,28 @@ describe('the front door', () => {
     expect(near.status).toBe(403);
     expect(await near.json()).toEqual({ error: 'bad_origin' });
   });
+
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
+    'lets a %s to any path under an exempt prefix through from anywhere, and none beside it',
+    async (method) => {
+      const app = door();
+      for (const path of [`${SIGNED}in`, `${SIGNED}callback/google`, `${SIGNED}a/b/c`]) {
+        const response = await app.request(path, {
+          method,
+          headers: { origin: 'http://localhost:3000' },
+        });
+        expect(response.status, `${method} ${path}`).toBe(202);
+      }
+      for (const path of ['/api/signed', '/api/signedout/x']) {
+        const response = await app.request(path, {
+          method,
+          headers: { origin: 'http://localhost:3000' },
+        });
+        expect(response.status, `${method} ${path}`).toBe(403);
+        expect(await response.json()).toEqual({ error: 'bad_origin' });
+      }
+    },
+  );
 
   it('answers an error no route handled with a bare 500, and logs it', async () => {
     const response = await door().request('/api/broken', { method: 'POST', headers: fromWeb });

@@ -27,17 +27,21 @@ const DOCUMENT = {
  *   Any other error is logged and is a bare 500.
  * - A change (POST, PUT, PATCH, DELETE) must come from the web app's origin (`publicUrl`), or it
  *   is 403 `bad_origin` before its route runs: the session cookie is SameSite=Lax, which another
- *   site on the same host (any other localhost port) would still be sent. Better Auth's own
- *   routes are behind it too, besides Better Auth's own origin check. Only the paths in
- *   `originExempt`, exactly as written, are outside it: a caller that signs what it sends
- *   instead of carrying a cookie (GitHub's webhooks).
+ *   site on the same host (any other localhost port) would still be sent. Only the paths
+ *   `originExempt` names are outside it: an entry that ends in `/` names every path under it
+ *   (`/api/auth/`, Better Auth's own routes, which check their own trusted origins), and any
+ *   other entry that exact path alone (GitHub's webhooks, a caller that signs what it sends
+ *   instead of carrying a cookie).
  */
 export function createFrontDoor(options: {
   publicUrl: string;
   originExempt: readonly string[];
 }): OpenAPIHono {
   const { publicUrl } = options;
-  const exempt = new Set(options.originExempt);
+  const exactly = new Set(options.originExempt.filter((entry) => !entry.endsWith('/')));
+  const under = options.originExempt.filter((entry) => entry.endsWith('/'));
+  const exempt = (path: string) =>
+    exactly.has(path) || under.some((prefix) => path.startsWith(prefix));
 
   const app = new OpenAPIHono({
     defaultHook: (result, c) =>
@@ -57,7 +61,7 @@ export function createFrontDoor(options: {
   });
 
   app.use('/api/*', async (c, next) => {
-    if (!CHANGES.has(c.req.method) || exempt.has(c.req.path)) return next();
+    if (!CHANGES.has(c.req.method) || exempt(c.req.path)) return next();
     if (c.req.header('origin') === publicUrl) return next();
     return c.json({ error: 'bad_origin' } as const, 403);
   });
