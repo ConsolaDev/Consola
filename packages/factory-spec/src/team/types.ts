@@ -75,6 +75,12 @@ export type AgentTeam = {
   automations: TeamAutomation[];
   skills: TeamSkill[];
   orchestrator?: TeamAgent;
+  /**
+   * `factory.yml`'s `repos:`, each `owner/name`, in the order written, as the steps design reads it
+   * (`factoryRepositories`). A request that names no repository, such as one from Slack, works in
+   * the first. Empty when the factory lists none.
+   */
+  repositories: string[];
 };
 
 /** The facts of a GitHub `pull_request` webhook event that matching and prompts read. */
@@ -95,6 +101,24 @@ export type PullRequestEvent = {
   headRef: string;
   baseRef: string;
   labels: string[];
+};
+
+/**
+ * A request someone made of a factory in Slack, by mentioning its bot or by sending it a direct
+ * message, as `planSlackRequest` reads it. The caller has checked who wrote it.
+ */
+export type SlackRequest = {
+  kind: 'mention' | 'dm';
+  /** The message as its author wrote it, without the bot's mention. Text from outside the factory. */
+  text: string;
+  /** Who wrote it: their Slack user id, such as `U0123ABCD`. */
+  slackUserId: string;
+  /** Where: the channel's id, or the direct message's. */
+  channelId: string;
+  /** The message's permalink. */
+  permalink: string;
+  /** `owner/name`: the repository the run works in, checked out on its default branch. */
+  repository: string;
 };
 
 export type AgentRunPlan = {
