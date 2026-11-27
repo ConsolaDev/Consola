@@ -5,7 +5,8 @@ import type { ReadResult } from './read.js';
  * A follow-up: a person's message the cell hands a running agent run, for its orchestrator's
  * conversation. The cell sends it straight to the session's host, at the address the runner
  * reported (`hostUrl`), with a pass for the person who wrote it (`sub`); the host fences it, says
- * who wrote it, and queues it after the orchestrator's turn, once per `key`.
+ * who wrote it, and queues it after the orchestrator's turn, once: the same follow-up sent again
+ * under its `key` is the one before, while other words or another author under it are another.
  */
 
 /** Where a session's host takes a follow-up: `POST <hostUrl><FOLLOW_UP_PATH>`, the pass as bearer. */
@@ -28,7 +29,10 @@ const KEY = /^[A-Za-z0-9._:-]{1,128}$/;
 
 /** What the cell sends a session's host. The person is the pass's `sub`, never a field here. */
 export type FollowUp = {
-  /** The sender's key: a second follow-up with the same key is the first, delivered once. */
+  /**
+   * The sender's key: the same follow-up (key, text, author) sent again is delivered once. Other
+   * words or another author under the same key make another follow-up, never a swallowed one.
+   */
   key: string;
   /** What the person wrote, whole. */
   text: string;
@@ -70,7 +74,7 @@ export function readFollowUp(value: unknown): ReadResult<FollowUp> {
 
 /**
  * What the host did with a follow-up: `delivered`, queued after the orchestrator's turn now, or
- * `already-delivered`, since a follow-up with its key was queued before.
+ * `already-delivered`, since the same follow-up (its key, text and author) was queued before.
  */
 export const FOLLOW_UP_OUTCOMES = ['delivered', 'already-delivered'] as const;
 export type FollowUpOutcome = (typeof FOLLOW_UP_OUTCOMES)[number];

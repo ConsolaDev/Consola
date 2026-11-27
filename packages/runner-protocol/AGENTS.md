@@ -110,9 +110,11 @@ pass for the person who wrote it (`sub`), and a JSON body of at most
   Slack`: one line, no control character, `FOLLOW_UP_AUTHOR_LABEL_MAX` at
   most). No name or email: the person is the pass's `sub`.
 - **The answer.** `200` with a `FollowUpReceipt` (`readFollowUpReceipt`):
-  `delivered`, or `already-delivered` when a follow-up with that key was
-  delivered before. The host decides and words everything else: the fence,
-  who wrote it, and where it goes (`packages/host/AGENTS.md`, "Agent runs").
+  `delivered`, or `already-delivered` when the same follow-up (its key, text
+  and author) was delivered before. Other words or another author under a
+  used key are a follow-up of their own, never swallowed. The host decides and
+  words everything else: the fence, who wrote it, and where it goes
+  (`packages/host/AGENTS.md`, "Agent runs").
 - The text is untrusted. The host fences it, and nothing puts it in a command
   line or an environment variable.
 
