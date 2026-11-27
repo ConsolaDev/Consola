@@ -18,6 +18,10 @@ import { COMPANY_ROUTES, registerCompanyRoutes } from './company/adapters/http/a
 import { GITHUB_ROUTES, registerGitHubRoutes } from './company/adapters/http/gitHub.js';
 import { GITHUB_WEBHOOK_PATH } from './company/adapters/http/gitHubContract.js';
 import { registerSlackRoutes, SLACK_ROUTES } from './company/adapters/http/slack.js';
+import {
+  registerSlackEventRoutes,
+  SLACK_EVENT_ROUTES,
+} from './company/adapters/http/slackEvents.js';
 import { randomIds } from './company/adapters/persistence/cloudSessions.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores as createCompanyStores } from './company/adapters/persistence/stores.js';
@@ -27,6 +31,7 @@ import type { RunnerSocket } from './company/adapters/runner/runnerSocket.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
 import { checkHealth as checkCompanyHealth } from './company/application/health.js';
+import { SLACK_EVENTS_PATH_PREFIX } from './company/domain/slack.js';
 import type { CloudSessionPorts } from './company/application/ports.js';
 import type { CloudConfig } from './config.js';
 import { createFrontDoor } from './http/frontDoor.js';
@@ -44,16 +49,18 @@ export const ROUTES = [
   ...COMPANY_ROUTES,
   ...GITHUB_ROUTES,
   ...SLACK_ROUTES,
+  ...SLACK_EVENT_ROUTES,
   ...RING_ROUTES,
 ];
 
 /**
  * The paths Consola's origin check does not guard (`createFrontDoor`): every path under
  * Better Auth's `/api/auth/`, whose routes check their own trusted origins (`PUBLIC_URL`), as
- * they did before the apps merged; and GitHub's webhook deliveries, exactly that path, which
- * carry no cookie and no Origin, and are signed instead.
+ * they did before the apps merged; GitHub's webhook deliveries, exactly that path; and every
+ * factory's Slack events, under `SLACK_EVENTS_PATH_PREFIX`. The last two carry no cookie and no
+ * Origin, and are signed instead.
  */
-export const ORIGIN_EXEMPT = ['/api/auth/', GITHUB_WEBHOOK_PATH] as const;
+export const ORIGIN_EXEMPT = ['/api/auth/', GITHUB_WEBHOOK_PATH, SLACK_EVENTS_PATH_PREFIX] as const;
 
 /** The app, assembled. */
 export type Api = {
@@ -184,6 +191,7 @@ export async function composeApi(
     ? createSecretSealer(config.connectionSecretsKey)
     : null;
   registerSlackRoutes(app, { whoIsAsking, membership, publicUrl: config.publicUrl, sealer });
+  registerSlackEventRoutes(app, { log: console });
 
   registerHealthRoute(app, [
     () => checkAccountsHealth(accounts.health),

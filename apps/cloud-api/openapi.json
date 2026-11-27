@@ -3186,6 +3186,39 @@
           "links"
         ],
         "additionalProperties": false
+      },
+      "SlackChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "The `challenge` Slack sent, as it sent it."
+          }
+        },
+        "required": [
+          "challenge"
+        ],
+        "additionalProperties": false,
+        "description": "Slack’s check of the request URL (`url_verification`), answered with its challenge."
+      },
+      "SlackEventReceived": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "ignored"
+            ],
+            "description": "`accepted`: the event is recorded now, and handled after this answer. `duplicate`: the factory had this event already (Slack sent it again): nothing changed. `ignored`: a kind of request Consola does not take."
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "What became of one of Slack’s events."
       }
     },
     "parameters": {}
@@ -10438,6 +10471,233 @@
                     "error"
                   ],
                   "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/events/{factoryId}": {
+      "post": {
+        "summary": "Receive one of Slack’s events for a factory’s app",
+        "description": "A factory’s Events API request URL. Slack calls it, with no session and no Origin, so it is outside the origin check. The body is Slack’s JSON, read as raw bytes and checked against `X-Slack-Signature` (`v0=` and the HMAC-SHA256 of `v0:<X-Slack-Request-Timestamp>:<body>` under the factory’s signing secret, compared in constant time), with a timestamp within five minutes, before anything else is read. Before the factory has a signing secret, only Slack’s check of the URL (`url_verification`) is answered, unchecked, and it changes nothing. An event (`event_callback`) must name the factory’s app and Slack workspace, is recorded once by its `event_id`, and is answered at once; a mention of the bot or a direct message to it then starts a request for the factory’s orchestrator.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slack’s check of the URL, answered; or an event, received.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SlackChallenge"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SlackEventReceived"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed, but the body is not what Slack sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_event"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No signature, a timestamp more than five minutes away, or not Slack’s signature over this body under the factory’s signing secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "bad_signature"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed, but the event names another Slack app or Slack workspace than the factory’s.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_app"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No factory has that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The factory’s app has no signing secret in Consola yet, so only Slack’s check of the URL is answered (`slack_not_set_up`); or it is not added to a Slack workspace yet, so no event is taken (`slack_not_installed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_set_up"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_installed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the 1048576 bytes Consola reads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` (`slack_not_configured`). Or the database did not answer, or the factory’s secret does not open with this server’s key (`unavailable`): Slack sends the event again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               }
             }

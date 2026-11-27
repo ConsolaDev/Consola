@@ -4249,6 +4249,137 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/slack/events/{factoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive one of Slack’s events for a factory’s app
+         * @description A factory’s Events API request URL. Slack calls it, with no session and no Origin, so it is outside the origin check. The body is Slack’s JSON, read as raw bytes and checked against `X-Slack-Signature` (`v0=` and the HMAC-SHA256 of `v0:<X-Slack-Request-Timestamp>:<body>` under the factory’s signing secret, compared in constant time), with a timestamp within five minutes, before anything else is read. Before the factory has a signing secret, only Slack’s check of the URL (`url_verification`) is answered, unchecked, and it changes nothing. An event (`event_callback`) must name the factory’s app and Slack workspace, is recorded once by its `event_id`, and is answered at once; a mention of the bot or a direct message to it then starts a request for the factory’s orchestrator.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Slack’s check of the URL, answered; or an event, received. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SlackChallenge"] | components["schemas"]["SlackEventReceived"];
+                    };
+                };
+                /** @description Signed, but the body is not what Slack sends. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_event";
+                        };
+                    };
+                };
+                /** @description No signature, a timestamp more than five minutes away, or not Slack’s signature over this body under the factory’s signing secret. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "bad_signature";
+                        };
+                    };
+                };
+                /** @description Signed, but the event names another Slack app or Slack workspace than the factory’s. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "wrong_app";
+                        };
+                    };
+                };
+                /** @description No factory has that id. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The factory’s app has no signing secret in Consola yet, so only Slack’s check of the URL is answered (`slack_not_set_up`); or it is not added to a Slack workspace yet, so no event is taken (`slack_not_installed`). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_set_up";
+                        } | {
+                            /** @enum {string} */
+                            error: "slack_not_installed";
+                        };
+                    };
+                };
+                /** @description Over the 1048576 bytes Consola reads. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "too_large";
+                        };
+                    };
+                };
+                /** @description Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` (`slack_not_configured`). Or the database did not answer, or the factory’s secret does not open with this server’s key (`unavailable`): Slack sends the event again. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "slack_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -5125,6 +5256,19 @@ export interface components {
         };
         SlackLinks: {
             links: components["schemas"]["SlackLink"][];
+        };
+        /** @description Slack’s check of the request URL (`url_verification`), answered with its challenge. */
+        SlackChallenge: {
+            /** @description The `challenge` Slack sent, as it sent it. */
+            challenge: string;
+        };
+        /** @description What became of one of Slack’s events. */
+        SlackEventReceived: {
+            /**
+             * @description `accepted`: the event is recorded now, and handled after this answer. `duplicate`: the factory had this event already (Slack sent it again): nothing changed. `ignored`: a kind of request Consola does not take.
+             * @enum {string}
+             */
+            result: "accepted" | "duplicate" | "ignored";
         };
     };
     responses: never;
