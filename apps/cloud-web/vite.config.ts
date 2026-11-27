@@ -16,10 +16,6 @@ function commit(): string {
   }
 }
 
-const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
-  version: string;
-};
-
 /**
  * Ships `@consola/agent-ui`'s notices beside the chat the build bundles from its `dist/`, as
  * `agent-ui/THIRD-PARTY-NOTICES` and `agent-ui/LICENSE` (that package's `AGENTS.md`,
@@ -67,6 +63,5 @@ export default defineConfig({
   },
   define: {
     __CONSOLA_COMMIT__: JSON.stringify(commit()),
-    __CONSOLA_VERSION__: JSON.stringify(pkg.version),
   },
 });

@@ -7,7 +7,7 @@
 .run-page {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 44px);
+  min-height: 100vh;
 }
 
 .run-header {
