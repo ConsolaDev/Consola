@@ -103,9 +103,20 @@ export function FactorySlackSection({
     setAnswer({ kind: 'found', app });
   }, []);
 
+  // A change of state takes the button that was pressed with it (Save, Disconnect): the keyboard
+  // comes to the group's heading rather than falling out of the page.
+  const state = answer?.kind === 'found' ? answer.app.state : null;
+  const lastState = useRef(state);
+  useEffect(() => {
+    const changed = lastState.current !== null && state !== null && state !== lastState.current;
+    lastState.current = state;
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (changed && lost) heading.current?.focus();
+  }, [state]);
+
   return (
     <section className="group" aria-labelledby={headingId}>
-      <h2 ref={heading} id={headingId} tabIndex={-1} className="group-label">
+      <h2 ref={heading} id={headingId} tabIndex={-1} className="group-label factory-slack-heading">
         Slack
       </h2>
       {arrival !== null && noticeOpen && (

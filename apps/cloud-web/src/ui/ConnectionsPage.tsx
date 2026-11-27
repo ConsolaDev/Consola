@@ -129,9 +129,6 @@ export function ConnectionsPage({ workspace }: SectionProps) {
       justConnected={
         result === 'connected' ? justConnectedId(github.github.installations, arrival.at) : null
       }
-      // A disconnected account leaves with the button that had the keyboard: the keyboard goes
-      // to the heading of the group GitHub sits in now.
-      onLostFocus={() => (githubConnected ? connectedHeading : availableHeading).current?.focus()}
       onChanged={load}
     />
   );
@@ -144,6 +141,27 @@ export function ConnectionsPage({ workspace }: SectionProps) {
     />
   );
   const anyConnected = githubConnected || slackIsConnected;
+
+  // A disconnected account or an unlinked one leaves with the button that had the keyboard, and
+  // its service may move to another group as it does: the keyboard goes to the heading of the
+  // group it sits in now, rather than falling out of the dialog.
+  const githubCount = github?.github.installations.length ?? null;
+  const slackCount = slack?.kind === 'listed' ? slack.links.length : null;
+  const lastCounts = useRef({ github: githubCount, slack: slackCount });
+  const headingFor = (isConnected: boolean) => (isConnected ? connectedHeading : availableHeading);
+  const giveFocus = useEffectEvent((service: 'github' | 'slack') => {
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (!lost) return;
+    headingFor(service === 'github' ? githubConnected : slackIsConnected).current?.focus();
+  });
+  useEffect(() => {
+    const last = lastCounts.current;
+    lastCounts.current = { github: githubCount, slack: slackCount };
+    const fewer = (now: number | null, before: number | null) =>
+      now !== null && before !== null && now < before;
+    if (fewer(githubCount, last.github)) giveFocus('github');
+    else if (fewer(slackCount, last.slack)) giveFocus('slack');
+  }, [githubCount, slackCount]);
   const githubAvailable = github !== null && !githubConnected;
   const slackAvailable = slack !== null && !slackIsConnected;
 
@@ -285,14 +303,11 @@ function GitHubService({
   workspaceId,
   connections,
   justConnected,
-  onLostFocus,
   onChanged,
 }: {
   workspaceId: string;
   connections: Connections;
   justConnected: number | null;
-  /** Gives the keyboard a place once the button that had it left with its account. */
-  onLostFocus: () => void;
   onChanged: () => Promise<void>;
 }) {
   const { canManage, github } = connections;
@@ -301,17 +316,6 @@ function GitHubService({
   const [failure, setFailure] = useState<string | null>(null);
   const connected = installations.length > 0;
   const mayConnect = github.configured && canManage;
-
-  // A disconnected account leaves with the button that had the keyboard, so the keyboard comes
-  // to the group's heading rather than falling out of the dialog.
-  const count = installations.length;
-  const lastCount = useRef(count);
-  const giveFocus = useEffectEvent(onLostFocus);
-  useEffect(() => {
-    const lost = document.activeElement === null || document.activeElement === document.body;
-    if (count < lastCount.current && lost) giveFocus();
-    lastCount.current = count;
-  }, [count]);
 
   async function connect() {
     setPending(true);

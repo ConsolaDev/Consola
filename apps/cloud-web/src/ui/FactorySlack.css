@@ -4,6 +4,11 @@
    `factory-slack-`. Nothing moves but the notice as it arrives, and not for someone who asked
    for reduced motion. */
 
+/* The heading takes the keyboard only when what had it goes away. */
+.factory-slack-heading:focus {
+  outline: none;
+}
+
 .factory-slack {
   display: flex;
   flex-direction: column;
