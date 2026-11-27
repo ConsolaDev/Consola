@@ -361,10 +361,13 @@ export function slackAppSettingsUrl(appId: string): string {
   return `https://api.slack.com/apps/${encodeURIComponent(appId)}`;
 }
 
-/** Where the web app shows a one-time link, before its token. */
-export const SLACK_LINK_PAGE_PATH = '/slack/link/';
+/**
+ * Where the web app shows a one-time link, before its token. The web app routes by the address's
+ * hash, so the token stays in the browser: it never reaches a server's log or a `Referer`.
+ */
+export const SLACK_LINK_PAGE_PATH = '/#/slack/link/';
 
-/** The address of a one-time link's page in the web app. */
+/** The address of a one-time link's page in the web app: `<PUBLIC_URL>/#/slack/link/<token>`. */
 export function slackLinkUrl(publicUrl: string, token: string): string {
   return `${publicUrl}${SLACK_LINK_PAGE_PATH}${encodeURIComponent(token)}`;
 }
