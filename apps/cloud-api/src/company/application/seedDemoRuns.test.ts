@@ -2,7 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
 import { runs as runTable } from '../adapters/persistence/tables.js';
-import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
+import {
+  makeTestWorkspace,
+  openTestDatabase,
+} from '../adapters/persistence/database.test-helpers.js';
 import type { Caller } from '../domain/caller.js';
 import { checkFactoryFiles } from '../domain/factory.js';
 import { OUTPUT_TAIL_MAX, PHASES, RUN_STATUSES } from '../domain/run.js';
@@ -11,8 +14,8 @@ import type { CloudSessionStore, FactoryStore, RunStore, TeamStore } from './por
 import { listRuns, readRun } from './runs.js';
 import type { RunsQuery } from './runs.js';
 import { DEMO_FACTORY_FILES, seedDemoRuns, seedEveryWorkspace } from './seedDemoRuns.js';
-import { callerAs as caller, fakeMembership } from './testMembership.js';
-import type { FakeMembership } from './testMembership.js';
+import { callerAs as caller, fakeMembership } from './membership.test-helpers.js';
+import type { FakeMembership } from './membership.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

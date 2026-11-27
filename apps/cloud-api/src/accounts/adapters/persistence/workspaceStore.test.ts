@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceStore } from '../../application/ports.js';
 import type { Database, Transaction } from './database.js';
 import { schema } from './schema.js';
-import { openTestDatabase } from './testDatabase.js';
+import { openTestDatabase } from './database.test-helpers.js';
 import { createWorkspaceStore } from './workspaceStore.js';
 import type { OpenedWorkspace } from './workspaceStore.js';
 

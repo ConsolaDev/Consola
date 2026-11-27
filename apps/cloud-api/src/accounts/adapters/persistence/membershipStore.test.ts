@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { MembershipStore } from '../../application/ports.js';
-import { openTestDatabase } from './testDatabase.js';
+import { openTestDatabase } from './database.test-helpers.js';
 import type { Database } from './database.js';
 import { createMembershipStore } from './membershipStore.js';
 import { schema } from './schema.js';

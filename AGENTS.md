@@ -234,7 +234,9 @@ data move, not a rewrite, and two rules keep it so, each a failing test
   `member` and `invitation`.
 - **Company data refers to people only by id.** No company table has a
   foreign key into an accounts table, no company column holds an email or a
-  person's name, and no company file imports accounts' files or Better Auth.
+  person's name, and no company file imports accounts' files or Better Auth,
+  or declares or names an accounts table itself (a `pgTable('member', …)`, a
+  `"user"` in its SQL), which the one database client would otherwise allow.
   A name reaches a page only through accounts' own
   `GET /api/me/workspace/members`.
 

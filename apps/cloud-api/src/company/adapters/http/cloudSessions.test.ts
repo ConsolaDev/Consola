@@ -9,11 +9,11 @@ import type {
   PassSigner,
   RunnerChannel,
 } from '../../application/ports.js';
-import { fakeMembership } from '../../application/testMembership.js';
+import { fakeMembership } from '../../application/membership.test-helpers.js';
 import type { SignedInPerson } from '../../domain/caller.js';
 import type { Database } from '../persistence/database.js';
 import { createCloudSessionStore } from '../persistence/cloudSessions.js';
-import { openTestDatabase } from '../persistence/testDatabase.js';
+import { openTestDatabase } from '../persistence/database.test-helpers.js';
 import type { COMPANY_ROUTES } from './app.js';
 import { requireCaller, WORKSPACE_HEADER } from './caller.js';
 import { cloudSessionRoutes } from './cloudSessions.js';

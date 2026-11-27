@@ -1,4 +1,5 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { getTableName, is } from 'drizzle-orm';
 import {
   foreignKey,
@@ -9,6 +10,7 @@ import {
   primaryKey,
   text,
 } from 'drizzle-orm/pg-core';
+import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 import { SCHEMA } from './persistence/database.js';
 
@@ -23,6 +25,11 @@ import { SCHEMA } from './persistence/database.js';
  * Both are checked over the one Drizzle schema and over every migration (`drizzle/*.sql`), so a
  * table or column only a migration makes is checked too. Each check is also shown to fail, on a
  * fixture schema and a fixture migration that break it.
+ *
+ * Rule 2 is also checked over company's code (`src/company/**`, tests included), since company
+ * shares the one database client and could read an accounts table without importing a file of
+ * accounts': no Drizzle builder there declares a table or view named after an accounts table, and
+ * no string or template literal names one as SQL does. Its fixtures are source texts.
  *
  * Whom rule 2 covers: Consola's accounts, the people in `user`. What GitHub says about its own
  * users is the company's content, as it was in the cell: a push's commit authors in
@@ -322,6 +329,120 @@ function readMigrations(): string[] {
 
 const names = (tables: readonly TableFacts[]) => tables.map((table) => table.name).sort();
 
+/**
+ * Drizzle's builders that declare a table, or a view (which `.existing()` lets read any table), by
+ * its name in the database: `pgTable('team', …)`, called by its own name, through a namespace
+ * (`core.pgTable`) or as `pgTable.withRLS`.
+ */
+const TABLE_BUILDERS = new Set(['pgTable', 'pgView', 'pgMaterializedView']);
+
+/**
+ * Builders this check cannot judge where they are called: `pgTableCreator` names its tables with
+ * a function, and `pgSchema` makes builders of its own (`.table`, `.view`). Company declares its
+ * tables with `pgTable`, in the public schema, so either is refused there until this check learns
+ * to read it.
+ */
+const UNJUDGED_BUILDERS = new Set(['pgTableCreator', 'pgSchema']);
+
+/** Drizzle's builder of a quoted name, `sql.identifier('team')`. */
+const IDENTIFIER_BUILDERS = new Set(['identifier']);
+
+/**
+ * The accounts tables `text` names as SQL does: quoted as an identifier (`"member"`, exactly,
+ * since a quoted name keeps its case), or bare after a keyword a table's name follows (`from`,
+ * `join`, `into`, `update`, `references`, `table`), with or without its schema, in any case, since
+ * SQL folds a bare name to lower case. Never a longer name that starts with one (`team_member`,
+ * `"cloud_session"`). The tables' names are plain words, so they go into the patterns as they are.
+ */
+function accountsTablesNamedAsSql(text: string, accountTables: readonly string[]): string[] {
+  const alternatives = accountTables.join('|');
+  const quoted = new RegExp(`"(${alternatives})"`, 'g');
+  const bare = new RegExp(
+    String.raw`\b(?:from|join|into|update|references|table)\s+(?:(?:"[^"]*"|\w+)\s*\.\s*)?(${alternatives})\b`,
+    'gi',
+  );
+  return [...text.matchAll(quoted), ...text.matchAll(bare)].map((found) =>
+    (found[1] ?? '').toLowerCase(),
+  );
+}
+
+/**
+ * Each way one company source file reaches an accounts table without importing accounts, as
+ * `<file>:<line> <what>`: a builder that declares a table or a view named after one, or whose
+ * name cannot be read, a builder this cannot judge, or a string or template literal that names one
+ * as SQL. It reads the syntax tree, so a comment never counts, and nothing from disk, so a test
+ * can feed it any source.
+ */
+function accountsTablesReachedIn(
+  file: string,
+  source: string,
+  accountTables: Record<string, string>,
+): string[] {
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+  const accounts = Object.keys(accountTables);
+  const breaks: string[] = [];
+  const at = (node: ts.Node) =>
+    `${file}:${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1}`;
+  const nameOf = (node: ts.Expression): string | null => {
+    if (ts.isIdentifier(node)) return node.text;
+    return ts.isPropertyAccessExpression(node) ? node.name.text : null;
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) {
+      const callee = node.expression;
+      const called = [
+        nameOf(callee),
+        ts.isPropertyAccessExpression(callee) ? nameOf(callee.expression) : null,
+      ];
+      const [first] = node.arguments;
+      const named = first && ts.isStringLiteralLike(first) ? first.text : null;
+      const builder = called.find((name) => name !== null && TABLE_BUILDERS.has(name));
+      const unjudged = called.find((name) => name !== null && UNJUDGED_BUILDERS.has(name));
+      if (unjudged) {
+        breaks.push(`${at(node)} calls ${unjudged}, whose tables this cannot judge`);
+      } else if (builder && named === null) {
+        breaks.push(`${at(node)} declares a table with ${builder} whose name cannot be read`);
+      } else if (builder && named !== null && accounts.includes(named.toLowerCase())) {
+        breaks.push(`${at(node)} declares the accounts table ${named} with ${builder}`);
+      } else if (
+        ts.isPropertyAccessExpression(callee) &&
+        IDENTIFIER_BUILDERS.has(callee.name.text) &&
+        named !== null &&
+        accounts.includes(named.toLowerCase())
+      ) {
+        breaks.push(`${at(node)} names the accounts table ${named} with ${callee.name.text}`);
+      }
+    }
+    if (
+      ts.isStringLiteralLike(node) ||
+      ts.isTemplateHead(node) ||
+      ts.isTemplateMiddle(node) ||
+      ts.isTemplateTail(node)
+    ) {
+      for (const table of new Set(accountsTablesNamedAsSql(node.text, accounts))) {
+        breaks.push(`${at(node)} names the accounts table ${table} as SQL`);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return breaks;
+}
+
+const SRC = import.meta.dirname;
+
+/** Every source file under `src/company/`, tests included, relative to `src/`. */
+function companyFiles(dir = 'company'): string[] {
+  return readdirSync(join(SRC, dir), { withFileTypes: true }).flatMap((entry) => {
+    const relative = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) return companyFiles(relative);
+    return /\.(?:[cm]?[jt]s|tsx)$/.test(entry.name) && !entry.name.endsWith('.d.ts')
+      ? [relative]
+      : [];
+  });
+}
+
 describe('the two rules, over the one schema', () => {
   const tables = tablesOfSchema(SCHEMA);
 
@@ -538,5 +659,173 @@ ALTER TABLE "note" DROP CONSTRAINT "note_author_fk";`;
         'ALTER TABLE "note" ADD "email" text',
       ]),
     ).toThrow(/Cannot read/);
+  });
+});
+
+describe('rule 2, over company code', () => {
+  const files = companyFiles();
+
+  it('reads every company file, its tables and its tests included', () => {
+    expect(files.length).toBeGreaterThan(60);
+    expect(files).toEqual(
+      expect.arrayContaining([
+        'company/adapters/persistence/tables.ts',
+        'company/adapters/persistence/gitHubTables.ts',
+        'company/application/teams.test.ts',
+      ]),
+    );
+  });
+
+  it('holds: no company file declares an accounts table or names one as SQL', () => {
+    const breaks = files.flatMap((file) =>
+      accountsTablesReachedIn(file, readFileSync(join(SRC, file), 'utf8'), ACCOUNT_TABLES),
+    );
+    expect(breaks).toEqual([]);
+  });
+});
+
+describe('the check over company code fails when company reaches an accounts table', () => {
+  it.each([
+    [
+      'pgTable',
+      "const t = pgTable('member', { id: text('id') });",
+      'declares the accounts table member with pgTable',
+    ],
+    [
+      'pgTable through a namespace',
+      "const t = core.pgTable('user', {});",
+      'declares the accounts table user with pgTable',
+    ],
+    [
+      'pgTable.withRLS',
+      "const t = pgTable.withRLS('session', {});",
+      'declares the accounts table session with pgTable',
+    ],
+    [
+      'a view, which can read the table',
+      "const v = pgView('organization', {}).existing();",
+      'declares the accounts table organization with pgView',
+    ],
+    [
+      'a materialized view',
+      "const v = pgMaterializedView('invitation', {}).existing();",
+      'declares the accounts table invitation with pgMaterializedView',
+    ],
+    [
+      'a name in another case',
+      "const t = pgTable('Verification', {});",
+      'declares the accounts table Verification with pgTable',
+    ],
+    [
+      'a name it cannot read',
+      'const t = pgTable(NAME, {});',
+      'declares a table with pgTable whose name cannot be read',
+    ],
+    [
+      'a table creator',
+      'const table = pgTableCreator((name) => name);',
+      'calls pgTableCreator, whose tables this cannot judge',
+    ],
+    [
+      'a schema of its own',
+      "const t = pgSchema('public').table('user', {});",
+      'calls pgSchema, whose tables this cannot judge',
+    ],
+    [
+      'a quoted name in a raw query',
+      'await db.execute(sql`select "email" from "user" where id = ${id}`);',
+      'names the accounts table user as SQL',
+    ],
+    [
+      'a quoted name in a string',
+      `const query = 'select * from "member"';`,
+      'names the accounts table member as SQL',
+    ],
+    [
+      'a bare name after from',
+      'sql`select role from member where organization_id = ${id}`;',
+      'names the accounts table member as SQL',
+    ],
+    [
+      'a bare name after join',
+      "const q = 'select 1 from team join session on true';",
+      'names the accounts table session as SQL',
+    ],
+    [
+      'a bare name after into',
+      "const q = 'insert into invitation (id) values ($1)';",
+      'names the accounts table invitation as SQL',
+    ],
+    [
+      'a bare name after update',
+      "const q = 'update account set scope = $1';",
+      'names the accounts table account as SQL',
+    ],
+    [
+      'a bare name after references',
+      "const q = 'add foreign key (x) references verification (id)';",
+      'names the accounts table verification as SQL',
+    ],
+    [
+      'a bare name after table',
+      "const q = 'alter table organization add column x text';",
+      'names the accounts table organization as SQL',
+    ],
+    [
+      'a bare name with its schema',
+      "const q = 'select * from public.member';",
+      'names the accounts table member as SQL',
+    ],
+    [
+      'a bare name in capitals',
+      "const q = 'SELECT * FROM Member';",
+      'names the accounts table member as SQL',
+    ],
+    [
+      "a template's middle",
+      'sql`select * from ${team} join member on true`;',
+      'names the accounts table member as SQL',
+    ],
+    [
+      'sql.identifier',
+      "sql`select * from ${sql.identifier('user')}`;",
+      'names the accounts table user with identifier',
+    ],
+  ])('%s', (_case, source, what) => {
+    expect(accountsTablesReachedIn('company/x.ts', source, ACCOUNT_TABLES)).toEqual([
+      `company/x.ts:1 ${what}`,
+    ]);
+  });
+
+  it('says on which line', () => {
+    const source =
+      'import { sql } from \'drizzle-orm\';\n\nconst q = sql`select email from "user"`;';
+    expect(accountsTablesReachedIn('company/x.ts', source, ACCOUNT_TABLES)).toEqual([
+      'company/x.ts:3 names the accounts table user as SQL',
+    ]);
+  });
+
+  it.each([
+    [
+      "company's own tables",
+      "const a = pgTable('cloud_session', {});\nconst b = pgTable(`team_member`, {});",
+    ],
+    [
+      "company's own tables in SQL",
+      'sql`select "member_id" from "team_member" join cloud_session on true`;',
+    ],
+    ['columns that hold a person by id', "const q = 'select member_id, user_id from team_member';"],
+    ['a comment', '// select email from "user"\n/* join member on true */\nconst a = 1;'],
+    ['a role', "const role = 'member';\ncallerAs('p', 'member');"],
+    ['an ordinary word', "const words = 'Your session ended: sign in again from the start page.';"],
+    // A quoted name keeps its case, so GitHub's account types are not accounts' tables.
+    [
+      "GitHub's account types",
+      `const payload = '{"type": "User", "login": "sprocket"}';\nconst t = '"Organization"';`,
+    ],
+    ['an alias of a company table', "const child = alias(runs, 'child');"],
+    ['another method named table', 'console.table(rows);'],
+  ])('passes %s', (_case, source) => {
+    expect(accountsTablesReachedIn('company/x.ts', source, ACCOUNT_TABLES)).toEqual([]);
   });
 });

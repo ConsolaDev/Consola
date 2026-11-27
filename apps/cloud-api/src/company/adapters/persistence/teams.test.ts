@@ -4,7 +4,7 @@ import { FIRST_TEAM_NAME } from '../../domain/team.js';
 import type { Team } from '../../domain/team.js';
 import type { Database } from './database.js';
 import { createTeamStore, openWorkspace } from './teams.js';
-import { nextMillisecond, openTestDatabase } from './testDatabase.js';
+import { nextMillisecond, openTestDatabase } from './database.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

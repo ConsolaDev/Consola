@@ -2,11 +2,14 @@ import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
+import {
+  makeTestWorkspace,
+  openTestDatabase,
+} from '../adapters/persistence/database.test-helpers.js';
 import type { FactoryStore, TeamStore } from './ports.js';
 import { seedCodeReviewTeam, seedDemoAgentRun } from './seedTemplates.js';
-import { fakeMembership } from './testMembership.js';
-import type { FakeMembership } from './testMembership.js';
+import { fakeMembership } from './membership.test-helpers.js';
+import type { FakeMembership } from './membership.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

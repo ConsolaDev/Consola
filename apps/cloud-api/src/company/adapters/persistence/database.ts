@@ -5,7 +5,7 @@ import type { schema } from './schema.js';
  * Company's view of the app's one database: either driver, through drizzle's one query builder
  * and `.transaction`, typed over company's tables alone. The composition opens the database and
  * migrates its one chain (`src/persistence/database.ts`), and hands company this; company's
- * tests open one of their own (`testDatabase.ts`).
+ * tests open one of their own (`database.test-helpers.ts`).
  */
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 

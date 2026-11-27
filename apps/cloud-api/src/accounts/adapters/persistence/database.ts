@@ -18,7 +18,8 @@ export type OpenDatabase = { db: Database; close(): Promise<void> };
 /**
  * A database in memory, typed over accounts' tables, with none of them made: for Better Auth's
  * schema CLI (`cli-config.ts`), which never queries it, and for accounts' tests, which make the
- * tables they stand on (`testDatabase.ts`). Never the service's: that is the composition's.
+ * tables they stand on (`database.test-helpers.ts`). Never the service's: that is the
+ * composition's.
  */
 export function openMemoryDatabase(): OpenDatabase {
   const client = new PGlite();

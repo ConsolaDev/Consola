@@ -5,7 +5,7 @@ import {
   makeTestWorkspace,
   nextMillisecond,
   openTestDatabase,
-} from '../adapters/persistence/testDatabase.js';
+} from '../adapters/persistence/database.test-helpers.js';
 import { FIRST_TEAM_NAME, TEAM_NAME_MAX } from '../domain/team.js';
 import type { TeamStore } from './ports.js';
 import {
@@ -16,8 +16,8 @@ import {
   removeTeamMember,
   renameTeam,
 } from './teams.js';
-import { callerAs as caller, fakeMembership } from './testMembership.js';
-import type { FakeMembership } from './testMembership.js';
+import { callerAs as caller, fakeMembership } from './membership.test-helpers.js';
+import type { FakeMembership } from './membership.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;

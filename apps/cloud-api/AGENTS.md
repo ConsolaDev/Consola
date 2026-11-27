@@ -41,7 +41,7 @@ src/
   compose.ts  main.ts  config.ts  startupError.ts  seed.ts    the composition ring
   http/         the ring's front door (frontDoor.ts) and health check (health.ts)
   persistence/  the ring's one database and its migrations (database.ts)
-  testing/      the HTTP suites' helpers (harness.ts), for tests alone
+  testing/      the HTTP suites' helpers (harness.ts), for the ring's tests alone
 ```
 
 - `accounts` holds people, sign-in, sessions, workspaces and membership. Its
@@ -68,16 +68,21 @@ src/
   `@consola/factory-spec` may be imported, and only from `company` and from
   the ring's own tests, which drive `company` as a runner would;
 - test files keep their exemption from the layer rules, except that a part's
-  test never imports the other part, nor `src/testing/`: a company test uses
-  a fake `MembershipReader`, and never imports Better Auth. Only the ring's
-  HTTP suites wire both parts, and only a test imports `src/testing/`.
+  file, test or not, leaves its part only for `shared/` and `src/config.ts`
+  (`PART_MAY_REACH`, each with its reason): never for the other part, and
+  never for the ring (`compose.ts`, `persistence/`, `http/`, `testing/`,
+  `main.ts`…), which brings the other part and Better Auth in. So a company
+  test uses a fake `MembershipReader`, and never imports Better Auth. Only
+  the ring's tests wire both parts, and only a test imports `src/testing/`.
 
 ## The two rules
 
 Two rules keep the data splittable, and each is a test in `src/rules.test.ts`.
 It reads the one Drizzle schema and every migration (`drizzle/*.sql`), so a
-table or column that only a migration makes is checked too. It also proves,
-on a fixture schema, that each of its checks fails when the rule is broken.
+table or column that only a migration makes is checked too, and company's
+code, for the second rule (below, "No reaching across"). It also proves, on
+a fixture schema, a fixture migration and fixture sources, that each of its
+checks fails when the rule is broken.
 
 ### Every company table carries its workspace id
 
@@ -109,7 +114,17 @@ a company table, and carries `workspace_id`, or an accounts table, added to
   `display_name` fail.
 - **No reaching across.** Company code never imports accounts' files or Better
   Auth (`src/boundary.test.ts`), and the accounts tables live only in
-  `accounts/adapters/persistence`.
+  `accounts/adapters/persistence`. Company shares the one database client, so
+  it could still read an accounts table without an import, and
+  `src/rules.test.ts` reads every file in `company/`, tests included, for
+  that too: no Drizzle builder there declares a table or a view named after an
+  accounts table (`pgTable`, `pgView`, `pgMaterializedView`, any case; a name
+  it cannot read fails, and so do `pgTableCreator` and `pgSchema`, which it
+  cannot judge), and no string or template literal names one as SQL does:
+  quoted (`"user"`, exactly, since a quoted name keeps its case) or bare after
+  `from`, `join`, `into`, `update`, `references` or `table` (any case), or
+  through `sql.identifier`. Company's own tables (`team_member`,
+  `cloud_session`) and comments do not count.
 - **Names come from accounts.** A person's name or email reaches a page only
   through accounts' own use case, `GET /api/me/workspace/members`, as the web
   app's Teams page does.
@@ -319,10 +334,16 @@ Each part is built in rings, and imports point inward only.
     schema and parser every runner shares, with which `company` checks the
     files it stores (below, "Factories"). It parses texts it is handed and
     does no I/O.
-- Test files (`*.test.ts`) are exempt from the layer rules, because they wire
-  real pieces together the way `compose.ts` does. A part's test still never
-  imports the other part or `testing/`, and a company test never imports
-  Better Auth.
+- Test code is exempt from the layer rules, because it wires real pieces
+  together the way `compose.ts` does. Test code is a test (`*.test.ts`) or a
+  test's helpers (`*.test-helpers.ts`, beside the module they help test, such
+  as `database.test-helpers.ts`), held alike. A part's test code still leaves
+  its part only for `shared/` and `config.ts`, never for the other part or
+  the ring, and company's never imports Better Auth.
+- `tsconfig.build.json` leaves test code and `testing/` out of `dist`, so
+  nothing else imports them, and nothing else imports a development
+  dependency (`drizzle-kit`, `vitest`, `ws`…), which `dist` does not have. A
+  helper a test needs is named `*.test-helpers.ts`, or it ships.
 
 `src/boundary.test.ts` enforces the rule and the boundary. It reads every
 file's imports from the TypeScript syntax tree (`import`, `import type`,
@@ -1290,12 +1311,25 @@ calls this side of the socket the cell.
 ## Tests
 
 A test sits beside its module and is named after it (`healthProbe.ts`,
-`healthProbe.test.ts`). Rules in `domain` are tested alone. Stores and use
-cases are tested on a migrated `pglite:memory` database through the real
-Drizzle stores: the database is never mocked. Company's tests make each
+`healthProbe.test.ts`), and so do its helpers, if several tests share them
+(`database.test-helpers.ts`), which the build leaves out of `dist` ("The
+dependency rule"). Rules in `domain` are tested alone. Stores and use
+cases are tested through the real Drizzle stores on a fresh in-memory PGlite
+database: the database is never mocked. Its tables are made straight from
+the part's own tables, by drizzle-kit's migration from nothing to them
+(`generateMigration(generateDrizzleJson({}), generateDrizzleJson(schema))`,
+in each part's `database.test-helpers.ts`, and for GitHub's tables in their
+tests), not by the chain, so a part's tests stand on its tables alone. The
+service migrates the chain instead, so `src/persistence/database.test.ts`
+keeps the two the same: the latest snapshot in `drizzle/meta` against the
+one schema leaves `db:generate` nothing to write, and a fresh database
+migrated by the chain holds exactly the columns, constraints, indexes and
+enums of one made from the schema, as Postgres's catalog describes them. A
+schema change without `db:generate`, or a migration edited into another
+shape, fails there and nowhere else. Company's tests make each
 `Caller` with `admitCaller` and use a fake `MembershipReader`
-(`company/application/testMembership.ts`: `fakeMembership`, `callerAs`);
-they never import an accounts file.
+(`company/application/membership.test-helpers.ts`: `fakeMembership`,
+`callerAs`); they never import an accounts file.
 
 The ring's tests check the whole app: `src/rules.test.ts` (the two rules),
 `src/boundary.test.ts` (the parts and the layers) and `src/openapi.test.ts`
@@ -1347,7 +1381,8 @@ is therefore also tested directly, on the store.
   `pnpm --filter @consola/cloud-api db:generate --name <what>` after a schema
   changes. `drizzle.config.ts` reads accounts' `auth-schema.ts` and company's
   `tables.ts` and `gitHubTables.ts`. The migrations apply when the API starts,
-  and `db:generate` should then report no schema changes. The chain started
+  and `db:generate` should then report no schema changes, which
+  `src/persistence/database.test.ts` checks (above, "Tests"). The chain started
   again at `0000_init` when the apps merged, so a database from before it is
   not migrated: delete `.data` and start fresh (`README.md`).
 - For a required column on a table that has rows, drizzle-kit writes

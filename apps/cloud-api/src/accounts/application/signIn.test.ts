@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { openTestDatabase } from '../adapters/persistence/testDatabase.js';
+import { openTestDatabase } from '../adapters/persistence/database.test-helpers.js';
 import type { Database } from '../adapters/persistence/database.js';
 import { schema } from '../adapters/persistence/schema.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';

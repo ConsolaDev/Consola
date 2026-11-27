@@ -11,7 +11,10 @@ import { sql } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Database } from '../adapters/persistence/database.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import { makeTestWorkspace, openTestDatabase } from '../adapters/persistence/testDatabase.js';
+import {
+  makeTestWorkspace,
+  openTestDatabase,
+} from '../adapters/persistence/database.test-helpers.js';
 import type { Caller } from '../domain/caller.js';
 import type { FactoryFile } from '../domain/factory.js';
 import { keepingRunsInStep, startAgentRunsFor } from './agentRuns.js';
@@ -27,8 +30,8 @@ import type {
   TeamStore,
 } from './ports.js';
 import { readRun } from './runs.js';
-import { callerAs, fakeMembership } from './testMembership.js';
-import type { FakeMembership } from './testMembership.js';
+import { callerAs, fakeMembership } from './membership.test-helpers.js';
+import type { FakeMembership } from './membership.test-helpers.js';
 
 let db: Database;
 let close: () => Promise<void>;
