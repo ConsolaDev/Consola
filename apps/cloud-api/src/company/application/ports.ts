@@ -135,7 +135,7 @@ export type RunFilter = {
   readonly triggers: readonly RunTrigger[];
   /** Automation runs of this name, and requests that started one; null: any. */
   readonly automation: string | null;
-  /** Started by this person, by global id; null: by anyone or nothing. */
+  /** Started by this person, by id; null: by anyone or nothing. */
   readonly startedBy: string | null;
   /** Held by the title or the automation's name, in any case; null: no such filter. */
   readonly q: string | null;
@@ -220,7 +220,7 @@ export type Offer = {
   harnesses: Harness[];
 };
 
-/** What the cell asks a runner to start, in the cell's terms (the socket adds the pass key). */
+/** What the app asks a runner to start, in the app's terms (the socket adds the pass key). */
 export type SessionStartRequest = {
   sessionId: string;
   workspaceId: string;
@@ -248,7 +248,7 @@ export type CloudSessionChanges = Partial<
   >
 >;
 
-/** The cell's record of its cloud sessions. Every method throws when the database does not answer. */
+/** The app's record of its cloud sessions. Every method throws when the database does not answer. */
 export type CloudSessionStore = {
   insert(session: CloudSession): Promise<void>;
   /** One session by id, whoever's. For the runner's updates, never for a person's request. */
@@ -282,7 +282,7 @@ export type Ids = {
 };
 
 /**
- * Signs session passes with the cell's own key (`PASS_PRIVATE_KEY`), whose public half each
+ * Signs session passes with the app's own key (`PASS_PRIVATE_KEY`), whose public half each
  * session's host is handed in `session.start`.
  */
 export type PassSigner = {
@@ -296,7 +296,7 @@ export type CloudSessionPorts = {
   runners: RunnerChannel;
   ids: Ids;
   clock: Clock;
-  /** Null when the cell has no pass key: then it has no runner either, and issues no pass. */
+  /** Null when the app has no pass key: then it has no runner either, and issues no pass. */
   passes: PassSigner | null;
 };
 

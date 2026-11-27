@@ -113,7 +113,7 @@ steps:
 });
 
 describe('willRun, with a call (the merge of slice 3 and 5a)', () => {
-  it('lists no call, in a loop or not, and never as an agent: the cell has no call to describe yet', () => {
+  it('lists no call, in a loop or not, and never as an agent: the app has no call to describe yet', () => {
     const SHIP = `on: { manual: {} }
 scope: storefront
 steps:

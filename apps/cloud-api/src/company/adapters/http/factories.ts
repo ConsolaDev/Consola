@@ -27,7 +27,7 @@ const FACTORY_NOT_FOUND = { error: 'factory_not_found' } as const;
 
 /**
  * The largest body a save takes: the most a factory's files hold, twice over, for the room JSON's
- * escapes take. A larger one is 413 before it is read, so no request fills the cell's memory; the
+ * escapes take. A larger one is 413 before it is read, so no request fills the app's memory; the
  * use case still refuses files over `FACTORY_BYTES_MAX` in a body that fits.
  */
 export const SAVE_BODY_MAX = 2 * FACTORY_BYTES_MAX;

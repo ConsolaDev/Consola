@@ -9,7 +9,7 @@ const PASS_ALGORITHM = 'EdDSA';
 /** An Ed25519 key's `x` or `d`: 32 bytes in base64url. */
 const KEY_BYTES = /^[A-Za-z0-9_-]{43}$/;
 
-/** The cell's pass key: what signs passes, and the public half each session's host is handed. */
+/** The app's pass key: what signs passes, and the public half each session's host is handed. */
 export type PassKey = {
   signer: PassSigner;
   /** The public key as an SPKI PEM, sent in every `session.start`. Never a secret. */

@@ -1,7 +1,7 @@
 import type { RunnerChannel } from '../../application/ports.js';
 
 /**
- * The channel of a cell with no runner socket: no runner is ever connected, so no session starts,
+ * The channel of an app with no runner socket: no runner is ever connected, so no session starts,
  * and nothing is ever sent.
  */
 export const noRunner: RunnerChannel = {

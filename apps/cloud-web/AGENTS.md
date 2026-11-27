@@ -176,9 +176,9 @@ its `openapi.json`, which the app reads as a file and never imports
 while it is stale). It is types only, with no import and no I/O, so it sits in
 `domain`; Biome leaves it alone, since it is compared byte for byte. It is the
 one contract: accounts, workspaces, connections and everything a workspace
-holds are routes of the one API. Until `cloud-api` generates its own
-`openapi.json`, the file is merged from the two apps it replaces by
-`scripts/provisional-openapi.mjs`, which goes once it does.
+holds are routes of the one API. `cloud-api` generates its `openapi.json`
+from the app it composes (its `openapi.test.ts`), so the types follow the
+routes that run.
 
 - **A type the API answers in comes from the contract**, never written by
   hand: `Me`, `MyWorkspace`. Services call the API through `createApi`, so a

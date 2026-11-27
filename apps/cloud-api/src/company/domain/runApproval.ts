@@ -11,7 +11,7 @@ import type { Team } from './team.js';
  * sees every run answers only the runs of the teams they are in. The first answer for a version
  * is the one kept.
  *
- * The cell records the answer and never changes the run: its runner is the authority on the run,
+ * The app records the answer and never changes the run: its runner is the authority on the run,
  * and acts on the answer once it reads it (epic 21, CON-94).
  */
 
@@ -27,10 +27,10 @@ export const DECISION_OF: Record<ApprovalChoice, ApprovalDecision> = {
   dismiss: 'dismissed',
 };
 
-/** An answer, as the cell keeps it. */
+/** An answer, as the app keeps it. */
 export type RunAnswer = {
   readonly decision: ApprovalDecision;
-  /** The global id of the person who answered. */
+  /** The id of the person who answered. */
   readonly by: string;
   readonly at: string;
 };

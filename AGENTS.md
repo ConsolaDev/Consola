@@ -220,9 +220,10 @@ The app has two parts, each with its own domain, application and adapters
 layers: `src/accounts/` (people, sign-in, sessions, workspaces and who is in
 them) and `src/company/` (what a workspace holds, GitHub included).
 `src/shared/` holds the regions and the workspace roles, which both use.
-Only the composition ring (`src/*.ts`) imports both parts: `company` never
-imports `accounts` or Better Auth, and `accounts` never imports `company`
-(`src/boundary.test.ts`). The seam is there so that a later split stays a
+Only the composition ring (`src/*.ts`, with `src/persistence/`, which opens
+the one database, and the HTTP suites' `src/testing/`) imports both parts:
+`company` never imports `accounts` or Better Auth, and `accounts` never
+imports `company` (`src/boundary.test.ts`). The seam is there so that a later split stays a
 data move, not a rewrite, and two rules keep it so, each a failing test
 (`src/rules.test.ts`, with the boundary test):
 
@@ -245,17 +246,21 @@ request also carries `x-consola-workspace`, the workspace the page shows,
 only as a guard: a page whose session another tab switched is refused (409
 `workspace_switched`) instead of acting in the other workspace. Company
 changes are authorised by the cookie, so they sit behind the origin check
-(403 `bad_origin`) like every other change. The runner's socket
-(`GET /api/runner`) is the one other trust root, for the POC until runners
-are enrolled: a shared secret (`RUNNER_SECRET`), compared in constant time,
-that admits one runner for one workspace and no person. The app signs each
+(403 `bad_origin`) like accounts' changes; only Better Auth's own routes
+(`/api/auth/`), which check their own origins, and GitHub's webhooks are
+outside it. Two callers are no person. GitHub's webhooks
+(`POST /api/github/webhooks`) are signed with `GITHUB_WEBHOOK_SECRET`. The
+runner's socket (`GET /api/runner`) is, for the POC until runners are
+enrolled, a shared secret (`RUNNER_SECRET`), compared in constant time, that
+admits one runner for one workspace and no person. The app signs each
 session's pass with a key of its own (`PASS_PRIVATE_KEY`), and only
 `company/adapters/token` imports `jose`; the runner's socket
 (`company/adapters/runner`) may use `hono` and `@hono/node-ws`.
 
 Nothing in `apps/desktop` depends on the cloud apps, and neither imports from
 the desktop, the website, the other app or `packages/*`, with four
-exceptions. `cloud-api`'s `company` part, and only it, imports
+exceptions. `cloud-api`'s `company` part, and only it (with the ring's own
+tests, which drive it as a runner would), imports
 `packages/runner-protocol` (`@consola/runner-protocol`, MIT), what the app
 and its runners say to each other: the runner socket's messages, the readers
 of a repository and a harness, and the session pass's claims. It does no
@@ -282,11 +287,12 @@ in every cloud app, a new app included:
 - The routes are declared in Zod with `@hono/zod-openapi`, in the
   `adapters/http` contract of the part that serves them
   (`src/accounts/adapters/http/contract.ts`,
-  `src/company/adapters/http/contract.ts`), with every status a route answers
-  and its body (strict objects). Each part registers its routes with
-  `app.openapi`, never `app.get`, `app.post` and the like, on the one app
-  `compose.ts` hands it, and lists them in its routes list, which the app's
-  `ROUTES` joins.
+  `src/company/adapters/http/contract.ts` and, for GitHub's,
+  `gitHubContract.ts` beside it), with every status a route answers and its
+  body (strict objects). Each part registers its routes with `app.openapi`,
+  never `app.get`, `app.post` and the like, on the one app `compose.ts` hands
+  it, and lists them in its routes list, which the app's `ROUTES` joins with
+  the ring's one route, `GET /api/health` (`src/http/health.ts`).
 - The app's `openapi.json` is generated from them (`openapi:generate`) and
   committed. `openapi.test.ts` fails while it is stale, and while the app
   serves a route the contract does not declare (`OUTSIDE_THE_CONTRACT` names

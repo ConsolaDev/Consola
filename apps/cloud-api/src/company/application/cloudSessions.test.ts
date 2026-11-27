@@ -151,7 +151,7 @@ describe('startSession', () => {
     expect(channel.startSession).not.toHaveBeenCalled();
   });
 
-  it('marks the row failed with the cell code when the runner cannot be told', async () => {
+  it("marks the row failed with the app's code when the runner cannot be told", async () => {
     const { ports, channel, now } = setup();
     vi.mocked(channel.startSession).mockImplementation(async () => {
       now.value = 1005;
@@ -320,7 +320,7 @@ describe('applyRunnerUpdate', () => {
     });
   });
 
-  it("keeps a runner's failure message in error, with no cell code", async () => {
+  it("keeps a runner's failure message in error, with no code of the app's", async () => {
     const { ports, now } = await started();
     now.value = 1200;
     await applyRunnerUpdate(ports, RUNNER, update({ status: 'failed', error: 'clone-failed' }));
@@ -332,7 +332,7 @@ describe('applyRunnerUpdate', () => {
     });
   });
 
-  it('gives a failure the runner left unexplained the cell code runner_failed', async () => {
+  it("gives a failure the runner left unexplained the app's code runner_failed", async () => {
     const { ports, now } = await started();
     now.value = 1300;
     await applyRunnerUpdate(ports, RUNNER, update({ status: 'failed' }));
@@ -505,7 +505,7 @@ describe('issuePass', () => {
     expect(await issuePass(ports, caller(), 'session-1')).toEqual({ kind: 'not_found' });
   });
 
-  it('is no_runner when the cell has no pass key', async () => {
+  it('is no_runner when the app has no pass key', async () => {
     const { ports } = await running(setup(offer, null));
     expect(await issuePass(ports, caller(), 'session-1')).toEqual({ kind: 'no_runner' });
   });

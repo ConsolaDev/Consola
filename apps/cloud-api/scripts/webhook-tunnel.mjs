@@ -1,12 +1,12 @@
 // Brings GitHub's webhooks to the API on this machine through a Cloudflare tunnel, and says what
 // to set on the GitHub App. Run it beside `pnpm dev:cloud`:
 //
-//   pnpm --filter @consola/cloud-global webhooks:tunnel
+//   pnpm --filter @consola/cloud-api webhooks:tunnel
 //
 // By default it starts a quick tunnel (no Cloudflare account), whose address is new each time it
 // starts, so the App's webhook URL has to be set again after every start. With
 // CLOUDFLARE_TUNNEL_NAME and CLOUDFLARE_TUNNEL_HOSTNAME set, it runs that named tunnel instead,
-// whose address stays put. It reads apps/cloud-global/.env, as the API does, for PORT and to say
+// whose address stays put. It reads apps/cloud-api/.env, as the API does, for PORT and to say
 // whether GITHUB_WEBHOOK_SECRET is set; it never prints the secret. README.md, "Receive GitHub's
 // webhooks", has the whole set-up.
 import { spawn } from 'node:child_process';
@@ -16,7 +16,8 @@ import { fileURLToPath } from 'node:url';
 const ENV_FILE = fileURLToPath(new URL('../.env', import.meta.url));
 if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 
-// The route the App's webhook URL ends in (`GITHUB_WEBHOOK_PATH` in src/adapters/http/contract.ts).
+// The route the App's webhook URL ends in (`GITHUB_WEBHOOK_PATH`, in
+// src/company/adapters/http/gitHubContract.ts).
 const WEBHOOK_PATH = '/api/github/webhooks';
 const port = process.env.PORT || '3100';
 const origin = `http://127.0.0.1:${port}`;
@@ -34,8 +35,8 @@ if (named !== '' && hostname === '') {
 const secret = process.env.GITHUB_WEBHOOK_SECRET ?? '';
 const secretLine =
   secret.length >= 32
-    ? '  Secret:      the value of GITHUB_WEBHOOK_SECRET in apps/cloud-global/.env (set, not shown)'
-    : `  Secret:      ${secret === '' ? 'none yet' : 'the one set is under 32 characters'}. Make one with \`openssl rand -hex 32\`, put it in apps/cloud-global/.env as\n` +
+    ? '  Secret:      the value of GITHUB_WEBHOOK_SECRET in apps/cloud-api/.env (set, not shown)'
+    : `  Secret:      ${secret === '' ? 'none yet' : 'the one set is under 32 characters'}. Make one with \`openssl rand -hex 32\`, put it in apps/cloud-api/.env as\n` +
       '               GITHUB_WEBHOOK_SECRET=<it>, restart `pnpm dev:cloud`, and paste the same value here';
 
 /** Says, once, what to set on the GitHub App for the tunnel at `address`. */

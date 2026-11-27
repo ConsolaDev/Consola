@@ -41,7 +41,7 @@ export type StartAnswer =
  * Starts a session for the caller. Nothing is recorded or sent unless a runner is connected and
  * offers both the repository and the harness. The row is recorded `starting` before the runner is
  * told, so its first update finds it. When the runner cannot be told, the row ends `failed` with
- * the cell's own code, and what the transport said is never kept (`handToRunner`).
+ * the app's own code, and what the transport said is never kept (`handToRunner`).
  */
 export async function startSession(
   ports: CloudSessionPorts,
@@ -76,7 +76,7 @@ export async function startSession(
 
 /**
  * Hands a `starting` row's start to `runnerId`, `extra` beside the session's own fields. When the
- * runner cannot be told, the row ends `failed` with the cell's own code, and what the transport
+ * runner cannot be told, the row ends `failed` with the app's own code, and what the transport
  * said is never kept. Answers the row as it is now.
  */
 export async function handToRunner(
@@ -134,7 +134,7 @@ export async function getSession(
  * Ends a session the caller sees (their own, or an agent run of the workspace) at once, whether
  * or not its runner is connected: the row becomes `stopped`, and the runner is told only if it is
  * the session's own runner and connected. A runner that is away, or that cannot be told, still
- * holds the sandbox, but the row is ended, so when its `hello` lists the session the cell answers
+ * holds the sandbox, but the row is ended, so when its `hello` lists the session the app answers
  * with a stop (`runnerConnected`). A stop of an ended session changes and sends nothing.
  */
 export async function stopSession(
@@ -175,7 +175,7 @@ const UPDATE_ATTEMPTS = 3;
 
 /**
  * What an update changes on a live row: its status, as `nextStatus` allows, and what it says. An
- * agent run's title is the cell's (`agentRunTitle`), so a runner's title never replaces it; its
+ * agent run's title is the app's (`agentRunTitle`), so a runner's title never replaces it; its
  * report is kept whole, the latest replacing the one before.
  */
 function changesOf(session: CloudSession, update: SessionUpdate, now: number): CloudSessionChanges {
@@ -195,7 +195,7 @@ function changesOf(session: CloudSession, update: SessionUpdate, now: number): C
 /**
  * Applies what a runner said of a session. It counts only from the runner the row names, in the
  * workspace that runner serves, and never changes an ended row. A runner's failure keeps its own
- * message in `error`, or gets the cell's `runner_failed` when it gave none; a title and a host
+ * message in `error`, or gets the app's `runner_failed` when it gave none; a title and a host
  * address are stored as given. The write is a compare-and-set on the status it read, so a late
  * update never overwrites an end. One that loses to another change (a person's stop, the start
  * failing) reads the row again and tries once more, so a title or an address is not lost to a
@@ -228,7 +228,7 @@ export type PassAnswer =
  * session (`passClaims`), for `PASS_LIFETIME_SECONDS`. `expiresAt` is the pass's `exp`, in whole
  * seconds. Anything else is `not_found`, as if it did not exist: a session still starting or
  * ended, a running one whose host has no address yet, another person's or another workspace's,
- * or an id the cell does not hold. A cell with no pass key issues none (`no_runner`: such a cell
+ * or an id the app does not hold. An app with no pass key issues none (`no_runner`: such an app
  * has no runner either).
  */
 export async function issuePass(

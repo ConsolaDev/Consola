@@ -6,14 +6,14 @@ export const CLOUD_SESSION_STATUSES = ['starting', 'running', 'stopped', 'failed
 export type CloudSessionStatus = (typeof CLOUD_SESSION_STATUSES)[number];
 
 /**
- * The codes of failures the cell decides itself, which `cloud-web` words. A failure a runner
+ * The codes of failures the app decides itself, which `cloud-web` words. A failure a runner
  * reports is its own message instead, kept in `error` and never mistaken for one of these
  * (`CloudSession.errorCode`).
  */
 export const CELL_FAILURE_CODES = {
   /** The runner restarted and its sandbox for the session is gone (the runner's `hello`). */
   runnerRestarted: 'runner_restarted',
-  /** The cell could not hand the start to the runner. */
+  /** The app could not hand the start to the runner. */
   runnerUnreachable: 'runner_unreachable',
   /** The runner reported a failure without a message of its own. */
   runnerFailed: 'runner_failed',
@@ -23,7 +23,7 @@ export const CELL_FAILURE_CODES = {
   repositoryNotOffered: 'repository_not_offered',
   /** An agent run's agent names a harness the connected runner does not offer. */
   harnessNotOffered: 'harness_not_offered',
-  /** The cell could not compose a start the protocol reads from the factory's team. */
+  /** The app could not compose a start the protocol reads from the factory's team. */
   agentRunInvalid: 'agent_run_invalid',
 } as const;
 export type CellFailureCode = (typeof CELL_FAILURE_CODES)[keyof typeof CELL_FAILURE_CODES];
@@ -55,21 +55,21 @@ export type SessionOrigin = {
 };
 
 /**
- * One cloud session as the cell records it. Times are whole seconds since the epoch.
+ * One cloud session as the app records it. Times are whole seconds since the epoch.
  *
  * A session is a person's, or an agent run: a session an automation started, which nobody types
  * into (`origin`). A person's session is theirs alone; an agent run is the workspace's, and every
  * member sees it (`isSeenBy`).
  *
  * A failure carries exactly one of two things, never both: `error`, the message the runner
- * reported (provider or start script), or `errorCode`, a code the cell decided itself
+ * reported (provider or start script), or `errorCode`, a code the app decided itself
  * (`CELL_FAILURE_CODES`). Both are null while the session lives or when it was stopped.
  */
 export type CloudSession = {
   id: string;
   workspaceId: string;
   /**
-   * The person who started it, by their global id: the only one who sees it. Null for an agent
+   * The person who started it, by their id: the only one who sees it. Null for an agent
    * run, which no person started.
    */
   personId: string | null;
@@ -163,7 +163,7 @@ export function endReported(current: CloudSessionStatus, end: EndedStatus): Clou
 
 /**
  * How a failure a runner reported is kept: its own message in `error`, or, when it gave none,
- * the cell's `runner_failed`. So a failed row always carries one of the two, and never both.
+ * the app's `runner_failed`. So a failed row always carries one of the two, and never both.
  */
 export function runnerFailure(
   error: string | undefined,

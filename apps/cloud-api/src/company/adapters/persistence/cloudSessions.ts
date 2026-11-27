@@ -45,7 +45,7 @@ const seenBy = (workspaceId: string, personId: string) =>
     or(eq(cloudSessions.personId, personId), isNotNull(cloudSessions.origin)),
   );
 
-/** The cell's cloud sessions on one Drizzle database. */
+/** The app's cloud sessions on one Drizzle database. */
 export function createCloudSessionStore(db: Database): CloudSessionStore {
   return {
     async insert(session) {

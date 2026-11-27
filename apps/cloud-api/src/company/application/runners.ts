@@ -8,21 +8,21 @@ import {
 } from '../domain/cloudSession.js';
 import type { CloudSessionChanges, RunnerIdentity, RunnerUpdatePorts } from './ports.js';
 
-/** What the cell answers a runner's `hello` with: the sessions it is to stop. */
+/** What the app answers a runner's `hello` with: the sessions it is to stop. */
 export type HelloAnswer = { stop: string[] };
 
 /**
- * What a runner's `hello` means for the sessions the cell holds, in this order: ended wins, then
+ * What a runner's `hello` means for the sessions the app holds, in this order: ended wins, then
  * restarted, then stops (below). The runner serves `workspaceId`, whatever it calls itself, and
  * only its own rows, in that workspace, are changed.
  *
  * 1. Each session in `endedSessions` keeps the end the runner reports (`endReported`), with its
- *    message or the cell's `runner_failed`, so a session that ended while the socket was down is
+ *    message or the app's `runner_failed`, so a session that ended while the socket was down is
  *    never taken for one lost in a restart.
  * 2. Every other live session of the runner that `runningSessionIds` does not list is `failed`
  *    with `runner_restarted`: its sandbox went with the runner.
- * 3. Every listed session the cell holds as ended, or does not hold as this runner's, is to be
- *    stopped, so the runner never keeps a sandbox for a session the cell considers ended.
+ * 3. Every listed session the app holds as ended, or does not hold as this runner's, is to be
+ *    stopped, so the runner never keeps a sandbox for a session the app considers ended.
  *
  * An id in both lists is ended (ended wins), so it ends and is stopped. An id listed twice counts
  * once, the first report of an end standing. Every write is a compare-and-set from the status

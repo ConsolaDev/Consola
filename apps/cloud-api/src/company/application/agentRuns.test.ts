@@ -149,7 +149,7 @@ async function factoryWith(files: readonly FactoryFile[], name = 'Reviews') {
 
 const caller = (personId: string): Caller => callerAs(personId, 'member');
 
-/** The agent runs the tests' ids name, as the cell holds them. */
+/** The agent runs the tests' ids name, as the app holds them. */
 async function agentRunSessions() {
   const found = await Promise.all(
     ['run-1', 'run-2', 'run-3'].map((id) => stores.cloudSessions.find(id)),
@@ -507,7 +507,7 @@ describe("an agent run's run", () => {
     expect((await runOf('run-1')).run).toMatchObject({ status: 'cancelled', phase: 'stopped' });
   });
 
-  it("fails with the runner's message, or the cell's sentence for its own code", async () => {
+  it("fails with the runner's message, or the app's sentence for its own code", async () => {
     const { ports } = await started();
     await applyRunnerUpdate(ports, RUNNER, {
       type: 'session.update',

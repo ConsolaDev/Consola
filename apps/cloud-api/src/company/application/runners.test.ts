@@ -21,7 +21,7 @@ afterEach(async () => {
   await close();
 });
 
-/** A row the cell holds, as Task 2's start would have written it. */
+/** A row the app holds, as Task 2's start would have written it. */
 async function holds(
   id: string,
   status: CloudSessionStatus,
@@ -110,7 +110,7 @@ describe('runnerConnected', () => {
       error: 'The sandbox ran out of memory.',
       errorCode: null,
     });
-    // A failure with no message of the runner's carries the cell's code, never neither.
+    // A failure with no message of the runner's carries the app's code, never neither.
     expect(await row('s-3')).toMatchObject({
       status: 'failed',
       error: null,
@@ -128,7 +128,7 @@ describe('runnerConnected', () => {
     expect(await row('s-1')).toMatchObject({ status: 'stopped', errorCode: null, endedAt: 2000 });
   });
 
-  it('never changes a session the cell already ended', async () => {
+  it('never changes a session the app already ended', async () => {
     await holds('s-1', 'stopped');
     const before = await row('s-1');
     await runnerConnected(
@@ -139,7 +139,7 @@ describe('runnerConnected', () => {
     expect(await row('s-1')).toEqual(before);
   });
 
-  it('stops every listed session the cell holds as ended, or does not know', async () => {
+  it('stops every listed session the app holds as ended, or does not know', async () => {
     await holds('s-1', 'running');
     await holds('s-3', 'stopped');
 
@@ -171,7 +171,7 @@ describe('runnerConnected', () => {
       error: 'The host exited.',
       errorCode: null,
     });
-    // The cell now holds it as ended, so whatever the runner still has of it stops.
+    // The app now holds it as ended, so whatever the runner still has of it stops.
     expect(answer.stop).toEqual(['s-1']);
   });
 

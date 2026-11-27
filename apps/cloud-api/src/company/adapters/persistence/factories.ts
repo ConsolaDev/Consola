@@ -93,7 +93,7 @@ async function readVersion(
   };
 }
 
-/** The workspace's factories and their files' versions on the cell's database. */
+/** The workspace's factories and their files' versions on the app's database. */
 export function createFactoryStore(db: Database): FactoryStore {
   return {
     list(workspaceId) {

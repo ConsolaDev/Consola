@@ -29,17 +29,17 @@ export const RUNNER_SOCKET_PATH = '/api/runner';
 /**
  * The largest frame a runner may send, in bytes: the protocol's limit for the socket, which the
  * runner keeps too. Past it the socket closes with 1009 (Message Too Big) before the frame is
- * read, so a runner cannot fill the cell's memory one frame at a time.
+ * read, so a runner cannot fill the app's memory one frame at a time.
  */
 export const RUNNER_FRAME_LIMIT_BYTES = RUNNER_SOCKET_FRAME_LIMIT_BYTES;
 
-/** Why the cell closes a runner's socket. A runner reconnects after either. */
+/** Why the app closes a runner's socket. A runner reconnects after either. */
 export const RUNNER_SOCKET_CLOSE = {
   /** Another socket of the same runner said hello, and serves the workspace now. */
   replaced: 4000,
-  /** The cell is stopping (1001, Going Away). */
+  /** The app is stopping (1001, Going Away). */
   shuttingDown: 1001,
-  /** The cell could not judge the runner's hello (1011, Internal Error): its next one is. */
+  /** The app could not judge the runner's hello (1011, Internal Error): its next one is. */
   helloFailed: 1011,
 } as const;
 
@@ -60,7 +60,7 @@ export type RunnerSocket = {
   routes: Hono;
   /** Hands the server's upgrades to the socket. Every upgrade goes to `routes`, and only it. */
   injectWebSocket: NodeWebSocket['injectWebSocket'];
-  /** Closes every runner's socket, for a cell that is stopping: a server waits on open sockets. */
+  /** Closes every runner's socket, for an app that is stopping: a server waits on open sockets. */
   closeAll(): void;
 };
 
@@ -116,7 +116,7 @@ function readFrame(data: unknown): ReadResult<RunnerMessage> {
  *   itself. A second socket's `hello` replaces the first, which closes (`replaced`).
  * - **`hello` first**, judged by `runnerConnected` before the offer is out, so no person's start
  *   lands among the sessions it judges. Then each `session.stop` it asks for is sent.
- * - **One queue.** Every socket's messages are handled one at a time, in the order the cell
+ * - **One queue.** Every socket's messages are handled one at a time, in the order the app
  *   read them, whichever socket they came on: a later socket's `hello` is judged only once
  *   everything an earlier socket sent is applied or dropped.
  * - **Updates** reach `applyRunnerUpdate`, those of a socket that has since closed included,
@@ -141,8 +141,8 @@ export function createRunnerSocket(deps: {
   /** The newest socket that said hello: the one that serves the workspace, once it is ready. */
   let latest: Connection | null = null;
   /**
-   * Every socket's messages, one after another, in the order the cell read them. One queue for
-   * them all, since the cell serves one workspace's runner: an end a socket said before it closed
+   * Every socket's messages, one after another, in the order the app read them. One queue for
+   * them all, since the app serves one workspace's runner: an end a socket said before it closed
    * is applied before the runner's next `hello` is judged, which would otherwise take that
    * session, no longer listed, for one lost in a restart.
    */
@@ -213,7 +213,7 @@ export function createRunnerSocket(deps: {
     }
     // From here a person's stop reaches this socket (`connected` is not null). One that committed
     // while the hello was judged did not, and the judgement had read the session as live: look
-    // again, so the runner never keeps a sandbox for a session the cell considers ended. A stop
+    // again, so the runner never keeps a sandbox for a session the app considers ended. A stop
     // is always safe, so a session already answered above is simply answered again.
     connection.ready = true;
     const answered = new Set(stop);
@@ -245,7 +245,7 @@ export function createRunnerSocket(deps: {
     }
     // An update a socket sent before it closed still applies, unless another socket's hello came
     // first: the runner says each session's end as it stops, then closes, and counts the end heard
-    // once the cell has read it. Updates are compare-and-set and scoped to the runner, so a late
+    // once the app has read it. Updates are compare-and-set and scoped to the runner, so a late
     // one never overwrites an end.
     if (connection.replaced || !connection.ready) {
       report("The cell dropped an update from a runner's socket that no longer serves it.");
