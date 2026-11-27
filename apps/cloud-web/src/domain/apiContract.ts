@@ -4688,7 +4688,7 @@ export interface components {
             /** @description The request that started it, on an automation run one did. */
             parentId: string | null;
             trigger: components["schemas"]["RunTrigger"];
-            /** @description What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check. */
+            /** @description What the trigger was: the event's name (`pull_request.opened`; for a request from Slack, `slack_mention` or `slack_dm`), the cron schedule, or the poll's check. */
             triggerDetail: string | null;
             /** @description The id of the person who started it, who may no longer be a member; null for a run no person started. */
             startedBy: string | null;
@@ -4744,14 +4744,17 @@ export interface components {
          * @enum {string}
          */
         RunTrigger: "cron" | "event" | "poll" | "manual";
-        /** @description The pull request or issue a run is about. */
+        /** @description The pull request or issue a run is about, or the Slack message a request came from. */
         RunItem: {
-            /** @description Its page, an https address. */
+            /** @description Its page, an https address: for a Slack message, its permalink. */
             url: string;
-            /** @description Written by its author: text, never markup. */
+            /** @description Written by its author: text, never markup. For a Slack message, its first line. */
             title: string;
-            /** @enum {string|null} */
-            kind: "pr" | "issue" | null;
+            /**
+             * @description `pr`, `issue`, or `slack`: the Slack message a request came from, with no `repo` or `number`.
+             * @enum {string|null}
+             */
+            kind: "pr" | "issue" | "slack" | null;
             /** @description `owner/name`, when known. */
             repo: string | null;
             number: number | null;
@@ -5014,8 +5017,8 @@ export interface components {
             createdAt: number;
             /** @description When it ended, in epoch seconds; null while it lives. */
             endedAt: number | null;
-            /** @description What started an agent run; null for a person's session. */
-            origin: components["schemas"]["CloudSessionOrigin"] | null;
+            /** @description What started an agent run: an automation (`CloudSessionOrigin`) or a request from Slack (`SlackSessionOrigin`); null for a person's session. */
+            origin: components["schemas"]["CloudSessionOrigin"] | components["schemas"]["SlackSessionOrigin"] | null;
             /** @description The runner's last report of an agent run; null until it sent one. */
             agentRun: components["schemas"]["AgentRunReport"] | null;
         };
@@ -5040,6 +5043,35 @@ export interface components {
                 title: string;
                 /** @description The commit the run checks out. */
                 headSha: string;
+            };
+        };
+        /** @description What started a request from Slack: a person mentioned a factory's bot, or sent it a direct message, and its orchestrator takes it. */
+        SlackSessionOrigin: {
+            /** @enum {string} */
+            kind: "slack";
+            factoryId: string;
+            factoryName: string;
+            /** @description The agent that takes the first turn: the orchestrator. */
+            agent: string;
+            /**
+             * @description `mention`: the bot was mentioned in a channel; `dm`: sent a direct message.
+             * @enum {string}
+             */
+            via: "mention" | "dm";
+            /** @description The Slack message the request came from. */
+            message: {
+                /** @description The Slack workspace (`T…`). */
+                teamId: string;
+                /** @description The channel, or the direct message. */
+                channelId: string;
+                /** @description The thread Consola answers in. */
+                threadTs: string;
+                /** @description The message itself. */
+                messageTs: string;
+                /** @description The message's permalink, from Slack. */
+                permalink: string;
+                /** @description The message's first line, cut: written by a person, shown as text. */
+                title: string;
             };
         };
         /** @description The runner's last report of an agent run, as it sent it. */

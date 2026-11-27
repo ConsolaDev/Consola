@@ -977,7 +977,7 @@
               "string",
               "null"
             ],
-            "description": "What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check."
+            "description": "What the trigger was: the event's name (`pull_request.opened`; for a request from Slack, `slack_mention` or `slack_dm`), the cron schedule, or the poll's check."
           },
           "startedBy": {
             "type": [
@@ -1177,11 +1177,11 @@
         "properties": {
           "url": {
             "type": "string",
-            "description": "Its page, an https address."
+            "description": "Its page, an https address: for a Slack message, its permalink."
           },
           "title": {
             "type": "string",
-            "description": "Written by its author: text, never markup."
+            "description": "Written by its author: text, never markup. For a Slack message, its first line."
           },
           "kind": {
             "type": [
@@ -1191,8 +1191,10 @@
             "enum": [
               "pr",
               "issue",
+              "slack",
               null
-            ]
+            ],
+            "description": "`pr`, `issue`, or `slack`: the Slack message a request came from, with no `repo` or `number`."
           },
           "repo": {
             "type": [
@@ -1216,7 +1218,7 @@
           "number"
         ],
         "additionalProperties": false,
-        "description": "The pull request or issue a run is about."
+        "description": "The pull request or issue a run is about, or the Slack message a request came from."
       },
       "PhaseCounts": {
         "type": "object",
@@ -2245,10 +2247,13 @@
                 "$ref": "#/components/schemas/CloudSessionOrigin"
               },
               {
+                "$ref": "#/components/schemas/SlackSessionOrigin"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "What started an agent run; null for a person's session."
+            "description": "What started an agent run: an automation (`CloudSessionOrigin`) or a request from Slack (`SlackSessionOrigin`); null for a person's session."
           },
           "agentRun": {
             "anyOf": [
@@ -2354,6 +2359,84 @@
         ],
         "additionalProperties": false,
         "description": "What started an agent run: an automation of a factory's agent team, on an item."
+      },
+      "SlackSessionOrigin": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "slack"
+            ]
+          },
+          "factoryId": {
+            "type": "string"
+          },
+          "factoryName": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string",
+            "description": "The agent that takes the first turn: the orchestrator."
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "mention",
+              "dm"
+            ],
+            "description": "`mention`: the bot was mentioned in a channel; `dm`: sent a direct message."
+          },
+          "message": {
+            "type": "object",
+            "properties": {
+              "teamId": {
+                "type": "string",
+                "description": "The Slack workspace (`T…`)."
+              },
+              "channelId": {
+                "type": "string",
+                "description": "The channel, or the direct message."
+              },
+              "threadTs": {
+                "type": "string",
+                "description": "The thread Consola answers in."
+              },
+              "messageTs": {
+                "type": "string",
+                "description": "The message itself."
+              },
+              "permalink": {
+                "type": "string",
+                "description": "The message's permalink, from Slack."
+              },
+              "title": {
+                "type": "string",
+                "description": "The message's first line, cut: written by a person, shown as text."
+              }
+            },
+            "required": [
+              "teamId",
+              "channelId",
+              "threadTs",
+              "messageTs",
+              "permalink",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "The Slack message the request came from."
+          }
+        },
+        "required": [
+          "kind",
+          "factoryId",
+          "factoryName",
+          "agent",
+          "via",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "What started a request from Slack: a person mentioned a factory's bot, or sent it a direct message, and its orchestrator takes it."
       },
       "AgentRunReport": {
         "type": "object",
