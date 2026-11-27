@@ -359,7 +359,8 @@ describe('the caller check', () => {
  * check; GitHub's webhook deliveries, which are signed instead (with no webhook secret set, as
  * here, each is refused before it is read); GitHub's callback, a redirect that reads the session
  * itself and says in the redirect that there is none; and the runner's socket, behind the
- * runner's secret instead, which a bare request does not carry. Nothing else of company's is open.
+ * runner's secret instead, which a bare request does not carry. Nothing else is open, but Better
+ * Auth's own routes (`/api/auth/*`), where signing in happens.
  */
 const OPEN_ROUTES: Record<string, number> = {
   'GET /api/health': 200,
@@ -379,30 +380,32 @@ const ACCOUNTS_ROUTES = new Set(
 );
 
 /**
- * Every route of company's the app holds (GitHub's, the health check and the runner's socket
- * included), each once, though Hono lists a route once per handler in its chain: all but
- * accounts' routes, Better Auth's (`/api/auth/*`) and the front door's origin check (`/api/*`).
- * So a new company route is here without being named.
+ * Every route the app holds, each once, though Hono lists a route once per handler in its chain:
+ * all but Better Auth's (`/api/auth/*`) and the front door's origin check (`/api/*`). So a new
+ * route is here without being named.
  */
-function companyRoutes(app: OpenAPIHono) {
+function appRoutes(app: OpenAPIHono) {
   const listed = app.routes.filter(
-    ({ method, path }) =>
-      !(method === 'ALL' && (path === '/api/*' || path === '/api/auth/*')) &&
-      !ACCOUNTS_ROUTES.has(`${method} ${path}`),
+    ({ method, path }) => !(method === 'ALL' && (path === '/api/*' || path === '/api/auth/*')),
   );
   return [...new Map(listed.map((route) => [`${route.method} ${route.path}`, route])).values()];
 }
+
+/** Company's routes among them: all but accounts', so GitHub's, the health check and the socket. */
+const companyRoutes = (app: OpenAPIHono) =>
+  appRoutes(app).filter(({ method, path }) => !ACCOUNTS_ROUTES.has(`${method} ${path}`));
 
 /** A route's path with every parameter filled in. */
 const filled = (path: string) => path.replaceAll(/:[^/]+/g, 'x');
 
 describe('every route', () => {
-  it('of company but the open ones refuses a request without a session', async () => {
+  it('but the open ones refuses a request without a session', async () => {
     for (const level of ['error', 'warn', 'info'] as const) {
       vi.spyOn(console, level).mockImplementation(() => {});
     }
-    const routes = companyRoutes(harness.app);
-    expect(routes.length).toBeGreaterThan(20);
+    const routes = appRoutes(harness.app);
+    expect(companyRoutes(harness.app).length).toBeGreaterThan(20);
+    expect(routes.length).toBeGreaterThan(companyRoutes(harness.app).length);
     for (const { method, path } of routes) {
       const response = await harness.app.request(filled(path), { method, headers: bare() });
       const route = `${method} ${path}`;
