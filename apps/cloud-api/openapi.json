@@ -10,6 +10,7 @@
       "GitHubCallbackResult": {
         "type": "string",
         "enum": [
+          "choose",
           "connected",
           "already_connected",
           "requested",
@@ -2612,13 +2613,69 @@
         "type": "object",
         "properties": {
           "url": {
-            "type": "string"
+            "type": "string",
+            "description": "Where a Connect starts: GitHub’s sign-in authorization for the app, from which GitHub always sends the person back, so an installation they already have can be connected."
+          },
+          "installUrl": {
+            "type": "string",
+            "description": "The app’s install page on GitHub, to install it on another account. GitHub sends the person back from it only after a new installation."
           }
         },
         "required": [
-          "url"
+          "url",
+          "installUrl"
         ],
         "additionalProperties": false
+      },
+      "GitHubChoice": {
+        "type": "object",
+        "properties": {
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GitHubInstallCandidate"
+            }
+          }
+        },
+        "required": [
+          "candidates"
+        ],
+        "additionalProperties": false,
+        "description": "What the person may choose to connect."
+      },
+      "GitHubInstallCandidate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "account": {
+            "$ref": "#/components/schemas/GitHubAccount"
+          }
+        },
+        "required": [
+          "id",
+          "account"
+        ],
+        "additionalProperties": false,
+        "description": "An installation of the app on an account the person administers, which no workspace holds."
+      },
+      "GitHubChoiceConnected": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "already_connected"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "Connected now, or the workspace held it already."
       },
       "GitHubWebhookPong": {
         "type": "object",
@@ -7652,7 +7709,7 @@
     "/api/connections/github/install": {
       "post": {
         "summary": "Start connecting GitHub to my active workspace",
-        "description": "The address on GitHub that installs the app, carrying a state signed for this person. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).",
+        "description": "The addresses on GitHub a Connect goes to, each carrying one state signed for this person in this session. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).",
         "responses": {
           "200": {
             "description": "Where to send the person.",
@@ -7832,17 +7889,518 @@
     },
     "/api/github/callback": {
       "get": {
-        "summary": "Where GitHub sends a person back after installing the app",
-        "description": "The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.",
+        "summary": "Where GitHub sends a person back after signing in or installing the app",
+        "description": "The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON. Back from installing the app (an `installation_id`), it records the installation. Back from signing in (no `installation_id`), it asks GitHub for the installations the person administers that no workspace holds: with some, the page offers them (`choose`, with a signed `choice`); with none, the person goes on to install the app. Otherwise it redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `choose`, `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.",
         "responses": {
           "302": {
-            "description": "To `<PUBLIC_URL>/?github=<result>#/settings/connections`.",
+            "description": "To `<PUBLIC_URL>/?github=<result>#/settings/connections`, with `&choice=<a signed choice>` when the result is `choose`; or on to the app’s install page on GitHub, with a fresh state, when the person signed in and administers no installation that is free.",
             "headers": {
               "location": {
                 "schema": {
                   "type": "string"
                 },
                 "required": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/github/choice": {
+      "get": {
+        "summary": "The installations I may choose to connect, once GitHub sent me back from signing in",
+        "description": "Reads a signed choice: the installations of the app on accounts the person administers, which no workspace held when GitHub sent them back. Only for the session that signed in, within a few minutes, in the workspace the Connect was for, and for an owner or admin. Takes `x-consola-workspace`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The signed choice the callback sent the page back with (`&choice=`)."
+            },
+            "required": true,
+            "description": "The signed choice the callback sent the page back with (`&choice=`).",
+            "name": "choice",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The candidates, in the order GitHub listed them.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubChoice"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No choice (`invalid_request`), or one that is not this session’s: not one Consola signed, or another session’s, another person’s above all (`bad_choice`). Or: No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_choice"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active (`not_a_member`), or not an owner or admin of it (`not_allowed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The choice was made for another workspace than the session has active now (`choice_for_another_workspace`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "choice_for_another_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The choice’s few minutes are over: connecting again makes a new one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "choice_expired"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Connect the installation I chose to my active workspace",
+        "description": "Connects one of a signed choice’s candidates, as a fresh install connects one. Everything that can change is checked again, in order: the choice (this session’s, in time, for this workspace), that the installation is one of its candidates, that the person is still an owner or admin, and that no other workspace holds it.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "choice": {
+                    "type": "string",
+                    "description": "The signed choice, as the page read it."
+                  },
+                  "installationId": {
+                    "type": "integer",
+                    "description": "The installation chosen, by its id on GitHub: one of the choice’s."
+                  }
+                },
+                "required": [
+                  "choice",
+                  "installationId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The installation is the workspace’s.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubChoiceConnected"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No choice or installation id (`invalid_request`), a choice that is not this session’s (`bad_choice`), or an installation it does not offer (`not_a_candidate`). Or: No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "invalid_request"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_choice"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_candidate"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active (`not_a_member`), is not an owner or admin of it (`not_allowed`), or the request did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The choice was made for another workspace than the session has active now (`choice_for_another_workspace`), or another workspace holds the installation (`installation_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "choice_for_another_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "installation_taken"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The choice’s few minutes are over: connecting again makes a new one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "choice_expired"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "The body is not JSON (`Content-Type: application/json`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "unsupported_media_type"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
               }
             }
           }

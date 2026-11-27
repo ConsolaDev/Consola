@@ -125,6 +125,23 @@ export function newInstallState(
   };
 }
 
+/** What a signed state or choice says of the session it is for, and until when. */
+type ForASession = { personId: string; sessionId: string; expiresAt: number };
+
+/** Whether something signed for a session is this session's own, and still in time. */
+function checkForSession(
+  signed: ForASession | null,
+  asking: AskingSession,
+  now: number,
+): 'ok' | 'unreadable' | 'expired' | 'not-this-session' {
+  if (signed === null) return 'unreadable';
+  if (signed.sessionId !== asking.sessionId || signed.personId !== asking.personId) {
+    return 'not-this-session';
+  }
+  if (now >= signed.expiresAt) return 'expired';
+  return 'ok';
+}
+
 /**
  * Whether a state GitHub brought back finishes a Connect this session started: one that could
  * not be read is `unreadable`, one past its time `expired`, and one another session started
@@ -137,10 +154,86 @@ export function checkInstallState(
   asking: AskingSession,
   now: number,
 ): 'ok' | 'unreadable' | 'expired' | 'not-this-session' {
-  if (state === null) return 'unreadable';
-  if (state.sessionId !== asking.sessionId || state.personId !== asking.personId) {
-    return 'not-this-session';
-  }
-  if (now >= state.expiresAt) return 'expired';
-  return 'ok';
+  return checkForSession(state, asking, now);
+}
+
+/**
+ * The installations the person administers, of those GitHub lists for them once they signed in:
+ * each `checkInstaller` lets them connect. Reaching one is not enough, as for a fresh install:
+ * every member of an organisation reaches its installation.
+ */
+export function administeredInstallations(facts: readonly InstallerFacts[]): GitHubInstallation[] {
+  return facts.flatMap((each) => {
+    const checked = checkInstaller(each);
+    return checked.ok ? [checked.installation] : [];
+  });
+}
+
+/** How long a choice of installation, made once the person signed in, waits for them, in seconds. */
+export const INSTALL_CHOICE_LIFETIME_SECONDS = 5 * 60;
+
+/**
+ * At most this many installations are offered in one choice, in the order GitHub listed them, so
+ * the signed choice fits in an address.
+ */
+export const MAX_INSTALL_CANDIDATES = 20;
+
+/** An installation the person may connect, as a choice names it: its id and its account. */
+export type InstallCandidate = { id: number; account: GitHubAccount };
+
+/**
+ * What Consola signs when a person who signed in to GitHub administers installations of the app
+ * that no workspace holds, and reads back when they choose one: the workspace being connected, the
+ * person and the session that asked, until when (whole seconds since the epoch), and the
+ * installations they may choose from. Never a GitHub token: the person's is revoked before the
+ * choice is signed.
+ */
+export type InstallChoice = ForASession & {
+  workspaceId: string;
+  candidates: InstallCandidate[];
+};
+
+/**
+ * The choice for the session's Connect into `workspaceId`, of `installations` (at most
+ * `MAX_INSTALL_CANDIDATES` of them), for `INSTALL_CHOICE_LIFETIME_SECONDS` from `now`.
+ */
+export function newInstallChoice(
+  asking: AskingSession,
+  workspaceId: string,
+  installations: readonly InstallCandidate[],
+  now: number,
+): InstallChoice {
+  return {
+    workspaceId,
+    personId: asking.personId,
+    sessionId: asking.sessionId,
+    expiresAt: now + INSTALL_CHOICE_LIFETIME_SECONDS,
+    candidates: installations
+      .slice(0, MAX_INSTALL_CANDIDATES)
+      .map(({ id, account }) => ({ id, account: { ...account } })),
+  };
+}
+
+/**
+ * Whether a choice the page sends back is one this session may make now, in the workspace it has
+ * active: one that could not be read is `unreadable`, another session's (another person's, or
+ * this person's in another browser) `not-this-session`, one past its time `expired`, and one made
+ * for another workspace than the session has active now `other-workspace`.
+ */
+export function checkInstallChoice(
+  choice: InstallChoice | null,
+  asking: AskingSession & { workspaceId: string },
+  now: number,
+): 'ok' | 'unreadable' | 'expired' | 'not-this-session' | 'other-workspace' {
+  const checked = checkForSession(choice, asking, now);
+  if (checked !== 'ok') return checked;
+  return choice?.workspaceId === asking.workspaceId ? 'ok' : 'other-workspace';
+}
+
+/** The candidate of `choice` with this installation id, or null when it offers none. */
+export function candidateOf(
+  choice: Pick<InstallChoice, 'candidates'>,
+  installationId: number,
+): InstallCandidate | null {
+  return choice.candidates.find((each) => each.id === installationId) ?? null;
 }

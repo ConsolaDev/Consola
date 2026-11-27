@@ -9,6 +9,7 @@ import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { systemClock } from './company/adapters/clock/systemClock.js';
 import { createGitHubApp, loadGitHubAppKey } from './company/adapters/github/gitHubApp.js';
+import { createInstallChoiceSigner } from './company/adapters/github/installChoiceSigner.js';
 import { GITHUB_CALLBACK_RESULTS } from './company/adapters/http/gitHubContract.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import {
@@ -19,7 +20,10 @@ import {
 import { cloudSessions } from './company/adapters/persistence/tables.js';
 import { mintGitHubToken } from './company/application/gitHubTokens.js';
 import type { GitHubTokenRequest } from './company/application/gitHubTokens.js';
-import { INSTALL_STATE_LIFETIME_SECONDS } from './company/domain/connections.js';
+import {
+  INSTALL_CHOICE_LIFETIME_SECONDS,
+  INSTALL_STATE_LIFETIME_SECONDS,
+} from './company/domain/connections.js';
 import { GITHUB_PAYLOAD_MAX_BYTES } from './company/domain/webhooks.js';
 import { ROUTES } from './compose.js';
 import { ConfigError } from './config.js';
@@ -154,6 +158,8 @@ describe('GitHub as a connection', () => {
   let reachable: Record<string, Array<{ id: number; login: string; type: string }>>;
   /** The codes of people who are only members of the organisations they reach; others own them. */
   let membersOnly: Set<string>;
+  /** The organisations, by login, of which everyone who reaches them is only a member. */
+  let membersOnlyOf: Set<string>;
   /** When set, GitHub refuses to exchange any code, as it does while it is down. */
   let gitHubDown: boolean;
   let seen: Array<{ method: string; url: string; body: string }>;
@@ -190,9 +196,10 @@ describe('GitHub as a connection', () => {
         return Response.json({ id: code.length, login: code });
       }
       if (url.pathname.startsWith('/user/memberships/orgs/')) {
+        const org = decodeURIComponent(url.pathname.slice('/user/memberships/orgs/'.length));
         return Response.json({
           state: 'active',
-          role: membersOnly.has(code) ? 'member' : 'admin',
+          role: membersOnly.has(code) || membersOnlyOf.has(org) ? 'member' : 'admin',
         });
       }
       if (route === 'DELETE https://api.github.com/applications/Iv23liSprocketTest/token') {
@@ -227,6 +234,7 @@ describe('GitHub as a connection', () => {
   beforeEach(async () => {
     reachable = {};
     membersOnly = new Set();
+    membersOnlyOf = new Set();
     gitHubDown = false;
     await start(withGitHubApp());
     fakeGitHub();
@@ -306,10 +314,15 @@ describe('GitHub as a connection', () => {
     const started = await startConnect(dana.headers);
     expect(started.status).toBe(200);
     expect(started.headers.get('cache-control')).toBe('no-store');
-    const url = new URL(started.body.url);
+    // A Connect starts at GitHub's sign-in for the app; the install page is beside it.
+    const signIn = new URL(started.body.url);
+    expect(`${signIn.origin}${signIn.pathname}`).toBe('https://github.com/login/oauth/authorize');
+    expect(signIn.searchParams.get('client_id')).toBe('Iv23liSprocketTest');
+    const url = new URL(started.body.installUrl);
     expect(`${url.origin}${url.pathname}`).toBe(
       'https://github.com/apps/consola-dev/installations/new',
     );
+    expect(url.searchParams.get('state')).toBe(signIn.searchParams.get('state'));
 
     const back = await returnFromGitHub(dana.headers, {
       code: 'dana-code',
@@ -369,6 +382,13 @@ describe('GitHub as a connection', () => {
     /** A Connect that ends as `?github=` names it, for each way the contract lists. */
     const ENDINGS: Record<(typeof GITHUB_CALLBACK_RESULTS)[number], () => Promise<string | null>> =
       {
+        async choose() {
+          // Back from signing in, with no installation named: the person has one to choose.
+          const owner = await harness.member('owner');
+          reachable = { 'owner-code': [sprocketOrg] };
+          const state = await stateFor(owner.headers);
+          return (await returnFromGitHub(owner.headers, { code: 'owner-code', state })).result;
+        },
         async connected() {
           const owner = await harness.member('owner');
           reachable = { 'owner-code': [sprocketOrg] };
@@ -491,6 +511,428 @@ describe('GitHub as a connection', () => {
       // Only a Connect that ends connected records an installation.
       const recorded = (await storedInstallations()).length;
       expect(recorded).toBe(['connected', 'already_connected', 'taken'].includes(result) ? 1 : 0);
+    });
+  });
+
+  describe('an account that has the app already, connected by signing in first', () => {
+    const CHOICE_PATH = '/api/connections/github/choice';
+    const acmeOrg = { id: 52, login: 'acme', type: 'Organization' };
+    const widgetsOrg = { id: 74, login: 'widgets', type: 'Organization' };
+    const catalogOrg = { id: 63, login: 'catalog', type: 'Organization' };
+
+    /** GitHub sending the browser back from signing in: the code and the state, no installation. */
+    async function signInBack(headers: Headers, code: string, state?: string) {
+      return returnFromGitHub(headers, { code, state: state ?? (await stateFor(headers)) });
+    }
+
+    /** The signed choice an address sent the page back with. */
+    const choiceIn = (location: string) => new URL(location).searchParams.get('choice') ?? '';
+
+    /** The page reading a choice's candidates, checked against the contract. */
+    async function readChoice(choice: string, headers: Headers) {
+      const response = await harness.app.request(
+        `${CHOICE_PATH}?${new URLSearchParams({ choice })}`,
+        { headers },
+      );
+      return { ...(await answerOf('GET', CHOICE_PATH, response)), headers: response.headers };
+    }
+
+    /** The page connecting the installation the person chose, checked against the contract. */
+    const choose = (choice: string, installationId: number, headers: Headers) =>
+      send('POST', CHOICE_PATH, { choice, installationId }, headers);
+
+    /** A sign-in that ended with a choice to make: its token. */
+    async function choiceFor(headers: Headers, code: string) {
+      const back = await signInBack(headers, code);
+      expect(back.result).toBe('choose');
+      return choiceIn(back.location);
+    }
+
+    it('connects without uninstalling anything: sign in, choose, connected', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+
+      const back = await signInBack(dana.headers, 'dana-code');
+      expect(back.status).toBe(302);
+      expect(back.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(back.headers.get('cache-control')).toBe('no-store');
+      const location = new URL(back.location);
+      expect(`${location.origin}${location.pathname}${location.hash}`).toBe(
+        `${harness.config.publicUrl}/#/settings/connections`,
+      );
+      expect([...location.searchParams.keys()]).toEqual(['github', 'choice']);
+      expect(location.searchParams.get('github')).toBe('choose');
+      // Nothing is recorded until the person chooses, and the code's token was revoked.
+      expect(await storedInstallations()).toEqual([]);
+      expect(
+        seen.some((call) => call.method === 'DELETE' && call.body.includes('ghu_dana-code')),
+      ).toBe(true);
+
+      const choice = choiceIn(back.location);
+      const read = await readChoice(choice, dana.headers);
+      expect(read).toMatchObject({
+        status: 200,
+        body: {
+          candidates: [{ id: 41, account: { id: 1041, login: 'sprocket', type: 'Organization' } }],
+        },
+      });
+      expect(read.headers.get('cache-control')).toBe('no-store');
+
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 200,
+        body: { result: 'connected' },
+      });
+      const [row, ...more] = await storedInstallations();
+      expect(more).toEqual([]);
+      expect(row).toMatchObject({
+        installationId: 41,
+        workspaceId: dana.workspaceId,
+        accountId: 1041,
+        accountLogin: 'sprocket',
+        accountType: 'Organization',
+        connectedBy: dana.personId,
+      });
+      const listed = await get('/api/connections', dana.headers);
+      expect(listed.body.github.installations).toEqual([
+        expect.objectContaining({
+          id: 41,
+          account: { id: 1041, login: 'sprocket', type: 'Organization' },
+        }),
+      ]);
+
+      // Choosing it again changes nothing.
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 200,
+        body: { result: 'already_connected' },
+      });
+      expect(await storedInstallations()).toHaveLength(1);
+    });
+
+    it('offers the installations the person owns that no workspace holds, and connects the one chosen', async () => {
+      const lee = await harness.member('owner');
+      const dana = await harness.member('owner');
+      // Lee's workspace holds acme already; Dana is only a member of catalog.
+      reachable = {
+        'lee-code': [acmeOrg],
+        'dana-code': [sprocketOrg, acmeOrg, catalogOrg, widgetsOrg],
+      };
+      membersOnlyOf = new Set(['catalog']);
+      expect((await connect(lee.headers, 52, 'lee-code')).result).toBe('connected');
+
+      const choice = await choiceFor(dana.headers, 'dana-code');
+      expect((await readChoice(choice, dana.headers)).body).toEqual({
+        candidates: [
+          { id: 41, account: { id: 1041, login: 'sprocket', type: 'Organization' } },
+          { id: 74, account: { id: 1074, login: 'widgets', type: 'Organization' } },
+        ],
+      });
+
+      expect(await choose(choice, 74, dana.headers)).toEqual({
+        status: 200,
+        body: { result: 'connected' },
+      });
+      const held = await storedInstallations();
+      expect(
+        held.map(({ installationId, workspaceId }) => ({ installationId, workspaceId })),
+      ).toEqual(
+        expect.arrayContaining([
+          { installationId: 52, workspaceId: lee.workspaceId },
+          { installationId: 74, workspaceId: dana.workspaceId },
+        ]),
+      );
+      expect(held).toHaveLength(2);
+    });
+
+    it('with none to offer, sends the person on to install the app, which then connects as a fresh install', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [] };
+
+      const back = await signInBack(dana.headers, 'dana-code');
+      expect(back.status).toBe(302);
+      expect(back.result).toBeNull();
+      const install = new URL(back.location);
+      expect(`${install.origin}${install.pathname}`).toBe(
+        'https://github.com/apps/consola-dev/installations/new',
+      );
+      expect(back.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(await storedInstallations()).toEqual([]);
+
+      // The fresh state carries the Connect through the install: GitHub sends Dana back with it.
+      reachable = { 'dana-install-code': [sprocketOrg] };
+      const installed = await returnFromGitHub(dana.headers, {
+        code: 'dana-install-code',
+        installation_id: '41',
+        setup_action: 'install',
+        state: install.searchParams.get('state') ?? '',
+      });
+      expect(installed.result).toBe('connected');
+      expect(await storedInstallations()).toEqual([
+        expect.objectContaining({ installationId: 41, workspaceId: dana.workspaceId }),
+      ]);
+    });
+
+    it('never offers an installation of an account the person does not administer', async () => {
+      // Mallory reaches sprocket's installation as a member of it, and owns no account with the app.
+      const mallory = await harness.member('owner');
+      reachable = { 'mallory-code': [sprocketOrg] };
+      membersOnly = new Set(['mallory-code']);
+
+      const back = await signInBack(mallory.headers, 'mallory-code');
+      expect(back.location).toMatch(
+        /^https:\/\/github\.com\/apps\/consola-dev\/installations\/new\?state=/,
+      );
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('never offers an installation another workspace holds, and refuses one taken after the choice', async () => {
+      const dana = await harness.member('owner');
+      const lee = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg], 'lee-code': [sprocketOrg] };
+
+      const choice = await choiceFor(dana.headers, 'dana-code');
+      // Lee's workspace installs and connects sprocket while Dana is choosing.
+      expect((await connect(lee.headers, 41, 'lee-code')).result).toBe('connected');
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 409,
+        body: { error: 'installation_taken' },
+      });
+      expect(await storedInstallations()).toEqual([
+        expect.objectContaining({ installationId: 41, workspaceId: lee.workspaceId }),
+      ]);
+
+      // Signing in again offers nothing that is held, so it goes on to the install page.
+      reachable['dana-code-2'] = [sprocketOrg];
+      const again = await signInBack(dana.headers, 'dana-code-2');
+      expect(again.result).toBeNull();
+      expect(again.location).toMatch(
+        /^https:\/\/github\.com\/apps\/consola-dev\/installations\/new/,
+      );
+    });
+
+    it('refuses a sign-in another person or session started, and never spends the code', async () => {
+      const dana = await harness.member('owner');
+      const mallory = await harness.member('owner');
+      reachable = { 'mallory-code': [sprocketOrg], 'dana-code': [sprocketOrg] };
+
+      const back = await signInBack(dana.headers, 'mallory-code', await stateFor(mallory.headers));
+      expect(back.result).toBe('bad_state');
+
+      const context = (await harness.auth.$context) as unknown as {
+        test: { login(input: { userId: string }): Promise<{ headers: Headers }> };
+      };
+      const elsewhere = (await context.test.login({ userId: dana.personId })).headers;
+      const fromElsewhere = await signInBack(elsewhere, 'dana-code', await stateFor(dana.headers));
+      expect(fromElsewhere.result).toBe('bad_state');
+
+      expect(seen.filter((call) => call.url.includes('oauth/access_token'))).toEqual([]);
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it("refuses a choice another person, or the same person's other session, sends", async () => {
+      const dana = await harness.member('owner');
+      const lee = await harness.member('owner', { workspace: dana.workspaceId });
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      expect(await readChoice(choice, lee.headers)).toMatchObject({
+        status: 400,
+        body: { error: 'bad_choice' },
+      });
+      expect(await choose(choice, 41, lee.headers)).toEqual({
+        status: 400,
+        body: { error: 'bad_choice' },
+      });
+
+      const context = (await harness.auth.$context) as unknown as {
+        test: { login(input: { userId: string }): Promise<{ headers: Headers }> };
+      };
+      const elsewhere = new Headers(dana.headers);
+      elsewhere.set(
+        'cookie',
+        (await context.test.login({ userId: dana.personId })).headers.get('cookie') ?? '',
+      );
+      expect(await choose(choice, 41, elsewhere)).toEqual({
+        status: 400,
+        body: { error: 'bad_choice' },
+      });
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('refuses a forged choice, and one that is not a choice at all', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      // The same choice, offering acme too, signed with another key.
+      const [body = ''] = choice.split('.');
+      const claims = JSON.parse(Buffer.from(body, 'base64url').toString());
+      const forger = createInstallChoiceSigner('a-secret-that-is-not-the-service-own-0123456789');
+      const forged = forger.sign({
+        ...claims,
+        candidates: [
+          ...claims.candidates,
+          { id: 52, account: { id: 1052, login: 'acme', type: 'Organization' } },
+        ],
+      });
+      // The same body, with the real signature of another.
+      const spliced = `${Buffer.from(JSON.stringify({ ...claims, candidates: [{ id: 52, account: { id: 1052, login: 'acme', type: 'Organization' } }] })).toString('base64url')}.${choice.split('.')[1]}`;
+      // A Connect's own state is signed with another key, and is no choice either.
+      const state = await stateFor(dana.headers);
+
+      for (const bad of [forged, spliced, state, 'not-a-choice', 'x'.repeat(10_000)]) {
+        expect(await readChoice(bad, dana.headers)).toMatchObject({
+          status: 400,
+          body: { error: 'bad_choice' },
+        });
+        expect(await choose(bad, 52, dana.headers)).toEqual({
+          status: 400,
+          body: { error: 'bad_choice' },
+        });
+      }
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('refuses a choice past its five minutes', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      const later = Date.now() + (INSTALL_CHOICE_LIFETIME_SECONDS + 1) * 1000;
+      vi.spyOn(Date, 'now').mockReturnValue(later);
+      expect(await readChoice(choice, dana.headers)).toMatchObject({
+        status: 410,
+        body: { error: 'choice_expired' },
+      });
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 410,
+        body: { error: 'choice_expired' },
+      });
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('refuses an installation the choice does not offer', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      expect(await choose(choice, 52, dana.headers)).toEqual({
+        status: 400,
+        body: { error: 'not_a_candidate' },
+      });
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('refuses someone who is no longer an owner or admin, by their role at that request', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      await harness.setRole(dana.personId, dana.workspaceId, 'member');
+      expect(await readChoice(choice, dana.headers)).toMatchObject({
+        status: 403,
+        body: { error: 'not_allowed' },
+      });
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 403,
+        body: { error: 'not_allowed' },
+      });
+
+      await harness.removeMember(dana.personId, dana.workspaceId);
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 403,
+        body: { error: 'not_a_member' },
+      });
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('refuses a choice made for another workspace than the session has active now', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      const made = await harness.app.request('/api/workspaces', {
+        method: 'POST',
+        headers: dana.headers,
+        body: JSON.stringify({ name: 'Acme', slug: 'acme' }),
+      });
+      expect(made.status).toBe(201);
+      const acme = new Headers(dana.headers);
+      acme.set('x-consola-workspace', ((await made.json()) as { id: string }).id);
+
+      expect(await readChoice(choice, acme)).toMatchObject({
+        status: 409,
+        body: { error: 'choice_for_another_workspace' },
+      });
+      expect(await choose(choice, 41, acme)).toEqual({
+        status: 409,
+        body: { error: 'choice_for_another_workspace' },
+      });
+      // The page that still shows the first workspace is refused as any stale page is.
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 409,
+        body: { error: 'workspace_switched' },
+      });
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('refuses a choice sent from anywhere but the web app, or not as the contract says', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+
+      const elsewhere = new Headers(dana.headers);
+      elsewhere.set('origin', 'http://localhost:6006');
+      expect(await choose(choice, 41, elsewhere)).toEqual({
+        status: 403,
+        body: { error: 'bad_origin' },
+      });
+
+      expect(
+        await answerOf(
+          'GET',
+          CHOICE_PATH,
+          await harness.app.request(CHOICE_PATH, { headers: dana.headers }),
+        ),
+      ).toEqual({ status: 400, body: { error: 'invalid_request' } });
+      for (const body of [{ choice }, { installationId: 41 }, { choice, installationId: '41' }]) {
+        expect(await send('POST', CHOICE_PATH, body, dana.headers)).toEqual({
+          status: 400,
+          body: { error: 'invalid_request' },
+        });
+      }
+      const notJson = new Headers(dana.headers);
+      notJson.set('content-type', 'text/plain');
+      expect(await send('POST', CHOICE_PATH, { choice, installationId: 41 }, notJson)).toEqual({
+        status: 415,
+        body: { error: 'unsupported_media_type' },
+      });
+
+      const signedOut = new Headers(dana.headers);
+      signedOut.delete('cookie');
+      expect(await choose(choice, 41, signedOut)).toEqual({
+        status: 401,
+        body: { error: 'signed_out' },
+      });
+      expect(await storedInstallations()).toEqual([]);
+    });
+
+    it('never logs a code, a token, a choice or a secret', async () => {
+      const log = logged();
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg] };
+      const choice = await choiceFor(dana.headers, 'dana-code');
+      await readChoice(choice, dana.headers);
+      await choose(choice, 41, dana.headers);
+      await signInBack(dana.headers, 'used-code');
+      gitHubDown = true;
+      await signInBack(dana.headers, 'dana-code');
+
+      const lines = log();
+      expect(lines).not.toBe('');
+      for (const secret of [CLIENT_SECRET, 'dana-code', 'ghu_', 'ghs_', choice, appKeyLine]) {
+        expect(secret).not.toBe('');
+        expect(lines).not.toContain(secret);
+      }
     });
   });
 

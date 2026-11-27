@@ -12,6 +12,7 @@ import { createDrizzleStores as createAccountStores } from './accounts/adapters/
 import { checkHealth as checkAccountsHealth } from './accounts/application/health.js';
 import { systemClock } from './company/adapters/clock/systemClock.js';
 import { createGitHubApp, loadGitHubAppKey } from './company/adapters/github/gitHubApp.js';
+import { createInstallChoiceSigner } from './company/adapters/github/installChoiceSigner.js';
 import { createInstallStateSigner } from './company/adapters/github/installStateSigner.js';
 import { createWebhookSignatures } from './company/adapters/github/webhookSignatures.js';
 import { COMPANY_ROUTES, registerCompanyRoutes } from './company/adapters/http/app.js';
@@ -159,6 +160,7 @@ export async function composeApi(
     installations: gitHubStores.installations,
     github,
     installStates: createInstallStateSigner(config.authSecret),
+    installChoices: createInstallChoiceSigner(config.authSecret),
     clock: systemClock,
     webhooks: {
       signatures: config.githubWebhookSecret

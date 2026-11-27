@@ -252,6 +252,114 @@ export function createGitHubApp(deps: {
     }
   }
 
+  /**
+   * Exchanges a callback's one-time code for the person's token, reads what `read` asks of GitHub
+   * with it, and revokes it, whatever happened: the token is used for this one read, never kept.
+   * A code GitHub refuses (used, expired, made up) is `code-refused`; a call GitHub refused or did
+   * not answer is `unavailable`, logged by what it was and GitHub's status.
+   */
+  async function asPerson<T>(
+    code: string,
+    read: (userToken: string) => Promise<T>,
+  ): Promise<T | { kind: 'code-refused' } | { kind: 'unavailable' }> {
+    let userToken: string;
+    try {
+      const what = "exchanging the callback's code";
+      const response = await request(what, `${WEB}/login/oauth/access_token`, {
+        method: 'POST',
+        body: { client_id: config.clientId, client_secret: config.clientSecret, code },
+      });
+      if (!response.ok) {
+        log(`GitHub refused ${what} (HTTP ${response.status}).`);
+        return { kind: 'unavailable' };
+      }
+      const answer = await jsonOf(what, response, USER_TOKEN);
+      if ('error' in answer) {
+        if (answer.error === 'bad_verification_code') return { kind: 'code-refused' };
+        log(`GitHub refused ${what}: ${answer.error.slice(0, 64)}.`);
+        return { kind: 'unavailable' };
+      }
+      userToken = answer.access_token;
+    } catch (error) {
+      if (error instanceof Unanswered) return { kind: 'unavailable' };
+      throw error;
+    }
+
+    try {
+      return await read(userToken);
+    } catch (error) {
+      if (error instanceof Refused) {
+        log(`GitHub refused ${error.what} (HTTP ${error.status}).`);
+        return { kind: 'unavailable' };
+      }
+      if (error instanceof Unanswered) return { kind: 'unavailable' };
+      throw error;
+    } finally {
+      await revoke(userToken);
+    }
+  }
+
+  /** The id of the person's own GitHub account. */
+  async function gitHubUserIdOf(userToken: string): Promise<number> {
+    const who = 'reading who the person is';
+    const me = await request(who, `${API}/user`, { token: userToken });
+    if (!me.ok) throw new Refused(who, me.status);
+    return (await jsonOf(who, me, PERSON)).id;
+  }
+
+  /**
+   * Every installation of the app the person can reach, as GitHub lists them: an organisation's
+   * for each of its members who can read one of its repositories, not only for its owners. One on
+   * an account that is neither an organisation nor a person (an enterprise's) is left out.
+   */
+  async function reachableBy(userToken: string): Promise<GitHubInstallation[]> {
+    const listing = "listing a person's installations";
+    const raw = await allPages(
+      listing,
+      (page) => `${API}/user/installations?per_page=${PER_PAGE}&page=${page}`,
+      userToken,
+      async (response) => {
+        const body = await jsonOf(listing, response, INSTALLATIONS_PAGE);
+        return { total: body.total_count, items: body.installations };
+      },
+    );
+    return raw.map(asInstallation).filter((each) => each !== null);
+  }
+
+  /**
+   * What `checkInstaller` needs to know of the person and one installation: for an
+   * organisation's, their active membership of it (`admin` being an owner), null when they have
+   * none or it is still pending. GitHub refusing to say is logged, naming the permission the app
+   * needs, and unanswered.
+   */
+  async function factsOf(
+    userToken: string,
+    installation: GitHubInstallation | null,
+    gitHubUserId: number,
+  ): Promise<InstallerFacts> {
+    const facts: InstallerFacts = { installation, gitHubUserId, organizationRole: null };
+    if (installation?.account.type !== 'Organization') return facts;
+
+    const { login } = installation.account;
+    const what = `reading the person's membership of ${login}`;
+    const response = await request(
+      what,
+      `${API}/user/memberships/orgs/${encodeURIComponent(login)}`,
+      { token: userToken },
+    );
+    // Not a member (or not yet one) is 404; anything else unanswered says nothing.
+    if (response.status === 404) return facts;
+    if (!response.ok) {
+      log(
+        `GitHub refused ${what} (HTTP ${response.status}). The app needs the Members organization permission (read) to tell an organisation's owners from its members.`,
+      );
+      throw new Unanswered();
+    }
+    const membership = await jsonOf(what, response, MEMBERSHIP);
+    if (membership.state !== 'active') return facts;
+    return { ...facts, organizationRole: membership.role === 'admin' ? 'admin' : 'member' };
+  }
+
   async function installationToken(installationId: number): Promise<string | 'gone'> {
     const kept = installationTokens.get(installationId);
     if (kept && kept.expiresAt - TOKEN_MARGIN_MS > now()) return kept.token;
@@ -352,87 +460,38 @@ export function createGitHubApp(deps: {
     mintToken,
     revokeToken: revokeInstallationToken,
 
+    signInUrl(state) {
+      // No `redirect_uri`: GitHub sends the person to the app's callback URL, the one the code
+      // exchange expects.
+      return `${WEB}/login/oauth/authorize?client_id=${encodeURIComponent(config.clientId)}&state=${encodeURIComponent(state)}`;
+    },
+
     installUrl(state) {
       return `${WEB}/apps/${config.slug}/installations/new?state=${encodeURIComponent(state)}`;
     },
 
-    async installerFacts(code, installationId) {
-      let userToken: string;
-      try {
-        const what = "exchanging the callback's code";
-        const response = await request(what, `${WEB}/login/oauth/access_token`, {
-          method: 'POST',
-          body: { client_id: config.clientId, client_secret: config.clientSecret, code },
-        });
-        if (!response.ok) {
-          log(`GitHub refused ${what} (HTTP ${response.status}).`);
-          return { kind: 'unavailable' };
-        }
-        const answer = await jsonOf(what, response, USER_TOKEN);
-        if ('error' in answer) {
-          if (answer.error === 'bad_verification_code') return { kind: 'code-refused' };
-          log(`GitHub refused ${what}: ${answer.error.slice(0, 64)}.`);
-          return { kind: 'unavailable' };
-        }
-        userToken = answer.access_token;
-      } catch (error) {
-        if (error instanceof Unanswered) return { kind: 'unavailable' };
-        throw error;
-      }
-
-      try {
-        const who = 'reading who the person is';
-        const me = await request(who, `${API}/user`, { token: userToken });
-        if (!me.ok) throw new Refused(who, me.status);
-        const { id: gitHubUserId } = await jsonOf(who, me, PERSON);
-
-        const listing = "listing a person's installations";
-        const raw = await allPages(
-          listing,
-          (page) => `${API}/user/installations?per_page=${PER_PAGE}&page=${page}`,
-          userToken,
-          async (response) => {
-            const body = await jsonOf(listing, response, INSTALLATIONS_PAGE);
-            return { total: body.total_count, items: body.installations };
-          },
-        );
+    installerFacts(code, installationId) {
+      return asPerson(code, async (userToken) => {
+        const gitHubUserId = await gitHubUserIdOf(userToken);
         const installation =
-          raw.map(asInstallation).find((each) => each?.id === installationId) ?? null;
+          (await reachableBy(userToken)).find((each) => each.id === installationId) ?? null;
+        return {
+          kind: 'read' as const,
+          facts: await factsOf(userToken, installation, gitHubUserId),
+        };
+      });
+    },
 
-        let organizationRole: InstallerFacts['organizationRole'] = null;
-        if (installation?.account.type === 'Organization') {
-          const { login } = installation.account;
-          const what = `reading the person's membership of ${login}`;
-          const response = await request(
-            what,
-            `${API}/user/memberships/orgs/${encodeURIComponent(login)}`,
-            { token: userToken },
-          );
-          // Not a member (or not yet one) is 404; anything else unanswered says nothing.
-          if (response.status !== 404) {
-            if (!response.ok) {
-              log(
-                `GitHub refused ${what} (HTTP ${response.status}). The app needs the Members organization permission (read) to tell an organisation's owners from its members.`,
-              );
-              return { kind: 'unavailable' };
-            }
-            const membership = await jsonOf(what, response, MEMBERSHIP);
-            if (membership.state === 'active') {
-              organizationRole = membership.role === 'admin' ? 'admin' : 'member';
-            }
-          }
+    installationsOf(code) {
+      return asPerson(code, async (userToken) => {
+        const gitHubUserId = await gitHubUserIdOf(userToken);
+        const installations: InstallerFacts[] = [];
+        // One at a time: each organisation's membership is one more call to GitHub.
+        for (const installation of await reachableBy(userToken)) {
+          installations.push(await factsOf(userToken, installation, gitHubUserId));
         }
-        return { kind: 'read', facts: { installation, gitHubUserId, organizationRole } };
-      } catch (error) {
-        if (error instanceof Refused) {
-          log(`GitHub refused ${error.what} (HTTP ${error.status}).`);
-          return { kind: 'unavailable' };
-        }
-        if (error instanceof Unanswered) return { kind: 'unavailable' };
-        throw error;
-      } finally {
-        await revoke(userToken);
-      }
+        return { kind: 'read' as const, installations };
+      });
     },
 
     async repositoriesOf(installationId) {
