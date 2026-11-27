@@ -13,6 +13,7 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ```bash
 pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
 pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
+pnpm run dev:cloud:all    # All of it locally: API, web, runner and hooks tunnel (tools/dev-cloud.mjs)
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
