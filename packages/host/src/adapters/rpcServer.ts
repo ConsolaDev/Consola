@@ -759,7 +759,7 @@ const app = Effect.fn('host.app')(function* (
   // A person's follow-up for an agent run's orchestrator, from the cell: a pass, and no CORS
   // (`followUpHttp.ts`). Every other session has no such path: it is the `404` below.
   if (url.pathname === FOLLOW_UP_PATH && agentRun !== null) {
-    return yield* serveFollowUp(agentRun, verify);
+    return yield* serveFollowUp(agentRun, verify, options.sessionId);
   }
   // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
   if (url.pathname !== WS_PATH) {

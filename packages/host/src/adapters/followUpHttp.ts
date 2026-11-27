@@ -13,7 +13,9 @@
  * else. Its answer is the protocol's `FollowUpReceipt`, or `503` while the run's prompt is not yet
  * sent.
  *
- * No CORS: the cell calls it, never a page. The pass and the text are never logged.
+ * No CORS: the cell calls it, never a page. A failure is logged by its name alone, with the
+ * session and the key: never its message or what it carries, since a refusal of t3's can hold the
+ * command it was handed, and the person's text with it. The pass and the text are never logged.
  */
 import { FOLLOW_UP_BODY_MAX_BYTES, readFollowUp } from '@consola/runner-protocol';
 import type { FollowUpReceipt } from '@consola/runner-protocol';
@@ -56,25 +58,35 @@ const parseJson = (
   }
 };
 
-/** A failure's detail with the pass and the text taken out, so it can be logged. */
-const scrubbed = (cause: Cause.Cause<unknown>, secrets: readonly string[]): string =>
-  secrets.reduce(
-    (detail, secret) => (secret === '' ? detail : detail.replaceAll(secret, '[taken out]')),
-    Cause.pretty(cause),
-  );
+/** A name as a log may carry it: a tag or a class, letters and digits alone. */
+const NAME = /^[A-Za-z][A-Za-z0-9]{0,63}$/;
 
-/** Answers one request to an agent run's follow-up path. */
+/**
+ * What a failure is, for the log: its tag, or its class, and nothing else. Never its message,
+ * its cause or its fields, which may hold the command t3 was handed, and the text in it.
+ */
+const failureName = (cause: Cause.Cause<unknown>): string => {
+  if (Cause.hasInterruptsOnly(cause)) return 'Interrupted';
+  const failure = Cause.squash(cause);
+  if (typeof failure !== 'object' || failure === null) return 'unknown';
+  const tag = (failure as { readonly _tag?: unknown })._tag;
+  if (typeof tag === 'string' && NAME.test(tag)) return tag;
+  if (failure instanceof Error && NAME.test(failure.name)) return failure.name;
+  return 'unknown';
+};
+
+/** Answers one request to an agent run's follow-up path, for the session `sessionId`. */
 export const serveFollowUp = Effect.fn('serveFollowUp')(
   function* (
     agentRun: Pick<AgentRunSession, 'followUp'>,
     verify: (pass: string) => Effect.Effect<PassClaims, PassRejected>,
+    sessionId: string,
   ) {
     const request = yield* HttpServerRequest.HttpServerRequest;
     if (request.method !== 'POST') {
       return HttpServerResponse.empty({ status: 405, headers: { allow: 'POST' } });
     }
-    const pass = bearerPass(request);
-    const verified = yield* verify(pass).pipe(Effect.result);
+    const verified = yield* verify(bearerPass(request)).pipe(Effect.result);
     if (verified._tag === 'Failure') return jsonAnswer({ error: 'pass_refused' }, 401);
     const body = yield* request.text.pipe(
       Effect.provideService(
@@ -95,8 +107,7 @@ export const serveFollowUp = Effect.fn('serveFollowUp')(
       .pipe(Effect.result);
     if (delivered._tag === 'Failure') {
       yield* Effect.logError(
-        `The follow-up ${key} was refused by t3; answered 500.`,
-        scrubbed(Cause.fail(delivered.failure), [pass, text]),
+        `Session ${sessionId}: the follow-up ${key} was refused by t3 (${failureName(Cause.fail(delivered.failure))}); answered 500.`,
       );
       return jsonAnswer({ error: 'not_delivered' }, 500);
     }
@@ -108,15 +119,11 @@ export const serveFollowUp = Effect.fn('serveFollowUp')(
     const receipt: FollowUpReceipt = { outcome: delivered.success };
     return jsonAnswer(receipt);
   },
-  // A failure of the host's own: logged with the pass taken out, and answered 500.
-  Effect.catchCause((cause) =>
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      yield* Effect.logError(
-        'The agent run’s follow-up failed inside the host; answered 500.',
-        scrubbed(cause, [bearerPass(request)]),
-      );
-      return HttpServerResponse.empty({ status: 500 });
-    }),
-  ),
+  // A failure of the host's own: logged by its name alone, and answered 500.
+  (effect, _agentRun, _verify, sessionId) =>
+    Effect.catchCause(effect, (cause) =>
+      Effect.logError(
+        `Session ${sessionId}: a follow-up failed inside the host (${failureName(cause)}); answered 500.`,
+      ).pipe(Effect.as(HttpServerResponse.empty({ status: 500 }))),
+    ),
 );

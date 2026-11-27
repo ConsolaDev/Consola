@@ -8,6 +8,7 @@ import * as HttpServerResponse from 'effect/http/HttpServerResponse';
 import * as Logger from 'effect/Logger';
 import * as Schema from 'effect/Schema';
 import { describe, expect, it } from 'vite-plus/test';
+import { followUpMessage } from '../core/followUp.ts';
 import type { FollowUpDelivery, PersonFollowUp } from '../runtime/agentRun.ts';
 import type { AgentRunSession, ThreadHandle } from '../runtime/threadRuntime.ts';
 import { signCellPass } from '../testing/cellPass.ts';
@@ -83,7 +84,7 @@ const answer = async (
   });
   const response = HttpServerResponse.toWeb(
     await Effect.runPromise(
-      serveFollowUp(agentRun, verify).pipe(
+      serveFollowUp(agentRun, verify, SESSION).pipe(
         Effect.provideService(HttpServerRequest.HttpServerRequest, HttpServerRequest.fromWeb(sent)),
         Effect.provide(Logger.layer([capture])),
       ),
@@ -175,18 +176,44 @@ describe('serveFollowUp', () => {
     expect(answered.headers.get('retry-after')).toBe('5');
   });
 
-  it('logs a refusal by t3 without the pass or the text, and answers 500', async () => {
+  /**
+   * What a failure of t3's may carry: the command it was handed, so the text as the person wrote
+   * it, as the host composed it (fenced) and as JSON escapes it, and the pass beside them.
+   */
+  const carried = [
+    PASS,
+    followUp.text,
+    followUpMessage({ personId: 'person-acme-1', label: followUp.authorLabel }, followUp.text),
+    JSON.stringify({ text: `${followUp.text}\n"quoted"` }),
+  ].join(' | ');
+
+  /** Whether a log line holds any part of the text or the pass. */
+  const leaks = (line: string) =>
+    line.includes(PASS) ||
+    line.includes(followUp.text) ||
+    line.includes('cart page') ||
+    line.includes('Follow-up from a person');
+
+  it('logs a refusal by t3 by its name, the session and the key alone, and answers 500', async () => {
     const logged: string[] = [];
-    const refusing = fakeRun(
-      Effect.fail(new T3Refused({ detail: `t3 broke on ${PASS} and ${followUp.text}` })),
-    ).agentRun;
+    const refusing = fakeRun(Effect.fail(new T3Refused({ detail: carried }))).agentRun;
     const answered = await answer(refusing, request(followUp), logged);
     expect(answered).toMatchObject({ status: 500, body: { error: 'not_delivered' } });
-    expect(logged).toHaveLength(1);
-    expect(logged[0]).toContain(`The follow-up ${followUp.key} was refused by t3; answered 500.`);
-    expect(logged[0]).toContain('t3 broke on [taken out] and [taken out]');
-    expect(logged[0]).not.toContain(PASS);
-    expect(logged[0]).not.toContain(followUp.text);
+    expect(logged).toEqual([
+      `Session ${SESSION}: the follow-up ${followUp.key} was refused by t3 (T3Refused); answered 500.`,
+    ]);
+    expect(leaks(logged.join('\n'))).toBe(false);
+  });
+
+  it('logs a failure of its own by its name and the session alone, and answers 500', async () => {
+    const logged: string[] = [];
+    const breaking = fakeRun(Effect.die(new Error(carried))).agentRun;
+    const answered = await answer(breaking, request(followUp), logged);
+    expect(answered.status).toBe(500);
+    expect(logged).toEqual([
+      `Session ${SESSION}: a follow-up failed inside the host (Error); answered 500.`,
+    ]);
+    expect(leaks(logged.join('\n'))).toBe(false);
   });
 });
 
