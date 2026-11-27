@@ -39,9 +39,9 @@ src/
   accounts/     domain/ application/ adapters/{auth,persistence,http}
   company/      domain/ application/ adapters/{persistence,http,github,token,runner,clock}
   compose.ts  main.ts  config.ts  startupError.ts  seed.ts    the composition ring
-  http/         the ring's front door (frontDoor.ts)
+  http/         the ring's front door (frontDoor.ts) and health check (health.ts)
   persistence/  the ring's one database and its migrations (database.ts)
-  testing/      the HTTP suites' helpers (harness.ts)
+  testing/      the HTTP suites' helpers (harness.ts), for tests alone
 ```
 
 - `accounts` holds people, sign-in, sessions, workspaces and membership. Its
@@ -65,10 +65,12 @@ src/
   (`openWorkspace`, below, "A workspace is born whole");
 - inside each part, the layer rules hold (below, "The layers");
 - of the workspace's packages, only `@consola/runner-protocol` and
-  `@consola/factory-spec` may be imported, and only from `company`;
-- test files keep their exemption from the layer rules, except that a company
-  test never imports an accounts file: it uses a fake `MembershipReader`.
-  Only the composition's HTTP suites wire both parts.
+  `@consola/factory-spec` may be imported, and only from `company` and from
+  the ring's own tests, which drive `company` as a runner would;
+- test files keep their exemption from the layer rules, except that a part's
+  test never imports the other part, nor `src/testing/`: a company test uses
+  a fake `MembershipReader`, and never imports Better Auth. Only the ring's
+  HTTP suites wire both parts, and only a test imports `src/testing/`.
 
 ## The two rules
 
@@ -216,11 +218,12 @@ Each part is built in rings, and imports point inward only.
   builds the one `OpenAPIHono`: the front door first (`createFrontDoor`,
   `src/http/frontDoor.ts`: the origin check, the body-error answers and
   `defaultHook`), then accounts' routes (`registerAccountRoutes`), company's
-  (`registerCompanyRoutes`) and GitHub's (`registerGitHubRoutes`), then one
-  `GET /api/health` over both parts' probes. The runner's socket comes after
-  the front door. `ROUTES` holds every route the app serves through the
-  contract: `ACCOUNT_ROUTES`, `COMPANY_ROUTES`, `GITHUB_ROUTES` and the health
-  route. `composeApi` is async, because reading the GitHub App's key
+  (`registerCompanyRoutes`) and GitHub's (`registerGitHubRoutes`), then the
+  health check, then the runner's socket. `ROUTES` holds every route the app
+  serves through the contract: `ACCOUNT_ROUTES`, `COMPANY_ROUTES`,
+  `GITHUB_ROUTES` and `RING_ROUTES`. `ORIGIN_EXEMPT` is what the front door's
+  origin check leaves alone (below, "Workspaces"). `composeApi` is async,
+  because reading the GitHub App's key
   and importing the pass key are. A GitHub key file that cannot be read or
   holds no RSA private key, or a pass key that is no Ed25519 private key,
   fails there as a `ConfigError`, which `main.ts` reports like any other
@@ -229,13 +232,22 @@ Each part is built in rings, and imports point inward only.
   `src/accounts/adapters/auth/cli-config.ts`, which builds the stores and
   `createAuth` for Better Auth's schema CLI: it is tooling, and never runs in
   the service.
-- `src/persistence/database.ts` opens the one database and migrates the one
-  chain. Each part gets its Drizzle instance on the same client, and types its
-  stores over its own tables alone. The one schema is put together only here,
-  where both parts' tables are visible, and this is where the creation
-  transaction is handed from accounts to company: `onCreated` is `company`'s
-  `openWorkspace`, with at most one cast of the transaction, commented where
-  it is made.
+- `src/http/health.ts` is the ring's one route of its own, `GET /api/health`
+  (`RING_ROUTES`, `registerHealthRoute`): 200 `{ ok: true }` when each part's
+  `checkHealth` says it can work, else 503 `{ ok: false }`, a check that
+  throws counting as one that cannot. It needs no session and no
+  `x-consola-workspace`. Like the front door, it knows neither part: it is
+  handed their checks.
+- `src/persistence/database.ts` opens the one database (`openDatabase`:
+  `pglite:memory`, `pglite:<folder>`, or `postgres://` through a pool) and
+  migrates the one chain (`migrateDatabase`). Each part gets its Drizzle
+  instance on the same client (`AppDatabase`: `accounts`, `company`), and
+  types its stores over its own tables alone. The one schema (`SCHEMA`) is put
+  together only here, where both parts' tables are visible, and this is where
+  the creation transaction is handed from accounts to company:
+  `workspaceOpening`, which `compose.ts` hands accounts' stores, is the
+  `onCreated` hook that runs `company`'s `openWorkspace` on accounts'
+  transaction, with the one cast of the transaction, commented there.
 - `src/main.ts` loads the environment (`.env`, for any variable the shell
   leaves unset), opens and migrates the database, calls `composeApi` and
   serves. It calls `injectWebSocket(server)` for the runner's socket, and on
@@ -243,8 +255,8 @@ Each part is built in rings, and imports point inward only.
   the server, which would otherwise wait on them, and the database last.
 - `src/startupError.ts` words a failure to start, with every secret the
   configuration holds hidden: `BETTER_AUTH_SECRET`, the Google and GitHub
-  client secrets, the webhook secret, a database password, `RUNNER_SECRET`
-  and `PASS_PRIVATE_KEY`.
+  client secrets, the webhook secret, the database's address and any password
+  in it, `RUNNER_SECRET` and `PASS_PRIVATE_KEY`.
 - `src/config.ts` parses the environment, `REGION` included (one of
   `REGIONS`, `eu` when unset). It is shared configuration that any adapter may
   read, so it stays a pure parser with no I/O, and imports only `shared/`,
@@ -287,11 +299,16 @@ Each part is built in rings, and imports point inward only.
       since the runner's socket is a route, and never a database library or
       `jose`: it is handed the pass key's public half as a string, and never
       signs.
+- The ring's folders have rules of their own. `http/` imports neither part,
+  only `shared/`, and no database, auth or token library: the front door and
+  the health check are handed what they need. `persistence/` imports only
+  the two parts' `adapters/persistence` and `shared/`, and no HTTP, auth or
+  token library. `testing/` is imported only by tests.
 - No file, tests included, imports another app or a workspace package
   (`@consola/*`, or `consola`, the desktop), with two exceptions, the shared
   packages, which `company` alone may import, from any layer, `domain` and
-  `application` included. Only an entry point counts: a path inside one is
-  refused.
+  `application` included, and the ring's own tests too. Only an entry point
+  counts: a path inside one is refused.
   - `@consola/runner-protocol` (`packages/runner-protocol`, MIT), what the app
     and its runners say to each other: the messages over a runner's socket,
     the readers of a repository and a harness, and the session pass's claims.
@@ -303,8 +320,9 @@ Each part is built in rings, and imports point inward only.
     files it stores (below, "Factories"). It parses texts it is handed and
     does no I/O.
 - Test files (`*.test.ts`) are exempt from the layer rules, because they wire
-  real pieces together the way `compose.ts` does. A company test still never
-  imports an accounts file.
+  real pieces together the way `compose.ts` does. A part's test still never
+  imports the other part or `testing/`, and a company test never imports
+  Better Auth.
 
 `src/boundary.test.ts` enforces the rule and the boundary. It reads every
 file's imports from the TypeScript syntax tree (`import`, `import type`,
@@ -327,14 +345,18 @@ header. The workspace is the session's active one, and the role is read from
 - **The pieces.** `requireCaller` (`company/adapters/http/caller.ts`) is the
   Hono middleware every company route takes as its route `middleware`, never
   through `app.use`. It asks `whoIsAsking` (`WhoIsAsking`, which the ring
-  builds from accounts' `currentSession`) for the person and their session's
-  active workspace (`SignedInPerson`), reads the person's role in that active
-  workspace, and only that one, through the `MembershipReader` (`roleOf`),
-  reads `x-consola-workspace` (`WORKSPACE_HEADER`), and hands the three to
-  `admitCaller` (`company/domain/caller.ts`). The `Caller` it admits (the
-  person's id, the workspace's id and the role, no more) is set on the context
-  (`c.var.caller`). Only `admitCaller` makes a `Caller`: a type-only brand
-  keeps a hand-written one from type-checking.
+  builds from accounts' `currentSession`) for the person, the session and its
+  active workspace (`SignedInPerson`: `personId`, `sessionId`,
+  `activeWorkspaceId`), reads `x-consola-workspace` (`WORKSPACE_HEADER`),
+  reads the person's role in the session's active workspace, and only that
+  one, through the `MembershipReader` (`roleOf`), once the header names it,
+  and hands the three to `admitCaller` (`company/domain/caller.ts`). The
+  `Caller` it admits (the person's id, the session's id, the workspace's id
+  and the role, no more) is set on the context (`c.var.caller`). The
+  session's id is there for GitHub: a Connect's signed state names the
+  session it began in, so only that session can finish it ("Connections").
+  Only `admitCaller` makes a `Caller`: a type-only brand keeps a hand-written
+  one from type-checking.
 - **The order, and the answers.** `admitCaller` refuses, in this order:
   1. no session: 401 `signed_out`;
   2. no `x-consola-workspace`: 400 `invalid_request`;
@@ -451,7 +473,11 @@ from the web app's origin (`PUBLIC_URL`), or it is 403 `bad_origin`, as Better
 Auth requires of its own routes: the session cookie is SameSite=Lax, which
 another site on the same host, any other localhost port, would still be sent.
 The check is the front door's (`createFrontDoor`), for every route of both
-parts. One route is exempt (`originExempt`): GitHub's webhook deliveries,
+parts. Two kinds of path are exempt (`ORIGIN_EXEMPT` in `compose.ts`, handed
+to the front door as `originExempt`, where an entry ending in `/` names every
+path under it and any other one exact path): everything under `/api/auth/`,
+Better Auth's own routes, which check their own trusted origins
+(`PUBLIC_URL`); and GitHub's webhook deliveries,
 `POST /api/github/webhooks`, which carry no cookie and no Origin, and whose
 signature is what is checked ("Webhooks"). `src/accountsApp.test.ts` pins
 accounts' route list, so a new route is added there on purpose.
@@ -658,15 +684,16 @@ development a Cloudflare tunnel brings them to this machine (decided
   `X-Hub-Signature` is never read.
 - **Then, in order:** the headers and the body (400 `invalid_delivery`: no
   `X-GitHub-Event` or `X-GitHub-Delivery`, ones GitHub does not write, or a
-  body that is no JSON object); GitHub's `ping`, answered 200 `pong` and
-  recorded nowhere; the installation the payload names (`installationOfEvent`)
+  body that is no JSON object); GitHub's `ping`, answered 200
+  `{ result: 'pong' }` and recorded nowhere; the installation the payload names (`installationOfEvent`)
   and the workspace that holds it (`InstallationStore.holderOf`), where an
   event through none, or through one no workspace holds (installed on GitHub
   but never connected, or disconnected), is dropped and logged, 422
   `no_installation` or `unknown_installation`; then the record.
 - **Recorded once.** `GitHubEventStore.record` keys each event by its
   workspace and `X-GitHub-Delivery`, and inserts on conflict doing nothing. An
-  event recorded now is 201. A delivery recorded before (GitHub's Redeliver
+  event recorded now is 201 `{ result: 'recorded' }`. A delivery recorded
+  before (GitHub's Redeliver
   after a success, or a captured delivery replayed) changes nothing and is 409
   `duplicate_delivery`. A database that does not answer is 503 `unavailable`,
   and GitHub's Redeliver, which keeps the delivery's id, sends it again.
@@ -694,9 +721,11 @@ The app holds the GitHub App's key, so it alone mints installation tokens,
 and each one is narrowed to the repositories and permissions it is needed for
 (decided 2026-11-21; 14.3, CON-71). The work a token is for (a factory pulled
 from a repository (9.4) or saved to one (37.2), or a run (epic 21)) asks
-through an in-app use case, `mintGitHubToken(ports, { workspaceId, purpose,
-repositoryIds })`. No route mints a token, and nothing calls the use case
-yet.
+through an in-app use case, `mintGitHubToken(ports, { workspaceId,
+installationId, purpose, repositoryIds })`, where `installationId` is the
+installation the workspace holds, by its id on GitHub, and `ports` the
+token-mint store, the GitHub App and the clock. No route mints a token, and
+nothing calls the use case yet.
 
 **Proposed** (14.3, CON-71), not yet confirmed:
 
@@ -771,8 +800,12 @@ all under `company/`.
   The list says which (`canManage`), so the web app shows controls by the
   answer, never by the role.
 - **The role a caller acts with** is `caller.role`, read from `member` for
-  this request (`actingRole`, `teamsSeenBy`), so someone demoted or removed is
-  refused from their next request on.
+  this request (`mayManageTeams`, `teamsSeenBy`), so someone demoted or
+  removed is refused from their next request on.
+- **A team lists only the workspace's members now.** A place outlives a person
+  who leaves the workspace until something takes them out of every team, so
+  every answer drops the places of people the `MembershipReader` no longer
+  lists (`memberIds`, `withCurrentMembers`), in the order they joined.
 - **The order of the checks** is the same in every change: the caller's role
   (a member is refused without anything being read), then the name, then what
   the store finds. A team id is looked up in the caller's workspace alone, so
@@ -976,9 +1009,10 @@ under `company/`.
   exist (epic 21, CON-94). A run shows its approval while it waits and once
   its version is answered.
 - **The demo seed** (`pnpm --filter @consola/cloud-api db:seed`,
-  `src/seed.ts`, then `seedDemoRuns`) writes demo runs for every workspace in
-  `organization`, with its members, both read through the `MembershipReader`
-  (`workspaceIds`, `memberIds`): a demo factory per team (`Demo · <team>`,
+  `src/seed.ts`, then `seedEveryWorkspace`, which runs `seedDemoRuns` for
+  each) writes demo runs for every workspace in `organization`, with its
+  members, both read through the `MembershipReader` (`workspaceIds`,
+  `memberIds`): a demo factory per team (`Demo · <team>`,
   each automation in a file of its own, saved as a new version whenever its
   files differ from `DEMO_FACTORY_FILES`), and runs in every status, a request
   with several runs, background runs and each member's own. Its steps print,
@@ -1239,8 +1273,9 @@ A test sits beside its module and is named after it (`healthProbe.ts`,
 `healthProbe.test.ts`). Rules in `domain` are tested alone. Stores and use
 cases are tested on a migrated `pglite:memory` database through the real
 Drizzle stores: the database is never mocked. Company's tests make each
-`Caller` with `admitCaller` and use a fake `MembershipReader`; they never
-import an accounts file.
+`Caller` with `admitCaller` and use a fake `MembershipReader`
+(`company/application/testMembership.ts`: `fakeMembership`, `callerAs`);
+they never import an accounts file.
 
 The ring's tests check the whole app: `src/rules.test.ts` (the two rules),
 `src/boundary.test.ts` (the parts and the layers) and `src/openapi.test.ts`
@@ -1258,7 +1293,8 @@ against the contract:
 
 They share `src/testing/harness.ts`, which signs people in without Google,
 through Better Auth's `testUtils`: `startApi()` builds the app; `signIn(email,
-name)` returns a session cookie; `member(role, { workspace? })` makes a
+name)` makes a person with a verified email, signs them in and returns
+`{ personId, cookie }`; `member(role, { workspace? })` makes a
 person and a workspace through `POST /api/workspaces` (or a membership in
 another person's workspace), sets it active, and returns
 `{ personId, workspaceId, headers }`, where `headers` holds the cookie, the

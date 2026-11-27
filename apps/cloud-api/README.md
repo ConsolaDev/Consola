@@ -49,12 +49,16 @@ either of them made is not migrated. Start fresh:
 ## Run
 
 ```bash
+pnpm install
 cp apps/cloud-api/.env.example apps/cloud-api/.env   # then fill in the values
 pnpm dev:cloud
 ```
 
 `BETTER_AUTH_SECRET` starts empty, and the API will not start until you set
-one (`openssl rand -base64 32`).
+one (`openssl rand -base64 32`). In a git worktree whose main checkout has
+an `apps/cloud-api/.env`, `pnpm install` links that file instead
+(`pnpm link-env`): skip the copy there, which would write through the link
+into the main checkout's file.
 
 Open `http://localhost:5175`. `pnpm dev:cloud` starts the API and the web app
 together. The API listens on `127.0.0.1:3100`, where the web app's proxy and
@@ -63,8 +67,8 @@ the runner expect it, so leave `PORT` unset or at 3100 unless you also change
 documents every variable. The API refuses to start, naming each bad variable,
 if one is missing or wrong.
 
-`GET /api/health` answers 200 when the API reaches its database, and 503 when
-it does not.
+`GET /api/health` answers 200 `{"ok":true}` when the API reaches its
+database, and 503 `{"ok":false}` when it does not.
 
 By default the data is PGlite (Postgres in-process) in a folder under
 `apps/cloud-api/.data/` (`DATABASE_URL` in `.env.example`). Deleting
@@ -173,14 +177,16 @@ What the API answers GitHub:
 
 | Answer | When |
 | --- | --- |
-| 201 | the event was recorded for the workspace that holds its installation |
-| 200 `pong` | GitHub's ping |
-| 400 | signed, but a header or the body is not what GitHub sends |
-| 401 | no signature, or not one made with the secret over this body |
-| 409 | the workspace had this delivery already (a Redeliver after a success, or a replay) |
-| 413 | over the 25 MB GitHub sends at most |
-| 422 | the event came through an installation no workspace holds (installed on GitHub, but not connected from Consola), or none: dropped and logged |
-| 503 | no `GITHUB_WEBHOOK_SECRET`, or the database did not answer: Redeliver once it does |
+| 201 `{"result":"recorded"}` | the event was recorded for the workspace that holds its installation |
+| 200 `{"result":"pong"}` | GitHub's ping |
+| 400 `invalid_delivery` | signed, but a header or the body is not what GitHub sends |
+| 401 `bad_signature` | no signature, or not one made with the secret over this body |
+| 409 `duplicate_delivery` | the workspace had this delivery already (a Redeliver after a success, or a replay) |
+| 413 `too_large` | over the 25 MB GitHub sends at most |
+| 422 `unknown_installation`, `no_installation` | the event came through an installation no workspace holds (installed on GitHub, but not connected from Consola), or none: dropped and logged |
+| 503 `webhooks_not_configured`, `unavailable` | no `GITHUB_WEBHOOK_SECRET`, or the database did not answer: Redeliver once it does |
+
+An error's body is `{"error":"<code>"}`.
 
 To send a real pull request's event without GitHub, from a connected
 installation's repository:
