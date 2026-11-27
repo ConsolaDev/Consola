@@ -74,6 +74,7 @@ import { isLoopback } from '../core/bind.ts';
 import type { PassLifetime } from '../core/pass.ts';
 import { readableThread } from '../runtime/threadRuntime.ts';
 import type { ThreadHandle } from '../runtime/threadRuntime.ts';
+import { FOLLOW_UP_PATH, serveFollowUp } from './followUpHttp.ts';
 import { serveHostHttp } from './hostHttp.ts';
 import { MCP_PATH, serveMcp } from './mcpHttp.ts';
 import { subscribeHostShell } from './hostShell.ts';
@@ -747,20 +748,26 @@ const app = Effect.fn('host.app')(function* (
   const url = URL.parse(request.url, 'http://consola-host.invalid');
   if (url === null) return HttpServerResponse.empty({ status: 400 });
   const lifetime: PassLifetime = options.dev === true ? 'dev' : 'cell';
+  const verify = (pass: string) =>
+    Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
+      verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000), lifetime),
+    );
   // An agent run's tools, for its threads' CLIs alone: a thread's token, never a pass, and no
   // CORS (`mcpHttp.ts`). Every other session has no `/mcp`: it is the `404` below.
   const agentRun = options.runtime.agentRun;
   if (url.pathname === MCP_PATH && agentRun !== null) return yield* serveMcp(agentRun);
+  // A person's follow-up for an agent run's orchestrator, from the cell: a pass, and no CORS
+  // (`followUpHttp.ts`). Every other session has no such path: it is the `404` below.
+  if (url.pathname === FOLLOW_UP_PATH && agentRun !== null) {
+    return yield* serveFollowUp(agentRun, verify);
+  }
   // Everything but the socket: t3's calls before it, and a CORS-readable `404` for the rest.
   if (url.pathname !== WS_PATH) {
     return yield* serveHostHttp(
       {
         environment: hostEnvironment(options),
         auth: HOST_AUTH,
-        verify: (pass) =>
-          Effect.flatMap(Clock.currentTimeMillis, (nowMs) =>
-            verifyPassWith(pass, key, options.sessionId, Math.floor(nowMs / 1000), lifetime),
-          ),
+        verify,
         issueTicket: (claims) =>
           Effect.map(Clock.currentTimeMillis, (nowMs) => tickets.issue(claims.exp, nowMs)),
         runtime: options.runtime,
