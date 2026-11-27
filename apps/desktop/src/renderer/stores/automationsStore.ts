@@ -4,6 +4,7 @@ import type { WindowContext } from '../../shared/types';
 import { NO_RUN_FILTER } from '../components/Automations/presentation';
 import type { RunListFilter } from '../components/Automations/presentation';
 import { automationsBridge } from '../services/automationsBridge';
+import { labsBridge } from '../services/labsBridge';
 import { windowBridge } from '../services/windowBridge';
 
 export type AutomationsTab = 'activity' | 'automations' | 'templates';
@@ -82,7 +83,11 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   lastSeen: readSeen(),
   runFilters: {},
 
+  // On a computer that hides Automations (labs) no snapshot is ever read,
+  // so every surface that lists runs (the sidebar's rows, the Inbox's gate
+  // marks, Settings › Secrets) has nothing to show.
   load: async (workspaceId) => {
+    if (!labsBridge.automations) return;
     try {
       const snapshot = await automationsBridge.getSnapshot(workspaceId);
       if (snapshot) {
@@ -95,9 +100,11 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
   },
 
   subscribe: () =>
-    automationsBridge.onChanged(({ workspaceId, snapshot }) =>
-      set((state) => ({ snapshots: { ...state.snapshots, [workspaceId]: snapshot } })),
-    ),
+    labsBridge.automations
+      ? automationsBridge.onChanged(({ workspaceId, snapshot }) =>
+          set((state) => ({ snapshots: { ...state.snapshots, [workspaceId]: snapshot } })),
+        )
+      : () => {},
 
   setTab: (tab) => set({ tab }),
   openPanel: (panel) => set({ panel }),

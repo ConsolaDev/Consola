@@ -9,6 +9,7 @@ import type {
 import type { AppUpdateAPI } from '../../shared/appUpdates';
 import type { BrowserAPI, TerminalLinkRule } from '../../shared/browser';
 import type { OpenInAPI } from '../../shared/openIn';
+import type { Labs } from '../../shared/labs';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type {
   BatchResult,
@@ -141,5 +142,7 @@ declare global {
     usageLimitsAPI?: UsageLimitsAPI;
     gitAPI: GitAPI;
     openInAPI: OpenInAPI;
+    /** Which hidden features this computer turned on: read through `labsBridge`. */
+    labsAPI: Labs;
   }
 }

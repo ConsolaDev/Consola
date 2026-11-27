@@ -59,7 +59,8 @@ import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
 import { SecretsPanel } from '../WorkspaceSettings/SecretsPanel';
 import { ActionsPanel } from '../WorkspaceSettings/ActionsPanel';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
-import { APP_GROUP, WORKSPACE_GROUP, isWorkspaceSection } from './settingsSections';
+import { APP_GROUP, WORKSPACE_GROUP, isWorkspaceSection, sectionShown } from './settingsSections';
+import { labsBridge } from '../../services/labsBridge';
 import type { SettingsSection, WorkspaceSectionId } from './settingsSections';
 import { SnoozeOptions } from '../Settings/SnoozeOptions';
 import { SessionRowsOption } from '../Settings/SessionRowsOption';
@@ -176,7 +177,7 @@ export function SettingsModal({
             <NavGroup label="App">{APP_GROUP.map(navItem)}</NavGroup>
             {workspace && (
               <NavGroup label="Workspace" name={workspace.name}>
-                {WORKSPACE_GROUP.map(navItem)}
+                {WORKSPACE_GROUP.filter((id) => sectionShown(id, labsBridge)).map(navItem)}
               </NavGroup>
             )}
             <div className="settings-modal-nav-footer">{navItem('updates')}</div>
@@ -265,7 +266,7 @@ function WorkspaceSection({
       {section === 'actions' && <ActionsPanel workspace={workspace} />}
       {section === 'labels' && <LabelsPanel workspace={workspace} />}
       {section === 'worktrees' && <WorktreeCleanupPanel workspace={workspace} />}
-      {section === 'secrets' && <SecretsPanel workspace={workspace} />}
+      {section === 'secrets' && labsBridge.automations && <SecretsPanel workspace={workspace} />}
       {section === 'browser' && <BrowserSettingsPanel workspace={workspace} />}
       {section === 'danger' && <DangerZonePanel workspace={workspace} />}
     </div>

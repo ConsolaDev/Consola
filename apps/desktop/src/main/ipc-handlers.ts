@@ -273,6 +273,7 @@ import { activityOf } from '../shared/attention';
 import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 import { automationsRetryMs, automationsTickMs } from './test-mode';
+import { automationsShown, labs } from './labs';
 import { noticeTarget } from './automations/noticeTarget';
 
 // One terminal per session tab, kept alive while the session is open
@@ -2157,6 +2158,7 @@ export function setupIpcHandlers(): boolean {
         stepTools: (id) => stepToolSpecs(automations.stepIO(), id),
         browserTools: sessionBrowserTools,
         getWorkspaces: () => workspaces.getAll(),
+        labs: labs(),
       }),
   });
   launcher.mcpHost = mcpHost;
@@ -2339,7 +2341,8 @@ export function setupIpcHandlers(): boolean {
     notify: (notice) => {
       // An end-to-end test reads what was said (`__consolaTest.automationNotices`); nothing else does.
       if (isTest) automationNotices.push({ title: notice.title, body: notice.body });
-      if (!Notification.isSupported()) return;
+      // Hidden on this computer (labs): nothing on screen may lead to it.
+      if (!automationsShown() || !Notification.isSupported()) return;
       const notification = new Notification({ title: notice.title, body: notice.body });
       // Lands on what the notice is about: the session a run started, the
       // automation's page, or else that workspace's Automations dashboard
@@ -3435,7 +3438,7 @@ export function getKnownWorkspaceIds(): Set<string> {
 function rememberedView(workspaceId: string): WorkspaceView {
   if (!viewMemoryService) return EMPTY_VIEW;
   const workspace = workspaceService?.getAll().find((entry) => entry.id === workspaceId);
-  return resolveRememberedView(viewMemoryService.get(workspaceId), workspace);
+  return resolveRememberedView(viewMemoryService.get(workspaceId), workspace, labs());
 }
 
 /**

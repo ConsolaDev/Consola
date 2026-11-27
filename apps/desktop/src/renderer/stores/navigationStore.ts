@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { labsBridge } from '../services/labsBridge';
 import { windowBridge } from '../services/windowBridge';
 import type { WorkspaceOverlay } from '../../shared/types';
 import { useAutomationsStore } from './automationsStore';
@@ -136,6 +137,8 @@ export const useNavigationStore = create<NavigationState>()(
       },
 
       openAutomations: () => {
+        // Nothing leads here on a computer that hides it (labs); this is the backstop.
+        if (!labsBridge.automations) return;
         set({ overlay: 'automations' });
         windowBridge.setView(get().activeWorkspaceId, {
           activeSessionId: get().activeSessionId,
@@ -208,6 +211,7 @@ export function subscribeToActivateSession(): () => void {
  */
 export function subscribeToShowAutomations(): () => void {
   return windowBridge.onShowAutomations(({ runId, automation }) => {
+    if (!labsBridge.automations) return;
     useNavigationStore.setState({ overlay: 'automations' });
     if (runId) useAutomationsStore.getState().openPanel({ kind: 'run', runId });
     else if (automation) {

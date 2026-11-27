@@ -207,6 +207,7 @@ async function clientFor(sessionId: string): Promise<Client> {
       localServers,
     }),
     getWorkspaces: () => workspaces,
+    labs: { automations: true },
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'fake-agent', version: '0.0.0' });

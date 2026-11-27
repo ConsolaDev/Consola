@@ -105,6 +105,13 @@ export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {
   roles?: Readonly<Partial<Record<keyof Shape & string, ArgumentRole>>>;
   /** Never offered to a read-only session, even when it changes nothing. */
   fullToolsOnly?: boolean;
+  /**
+   * Reads or changes the workspace's automations, so it is offered to agents
+   * only on a computer that shows Automations (`shared/labs.ts`). A
+   * destructive tool is held back the same way without saying so, because
+   * its approval waits in the Automations dashboard.
+   */
+  partOfAutomations?: boolean;
   /** What `run` would do, changing nothing. */
   preview?(args: z.infer<z.ZodObject<Shape>>, context: ToolContext): Promise<ToolResult>;
   run(args: z.infer<z.ZodObject<Shape>>, context: ToolContext): Promise<ToolResult>;

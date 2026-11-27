@@ -6,6 +6,7 @@ import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
+import { labs } from './labs';
 import { decideAppNavigation, installGuestPolicy } from './browser/guestPolicy';
 import { configurePartition } from './browser/sessionPolicy';
 import {
@@ -102,8 +103,12 @@ export function createWindow(
       // which would stretch the suite's waits into flakiness.
       backgroundThrottling: !isTest,
       // The renderer needs its workspace before the first paint, and an
-      // IPC round trip would cost a frame of empty shell.
-      additionalArguments: [`--consola-window=${JSON.stringify(context)}`],
+      // IPC round trip would cost a frame of empty shell. Its labs likewise:
+      // a hidden section must never flash on screen and vanish.
+      additionalArguments: [
+        `--consola-window=${JSON.stringify(context)}`,
+        `--consola-labs=${JSON.stringify(labs())}`,
+      ],
     },
   });
 
