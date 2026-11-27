@@ -78,7 +78,7 @@ export type AgentTeam = {
   /**
    * `factory.yml`'s `repos:`, each `owner/name`, in the order written, as the steps design reads it
    * (`factoryRepositories`). A request that names no repository, such as one from Slack, works in
-   * the first. Empty when the factory lists none.
+   * the first. Empty when the factory lists none: such a request then works in no repository.
    */
   repositories: string[];
 };
@@ -117,8 +117,11 @@ export type SlackRequest = {
   channelId: string;
   /** The message's permalink. */
   permalink: string;
-  /** `owner/name`: the repository the run works in, checked out on its default branch. */
-  repository: string;
+  /**
+   * `owner/name`: the repository the run works in, checked out on its default branch. Null for a
+   * factory that names none: the run starts in an empty folder, with no git credentials.
+   */
+  repository: string | null;
 };
 
 export type AgentRunPlan = {
