@@ -245,6 +245,38 @@ describe('an agent run, as the API lists it', () => {
     }
   });
 
+  it('reads a request from Slack, with its factory and its message', async () => {
+    const slack = {
+      ...run,
+      id: 'cs-slack',
+      title: 'Code review · Slack: Can you look at the flaky checkout test?',
+      origin: {
+        kind: 'slack',
+        factoryId: 'f-1',
+        factoryName: 'Code review',
+        agent: 'orchestrator',
+        message: {
+          teamId: 'T024BE7LD',
+          channelId: 'C024BE91L',
+          threadTs: '1732700000.000100',
+          messageTs: '1732700000.000100',
+          permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
+        },
+      },
+    } satisfies CloudSession;
+    const { service } = harness({ [LIST]: { status: 200, body: [slack] } });
+    expect(await service.loadSessions(ACME)).toEqual({ kind: 'listed', sessions: [slack] });
+
+    for (const broken of [
+      { ...slack.origin, message: { ...slack.origin.message, permalink: undefined } },
+      { ...slack.origin, message: null },
+      { ...slack.origin, factoryName: 7 },
+    ]) {
+      const refused = harness({ [LIST]: { status: 200, body: [{ ...slack, origin: broken }] } });
+      expect(await refused.service.loadSessions(ACME)).toEqual({ kind: 'unavailable' });
+    }
+  });
+
   it('reads a session from an API that does not say what started it as a person’s', async () => {
     const { origin: _origin, agentRun: _agentRun, ...older } = session;
     const { service } = harness({ [ONE]: { status: 200, body: older } });

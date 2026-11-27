@@ -8,20 +8,21 @@ import {
   agoInWords,
   durationInWords,
   fullTime,
+  itemKindOf,
   itemLabel,
   progressWords,
+  slackSourceOf,
   workedFor,
 } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import { RunStatusIcon, StarterMark } from './RunStatusIcon';
+import { ServiceMark } from './serviceMarks';
 
 /** What a request's row shows of the automations it started, once it is opened. */
 export type ChildrenView =
   | { kind: 'loading' }
   | { kind: 'shown'; runs: RunSummary[] }
   | { kind: 'failed'; message: string };
-
-const ITEM_ICONS = { pr: GitPullRequest, issue: CircleDot } as const;
 
 /**
  * One run in the list, laid out as Warp lays out its runs: its status (a request's with the count
@@ -56,8 +57,10 @@ export function RunRow({
   const childrenId = useId();
   const opens = run.kind === 'request' && (run.children?.total ?? 0) > 0;
   const item = run.item;
-  const ItemIcon =
-    item?.kind && Object.hasOwn(ITEM_ICONS, item.kind) ? ITEM_ICONS[item.kind] : Link2;
+  const kind = item ? itemKindOf(item) : 'other';
+  const ItemIcon = kind === 'pr' ? GitPullRequest : kind === 'issue' ? CircleDot : Link2;
+  // A request from Slack says how it came, with its message's first line.
+  const slack = slackSourceOf(run);
 
   return (
     <li className="runs-entry" data-open={open || undefined}>
@@ -81,8 +84,15 @@ export function RunRow({
           <span className="runs-row-title">{run.title}</span>
           <span className="runs-row-meta">
             {item && (
-              <span className="runs-tag" title={item.title}>
-                <ItemIcon size={12} aria-hidden="true" />
+              <span
+                className="runs-tag"
+                title={slack ? `${slack.words}: ${item.title}` : item.title}
+              >
+                {kind === 'slack' ? (
+                  <ServiceMark service="slack" size={12} />
+                ) : (
+                  <ItemIcon size={12} aria-hidden="true" />
+                )}
                 <span className="runs-tag-text">{itemLabel(item)}</span>
               </span>
             )}

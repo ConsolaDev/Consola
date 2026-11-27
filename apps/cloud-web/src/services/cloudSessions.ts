@@ -46,8 +46,12 @@ const isTextOrNull = (value: unknown): boolean => value === null || isText(value
 const isTime = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-/** What started an agent run, with the parts the pages read: the automation and its pull request. */
+/**
+ * What started an agent run, with the parts the pages read: the automation and its pull request,
+ * or the Slack message a person asked in.
+ */
 function isOrigin(value: unknown): value is CloudSessionOrigin {
+  if (isObject(value) && value.kind === 'slack') return isSlackOrigin(value);
   if (!isObject(value) || value.kind !== 'automation') return false;
   const { item } = value;
   return (
@@ -63,6 +67,22 @@ function isOrigin(value: unknown): value is CloudSessionOrigin {
     isText(item.url) &&
     isText(item.title) &&
     isText(item.headSha)
+  );
+}
+
+/** A request from Slack's origin: its factory, its orchestrator and its message (CON-144). */
+function isSlackOrigin(value: Record<string, unknown>): boolean {
+  const { message } = value;
+  return (
+    isText(value.factoryId) &&
+    isText(value.factoryName) &&
+    isText(value.agent) &&
+    isObject(message) &&
+    isText(message.teamId) &&
+    isText(message.channelId) &&
+    isText(message.threadTs) &&
+    isText(message.messageTs) &&
+    isText(message.permalink)
   );
 }
 
