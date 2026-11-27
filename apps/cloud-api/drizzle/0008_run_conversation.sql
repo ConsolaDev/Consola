@@ -1,2 +1,0 @@
-ALTER TABLE "run" ADD COLUMN "conversation_session_id" text;--> statement-breakpoint
-ALTER TABLE "run" ADD CONSTRAINT "run_conversation_check" CHECK ("run"."conversation_session_id" is null or "run"."kind" = 'request');
