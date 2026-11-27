@@ -727,7 +727,7 @@ from a repository (9.4) or saved to one (37.2), or a run (epic 21)) asks
 through an in-app use case, `mintGitHubToken(ports, { workspaceId,
 installationId, purpose, repositoryIds })`, where `installationId` is the
 installation the workspace holds, by its id on GitHub, and `ports` the
-token-mint store, the GitHub App and the clock. No route mints a token, and
+token-mint store, the GitHub App, the clock and, optionally, a log. No route mints a token, and
 nothing calls the use case yet.
 
 **Proposed** (14.3, CON-71), not yet confirmed:
@@ -750,7 +750,9 @@ nothing calls the use case yet.
   `permissions` (`mintToken`), and a token is handed out only when GitHub
   says it carries exactly those repositories and permissions, plus metadata
   read (`grantedAsAsked`). Anything else is revoked (`DELETE
-  /installation/token`) and refused (`not-as-asked`). GitHub refusing the
+  /installation/token`), logged in one line by its ids alone (the workspace,
+  the installation and the purpose; never the token or a repository's name),
+  and refused (`not-as-asked`). GitHub refusing the
   scope (422: a permission the app lacks, or a repository it stopped
   covering) is `refused`. Each token is a new one: never kept, never reused,
   never the one the repositories are listed with.
