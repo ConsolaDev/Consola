@@ -177,7 +177,9 @@ Each part is built in rings, and imports point inward only.
   (`caller.ts`: `admitCaller`, `Caller`), teams (`team.ts`), factories
   (`factory.ts`) and their templates (`factoryTemplates.ts`), runs (`run.ts`,
   `runApproval.ts`, `runSource.ts`), cloud sessions (`cloudSession.ts`),
-  agent runs (`agentRun.ts`), and GitHub: who may connect it and whether a
+  agent runs (`agentRun.ts`) and their follow-ups (`followUp.ts`:
+  `followUpBody`, `followUpReach`; `hostAddress.ts`: `hostAddressAllowed`,
+  the session host addresses the app calls), and GitHub: who may connect it and whether a
   Connect's state finishes in this session (`connections.ts`:
   `mayManageConnections`, `checkInstallState`), what a webhook delivery's
   headers name and the installation its payload came through (`webhooks.ts`:
@@ -192,13 +194,15 @@ Each part is built in rings, and imports point inward only.
   runs' in `runs.ts`; `seedDemoRuns` and `seedCodeReviewTeam`; the agent runs'
   `startAgentRunsFor` and `startAgentRun` in `agentRuns.ts`; the cloud
   sessions' `sessionOptions`, `startSession`, `listSessions`, `getSession`,
-  `stopSession`, `applyRunnerUpdate` and `issuePass`; a runner's
-  `runnerConnected`, in `runners.ts`; and GitHub's `listConnections`,
+  `stopSession`, `applyRunnerUpdate` and `issuePass`; an agent run's
+  `sendFollowUp`, in `followUps.ts`; a runner's `runnerConnected`, in
+  `runners.ts`; and GitHub's `listConnections`,
   `startGitHubInstall`, `finishGitHubInstall`, `disconnectGitHub`,
   `receiveGitHubWebhook` and `mintGitHubToken`. `ports.ts` holds the stores,
   the probes, the `MembershipReader`, the `TeamStore`, the `FactoryStore`, the
   `RunStore`, the `CloudSessionStore`, the `RunnerChannel`, the `PassSigner`,
-  `Ids`, the `Clock` and the `AgentRunPorts`; `gitHubPorts.ts` holds GitHub's:
+  the `HostChannel`, `Ids`, the `Clock`, the `AgentRunPorts` and the
+  `FollowUpPorts`; `gitHubPorts.ts` holds GitHub's:
   the GitHub App, the Connect state's signer, the webhook signatures, the
   installation and token-mint stores, and the `GitHubEventStore`;
   `slackPorts.ts` holds Slack's: the `SlackApi`, the `SecretSealer`, the
@@ -242,7 +246,11 @@ Each part is built in rings, and imports point inward only.
     runner: the runner's socket, a route of its own on `@hono/node-ws`
     (`runnerSocket.ts`), which calls `runnerConnected` and
     `applyRunnerUpdate` itself. With no runner configured, its channel is
-    `noRunner`, which answers that none is connected.
+    `noRunner`, which answers that none is connected;
+  - `host/` is the `HostChannel`, how the app reaches a running session's
+    host, over `fetch`, at the address its runner reported
+    (`hostChannel.ts`), to an address the deployment calls
+    (`SANDBOX_HOST_SUFFIXES`, `LOCAL_SANDBOXES`; below, "Agent runs").
 
 ### The composition ring
 
@@ -335,7 +343,9 @@ Each part is built in rings, and imports point inward only.
     - `adapters/runner` may import `hono` and `@hono/*` (`@hono/node-ws`),
       since the runner's socket is a route, and never a database library or
       `jose`: it is handed the pass key's public half as a string, and never
-      signs.
+      signs;
+    - `adapters/host` never imports `hono`, a database library or `jose`: it
+      is handed a signed pass, and calls the host with `fetch`.
 - The ring's folders have rules of their own. `http/` imports neither part,
   only `shared/`, and no database, auth or token library: the front door and
   the health check are handed what they need. `persistence/` imports only
@@ -348,7 +358,8 @@ Each part is built in rings, and imports point inward only.
   counts: a path inside one is refused.
   - `@consola/runner-protocol` (`packages/runner-protocol`, MIT), what the app
     and its runners say to each other: the messages over a runner's socket,
-    the readers of a repository and a harness, and the session pass's claims.
+    the readers of a repository and a harness, the session pass's claims, and
+    a follow-up for an agent run's host.
     The protocol calls the app's side of the socket the cell. It does no I/O,
     which its own boundary test proves. Before changing it, read
     `packages/runner-protocol/AGENTS.md`.
@@ -1220,6 +1231,44 @@ in `company/domain/agentRun.ts`, the use cases in
   harness (`harness_not_offered`), or the plan throws or the reader refuses it
   (`agent_run_invalid`, the reason logged). A start the socket cannot send is
   `runner_unreachable`, as a person's is.
+- **Follow-ups** (`sendFollowUp(ports, { workspaceId, sessionId }, { key,
+  text, author: { personId, label } })`, `application/followUps.ts`). The app
+  hands a running agent run's orchestrator a person's message, such as a reply
+  in the Slack thread it answers in (CON-144's E2 calls it; no route does).
+  `followUpBody` checks it with the protocol's `readFollowUp` first (`invalid`,
+  naming the field), and `followUpReach` the session: an agent run of that
+  workspace, `running`, with a host address. A row still `starting`, or
+  running with no address yet, is `starting`; an ended row, a person's
+  session, another workspace's or none is `not_running`, and nothing is sent.
+  Whether the author may talk to the run is the caller's to decide first. Then
+  the app signs a pass for the author (`sub`) in the session's workspace for
+  `FOLLOW_UP_PASS_SECONDS` (60) and sends it with the follow-up straight to the
+  session's host (`HostChannel`, `adapters/host/hostChannel.ts`): `POST
+  <hostUrl>/agent-run/follow-ups`, the pass as bearer, the label as
+  `authorLabel` (a label such as `a teammate in Slack`, never a name). No
+  runner relays it: the app calls the address the runner reported, which the
+  protocol checked only as an origin, so before anything is sent the adapter
+  asks `hostAddressAllowed` (`domain/hostAddress.ts`) whether the deployment
+  calls it: `https:` under one of `SANDBOX_HOST_SUFFIXES` (`e2b.app`, E2B's
+  exposed ports, when unset) on the default port, never an IP address; or
+  `http:` on `127.0.0.1`, `localhost` or `[::1]` only with
+  `LOCAL_SANDBOXES=true` (sandboxes on this machine). Another address is
+  `host_not_allowed`, logged with the session's id alone. The name is not
+  resolved again, so one under an allowed suffix that points at a private
+  address is not caught: a known limit of the POC. The host fences the text, says who
+  wrote it, and queues it after the orchestrator's turn once, keyed by `key`
+  and the message it becomes (`packages/host/AGENTS.md`, "Agent runs"), so
+  other words or another author under a used key are a follow-up of their own.
+  Answers: `delivered`; `already_delivered` (the same follow-up, its key,
+  author and text, reached it before, and this changed nothing);
+  `starting` (the host has not sent the run's first message yet, `503`);
+  `not_running` (the host there refused the pass or runs no agent run, `401`
+  or `404`); and `host_unreachable` (no answer within `HOST_CALL_TIMEOUT_MS`,
+  15 s, a redirect, which is never followed, any other status or receipt, or
+  no pass key); and `host_not_allowed` (above: nothing was sent). Sending the same follow-up again after `starting` or
+  `host_unreachable` is safe: its key and content keep it once. A run whose sandbox stopped is `not_running`; what
+  picks it up again is CON-39's and 41.8's. The adapter logs nothing, neither
+  the pass nor the text.
 - **Templates.** `GET /api/factory-templates` (`listFactoryTemplates`)
   answers `FACTORY_TEMPLATES` (`domain/factoryTemplates.ts`): today one,
   `code-review-team`, factory-spec's `CODE_REVIEW_TEAM_FILES`. The web app

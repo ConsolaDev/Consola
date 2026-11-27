@@ -33,6 +33,45 @@ describe('loadConfig', () => {
       runner: null,
       connectionSecretsKey: null,
       slackPublicUrl: 'http://localhost:5175',
+      sandboxHosts: { suffixes: ['e2b.app'], local: false },
+    });
+  });
+
+  describe("the sessions' host addresses", () => {
+    it('are under e2b.app, with no local sandboxes, when unset or empty', () => {
+      const expected = { suffixes: ['e2b.app'], local: false };
+      expect(loadConfig(valid).sandboxHosts).toEqual(expected);
+      expect(
+        loadConfig({ ...valid, SANDBOX_HOST_SUFFIXES: '', LOCAL_SANDBOXES: '' }).sandboxHosts,
+      ).toEqual(expected);
+    });
+
+    it('read a comma list of host names, lowercased, and LOCAL_SANDBOXES', () => {
+      expect(
+        loadConfig({
+          ...valid,
+          SANDBOX_HOST_SUFFIXES: ' E2B.app, sandboxes.sprocket.example ,',
+          LOCAL_SANDBOXES: 'true',
+        }).sandboxHosts,
+      ).toEqual({ suffixes: ['e2b.app', 'sandboxes.sprocket.example'], local: true });
+    });
+
+    it.each([
+      ['a scheme', 'https://e2b.app'],
+      ['a port', 'e2b.app:443'],
+      ['a leading dot', '.e2b.app'],
+      ['one label', 'localhost'],
+      ['an IP address', '10.0.0.7'],
+    ])('refuse a suffix with %s', (_, suffix) => {
+      expect(failureOf({ ...valid, SANDBOX_HOST_SUFFIXES: suffix }).problems).toEqual([
+        'SANDBOX_HOST_SUFFIXES: must be host names separated by commas, such as e2b.app, with no scheme, port or leading dot',
+      ]);
+    });
+
+    it('refuse LOCAL_SANDBOXES that is not true or false', () => {
+      expect(failureOf({ ...valid, LOCAL_SANDBOXES: 'yes' }).problems).toEqual([
+        'LOCAL_SANDBOXES: must be true or false',
+      ]);
     });
   });
 

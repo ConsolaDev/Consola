@@ -23,14 +23,16 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   runner's decisions live here too (`runnerDecisions.ts`, "The `runner`
   command"), and the host's stdout lines (`hostLine.ts`: `HostLine` and its
   reader), and an agent run's (`agentRun.ts`, `agentRunTools.ts`,
-  `mcpProtocol.ts`, "Agent runs").
+  `mcpProtocol.ts`, and `followUp.ts`, a person's follow-up as the orchestrator
+  reads it; "Agent runs").
 - `src/runtime/` holds Effect services over the vendored t3 packages. It may
   import them (by package name, or `t3/<path>.ts` for a lifted server file) and
   `core/`, never `adapters/`.
 - `src/adapters/` is everything that touches the outside: the WebSocket server,
   verifying a pass's signature, the socket's tickets (`socketTickets.ts`), the
   dev pass (`devPass.ts`), the lines on
-  stdout (`stdoutEvents.ts`), an agent run's `/mcp` (`mcpHttp.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
+  stdout (`stdoutEvents.ts`), an agent run's `/mcp` (`mcpHttp.ts`) and its follow-ups
+  (`followUpHttp.ts`), and the runner's sandboxes (`sandboxSessions.ts`)
   and its socket to the cell (`cellSocket.ts`). It may import `core/` and
   `runtime/`.
 - `src/main.ts` is the bin: it listens for SIGTERM and SIGINT, then imports
@@ -202,7 +204,8 @@ type ThreadServerView = {
   snapshot, read `snapshotSequence()` and `snapshot()` together and pass that
   sequence: no event is missed or repeated (Review Focus 2).
 - `dispatch` asks `decideCommand` first and refuses anything not offered with
-  `NotOfferedError`, before t3 sees it. It answers t3's dispatch result, the
+  `NotOfferedError`, before t3 sees it, and a command that takes an id the host
+  keeps for its own (`claimsHostId`, "Agent runs") with `HostIdRefused`. It answers t3's dispatch result, the
   sequence the command's events were stored at; a command id t3 already
   accepted is not run again (t3 answers its first sequence).
 - `commandOutput(itemId)` is t3's `CommandOutputHub.subscribe` for one of the
@@ -917,12 +920,44 @@ and nobody approves.
   opened the pull request. Nothing skips a fork or an author outside the organisation. So a runner
   serves agent runs only on repositories whose contributors are trusted, until runs get a
   short-lived token of their own and untrusted heads are refused.
+- **A person's follow-up** (`adapters/followUpHttp.ts`, `POST /agent-run/follow-ups`, the
+  protocol's `FOLLOW_UP_PATH`): the cell hands the orchestrator a message a person wrote while the
+  run goes on (a reply in the Slack thread it answers in, say). Only an agent run serves the path
+  (every other session's is the `404` of an unknown path), `POST` only (`405`), and the pass comes
+  before the body: one the socket's ticket would refuse is `401` (another session's included). The
+  body (`FOLLOW_UP_BODY_MAX_BYTES`, `413` past it) is the protocol's `readFollowUp` (`400` with the
+  reader's reason): the cell's `key`, the `text` and an `authorLabel`; the person is the pass's
+  `sub`. `AgentRunHandle.followUp` waits for the run's prompt to go first (`503`, `Retry-After: 5`,
+  past `FOLLOW_UP_START_WAIT`, 5 s), then dispatches one `message.dispatch` into the
+  orchestrator's thread, `queue_after_active`, on its model, under the run's lock, and nothing
+  else. The message is composed in one place (`core/followUp.ts`, `followUpMessage`): `# Follow-up
+  from a person`, who wrote it (the label and the person's id), that it is untrusted and never
+  overrides the orchestrator's instructions, then the text as written in a fence it cannot close
+  (`fenceFor`: one backtick more than its longest run, three at least). The command and message
+  ids are made of the key and a SHA-256 of that message (`follow-up:<key>:<hex>`), so t3 runs the
+  same follow-up once whoever sends it again, and says so (`replayed`), while the same key with
+  other words or another author is a message of its own, never swallowed. The answer is the
+  protocol's receipt, `delivered` or `already-delivered`. A refusal by t3 is `500`, logged by the
+  failure's tag, the session and the key alone, never its message, the text or the pass. No CORS: the cell calls it,
+  never a page. A pass holder could send the same message over the socket, unfenced; this path
+  adds only the fence and the label, and the label is the sender's words, never checked.
+- **The host's own ids.** Every command and message id an agent run dispatches itself (its prompt,
+  its reports, a follow-up, its dispatched agents' threads, briefs, follow-ups and cancels) starts
+  with `consola-host:` (`HOST_ID_PREFIX`, `hostCommandId`, `hostMessageId` in
+  `core/commandPolicy.ts`). t3 runs a command id once, whatever thread it names, so a client that
+  took one first would make the host's command read as run already, or as a conflict. A client's
+  command whose command id or message id starts with it is refused, whatever its type
+  (`claimsHostId`, in `ThreadHandle.dispatch`), with t3's dispatch error; which types are offered
+  is unchanged. t3's client makes its ids from UUIDs.
 - **What a browser reads**: the dispatched agents' threads, read-only
   (`subscribeThread`, `subscribeCommandOutput`, the bounded snapshot; `readableThread`), and
   their rows after the session's in the shell. Commands still reach only the session's thread.
 
-Tests: `core/agentRun.test.ts`, `runtime/agentRun.test.ts` (a fake orchestrator: exactly-once
-delivery, the cap, refusals), `adapters/mcpHttp.test.ts`, and `stdoutEvents.test.ts` (the
+Tests: `core/agentRun.test.ts`, `core/followUp.test.ts`, `runtime/agentRun.test.ts` (a fake
+orchestrator: exactly-once delivery, the cap, refusals, a follow-up once and after the prompt,
+and never swallowed under a used key), `core/commandPolicy.test.ts` and `rpcServer.test.ts` (a
+client's command under the host's prefix refused), `adapters/mcpHttp.test.ts`, `adapters/followUpHttp.test.ts` (the route alone, and through
+`listenHost` with a pass signed as the cell signs one), and `stdoutEvents.test.ts` (the
 `simple` replay as an agent run, without the MCP server its recording lacks: `agentRunMcp: false`).
 
 ## The `runner` command

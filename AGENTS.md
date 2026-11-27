@@ -275,7 +275,8 @@ exceptions. `cloud-api`'s `company` part, and only it (with the ring's own
 tests, which drive it as a runner would), imports
 `packages/runner-protocol` (`@consola/runner-protocol`, MIT), what the app
 and its runners say to each other: the runner socket's messages, the readers
-of a repository and a harness, and the session pass's claims. It does no
+of a repository and a harness, the session pass's claims, and a follow-up the
+app sends an agent run's host. It does no
 I/O, so any layer of `company` may import it; before changing it, read
 `packages/runner-protocol/AGENTS.md`. `company` also imports
 `packages/factory-spec` (`@consola/factory-spec`), the factory files' schema

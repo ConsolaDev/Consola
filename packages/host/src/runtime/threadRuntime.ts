@@ -33,7 +33,7 @@ import { ORCHESTRATION_V2_PROJECTION_SCHEMA_VERSION } from 't3/orchestration-v2/
 import * as ProjectService from 't3/project/ProjectService.ts';
 import * as ProviderRegistry from 't3/provider/ProviderRegistry.ts';
 import * as ServerSettings from 't3/serverSettings.ts';
-import { decideCommand } from '../core/commandPolicy.ts';
+import { claimsHostId, decideCommand, HOST_ID_PREFIX } from '../core/commandPolicy.ts';
 import type { SessionSpec } from '../core/sessionSpec.ts';
 import { openAgentRun } from './agentRun.ts';
 import type { AgentRunHandle } from './agentRun.ts';
@@ -72,13 +72,17 @@ export type ThreadHandle = {
    */
   events(afterSequence?: number): Stream.Stream<ThreadEvent, ThreadRuntimeError>;
   /**
-   * Runs one of the commands the host offers (`decideCommand`); refuses every other. Answers t3's
-   * dispatch result: the sequence the command's events were stored at (a command id already
-   * accepted is not run again, and answers its first sequence).
+   * Runs one of the commands the host offers (`decideCommand`); refuses every other, and one that
+   * takes an id the host keeps for its own (`claimsHostId`). Answers t3's dispatch result: the
+   * sequence the command's events were stored at (a command id already accepted is not run again,
+   * and answers its first sequence).
    */
   dispatch(
     command: OrchestrationV2Command,
-  ): Effect.Effect<{ readonly sequence: number }, NotOfferedError | ThreadRuntimeError>;
+  ): Effect.Effect<
+    { readonly sequence: number },
+    NotOfferedError | HostIdRefused | ThreadRuntimeError
+  >;
   /**
    * The live output of one of the thread's command rows, from t3's `CommandOutputHub` (the one
    * its provider sessions write to), as t3's `subscribeCommandOutput` serves it.
@@ -215,6 +219,15 @@ export class NotOfferedError extends Schema.TaggedError<NotOfferedError>()('NotO
 }) {
   override get message(): string {
     return `This host does not offer ${this.commandType}.`;
+  }
+}
+
+/** A client's command took an id the host keeps for its own commands (`claimsHostId`). */
+export class HostIdRefused extends Schema.TaggedError<HostIdRefused>()('HostIdRefused', {
+  commandType: Schema.String,
+}) {
+  override get message(): string {
+    return `This host keeps ids that start with ${HOST_ID_PREFIX} for its own commands; send ${this.commandType} with another id.`;
   }
 }
 
@@ -479,6 +492,9 @@ const make = (
           dispatch: Effect.fn('ThreadHandle.dispatch')(function* (command) {
             if (decideCommand(command.type) === 'not-offered') {
               return yield* new NotOfferedError({ commandType: command.type });
+            }
+            if (claimsHostId(command)) {
+              return yield* new HostIdRefused({ commandType: command.type });
             }
             const result = yield* orchestrator
               .dispatch(command)

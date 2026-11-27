@@ -19,6 +19,7 @@ const config: CloudConfig = {
   runner: null,
   connectionSecretsKey: 'c3Byb2NrZXQtY29ubmVjdGlvbi1zZWNyZXRzLWtleSE=',
   slackPublicUrl: 'http://localhost:5175',
+  sandboxHosts: { suffixes: ['e2b.app'], local: false },
 };
 
 describe('describeStartupFailure', () => {
