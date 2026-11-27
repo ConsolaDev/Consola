@@ -22,6 +22,7 @@ import { randomIds } from './company/adapters/persistence/cloudSessions.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores as createCompanyStores } from './company/adapters/persistence/stores.js';
 import { createRunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import { createSecretSealer } from './company/adapters/sealing/secretSealer.js';
 import type { RunnerSocket } from './company/adapters/runner/runnerSocket.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
@@ -178,7 +179,11 @@ export async function composeApi(
     },
   });
 
-  registerSlackRoutes(app, { whoIsAsking, membership, publicUrl: config.publicUrl });
+  // Slack is off without the key that seals its secrets.
+  const sealer = config.connectionSecretsKey
+    ? createSecretSealer(config.connectionSecretsKey)
+    : null;
+  registerSlackRoutes(app, { whoIsAsking, membership, publicUrl: config.publicUrl, sealer });
 
   registerHealthRoute(app, [
     () => checkAccountsHealth(accounts.health),

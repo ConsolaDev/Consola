@@ -40,6 +40,17 @@ export type SlackInstallStateSigner = {
   read(token: string): SlackInstallState | null;
 };
 
+/**
+ * Makes the tokens of one-time links: unguessable, `SLACK_LINK_TOKEN_BYTES` random bytes, and the
+ * hash each is kept as.
+ */
+export type LinkTokens = {
+  /** A new token, as it goes in the link's address. */
+  newToken(): string;
+  /** What is kept of a token, and looked up by: its SHA-256, in hex. */
+  hashOf(token: string): string;
+};
+
 // Slack's Web API.
 
 /**
