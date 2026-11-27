@@ -15,17 +15,24 @@ import {
   deleteTeamMember,
   getFactory,
   getFactoryVersion,
+  getRun,
   listFactories,
+  listRuns,
   listTeams,
   patchFactory,
   patchTeam,
   postFactory,
   postFactoryVersion,
+  postRunApproval,
   postTeam,
   putTeamMember,
 } from './company/adapters/http/contract.js';
 import { GITHUB_WEBHOOK_PATH } from './company/adapters/http/gitHubContract.js';
+import { createDrizzleStores } from './company/adapters/persistence/stores.js';
 import { teams } from './company/adapters/persistence/tables.js';
+import { recordRun } from './company/application/runs.js';
+import { NO_STEP_DETAIL } from './company/domain/run.js';
+import type { RunWrite, StepRecord } from './company/domain/run.js';
 import { FIRST_TEAM_NAME } from './company/domain/team.js';
 import type { ROUTES } from './compose.js';
 import { getHealth } from './http/health.js';
@@ -1059,6 +1066,458 @@ describe('factories', () => {
     expect(await ask(deleteTeam, `/api/teams/${platform.id}`, owner)).toEqual({
       status: 409,
       body: { error: 'owns_factories' },
+    });
+  });
+});
+
+// Runs: recorded through the store, as a runner will, and read over HTTP.
+
+const runStep = (id: string, kind: StepRecord['kind'] = 'agent'): StepRecord => ({
+  id,
+  kind,
+  status: 'running',
+  attempt: 1,
+  agent: kind === 'agent' ? 'reviewer' : null,
+  model: null,
+  startedAt: null,
+  finishedAt: null,
+  costUsd: null,
+  error: null,
+  skipped: null,
+  ...NO_STEP_DETAIL,
+});
+
+const minute = (n: number) => new Date(Date.UTC(2026, 10, 20, 10, n)).toISOString();
+
+const cronRun = (id: string, factoryId: string, overrides: Partial<RunWrite> = {}): RunWrite => ({
+  id,
+  factoryId,
+  factoryVersion: 1,
+  parent: null,
+  automation: 'nightly',
+  status: 'completed',
+  waitingOn: null,
+  trigger: 'cron',
+  triggerDetail: '0 3 * * *',
+  startedBy: null,
+  item: null,
+  runner: 'cloud',
+  steps: [runStep('build')],
+  request: null,
+  conversation: null,
+  summary: 'Built.',
+  error: null,
+  costUsd: 0.1,
+  createdAt: minute(0),
+  startedAt: minute(0),
+  finishedAt: minute(1),
+  updatedAt: minute(1),
+  ...overrides,
+});
+
+/** A request `startedBy` made of `factoryId`'s orchestrator, waiting on the run it started. */
+const personsRequest = (
+  id: string,
+  factoryId: string,
+  startedBy: string,
+  overrides: Partial<RunWrite> = {},
+) =>
+  cronRun(id, factoryId, {
+    automation: null,
+    status: 'waiting',
+    waitingOn: 'run',
+    trigger: 'manual',
+    triggerDetail: null,
+    startedBy,
+    steps: [runStep('orchestrator', 'orchestrator')],
+    request: {
+      text: '<b>Ship</b> the billing page\nby Friday.',
+      budget: { usd: 20, runs: 8 },
+      spent: { usd: 2.5, runs: 1 },
+      question: null,
+    },
+    summary: null,
+    costUsd: 2.5,
+    finishedAt: null,
+    ...overrides,
+  });
+
+/** Records each run in the workspace through the store, as a runner will. */
+async function recordRuns(workspaceId: string, ...runs: RunWrite[]) {
+  const store = createDrizzleStores(harness.db.company).runs;
+  for (const run of runs) {
+    const recorded = await recordRun(store, workspaceId, run);
+    expect([run.id, recorded.kind]).toEqual([run.id, 'recorded']);
+  }
+}
+
+type RunListBody = {
+  runs: Array<{ id: string; phase: string; children: unknown; title: string }>;
+  nextCursor: string | null;
+  counts: Record<string, number>;
+  facets: {
+    factories: Array<{ id: string }>;
+    teams: Array<{ id: string }>;
+    automations: unknown[];
+  };
+};
+
+async function runsSeenBy(who: Member, search = '') {
+  const answer = await ask(listRuns, `/api/runs${search}`, who);
+  expect(answer.status).toBe(200);
+  return answer.body as RunListBody;
+}
+
+/** Acme with a Platform team nobody is in yet: General owns Reviews, Platform Deploys. */
+async function acmeWithFactories() {
+  const acme = await acmeWithMembers();
+  const platform = await makeTeam(acme.owner, 'Platform');
+  const reviews = await makeFactory(acme.owner, 'Reviews', acme.general.id);
+  const deploys = await makeFactory(acme.owner, 'Deploys', platform.id);
+  return { ...acme, platform, reviews, deploys };
+}
+
+describe('runs', () => {
+  it('list the runs of the factories the caller sees, newest first, with counts and facets', async () => {
+    const { owner, member, general, platform, reviews, deploys } = await acmeWithFactories();
+    await recordRuns(
+      owner.workspaceId,
+      cronRun('reviews-nightly', reviews.id),
+      personsRequest('ship', reviews.id, member.personId, { createdAt: minute(5) }),
+      cronRun('ship-review', reviews.id, {
+        parent: { runId: 'ship', move: 1 },
+        trigger: 'manual',
+        triggerDetail: null,
+        automation: 'review',
+        status: 'needs-approval',
+        createdAt: minute(6),
+      }),
+      cronRun('deploys-nightly', deploys.id, { createdAt: minute(2), status: 'failed' }),
+    );
+
+    const forOwner = await runsSeenBy(owner);
+    expect(forOwner.runs.map((run) => [run.id, run.phase])).toEqual([
+      ['ship', 'needs-you'],
+      ['deploys-nightly', 'failed'],
+      ['reviews-nightly', 'completed'],
+    ]);
+    expect(forOwner.runs[0]?.title).toBe('<b>Ship</b> the billing page');
+    expect(forOwner.runs[0]?.children).toEqual({ total: 1, active: 0, needsYou: 1, failed: 0 });
+    expect(forOwner.counts).toEqual({
+      active: 0,
+      'needs-you': 1,
+      completed: 1,
+      failed: 1,
+      stopped: 0,
+    });
+    expect(forOwner.nextCursor).toBeNull();
+    expect(forOwner.facets).toEqual({
+      factories: [
+        { id: deploys.id, name: 'Deploys', teamId: platform.id, latestVersion: 1 },
+        { id: reviews.id, name: 'Reviews', teamId: general.id, latestVersion: 1 },
+      ],
+      teams: [
+        { id: general.id, name: FIRST_TEAM_NAME },
+        { id: platform.id, name: 'Platform' },
+      ],
+      // By name, then by factory id.
+      automations: [
+        ...[deploys.id, reviews.id].sort().map((factoryId) => ({ factoryId, name: 'nightly' })),
+        { factoryId: reviews.id, name: 'review' },
+      ],
+    });
+
+    const forMember = await runsSeenBy(member);
+    expect(forMember.runs.map((run) => run.id)).toEqual(['ship', 'reviews-nightly']);
+    expect(forMember.facets.factories.map((factory) => factory.id)).toEqual([reviews.id]);
+    expect(forMember.facets.teams.map((team) => team.id)).toEqual([general.id]);
+  });
+
+  it('read a request with its facts and runs, and a run with the request that started it', async () => {
+    const { owner, member, reviews } = await acmeWithFactories();
+    await recordRuns(
+      owner.workspaceId,
+      personsRequest('ship', reviews.id, member.personId),
+      cronRun('ship-review', reviews.id, {
+        parent: { runId: 'ship', move: 1 },
+        trigger: 'manual',
+        triggerDetail: null,
+        automation: 'review',
+        status: 'running',
+        finishedAt: null,
+      }),
+    );
+    const ship = await ask(getRun, '/api/runs/ship', member);
+    expect(ship.status).toBe(200);
+    expect(ship.body).toMatchObject({
+      run: {
+        id: 'ship',
+        kind: 'request',
+        progress: null,
+        costUsd: 2.5,
+        startedBy: member.personId,
+      },
+      parent: null,
+      steps: [{ id: 'orchestrator', kind: 'orchestrator' }],
+      request: {
+        text: '<b>Ship</b> the billing page\nby Friday.',
+        budget: { usd: 20, runs: 8 },
+        spent: { usd: 2.5, runs: 1 },
+        question: null,
+      },
+      children: [{ id: 'ship-review', parentId: 'ship', trigger: 'manual', startedBy: null }],
+      conversation: null,
+    });
+
+    const child = await ask(getRun, '/api/runs/ship-review', member);
+    expect(child.body).toMatchObject({
+      run: { kind: 'automation', progress: { total: 1, done: 0, current: 'build' } },
+      parent: { id: 'ship', title: '<b>Ship</b> the billing page' },
+      request: null,
+      children: [],
+    });
+  });
+
+  it('show what each step was asked, did, printed and produced', async () => {
+    const { owner, member, reviews } = await acmeWithFactories();
+    const saved = await saveFiles(reviews.id, owner, {
+      baseVersion: 1,
+      files: [
+        { path: 'factory.yml', content: 'version: 1\n' },
+        {
+          path: 'automations/nightly.yaml',
+          content:
+            'on: { cron: "0 3 * * *" }\nscope: storefront\nsteps:\n  - id: build\n    run: pnpm build\n    env: { TARGET: storefront }\n',
+        },
+      ],
+    });
+    expect(saved.status).toBe(201);
+    const build: StepRecord = {
+      ...runStep('build', 'run'),
+      status: 'completed',
+      artifacts: [{ name: 'output', bytes: 912 }],
+      command: { exitCode: 0, signal: null, stdoutBytes: 900, stderrBytes: 12, truncated: false },
+      output: { stdout: '<b>✓ built</b>\n', stderr: 'warn\n', truncated: false },
+    };
+    await recordRuns(
+      owner.workspaceId,
+      cronRun('nightly-v2', reviews.id, { factoryVersion: 2, steps: [build] }),
+    );
+
+    const answer = await ask(getRun, '/api/runs/nightly-v2', member);
+    expect(answer.status).toBe(200);
+    expect((answer.body as { steps: unknown[] }).steps).toEqual([
+      {
+        ...build,
+        definition: {
+          kind: 'run',
+          prompt: null,
+          action: null,
+          agent: null,
+          run: 'pnpm build',
+          env: [{ name: 'TARGET', value: 'storefront' }],
+          if: null,
+          outputs: [],
+          artifacts: [],
+          maxTurns: null,
+          timeoutMs: 600_000,
+          file: 'automations/nightly.yaml',
+          version: 2,
+          range: { start: 4, end: 6 },
+        },
+      },
+    ]);
+  });
+
+  it('are not found for a member outside the team, an unknown id, or another workspace', async () => {
+    const { owner, admin, member, deploys } = await acmeWithFactories();
+    await recordRuns(owner.workspaceId, cronRun('deploys-nightly', deploys.id));
+    const notFound = { status: 404, body: { error: 'run_not_found' } };
+    expect(await ask(getRun, '/api/runs/deploys-nightly', member)).toEqual(notFound);
+    expect(await ask(getRun, '/api/runs/nothing', owner)).toEqual(notFound);
+    expect((await ask(getRun, '/api/runs/deploys-nightly', admin)).status).toBe(200);
+    expect((await runsSeenBy(member, `?factoryId=${deploys.id}`)).runs).toEqual([]);
+
+    // Sprocket, which Dana owns too, open in her session.
+    const stranger = await makesWorkspace(owner, 'Sprocket');
+    expect(await ask(getRun, '/api/runs/deploys-nightly', stranger)).toEqual(notFound);
+    expect((await runsSeenBy(stranger)).runs).toEqual([]);
+    expect((await runsSeenBy(stranger, `?factoryId=${deploys.id}`)).runs).toEqual([]);
+  });
+
+  it('take a filter given once or repeated, page by the cursor, and ignore what they do not know', async () => {
+    const { owner, member, reviews } = await acmeWithFactories();
+    await recordRuns(
+      owner.workspaceId,
+      cronRun('a', reviews.id, { createdAt: minute(1), status: 'failed' }),
+      cronRun('b', reviews.id, {
+        createdAt: minute(2),
+        trigger: 'poll',
+        triggerDetail: 'gh pr list',
+      }),
+      cronRun('c', reviews.id, {
+        createdAt: minute(3),
+        trigger: 'manual',
+        triggerDetail: null,
+        startedBy: member.personId,
+      }),
+    );
+    const ids = async (search: string) =>
+      (await runsSeenBy(member, search)).runs.map((run) => run.id);
+    expect(await ids('?phase=failed')).toEqual(['a']);
+    expect(await ids('?phase=failed&phase=completed')).toEqual(['c', 'b', 'a']);
+    expect(await ids('?trigger=cron&trigger=poll')).toEqual(['b', 'a']);
+    expect(await ids('?mine=true')).toEqual(['c']);
+    expect(await ids('?mine=false&colour=blue')).toEqual(['c', 'b', 'a']);
+    expect(await ids('?q=NIGHT')).toEqual(['c', 'b', 'a']);
+
+    const first = await runsSeenBy(member, '?limit=2');
+    expect(first.runs.map((run) => run.id)).toEqual(['c', 'b']);
+    expect(first.counts).toMatchObject({ completed: 2, failed: 1 });
+    const second = await runsSeenBy(member, `?limit=2&cursor=${first.nextCursor}`);
+    expect(second.runs.map((run) => run.id)).toEqual(['a']);
+    expect(second.nextCursor).toBeNull();
+  });
+
+  it('refuse a query they cannot read with 400', async () => {
+    const { member } = await acmeWithFactories();
+    const invalid = { status: 400, body: { error: 'invalid_request' } };
+    for (const search of [
+      '?phase=sleeping',
+      '?phase=active&phase=sleeping',
+      '?trigger=webhook',
+      '?limit=0',
+      '?limit=101',
+      '?limit=ten',
+      '?mine=yes',
+      `?q=${'a'.repeat(201)}`,
+      '?cursor=not-one-of-ours',
+    ]) {
+      expect([search, await ask(listRuns, `/api/runs${search}`, member)]).toEqual([
+        search,
+        invalid,
+      ]);
+    }
+  });
+
+  describe('waiting for approval', () => {
+    const answerAs = (who: Member, runId: string, body: unknown) =>
+      ask(postRunApproval, `/api/runs/${runId}/approval`, who, { body });
+    const waiting = { status: 'needs-approval', startedAt: null, finishedAt: null } as const;
+
+    /** A run of Reviews (General: everyone) and one of Deploys (Platform: nobody yet), waiting. */
+    async function acmeWaiting() {
+      const made = await acmeWithFactories();
+      const saved = await saveFiles(made.reviews.id, made.owner, {
+        baseVersion: 1,
+        files: [
+          { path: 'factory.yml', content: 'version: 1\n' },
+          {
+            path: 'automations/nightly.yaml',
+            content:
+              'on: { cron: "0 3 * * *" }\nscope: storefront\nmode: confirm\nsteps:\n  - id: build\n    run: pnpm build\n',
+          },
+        ],
+      });
+      expect(saved.status).toBe(201);
+      await recordRuns(
+        made.owner.workspaceId,
+        cronRun('reviews-wait', made.reviews.id, { ...waiting, factoryVersion: 2 }),
+        cronRun('deploys-wait', made.deploys.id, waiting),
+        cronRun('reviews-done', made.reviews.id, { factoryVersion: 2 }),
+      );
+      return made;
+    }
+
+    it('show the run its approval and the file behind it', async () => {
+      const { member, general } = await acmeWaiting();
+      const read = await ask(getRun, '/api/runs/reviews-wait', member);
+      expect(read.status).toBe(200);
+      expect(read.body).toMatchObject({
+        source: {
+          path: 'automations/nightly.yaml',
+          version: 2,
+          latestVersion: 2,
+          range: { start: 1, end: 6 },
+          trigger: { kind: 'cron', detail: '0 3 * * *' },
+          mode: 'confirm',
+          appliesTo: [],
+        },
+        steps: [{ id: 'build', definition: { range: { start: 5, end: 6 } } }],
+        approval: {
+          version: 2,
+          reason: 'nightly asks before every run.',
+          team: { id: general.id, name: FIRST_TEAM_NAME },
+          mayAnswer: true,
+          will: { commands: [{ step: 'build', command: 'pnpm build' }], agents: [] },
+          answer: null,
+        },
+      });
+      expect((await ask(getRun, '/api/runs/reviews-done', member)).body).toMatchObject({
+        approval: null,
+      });
+    });
+
+    it('take an answer from anyone on the team, the first one, and leave the run waiting', async () => {
+      const { owner, admin, member } = await acmeWaiting();
+      const approved = await answerAs(member, 'reviews-wait', { decision: 'approve', version: 2 });
+      expect(approved).toMatchObject({
+        status: 201,
+        body: { answer: { decision: 'approved', by: member.personId, at: expect.any(String) } },
+      });
+      expect(await answerAs(admin, 'reviews-wait', { decision: 'dismiss', version: 2 })).toEqual({
+        status: 409,
+        body: { error: 'already_answered' },
+      });
+      const read = await ask(getRun, '/api/runs/reviews-wait', owner);
+      expect(read.body).toMatchObject({
+        run: { status: 'needs-approval' },
+        approval: { mayAnswer: true, answer: { decision: 'approved', by: member.personId } },
+      });
+    });
+
+    it('are not found by a member of another team, and refused to whoever sees the run but is not on its team', async () => {
+      const { owner, member, platform } = await acmeWaiting();
+      const body = { decision: 'dismiss', version: 1 };
+      expect(await answerAs(member, 'deploys-wait', body)).toEqual({
+        status: 404,
+        body: { error: 'run_not_found' },
+      });
+      expect(await answerAs(owner, 'deploys-wait', body)).toEqual({
+        status: 403,
+        body: { error: 'not_allowed' },
+      });
+      expect((await ask(getRun, '/api/runs/deploys-wait', owner)).body).toMatchObject({
+        approval: { mayAnswer: false },
+      });
+      // On the team, the owner may: whatever their role, the team decides.
+      await ask(putTeamMember, `/api/teams/${platform.id}/members/${owner.personId}`, owner);
+      expect(await answerAs(owner, 'deploys-wait', body)).toMatchObject({
+        status: 201,
+        body: { answer: { decision: 'dismissed', by: owner.personId } },
+      });
+    });
+
+    it('refuse a run that does not wait, a version that moved, and a body they cannot read', async () => {
+      const { member } = await acmeWaiting();
+      expect(await answerAs(member, 'reviews-done', { decision: 'approve', version: 2 })).toEqual({
+        status: 409,
+        body: { error: 'not_waiting' },
+      });
+      expect(await answerAs(member, 'reviews-wait', { decision: 'approve', version: 1 })).toEqual({
+        status: 409,
+        body: { error: 'version_moved' },
+      });
+      const invalid = { status: 400, body: { error: 'invalid_request' } };
+      for (const body of [{ decision: 'maybe', version: 2 }, { decision: 'approve' }, 'not json']) {
+        expect(await answerAs(member, 'reviews-wait', body)).toEqual(invalid);
+      }
+      expect(
+        await ask(postRunApproval, '/api/runs/reviews-wait/approval', member, {
+          body: 'decision=approve',
+          headers: { 'content-type': 'text/plain' },
+        }),
+      ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
     });
   });
 });
