@@ -1,11 +1,12 @@
+import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { Database } from '../adapters/persistence/database.js';
 import { openTestDatabase } from '../adapters/persistence/database.test-helpers.js';
 import { createSlackStores } from '../adapters/persistence/slackStores.js';
 import { createDrizzleStores } from '../adapters/persistence/stores.js';
-import type { Factory } from '../domain/factory.js';
+import type { Factory, FactoryFile } from '../domain/factory.js';
 import type { InstalledSlackApp, SlackEventCallback } from '../domain/slackEvents.js';
-import { fakeMembership } from './membership.test-helpers.js';
+import { callerAs, fakeMembership } from './membership.test-helpers.js';
 import type { FakeMembership } from './membership.test-helpers.js';
 import type { Offer, RunnerChannel, SessionStartRequest } from './ports.js';
 import type { LinkTokens } from './slackPorts.js';
@@ -19,6 +20,7 @@ import {
   SPROCKET_SLACK,
 } from './slack.test-helpers.js';
 import type { FakeSlack } from './slack.test-helpers.js';
+import { readRun } from './runs.js';
 import { handleSlackEvent } from './slackRequests.js';
 import type { SlackRequestPorts } from './slackRequests.js';
 
@@ -35,6 +37,8 @@ let slack: FakeSlack;
 let lines: string[];
 let starts: Array<[string, SessionStartRequest]>;
 let tokens: LinkTokens;
+let sessionIds: number;
+let unreachable: boolean;
 
 const offer: Offer = {
   runnerId: 'runner-1',
@@ -51,6 +55,8 @@ beforeEach(async () => {
   lines = [];
   starts = [];
   tokens = countingTokens();
+  sessionIds = 0;
+  unreachable = false;
 });
 afterEach(async () => {
   await close();
@@ -62,15 +68,15 @@ function ports(connected: Offer | null = offer): SlackRequestPorts {
   const runners: RunnerChannel = {
     connected: () => connected,
     startSession: async (runnerId, request) => {
+      if (unreachable) throw new Error('The socket is closed.');
       starts.push([runnerId, request]);
     },
     stopSession: async () => {},
   };
-  let ids = 0;
   return {
     sessions: stores.cloudSessions,
     runners,
-    ids: { newId: () => `session-${++ids}` },
+    ids: { newId: () => `session-${++sessionIds}` },
     clock: { nowSeconds: () => NOW },
     factories: stores.factories,
     runs: stores.runs,
@@ -181,10 +187,11 @@ describe('who may talk to a factory', () => {
     );
   });
 
-  it('admits a linked member who sees the factory, in a direct message too', async () => {
+  it('lets a linked member who sees the factory on, in a direct message too', async () => {
     await linkSlackUser(db, 'U0FAY', 'person-fay');
     await linkSlackUser(db, 'U0DANA', 'person-dana');
-    expect(await handle(mention())).toMatchObject({ kind: 'admitted', personId: 'person-fay' });
+    // On, to the start's own checks: this factory's files hold no orchestrator yet.
+    expect(await handle(mention())).toEqual({ kind: 'no-orchestrator' });
     const dm = callbackOf({
       type: 'message',
       channel_type: 'im',
@@ -193,7 +200,7 @@ describe('who may talk to a factory', () => {
       ts: '1795000000.000200',
       channel: 'D0DANA',
     });
-    expect(await handle(dm)).toMatchObject({ kind: 'admitted', personId: 'person-dana' });
+    expect(await handle(dm)).toEqual({ kind: 'no-orchestrator' });
     expect(slack.of('chat.postEphemeral')).toEqual([]);
   });
 
@@ -262,6 +269,290 @@ describe("a factory's bot", () => {
     }
     expect(lines).toContain(
       `Slack refused chat.postEphemeral for factory ${factory.id}: channel_not_found.`,
+    );
+  });
+});
+
+/** The factory's next version holds `files`. */
+async function saveFiles(files: readonly FactoryFile[]) {
+  const { factories } = createDrizzleStores(db);
+  const latest = await factories.get('sprocket', factory.id);
+  if (latest === null) throw new Error('no factory');
+  const saved = await factories.save('sprocket', factory.id, {
+    baseVersion: latest.latestVersion,
+    files,
+    personId: 'person-dana',
+  });
+  if (saved.kind !== 'saved') throw new Error(saved.kind);
+}
+
+const REPOS = { path: 'factory.yml', content: 'version: 1\nrepos: [Sprocket/Catalog-Portal]\n' };
+const TEAM_FILES: FactoryFile[] = [...CODE_REVIEW_TEAM_FILES, REPOS];
+const PERMALINK = 'https://sprocket.slack.com/archives/C0CATALOG/p1795000000000100';
+
+/** What the bot posted for everyone, in order: in which thread, and what it said. */
+const postedInThreads = () =>
+  slack.of('chat.postMessage').map(({ args }) => [args.channel, args.threadTs, args.text]);
+
+describe('starting a request from Slack', () => {
+  beforeEach(async () => {
+    await linkSlackUser(db, 'U0FAY', 'person-fay');
+  });
+
+  it('records the session, its thread and its run, hands it to the runner, and says so', async () => {
+    await saveFiles(TEAM_FILES);
+    const outcome = await handle(
+      mention({ text: '<@U0BOT> price the catalog in euros\nSee #42.' }),
+    );
+
+    const session = {
+      id: 'session-1',
+      workspaceId: 'sprocket',
+      personId: null,
+      repository: 'sprocket/catalog-portal',
+      harness: 'claude',
+      status: 'starting',
+      title: 'Code review · Slack: price the catalog in euros',
+      hostUrl: null,
+      error: null,
+      errorCode: null,
+      runnerId: 'runner-1',
+      createdAt: NOW,
+      endedAt: null,
+      origin: {
+        kind: 'slack',
+        factoryId: factory.id,
+        factoryName: 'Code review',
+        agent: 'orchestrator',
+        via: 'mention',
+        message: {
+          teamId: 'T0SPROCKET',
+          channelId: 'C0CATALOG',
+          threadTs: '1795000000.000100',
+          messageTs: '1795000000.000100',
+          permalink: PERMALINK,
+          title: 'price the catalog in euros',
+        },
+      },
+      agentRun: null,
+    };
+    expect(outcome).toEqual({ kind: 'started', session });
+    expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toEqual(session);
+
+    expect(await createSlackStores(db).requests.ofSession('session-1')).toEqual({
+      workspaceId: 'sprocket',
+      sessionId: 'session-1',
+      factoryId: factory.id,
+      slackTeamId: 'T0SPROCKET',
+      channelId: 'C0CATALOG',
+      threadTs: '1795000000.000100',
+      messageTs: '1795000000.000100',
+      startedBy: 'person-fay',
+      posted: null,
+      createdAt: new Date(NOW * 1000),
+    });
+
+    const { teams, factories, runs } = createDrizzleStores(db);
+    const read = await readRun(
+      teams,
+      factories,
+      runs,
+      callerAs('person-fay', 'member', 'sprocket'),
+      'session-1',
+    );
+    if (read.kind !== 'found') throw new Error(read.kind);
+    expect(read.run).toMatchObject({
+      kind: 'request',
+      title: 'price the catalog in euros',
+      status: 'queued',
+      trigger: 'event',
+      triggerDetail: 'slack_mention',
+      startedBy: 'person-fay',
+      item: {
+        url: PERMALINK,
+        title: 'price the catalog in euros',
+        kind: 'slack',
+        repo: null,
+        number: null,
+      },
+    });
+    expect(read).toMatchObject({ conversation: 'session-1' });
+
+    const [[runnerId, start] = []] = starts;
+    expect(runnerId).toBe('runner-1');
+    expect(start).toMatchObject({
+      sessionId: 'session-1',
+      workspaceId: 'sprocket',
+      repository: 'sprocket/catalog-portal',
+      harness: 'claude',
+      agentRun: { agent: 'orchestrator' },
+    });
+    expect(start?.agentRun).not.toHaveProperty('checkout');
+    expect(start?.agentRun?.prompt).toContain('# Request from Slack');
+    expect(start?.agentRun?.prompt).toContain('```text\nprice the catalog in euros\nSee #42.\n```');
+    expect(start?.agentRun?.prompt).toContain(`- Message: ${PERMALINK}`);
+
+    expect(slack.calls.map((call) => call.method)).toEqual([
+      'chat.getPermalink',
+      'reactions.add',
+      'chat.postMessage',
+    ]);
+    expect(slack.of('reactions.add')[0]?.args).toEqual({
+      channel: 'C0CATALOG',
+      timestamp: '1795000000.000100',
+      name: 'eyes',
+    });
+    expect(postedInThreads()).toEqual([
+      [
+        'C0CATALOG',
+        '1795000000.000100',
+        `On it. Follow along in Consola: ${PUBLIC_URL}/#/runs/session-1`,
+      ],
+    ]);
+  });
+
+  it('starts one from a direct message too, answering under it', async () => {
+    await linkSlackUser(db, 'U0DANA', 'person-dana');
+    await saveFiles(TEAM_FILES);
+    const dm = callbackOf({
+      type: 'message',
+      channel_type: 'im',
+      user: 'U0DANA',
+      text: 'Is the catalog priced in euros yet?',
+      ts: '1795000000.000200',
+      channel: 'D0DANA',
+    });
+    const outcome = await handle(dm);
+    expect(outcome).toMatchObject({
+      kind: 'started',
+      session: {
+        origin: { via: 'dm', message: { channelId: 'D0DANA', threadTs: '1795000000.000200' } },
+      },
+    });
+    const { teams, factories, runs } = createDrizzleStores(db);
+    const read = await readRun(
+      teams,
+      factories,
+      runs,
+      callerAs('person-dana', 'owner', 'sprocket'),
+      'session-1',
+    );
+    expect(read).toMatchObject({
+      kind: 'found',
+      run: { triggerDetail: 'slack_dm', startedBy: 'person-dana' },
+    });
+    expect(postedInThreads()[0]?.slice(0, 2)).toEqual(['D0DANA', '1795000000.000200']);
+  });
+
+  it('says in the thread that a factory with no orchestrator in its files takes no request', async () => {
+    expect(await handle(mention())).toEqual({ kind: 'no-orchestrator' });
+    await saveFiles([REPOS]);
+    expect(await handle(mention())).toEqual({ kind: 'no-orchestrator' });
+    const words = `This factory has no orchestrator in its files, so it can't take requests from Slack yet: ${PUBLIC_URL}/#/factories/${factory.id}/definition`;
+    expect(postedInThreads()).toEqual([
+      ['C0CATALOG', '1795000000.000100', words],
+      ['C0CATALOG', '1795000000.000100', words],
+    ]);
+    expect(starts).toEqual([]);
+    expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toBeNull();
+  });
+
+  it('says in the thread that a factory listing no repository takes no request', async () => {
+    await saveFiles(CODE_REVIEW_TEAM_FILES);
+    expect(await handle(mention())).toEqual({ kind: 'no-repository' });
+    expect(postedInThreads()).toEqual([
+      [
+        'C0CATALOG',
+        '1795000000.000100',
+        `This factory lists no repository to work in. Add one to \`repos:\` in its factory.yml: ${PUBLIC_URL}/#/factories/${factory.id}/definition`,
+      ],
+    ]);
+  });
+
+  it("says in the thread why the runner cannot take it, in the words an automation's run gets", async () => {
+    await saveFiles(TEAM_FILES);
+    expect(await handle(mention(), null)).toEqual({ kind: 'runner_unavailable' });
+    expect(await handle(mention(), { ...offer, repositories: ['sprocket/catalog-api'] })).toEqual({
+      kind: 'repository_not_offered',
+    });
+    expect(await handle(mention(), { ...offer, harnesses: ['codex'] })).toEqual({
+      kind: 'harness_not_offered',
+    });
+    expect(postedInThreads().map(([, , text]) => text)).toEqual([
+      'No runner was connected for this workspace, so nothing ran.',
+      'The runner does not offer this repository, so nothing ran.',
+      "The runner does not offer the first agent's harness, so nothing ran.",
+    ]);
+    expect(starts).toEqual([]);
+  });
+
+  it('starts nothing more in a thread whose request is open, and answers with its run', async () => {
+    await saveFiles(TEAM_FILES);
+    expect(await handle(mention())).toMatchObject({ kind: 'started' });
+    const reply = mention({ ts: '1795000050.000100', thread_ts: '1795000000.000100' });
+    expect(await handle(reply)).toEqual({ kind: 'already-running' });
+    expect(postedInThreads().at(-1)).toEqual([
+      'C0CATALOG',
+      '1795000000.000100',
+      `This thread already has a request running: ${PUBLIC_URL}/#/runs/session-1`,
+    ]);
+    // Another thread starts its own.
+    expect(await handle(mention({ ts: '1795000060.000100' }))).toMatchObject({
+      kind: 'started',
+      session: { id: 'session-2' },
+    });
+    // Once the first has ended, its thread may start another.
+    await createDrizzleStores(db).cloudSessions.update('session-1', 'starting', {
+      status: 'stopped',
+      endedAt: NOW + 60,
+    });
+    expect(
+      await handle(mention({ ts: '1795000070.000100', thread_ts: '1795000000.000100' })),
+    ).toMatchObject({
+      kind: 'started',
+      session: { id: 'session-3', origin: { message: { threadTs: '1795000000.000100' } } },
+    });
+  });
+
+  it('starts nothing when Slack gives no permalink for the message', async () => {
+    await saveFiles(TEAM_FILES);
+    slack.fail('chat.getPermalink');
+    expect(await handle(mention())).toEqual({ kind: 'no-permalink' });
+    expect(postedInThreads().map(([, , text]) => text)).toEqual([
+      "I couldn't read this message's link from Slack, so nothing started. Try again in a moment.",
+    ]);
+    expect(starts).toEqual([]);
+  });
+
+  it('starts nothing when the plan cannot be read, and logs why', async () => {
+    await saveFiles(TEAM_FILES);
+    expect(await handle(mention({ text: `<@U0BOT> ${'x'.repeat(270_000)}` }))).toEqual({
+      kind: 'agent_run_invalid',
+    });
+    expect(postedInThreads().map(([, , text]) => text)).toEqual([
+      'The run could not be planned from its factory files, so nothing ran.',
+    ]);
+    expect(lines.some((line) => line.includes('the protocol refuses the start'))).toBe(true);
+    expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toBeNull();
+  });
+
+  it('says nothing of a start its runner could not be told of, which the session ends', async () => {
+    await saveFiles(TEAM_FILES);
+    unreachable = true;
+    expect(await handle(mention())).toMatchObject({
+      kind: 'started',
+      session: { id: 'session-1', status: 'failed', errorCode: 'runner_unreachable' },
+    });
+    expect(slack.calls.map((call) => call.method)).toEqual(['chat.getPermalink']);
+  });
+
+  it('logs ids alone, never what the person wrote', async () => {
+    await saveFiles(TEAM_FILES);
+    await handle(mention());
+    await handle(mention({ ts: '1795000050.000100', thread_ts: '1795000000.000100' }));
+    for (const line of lines) expect(line).not.toMatch(/price the catalog|xoxb/);
+    expect(lines).toContain(
+      `Started the request of Slack user U0FAY to factory ${factory.id} as run session-1.`,
     );
   });
 });

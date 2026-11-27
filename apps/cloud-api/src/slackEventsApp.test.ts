@@ -1,4 +1,5 @@
 import { createHmac, randomBytes } from 'node:crypto';
+import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { postSlackEvent } from './company/adapters/http/slackEventsContract.js';
@@ -9,8 +10,9 @@ import { startApi } from './testing/harness.js';
 import type { Harness, Member } from './testing/harness.js';
 
 // Slack's events through the whole API, as `main.ts` composes it, with Slack on: the front door
-// (which leaves the route outside the origin check), the real stores, the sealer and the signature
-// check. Every answer is read with the schema the contract declares for its status.
+// (which leaves the route outside the origin check), the real stores, the sealer, the signature
+// check and Slack's Web API adapter, whose calls a stand-in `fetch` answers for Slack. Every answer
+// is read with the schema the contract declares for its status.
 
 const SECRETS_KEY = randomBytes(32).toString('base64');
 const SIGNING_SECRET = 'sprocketsigningsecret0123456789ab';
@@ -38,6 +40,7 @@ beforeEach(async () => {
 });
 afterEach(async () => {
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   await harness.close();
 });
 
@@ -146,5 +149,106 @@ describe("Slack's events, through the whole API", () => {
       body: JSON.stringify(challenge),
     });
     expect(await answered(response)).toEqual([404, { error: 'factory_not_found' }]);
+  });
+});
+
+/** Each call the app made to Slack's Web API: its method and the JSON it sent. */
+type SlackCall = { method: string; body: Record<string, unknown> };
+
+/** Answers Slack's Web API as Slack would, and lets every other address through. */
+function standInForSlack(): SlackCall[] {
+  const calls: SlackCall[] = [];
+  const real = globalThis.fetch;
+  vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input instanceof Request ? input.url : input);
+    if (!url.startsWith('https://slack.com/api/')) return real(input, init);
+    const method = url.slice('https://slack.com/api/'.length);
+    const body = JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>;
+    calls.push({ method, body });
+    const answers: Record<string, unknown> = {
+      'chat.postEphemeral': { ok: true, message_ts: '1795000100.000001' },
+      'chat.postMessage': { ok: true, channel: body.channel, ts: '1795000100.000002' },
+      'chat.getPermalink': {
+        ok: true,
+        permalink: 'https://sprocket.slack.com/archives/C0CATALOG/p1795000000000100',
+      },
+      'reactions.add': { ok: true },
+    };
+    return Response.json(answers[method] ?? { ok: false, error: 'unknown_method' });
+  });
+  return calls;
+}
+
+let mentions = 0;
+/** An event of the factory's app: Alice, or whoever `user` names, mentions its bot. */
+const mentionBy = (user: string) => ({
+  type: 'event_callback',
+  team_id: 'T0SPROCKET',
+  api_app_id: 'A0SPROCKET',
+  event_id: `Ev0MENTION${++mentions}`,
+  event: {
+    type: 'app_mention',
+    user,
+    text: '<@U0BOT> price the catalog in euros',
+    ts: '1795000000.000100',
+    channel: 'C0CATALOG',
+  },
+});
+
+describe('a mention of the bot, through the whole API', () => {
+  it('sends an unlinked author a one-time link to the web app, for them alone', async () => {
+    const calls = standInForSlack();
+    await installSlackApp();
+    expect(await answered(await send(mentionBy('U0ALICE')))).toEqual([200, { result: 'accepted' }]);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    const [whisper] = calls;
+    expect(whisper?.method).toBe('chat.postEphemeral');
+    expect(whisper?.body).toMatchObject({ channel: 'C0CATALOG', user: 'U0ALICE' });
+    expect(String(whisper?.body.text)).toMatch(
+      new RegExp(
+        `^Link your Slack account to Consola before I take your request: ${harness.config.publicUrl}/#/slack/link/[A-Za-z0-9_-]{43}\n`,
+      ),
+    );
+  });
+
+  it("starts a linked member's request, and says in the thread when no runner takes it", async () => {
+    const calls = standInForSlack();
+    await installSlackApp();
+    const { factories } = createDrizzleStores(harness.db.company);
+    const saved = await factories.save(owner.workspaceId, factoryId, {
+      baseVersion: 1,
+      files: [
+        ...CODE_REVIEW_TEAM_FILES,
+        { path: 'factory.yml', content: 'version: 1\nrepos: [sprocket/catalog-portal]\n' },
+      ],
+      personId: owner.personId,
+    });
+    expect(saved.kind).toBe('saved');
+    const { links } = createSlackStores(harness.db.company);
+    await links.createRequest({
+      tokenHash: 'hash-of-alice',
+      workspaceId: owner.workspaceId,
+      factoryId,
+      slackTeamId: 'T0SPROCKET',
+      slackUserId: 'U0ALICE',
+      channelId: 'C0CATALOG',
+      createdAt: new Date(),
+      expiresAt: new Date(Date.now() + 60_000),
+      usedAt: null,
+    });
+    await links.confirm({ tokenHash: 'hash-of-alice', personId: owner.personId, at: new Date() });
+
+    expect(await answered(await send(mentionBy('U0ALICE')))).toEqual([200, { result: 'accepted' }]);
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(calls).toEqual([
+      {
+        method: 'chat.postMessage',
+        body: {
+          channel: 'C0CATALOG',
+          thread_ts: '1795000000.000100',
+          text: 'No runner was connected for this workspace, so nothing ran.',
+        },
+      },
+    ]);
   });
 });
