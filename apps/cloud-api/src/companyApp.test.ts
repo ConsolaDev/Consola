@@ -11,7 +11,7 @@ import {
 import type { CellMessage } from '@consola/runner-protocol';
 import { serve } from '@hono/node-server';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { eq, sql } from 'drizzle-orm';
+import { asc, eq, sql } from 'drizzle-orm';
 import { pgTable, text } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
 import { compactVerify, importJWK } from 'jose';
@@ -51,7 +51,13 @@ import {
 import { GITHUB_WEBHOOK_PATH, postGitHubWebhook } from './company/adapters/http/gitHubContract.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores } from './company/adapters/persistence/stores.js';
-import { cloudSessions, teams } from './company/adapters/persistence/tables.js';
+import {
+  cloudSessions,
+  factories,
+  factoryVersions,
+  teamMembers,
+  teams,
+} from './company/adapters/persistence/tables.js';
 import { recordRun } from './company/application/runs.js';
 import { NO_STEP_DETAIL } from './company/domain/run.js';
 import type { RunWrite, StepRecord } from './company/domain/run.js';
@@ -2042,5 +2048,136 @@ describe('a runner and its passes', () => {
     socket.terminate();
     runner.api.closeRunnerSockets();
     await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+});
+
+/** Every company row a change could write, whatever its workspace, in a fixed order. */
+async function companyRows() {
+  const { company } = harness.db;
+  return {
+    teams: await company.select().from(teams).orderBy(asc(teams.workspaceId), asc(teams.teamId)),
+    places: await company
+      .select()
+      .from(teamMembers)
+      .orderBy(asc(teamMembers.workspaceId), asc(teamMembers.teamId), asc(teamMembers.personId)),
+    factories: await company.select().from(factories).orderBy(asc(factories.factoryId)),
+    versions: await company
+      .select()
+      .from(factoryVersions)
+      .orderBy(asc(factoryVersions.factoryId), asc(factoryVersions.version)),
+    sessions: await company.select().from(cloudSessions).orderBy(asc(cloudSessions.id)),
+  };
+}
+
+describe('who is asking, read on every request', () => {
+  it('refuses a change from a page whose workspace another tab switched, and writes nothing in either', async () => {
+    const { owner, admin, general } = await acmeWithMembers();
+    const deploys = await makeFactory(owner, 'Deploys', general.id);
+    // In another tab, Dana makes Sprocket, which her session then opens.
+    const sprocket = await makesWorkspace(owner, 'Sprocket');
+    const before = await companyRows();
+
+    // Acme's page, still open, still says it shows Acme.
+    const switched = { status: 409, body: { error: 'workspace_switched' } };
+    const changes: Array<[ContractRoute, string, unknown]> = [
+      [postTeam, '/api/teams', { name: 'Platform' }],
+      [patchTeam, `/api/teams/${general.id}`, { name: 'Everyone' }],
+      [deleteTeamMember, `/api/teams/${general.id}/members/${admin.personId}`, undefined],
+      [postFactory, '/api/factories', { name: 'Reviews', teamId: general.id }],
+      [patchFactory, `/api/factories/${deploys.id}`, { name: 'Ship it' }],
+      [
+        postFactoryVersion,
+        `/api/factories/${deploys.id}/versions`,
+        { baseVersion: 1, files: FILES },
+      ],
+      [postCloudSession, '/api/cloud-sessions', { repository: 'sprocket/x', harness: 'claude' }],
+    ];
+    for (const [route, path, body] of changes) {
+      const answer = await ask(route, path, owner, { body });
+      expect([route.method, path, answer]).toEqual([route.method, path, switched]);
+    }
+    // A read is refused too: the page would show the other workspace's rows as Acme's.
+    expect(await ask(listTeams, '/api/teams', owner)).toEqual(switched);
+    expect(await companyRows()).toEqual(before);
+
+    // Sprocket holds its first team alone, and Acme, once open again, is as it was.
+    expect((await teamsSeenBy(sprocket)).teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+    expect(await factoriesSeenBy(sprocket)).toEqual([]);
+    await opens(owner, owner.workspaceId);
+    const acme = await teamsSeenBy(owner);
+    expect(acme.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+    expect(acme.teams[0]?.memberIds).toContain(admin.personId);
+    expect(await factoriesSeenBy(owner)).toEqual(['Deploys']);
+    // Now the page for Sprocket is the stale one.
+    expect(await ask(postTeam, '/api/teams', sprocket, { body: { name: 'Apps' } })).toEqual(
+      switched,
+    );
+  });
+
+  it('acts with a role changed in `member` from the very next request, and back', async () => {
+    const { owner, admin } = await acmeWithMembers();
+    expect((await ask(postTeam, '/api/teams', admin, { body: { name: 'Apps' } })).status).toBe(201);
+
+    // The same session and the same page: the very next change is a member's.
+    await harness.setRole(admin.personId, owner.workspaceId, 'member');
+    expect(await ask(postTeam, '/api/teams', admin, { body: { name: 'Design' } })).toEqual({
+      status: 403,
+      body: { error: 'not_allowed' },
+    });
+    const demoted = await teamsSeenBy(admin);
+    expect(demoted.canManage).toBe(false);
+    // A member sees only the teams they are in.
+    expect(demoted.teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);
+
+    await harness.setRole(admin.personId, owner.workspaceId, 'admin');
+    expect((await ask(postTeam, '/api/teams', admin, { body: { name: 'Design' } })).status).toBe(
+      201,
+    );
+    expect((await teamsSeenBy(admin)).teams.map((team) => team.name)).toEqual([
+      FIRST_TEAM_NAME,
+      'Apps',
+      'Design',
+    ]);
+  });
+
+  it('refuses a person removed from `member` on their very next request to any company route, and their teams forget them', async () => {
+    for (const level of ['error', 'warn', 'info'] as const) {
+      vi.spyOn(console, level).mockImplementation(() => {});
+    }
+    const { owner, admin, member } = await acmeWithMembers();
+    const platform = await makeTeam(owner, 'Platform');
+    await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, owner);
+    expect((await ask(listTeams, '/api/teams', member)).status).toBe(200);
+
+    await harness.removeMember(member.personId, owner.workspaceId);
+
+    const routes = companyRoutes(harness.app).filter(
+      ({ method, path }) => !(`${method} ${path}` in OPEN_ROUTES),
+    );
+    expect(routes.length).toBeGreaterThan(20);
+    for (const { method, path } of routes) {
+      const response = await harness.app.request(filled(path), {
+        method,
+        headers: member.headers,
+        body: method === 'GET' ? undefined : '{}',
+      });
+      const route = `${method} ${path}`;
+      expect([route, response.status, await response.json()]).toEqual([
+        route,
+        403,
+        { error: 'not_a_member' },
+      ]);
+    }
+
+    // The admin who stays sees no team that lists them.
+    const seen = await teamsSeenBy(admin);
+    expect(seen.teams.map((team) => [team.name, sorted(team.memberIds)])).toEqual([
+      [FIRST_TEAM_NAME, sorted([owner.personId, admin.personId])],
+      ['Platform', []],
+    ]);
+    // Nor can one take them back: they are no member to put in it.
+    expect(
+      await ask(putTeamMember, `/api/teams/${platform.id}/members/${member.personId}`, admin),
+    ).toEqual({ status: 409, body: { error: 'not_a_workspace_member' } });
   });
 });
