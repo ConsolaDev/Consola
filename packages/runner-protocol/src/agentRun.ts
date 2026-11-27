@@ -3,7 +3,10 @@ import type { ReadResult } from './read.js';
 
 /** Where a runner writes an agent run's factory files in its sandbox. */
 export const AGENT_RUN_FACTORY_DIR = '/workspace/factory';
-/** Where a session's repository is cloned in its sandbox (the start script's folder). */
+/**
+ * Where a session's repository is cloned in its sandbox (the start script's folder), and the folder
+ * it works in: left empty for a session with no repository.
+ */
 export const SESSION_REPOSITORY_DIR = '/workspace/repo';
 
 /** The most characters an agent run's `prompt`, or an agent's `instructions`, may hold. */

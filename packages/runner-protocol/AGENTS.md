@@ -17,7 +17,9 @@ own copy:
   ended while the socket was down, each with its real end) and
   `session.update` (`status`, `hostUrl`, `title`, `error`, `agentRun`). Cell
   to runner: `session.start` (with `agentRun` for an agent run, below) and
-  `session.stop`. Read with `readRunnerMessage` and `readCellMessage`;
+  `session.stop`. Read with `readRunnerMessage` and `readCellMessage`.
+  `session.start`'s `repository` is optional: left out, the session has none
+  (below, "Agent runs");
 - the session pass both sides check: `PASS_AUDIENCE`, `PASS_TYPE` (the JWS
   `typ`), `PASS_MAX_LIFETIME_SECONDS`, `PassClaims`, `passClaims` (builds the
   claims, throws on a grant the reader would refuse) and `readPassClaims`;
@@ -84,6 +86,13 @@ one typing its first message or approving its commands.
   whole `instructions`) and the factory `files` (128 at most, relative paths),
   which the runner writes under `AGENT_RUN_FACTORY_DIR`. The repository is
   cloned in `SESSION_REPOSITORY_DIR`.
+- **No repository.** A factory may name none, so a start may leave
+  `repository` out (absent, never `null`, which is refused). The session then
+  works in `SESSION_REPOSITORY_DIR` left empty, and the runner gives its
+  sandbox no git credentials. A start with no repository may name no
+  `checkout`, since there is nothing to fetch it from (refused, naming both).
+  A runner's `hello` still offers its repositories: a start that names one
+  names one the runner offers.
 - `session.update` may carry `agentRun` (`AgentRunReport`): the run's `state`,
   the orchestrator's last message as `summary`, and the `agents` it dispatched.
 - Read with `readAgentRun` and `readAgentRunReport`; a bad one refuses the
