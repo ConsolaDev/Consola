@@ -21,8 +21,11 @@ import { describe, expect, it } from 'vitest';
  * - **Workspace packages.** Only `@consola/runner-protocol` and `@consola/factory-spec`, by their
  *   entry points, and only from `company` (and the ring's tests, which drive it).
  * - **Tests** are exempt from the layer rules, since they wire real pieces together the way the
- *   ring does, except that a part's test never imports the other part: company's tests use a fake
- *   `MembershipReader`. Nothing but a test imports `testing/`.
+ *   ring does, except that a part's files, tests or not, leave their part only for what both parts
+ *   share (`PART_MAY_REACH`: `shared/` and `config.ts`): never the other part, and never the ring
+ *   (`compose.ts`, `persistence/`, `http/`, `testing/`…), which brings the other part and Better
+ *   Auth in. So company's tests use a fake `MembershipReader`. Nothing but a test imports
+ *   `testing/`.
  */
 
 const SRC = import.meta.dirname;
@@ -81,6 +84,22 @@ const COMPANY = ['company/domain', 'company/application', ...COMPANY_ADAPTERS];
 
 /** The ring's files and folders, where both parts meet. `testing/` is apart: tests alone use it. */
 const RING = ['compose', 'main', 'startupError', 'seed', 'http', 'persistence'];
+
+/**
+ * All a part's files may reach outside their part, tests included, each with why. Everything
+ * else outside a part is the other part or the ring, and the ring (`compose.ts`, `persistence/`,
+ * `http/`, `testing/`…) brings the other part and Better Auth in. A non-test file is held to its
+ * layer too, so of these only an adapter reads `config`.
+ */
+const PART_MAY_REACH: Record<string, string> = {
+  shared: 'the regions and the workspace roles, which both parts use, with no I/O',
+  config:
+    "shared configuration, which adapters read: Better Auth's, the GitHub App's and the pass key's",
+};
+
+/** Whether a path under `src/` (no extension) is one a part's file may reach outside its part. */
+const partMayReach = (path: string): boolean =>
+  Object.keys(PART_MAY_REACH).some((at) => path === at || path.startsWith(`${at}/`));
 
 /** An adapter of one part: its part's inner layers, its own folder, `shared` and `config`. */
 const adapter = (
@@ -405,11 +424,9 @@ function violationsOf(file: string, source: string): string[] {
     if (specifier.startsWith('.')) {
       const target = posix.join(posix.dirname(file), specifier).replace(SOURCE_EXTENSION, '');
       if (target === '..' || target.startsWith('../')) return true; // leaves src/
-      // A part's test still never reaches the other part, nor the suites' helpers, which wire
-      // both.
-      const reachedPart = partOf(target);
-      if (part !== null && reachedPart !== null && reachedPart !== part) return true;
-      if (part !== null && (target === 'testing' || target.startsWith('testing/'))) return true;
+      // A part's file, a test included, leaves its part only for what both parts share: never for
+      // the other part, nor for the ring, which brings it in.
+      if (part !== null && partOf(target) !== part && !partMayReach(target)) return true;
       if (test) return false;
       if (isTestFile(`${target}.ts`)) return true; // test code would be compiled into dist
       const reached = layerOf(target);
@@ -461,6 +478,10 @@ describe('the dependency rule', () => {
       violationsOf(file, readFileSync(join(SRC, file), 'utf8')),
     );
     expect(violations).toEqual([]);
+  });
+
+  it('names only layers that exist as what a part may reach outside itself', () => {
+    expect(Object.keys(PART_MAY_REACH).filter((at) => layerOf(at)?.at !== at)).toEqual([]);
   });
 
   it('the checker sees both parts and the ring', () => {
@@ -527,6 +548,18 @@ describe('the dependency rule', () => {
     ['company/adapters/http/x.test.ts', '../../../accounts/domain/person.js', false],
     ['accounts/adapters/persistence/x.test.ts', '../../../company/application/ports.js', false],
     ['company/application/x.test.ts', '../adapters/persistence/testDatabase.js', true],
+    // Nor out of their part at all, but for what both parts share: the ring brings the other
+    // part and Better Auth in.
+    ['company/application/x.test.ts', '../../compose.js', false],
+    ['company/application/x.test.ts', '../../persistence/database.js', false],
+    ['company/application/x.test.ts', '../../shared/region.js', true],
+    ['company/adapters/github/x.test.ts', '../../../config.js', true],
+    ['company/adapters/persistence/x.test.ts', '../../../seed.js', false],
+    ['company/x.test.ts', '../compose.js', false],
+    ['accounts/adapters/http/x.test.ts', '../../../http/frontDoor.js', false],
+    ['accounts/adapters/auth/x.test.ts', '../../../startupError.js', false],
+    ['accounts/domain/x.test.ts', '../../main.js', false],
+    ['accounts/domain/x.test.ts', '../../shared/workspaceRole.js', true],
     ['company/application/x.test.ts', 'better-auth', false],
     ['company/adapters/http/x.test.ts', 'better-auth/plugins', false],
     ['company/adapters/http/x.test.ts', '@better-auth/drizzle-adapter', false],

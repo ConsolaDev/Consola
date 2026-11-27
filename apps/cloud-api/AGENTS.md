@@ -68,9 +68,12 @@ src/
   `@consola/factory-spec` may be imported, and only from `company` and from
   the ring's own tests, which drive `company` as a runner would;
 - test files keep their exemption from the layer rules, except that a part's
-  test never imports the other part, nor `src/testing/`: a company test uses
-  a fake `MembershipReader`, and never imports Better Auth. Only the ring's
-  HTTP suites wire both parts, and only a test imports `src/testing/`.
+  file, test or not, leaves its part only for `shared/` and `src/config.ts`
+  (`PART_MAY_REACH`, each with its reason): never for the other part, and
+  never for the ring (`compose.ts`, `persistence/`, `http/`, `testing/`,
+  `main.ts`…), which brings the other part and Better Auth in. So a company
+  test uses a fake `MembershipReader`, and never imports Better Auth. Only
+  the ring's tests wire both parts, and only a test imports `src/testing/`.
 
 ## The two rules
 
@@ -332,9 +335,9 @@ Each part is built in rings, and imports point inward only.
     files it stores (below, "Factories"). It parses texts it is handed and
     does no I/O.
 - Test files (`*.test.ts`) are exempt from the layer rules, because they wire
-  real pieces together the way `compose.ts` does. A part's test still never
-  imports the other part or `testing/`, and a company test never imports
-  Better Auth.
+  real pieces together the way `compose.ts` does. A part's test still leaves
+  its part only for `shared/` and `config.ts`, never for the other part or
+  the ring, and a company test never imports Better Auth.
 
 `src/boundary.test.ts` enforces the rule and the boundary. It reads every
 file's imports from the TypeScript syntax tree (`import`, `import type`,
