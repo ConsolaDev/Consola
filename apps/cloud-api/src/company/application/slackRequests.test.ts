@@ -556,3 +556,81 @@ describe('starting a request from Slack', () => {
     );
   });
 });
+
+describe('when something fails once Slack has its answer', () => {
+  beforeEach(async () => {
+    await linkSlackUser(db, 'U0FAY', 'person-fay');
+    await saveFiles(TEAM_FILES);
+  });
+
+  it('ends a session it recorded, so its run says why, and tells the person', async () => {
+    const base = ports();
+    const failing: SlackRequestPorts = {
+      ...base,
+      requests: {
+        ...base.requests,
+        record: async () => {
+          throw new Error('Connection terminated unexpectedly');
+        },
+      },
+    };
+    const outcome = await handleSlackEvent(failing, app, mention());
+    expect(outcome).toMatchObject({
+      kind: 'start-failed',
+      session: { id: 'session-1', status: 'failed', errorCode: 'runner_unreachable', endedAt: NOW },
+    });
+    expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toMatchObject({
+      status: 'failed',
+      errorCode: 'runner_unreachable',
+    });
+    const { teams, factories, runs } = createDrizzleStores(db);
+    const read = await readRun(
+      teams,
+      factories,
+      runs,
+      callerAs('person-fay', 'member', 'sprocket'),
+      'session-1',
+    );
+    expect(read).toMatchObject({
+      kind: 'found',
+      run: {
+        status: 'failed',
+        error: 'The cell could not hand this run to its runner.',
+        startedBy: 'person-fay',
+      },
+    });
+    expect(starts).toEqual([]);
+    expect(postedInThreads()).toEqual([
+      [
+        'C0CATALOG',
+        '1795000000.000100',
+        'Something went wrong starting this request. Please try again.',
+      ],
+    ]);
+    expect(lines).toContain(
+      `Could not start the request of Slack user U0FAY to factory ${factory.id} as run session-1: Connection terminated unexpectedly.`,
+    );
+  });
+
+  it('tells the person when it fails before any session exists, and records none', async () => {
+    const base = ports();
+    const failing: SlackRequestPorts = {
+      ...base,
+      factories: {
+        ...base.factories,
+        version: async () => {
+          throw new Error('Connection terminated unexpectedly');
+        },
+      },
+    };
+    expect(await handleSlackEvent(failing, app, mention())).toEqual({ kind: 'failed' });
+    expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toBeNull();
+    expect(postedInThreads()).toEqual([
+      [
+        'C0CATALOG',
+        '1795000000.000100',
+        'Something went wrong starting this request. Please try again.',
+      ],
+    ]);
+  });
+});

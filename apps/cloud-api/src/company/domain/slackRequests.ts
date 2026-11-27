@@ -63,6 +63,8 @@ export const START_WORDS = {
     "I couldn't read this message's link from Slack, so nothing started. Try again in a moment.",
   /** Started: the run's page in Consola. */
   onIt: (runUrl: string) => `On it. Follow along in Consola: ${runUrl}`,
+  /** Something failed past the checks (the database did not answer). */
+  somethingWentWrong: 'Something went wrong starting this request. Please try again.',
 } as const;
 
 /** The emoji Consola reacts with on a message it took: 👀. */

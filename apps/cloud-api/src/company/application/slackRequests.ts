@@ -1,6 +1,7 @@
 import { hasAgentTeam, parseAgentTeam } from '@consola/factory-spec';
 import { FAILURE_WORDS } from '../domain/agentRun.js';
-import { CELL_FAILURE_CODES } from '../domain/cloudSession.js';
+import type { AgentRunFacts } from '../domain/agentRun.js';
+import { CELL_FAILURE_CODES, transition } from '../domain/cloudSession.js';
 import type { CellFailureCode, CloudSession } from '../domain/cloudSession.js';
 import { factoriesSeenBy } from '../domain/factory.js';
 import type { Factory } from '../domain/factory.js';
@@ -72,7 +73,12 @@ export type SlackMessageOutcome =
    * runner could not be told, the session ended `failed`, and the thread hears so from the
    * session's follower.
    */
-  | { kind: 'started'; session: CloudSession };
+  | { kind: 'started'; session: CloudSession }
+  /**
+   * The session was recorded, but what had to follow failed (the database did not answer): the
+   * session ended `failed`, so it is never left `starting`, and its run says why.
+   */
+  | { kind: 'start-failed'; session: CloudSession };
 
 /** Where a reply only the author sees goes: in their thread, or in the channel. */
 function whisperTo(bot: Bot, message: SlackMessage, text: string): Promise<boolean> {
@@ -277,26 +283,39 @@ export async function startSlackRequest(
     }),
     agentRun: null,
   };
-  await ports.sessions.insert(session);
-  await ports.requests.record({
-    workspaceId,
-    sessionId: id,
-    factoryId: factory.id,
-    slackTeamId: app.install.teamId,
-    channelId: message.channelId,
-    threadTs: message.threadTs,
-    messageTs: message.ts,
-    startedBy: personId,
-    posted: null,
-    createdAt: new Date(now * 1000),
-  });
-  await recordAgentRun(ports, session, {
+  const facts: AgentRunFacts = {
     factoryVersion: factory.latestVersion,
     text: start.value.prompt,
     createdAt: ISO(now),
     startedBy: personId,
-  });
-  const held = await handToRunner(ports, session, offer.runnerId, { agentRun: start.value });
+  };
+  await ports.sessions.insert(session);
+  // From here on the session exists: a failure ends it, so it is never left `starting`.
+  let threadRecorded = false;
+  let held: CloudSession;
+  try {
+    await ports.requests.record({
+      workspaceId,
+      sessionId: id,
+      factoryId: factory.id,
+      slackTeamId: app.install.teamId,
+      channelId: message.channelId,
+      threadTs: message.threadTs,
+      messageTs: message.ts,
+      startedBy: personId,
+      posted: null,
+      createdAt: new Date(now * 1000),
+    });
+    threadRecorded = true;
+    await recordAgentRun(ports, session, facts);
+    held = await handToRunner(ports, session, offer.runnerId, { agentRun: start.value });
+  } catch (error) {
+    ports.report(`Could not start ${about} as run ${id}: ${whatFailed(error)}.`);
+    const failed = await failStart(ports, session, facts);
+    // With its thread recorded, the session's follower says there that the run stopped.
+    if (!threadRecorded) await say(START_WORDS.somethingWentWrong);
+    return { kind: 'start-failed', session: failed };
+  }
   ports.report(
     `Started ${about} as run ${id}${held.status === 'failed' ? ', which its runner could not be told of' : ''}.`,
   );
@@ -308,11 +327,42 @@ export async function startSlackRequest(
 }
 
 /**
+ * Ends a session whose start failed after it was recorded: `failed`, from `starting` only (a
+ * compare-and-set, so an end already written stands), with the app's `runner_unreachable`, since
+ * nothing was handed to its runner. Its run is recorded again from the session as it is then, so
+ * the run says why. Never throws: a database that still does not answer is logged.
+ */
+async function failStart(
+  ports: SlackRequestPorts,
+  session: CloudSession,
+  facts: AgentRunFacts,
+): Promise<CloudSession> {
+  const ended = transition(session, 'failed', ports.clock.nowSeconds());
+  const changes = {
+    status: ended.status,
+    endedAt: ended.endedAt,
+    errorCode: CELL_FAILURE_CODES.runnerUnreachable,
+  };
+  try {
+    await ports.sessions.update(session.id, 'starting', changes);
+    const held = (await ports.sessions.find(session.id)) ?? { ...ended, ...changes };
+    await recordAgentRun(ports, held, facts);
+    return held;
+  } catch (error) {
+    ports.report(
+      `Run ${session.id} could not be ended after its start failed: ${whatFailed(error)}.`,
+    );
+    return { ...ended, ...changes };
+  }
+}
+
+/**
  * Handles one event a factory's app received, after Slack had its answer: a mention of the bot or
  * a direct message to it (`readSlackEvent`) whose author may talk to the factory
  * (`admitSlackMessage`) starts a request for its orchestrator (`startSlackRequest`). Anything
- * else is dropped, and said in the log. Whatever fails is logged
- * with ids, never thrown: Slack has had its answer.
+ * else is dropped, and said in the log. Whatever fails is logged with ids, never thrown, and the
+ * person is told in the thread, as far as Slack answers: Slack has had its answer, and will not
+ * send the event again.
  */
 export async function handleSlackEvent(
   ports: SlackRequestPorts,
@@ -327,12 +377,19 @@ export async function handleSlackEvent(
   }
   const bot = botOf(ports, app);
   if (bot === null) return { kind: 'no-bot' };
+  const { message } = read;
   try {
-    const admitted = await admitSlackMessage(ports, app, bot, read.message);
+    const admitted = await admitSlackMessage(ports, app, bot, message);
     if (admitted.kind !== 'admitted') return admitted;
-    return await startSlackRequest(ports, app, bot, read.message, admitted);
+    return await startSlackRequest(ports, app, bot, message, admitted);
   } catch (error) {
+    // Slack has its answer and will not send the event again: the person hears that it failed.
     ports.report(`Could not handle ${about}: ${whatFailed(error)}.`);
+    await bot.post({
+      channel: message.channelId,
+      threadTs: message.threadTs,
+      text: START_WORDS.somethingWentWrong,
+    });
     return { kind: 'failed' };
   }
 }
