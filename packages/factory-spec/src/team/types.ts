@@ -103,6 +103,24 @@ export type PullRequestEvent = {
   labels: string[];
 };
 
+/**
+ * A request someone made of a factory in Slack, by mentioning its bot or by sending it a direct
+ * message, as `planSlackRequest` reads it. The caller has checked who wrote it.
+ */
+export type SlackRequest = {
+  kind: 'mention' | 'dm';
+  /** The message as its author wrote it, without the bot's mention. Text from outside the factory. */
+  text: string;
+  /** Who wrote it: their Slack user id, such as `U0123ABCD`. */
+  slackUserId: string;
+  /** Where: the channel's id, or the direct message's. */
+  channelId: string;
+  /** The message's permalink. */
+  permalink: string;
+  /** `owner/name`: the repository the run works in, checked out on its default branch. */
+  repository: string;
+};
+
 export type AgentRunPlan = {
   /** Who takes the first turn. */
   agent: string;
