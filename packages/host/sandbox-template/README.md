@@ -91,6 +91,12 @@ canary passes on the new version.
    For an agent run on a commit (`CONSOLA_CHECKOUT_REF`, `CONSOLA_CHECKOUT_SHA`),
    it then fetches that ref through the same helper and checks the commit out
    detached; anything but `HEAD` at that commit prints the same one line.
+
+   A session with no repository (an agent run of a factory that names none)
+   has no `CONSOLA_REPOSITORY`, and no git token either: the script clones
+   nothing, configures no repository and makes `/workspace/repo` empty, where
+   the host works. A commit to check out needs a repository: with
+   `CONSOLA_CHECKOUT_REF` and no repository, it says so on stderr and exits 1.
 3. Writes `$CONSOLA_PASS_PUBLIC_KEY` to `/workspace/.consola/pass-public-key.pem`.
 4. For a Codex session, signs Codex in: `codex login --with-api-key`, the key
    from `$OPENAI_API_KEY` on stdin. Codex reads no API key from its
@@ -104,8 +110,8 @@ canary passes on the new version.
    "$CONSOLA_AGENT_RUN"` (the run the runner wrote at
    `/workspace/.consola/agent-run.json`, its factory files under
    `/workspace/factory`). Its first stdout line is `ready`
-   (stderr carries the folder warning first). An agent run's sandbox also has
-   `GH_TOKEN`, the git token, which `gh` reads as it is.
+   (stderr carries the folder warning first). An agent run's sandbox with a
+   repository also has `GH_TOKEN`, the git token, which `gh` reads as it is.
 
 Stdout is the runner's: the script prints nothing else there. Its tests are
 `src/bundle.test.ts`.
@@ -132,6 +138,13 @@ never an argument and never printed. The build prints the template's id.
 
 **Template id:** `hklvun2u4kalsi5no0ym` (built 2026-11-23). Record the id the
 build prints here, and only the id.
+
+**Not yet rebuilt for a session with no repository** (CON-166, 2026-11-27).
+Both templates below were built before the start script learned to clone
+nothing, so on them a session with no repository fails at start with
+`consola-session-start: CONSOLA_REPOSITORY is not set.` Rebuild them
+(`template:build`, and again with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`)
+and record the new ids here; then drop this note.
 
 **`consola-session-orchestrator`** (the agent runs' template, which the runner uses
 with `CONSOLA_SESSION_TEMPLATE=consola-session-orchestrator`): `4s8mieamplpn8bzyi9vg`

@@ -682,7 +682,9 @@ export const makeSandboxSessions = (
           agentRun: null,
         };
         held.set(start.sessionId, session);
-        yield* log(`session ${start.sessionId}: starting (${start.harness}, ${start.repository})`);
+        yield* log(
+          `session ${start.sessionId}: starting (${start.harness}, ${start.repository ?? 'no repository'})`,
+        );
         yield* runSession(session).pipe(Effect.forkDetach);
       }),
       stop: Effect.fn('SandboxSessions.stop')(function* (sessionId: string) {

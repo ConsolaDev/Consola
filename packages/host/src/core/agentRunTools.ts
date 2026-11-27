@@ -35,7 +35,7 @@ const text = (description: string) => ({ type: 'string' as const, description })
 export const DISPATCH_GUIDE =
   'Dispatch a factory agent with delegate_task({ agent, task }): it starts a separate conversation ' +
   'for that agent, with its own standing instructions and your task as its brief, in this same ' +
-  'checkout, and answers at once with its id. It works on its own; its report arrives later as a ' +
+  'working folder, and answers at once with its id. It works on its own; its report arrives later as a ' +
   'new message in this conversation ("Report from agent ..."), one per finished turn. If nothing ' +
   'else is left to do after dispatching, end your turn: the report wakes you. Never poll ' +
   '(task_status, sleep, watchers) and never wait in a loop. Send a follow-up into the same ' +
@@ -61,7 +61,7 @@ export const AGENT_RUN_TOOLS: readonly ToolListing[] = [
     name: 'delegate_task',
     description:
       'Dispatches a factory agent by name: starts a new conversation for it, with its own ' +
-      'instructions and `task` as its brief, in this checkout. Returns at once with its taskId ' +
+      'instructions and `task` as its brief, in this working folder. Returns at once with its taskId ' +
       '(also its threadId). The agent works on its own; its report arrives later as a new message ' +
       'in this conversation. Do not poll for it: end your turn if nothing else is left to do. At ' +
       'most 4 dispatched agents run at once.',

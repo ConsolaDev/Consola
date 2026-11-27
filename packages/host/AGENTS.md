@@ -920,6 +920,11 @@ and nobody approves.
   opened the pull request. Nothing skips a fork or an author outside the organisation. So a runner
   serves agent runs only on repositories whose contributors are trusted, until runs get a
   short-lived token of their own and untrusted heads are refused.
+- **No repository, no checkout.** A run of a factory that names no repository (a request from
+  Slack, say) starts with no `--cwd` checkout: its folder is `SESSION_REPOSITORY_DIR`, made empty
+  by the start script, and its sandbox has no git token. The host's agent-run code assumes no
+  checkout: what it tells agents speaks of the working folder (`DISPATCH_GUIDE`), and t3 skips
+  its git checkpoints in a folder that is no repository.
 - **A person's follow-up** (`adapters/followUpHttp.ts`, `POST /agent-run/follow-ups`, the
   protocol's `FOLLOW_UP_PATH`): the cell hands the orchestrator a message a person wrote while the
   run goes on (a reply in the Slack thread it answers in, say). Only an agent run serves the path
@@ -1022,6 +1027,15 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   https://linear.app/consola/issue/CON-105). A second start for a session held is
   ignored; a start once the runner is stopping is `failed`, with no sandbox,
   since nothing would stop it.
+- **A session with no repository** (a `session.start` that leaves
+  `repository` out: an agent run of a factory that names none). It is checked
+  for its harness alone. Its sandbox gets no `CONSOLA_REPOSITORY`, and no git token, neither
+  `GIT_TOKEN` nor `GH_TOKEN`, whatever the runner holds (`sandboxEnvFor`), so
+  its agents can push nowhere; the start script clones nothing and leaves
+  `/workspace/repo` empty, where the host works. An agent run's files still go
+  under `AGENT_RUN_FACTORY_DIR`. The templates built before 2026-11-27 clone
+  unconditionally, so such a session fails there until they are rebuilt
+  (`sandbox-template/README.md`).
 - **A sandbox's own lifetime** (`sandboxLifetimeSeconds`). Its provider stops
   it when its lifetime runs out (`@consola/sandbox`, a hard maximum), which is
   what stops a sandbox whose runner died, and what stops it at the cap should
@@ -1054,7 +1068,8 @@ consola-host runner --cell-url <wss://…/api/runner, or ws: to loopback> --runn
   - Its variables (`sandboxEnvFor`) add `CONSOLA_AGENT_RUN`
     (`/workspace/.consola/agent-run.json`, `AGENT_RUN_FILE`), `CONSOLA_CHECKOUT_REF`
     and `CONSOLA_CHECKOUT_SHA` when the run names a `checkout`, and `GH_TOKEN`, the
-    git token's value, when the runner has one, so `gh` acts as the token's user.
+    git token's value, when the runner has one and the run has a repository, so `gh`
+    acts as the token's user.
   - Once the sandbox is made and before its start script runs, the runner writes
     each of the run's `files` at `/workspace/factory/<path>`
     (`AGENT_RUN_FACTORY_DIR`) and the whole run as JSON at `AGENT_RUN_FILE`
@@ -1243,7 +1258,9 @@ build it and its id), from a bundle rather than from source.
   `CONSOLA_SESSION_TEMPLATE` gives), with `E2B_API_KEY` from
   the environment or `packages/sandbox/.env`.
 - **The start script**, `consola-session-start` (POSIX `sh`), run by the runner
-  in each sandbox: it clones `https://github.com/$CONSOLA_REPOSITORY.git` into
+  in each sandbox: with no `CONSOLA_REPOSITORY` (unset or empty) it clones
+  nothing and makes `/workspace/repo` empty, and refuses a
+  `CONSOLA_CHECKOUT_REF` (on stderr, exit 1); otherwise it clones `https://github.com/$CONSOLA_REPOSITORY.git` into
   `/workspace/repo` (the whole URL, so an owner starting with `-` is no option)
   with a credential helper for github.com that answers with `$GIT_TOKEN` as the
   environment holds it, so the token is never in a URL, on a command line, in
@@ -1277,7 +1294,7 @@ build it and its id), from a bundle rather than from source.
   image's own Node is gone; Claude Code's postinstall allowed; and a Claude Code
   no older than the one the bundled SDK names, `sandbox-template/README.md`), and
   run the start script under `sh` with stand-ins for `git`, `node` and
-  `codex`.
+  `codex`, with a repository and without one (no git run, the folder empty).
 
 ## Running it
 
