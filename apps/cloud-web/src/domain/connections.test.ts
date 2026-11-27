@@ -83,7 +83,7 @@ describe('reading the connections again as the page comes back into view', () =>
     expect(refreshesOnShow(at, at)).toBe(false);
     expect(refreshesOnShow(at, at + CONNECTIONS_REFRESH_MIN_MS - 1)).toBe(false);
     expect(refreshesOnShow(at, at + CONNECTIONS_REFRESH_MIN_MS)).toBe(true);
-    expect(CONNECTIONS_REFRESH_MIN_MS).toBe(5_000);
+    expect(CONNECTIONS_REFRESH_MIN_MS).toBe(5000);
   });
 
   it('shows what the read answered', () => {

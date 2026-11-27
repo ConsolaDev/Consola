@@ -37,7 +37,7 @@ export type ConnectionsState =
  * How soon after its last read the page may read the connections again by itself, as it comes
  * back into view: so flicking between tabs does not ask the API (and the API GitHub) each time.
  */
-export const CONNECTIONS_REFRESH_MIN_MS = 5_000;
+export const CONNECTIONS_REFRESH_MIN_MS = 5000;
 
 /**
  * Whether the page, shown again at `now`, reads its connections again: yes, unless it read them
