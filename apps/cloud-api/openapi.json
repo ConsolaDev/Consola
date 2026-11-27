@@ -3,7 +3,7 @@
   "info": {
     "title": "Consola Cloud API",
     "version": "0",
-    "description": "Consola Cloud's one API: who is signed in, their workspaces, and what each holds (teams, factories, runs, cloud sessions, connections). A company route reads the workspace from the session and takes `x-consola-workspace`, the workspace the page shows, as a guard. Sign-in itself is Better Auth's, under /api/auth, and is not described here."
+    "description": "Who is signed in, their workspaces, and what each workspace holds. Sign-in itself is Better Auth’s, under /api/auth, and is not described here."
   },
   "components": {
     "schemas": {
@@ -27,23 +27,6 @@
           "signed_out"
         ],
         "description": "How a Connect ended, as the callback names it in the web app’s `?github=`."
-      },
-      "GitHubWebhookReceived": {
-        "type": "object",
-        "properties": {
-          "result": {
-            "type": "string",
-            "enum": [
-              "delivered",
-              "pong"
-            ]
-          }
-        },
-        "required": [
-          "result"
-        ],
-        "additionalProperties": false,
-        "description": "`delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, passed on to no cell."
       },
       "Me": {
         "type": "object",
@@ -322,191 +305,7 @@
           "name",
           "slug"
         ],
-        "description": "A name (trimmed, at most 64 characters), a slug of lowercase letters and digits with single dashes between (at most 48). Its region is the deployment’s."
-      },
-      "Connections": {
-        "type": "object",
-        "properties": {
-          "canManage": {
-            "type": "boolean",
-            "description": "Whether the person may connect and disconnect: an owner or admin."
-          },
-          "github": {
-            "type": "object",
-            "properties": {
-              "configured": {
-                "type": "boolean",
-                "description": "Whether this server has the GitHub App’s settings."
-              },
-              "installations": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/GitHubConnection"
-                }
-              }
-            },
-            "required": [
-              "configured",
-              "installations"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "canManage",
-          "github"
-        ],
-        "additionalProperties": false,
-        "description": "What the workspace is connected to."
-      },
-      "GitHubConnection": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "account": {
-            "$ref": "#/components/schemas/GitHubAccount"
-          },
-          "connectedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "settingsUrl": {
-            "type": "string",
-            "description": "Where on GitHub its repositories are chosen, and it is uninstalled."
-          },
-          "repositories": {
-            "$ref": "#/components/schemas/GitHubRepositories"
-          }
-        },
-        "required": [
-          "id",
-          "account",
-          "connectedAt",
-          "settingsUrl",
-          "repositories"
-        ],
-        "additionalProperties": false,
-        "description": "A GitHub App installation the workspace holds."
-      },
-      "GitHubAccount": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "login": {
-            "type": "string"
-          },
-          "type": {
-            "type": "string",
-            "enum": [
-              "Organization",
-              "User"
-            ]
-          }
-        },
-        "required": [
-          "id",
-          "login",
-          "type"
-        ],
-        "additionalProperties": false,
-        "description": "The GitHub account, an organisation or a person, the app is installed on."
-      },
-      "GitHubRepositories": {
-        "oneOf": [
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "listed"
-                ]
-              },
-              "repositories": {
-                "type": "array",
-                "items": {
-                  "$ref": "#/components/schemas/GitHubRepository"
-                }
-              }
-            },
-            "required": [
-              "kind",
-              "repositories"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "gone"
-                ]
-              }
-            },
-            "required": [
-              "kind"
-            ],
-            "additionalProperties": false
-          },
-          {
-            "type": "object",
-            "properties": {
-              "kind": {
-                "type": "string",
-                "enum": [
-                  "unavailable"
-                ]
-              }
-            },
-            "required": [
-              "kind"
-            ],
-            "additionalProperties": false
-          }
-        ],
-        "description": "What GitHub says the installation covers now: its repositories, `gone` when GitHub no longer has the installation (uninstalled or suspended there), or `unavailable` when GitHub did not say. Asked of GitHub each time, never stored."
-      },
-      "GitHubRepository": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "integer"
-          },
-          "fullName": {
-            "type": "string"
-          },
-          "private": {
-            "type": "boolean"
-          },
-          "url": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "fullName",
-          "private",
-          "url"
-        ],
-        "additionalProperties": false
-      },
-      "GitHubInstallAddress": {
-        "type": "object",
-        "properties": {
-          "url": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "url"
-        ],
-        "additionalProperties": false
+        "description": "A name (trimmed, at most 64 characters) and a slug of lowercase letters and digits with single dashes between (at most 48). The workspace is made in the deployment’s region, which no request names."
       },
       "TeamList": {
         "type": "object",
@@ -547,7 +346,7 @@
             "items": {
               "type": "string"
             },
-            "description": "Its members’ global ids, in the order they joined it."
+            "description": "Its members’ ids, in the order they joined it: only people who are members of the workspace now."
           }
         },
         "required": [
@@ -663,7 +462,7 @@
           "kind"
         ],
         "additionalProperties": false,
-        "description": "Where the factory's files come from: `stored`, saved in the cell. A GitHub repository comes later."
+        "description": "Where the factory's files come from: `stored`, saved in Consola. A GitHub repository comes later."
       },
       "InvalidFactory": {
         "type": "object",
@@ -741,7 +540,7 @@
           },
           "savedBy": {
             "type": "string",
-            "description": "The global id of the person who saved it."
+            "description": "The id of the person who saved it."
           },
           "files": {
             "type": "array",
@@ -1163,7 +962,7 @@
               "string",
               "null"
             ],
-            "description": "The global id of the person who started it, who may no longer be a member; null for a run no person started."
+            "description": "The id of the person who started it, who may no longer be a member; null for a run no person started."
           },
           "item": {
             "anyOf": [
@@ -1339,7 +1138,7 @@
           "failed",
           "stopped"
         ],
-        "description": "The cell's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected)."
+        "description": "Consola's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected)."
       },
       "RunTrigger": {
         "type": "string",
@@ -1532,7 +1331,7 @@
               },
               "by": {
                 "type": "string",
-                "description": "The global id of the person who answered."
+                "description": "The id of the person who answered."
               },
               "at": {
                 "type": "string",
@@ -1557,7 +1356,7 @@
           "answer"
         ],
         "additionalProperties": false,
-        "description": "A run's request to be approved: present while the run needs approval, and once answered. The cell records the answer; the run's runner acts on it."
+        "description": "A run's request to be approved: present while the run needs approval, and once answered. Consola records the answer; the run's runner acts on it."
       },
       "ApprovalAnswer": {
         "type": "object",
@@ -1676,7 +1475,7 @@
                   "until"
                 ],
                 "additionalProperties": false,
-                "description": "The orchestrator's open question: when it was asked, and its deadline. Its text is not in the cell."
+                "description": "The orchestrator's open question: when it was asked, and its deadline. Its text is not in Consola."
               }
             },
             "required": [
@@ -2293,7 +2092,7 @@
           "appliesTo"
         ],
         "additionalProperties": false,
-        "description": "The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in the cell yet), and when that version does not define the automation."
+        "description": "The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in Consola yet), and when that version does not define the automation."
       },
       "CloudSessionOptions": {
         "type": "object",
@@ -2338,7 +2137,7 @@
               "string",
               "null"
             ],
-            "description": "The global id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees."
+            "description": "The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees."
           },
           "repository": {
             "type": "string",
@@ -2367,7 +2166,7 @@
               "string",
               "null"
             ],
-            "description": "What the runner named it; for an agent run, the cell's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces."
+            "description": "What the runner named it; for an agent run, Consola's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces."
           },
           "hostUrl": {
             "type": [
@@ -2398,7 +2197,7 @@
               "agent_run_invalid",
               null
             ],
-            "description": "A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start the cell could not compose (`agent_run_invalid`)."
+            "description": "A failure Consola decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start Consola could not compose (`agent_run_invalid`)."
           },
           "runnerId": {
             "type": [
@@ -2619,7 +2418,7 @@
         "properties": {
           "pass": {
             "type": "string",
-            "description": "The session pass, a compact JWS signed with the cell's own key, which the session's host checks."
+            "description": "The session pass, a compact JWS signed with Consola's own pass key, which the session's host checks."
           },
           "hostUrl": {
             "type": "string",
@@ -2636,209 +2435,227 @@
           "expiresAt"
         ],
         "additionalProperties": false
+      },
+      "Connections": {
+        "type": "object",
+        "properties": {
+          "canManage": {
+            "type": "boolean",
+            "description": "Whether the person may connect and disconnect: an owner or admin."
+          },
+          "github": {
+            "type": "object",
+            "properties": {
+              "configured": {
+                "type": "boolean",
+                "description": "Whether this server has the GitHub App’s settings."
+              },
+              "installations": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GitHubConnection"
+                }
+              }
+            },
+            "required": [
+              "configured",
+              "installations"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "canManage",
+          "github"
+        ],
+        "additionalProperties": false,
+        "description": "What the workspace is connected to."
+      },
+      "GitHubConnection": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "account": {
+            "$ref": "#/components/schemas/GitHubAccount"
+          },
+          "connectedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "settingsUrl": {
+            "type": "string",
+            "description": "Where on GitHub its repositories are chosen, and it is uninstalled."
+          },
+          "repositories": {
+            "$ref": "#/components/schemas/GitHubRepositories"
+          }
+        },
+        "required": [
+          "id",
+          "account",
+          "connectedAt",
+          "settingsUrl",
+          "repositories"
+        ],
+        "additionalProperties": false,
+        "description": "A GitHub App installation the workspace holds."
+      },
+      "GitHubAccount": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "login": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "Organization",
+              "User"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "login",
+          "type"
+        ],
+        "additionalProperties": false,
+        "description": "The GitHub account, an organisation or a person, the app is installed on."
+      },
+      "GitHubRepositories": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "listed"
+                ]
+              },
+              "repositories": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/GitHubRepository"
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "repositories"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "gone"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "unavailable"
+                ]
+              }
+            },
+            "required": [
+              "kind"
+            ],
+            "additionalProperties": false
+          }
+        ],
+        "description": "What GitHub says the installation covers now: its repositories, `gone` when GitHub no longer has the installation (uninstalled or suspended there), or `unavailable` when GitHub did not say. Asked of GitHub each time, never stored."
+      },
+      "GitHubRepository": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "fullName": {
+            "type": "string"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "fullName",
+          "private",
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "GitHubInstallAddress": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "additionalProperties": false
+      },
+      "GitHubWebhookPong": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "pong"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "GitHub’s ping, as a webhook is set up: recorded for no workspace."
+      },
+      "GitHubWebhookRecorded": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "recorded"
+            ]
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "The event is recorded for the workspace that holds its installation."
       }
     },
     "parameters": {}
   },
   "paths": {
-    "/api/github/webhooks": {
-      "post": {
-        "summary": "Receive one of the GitHub App’s webhook deliveries",
-        "description": "The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is passed on, signed, to the cell of the workspace that holds its installation, which records each delivery once. Nothing of it is kept here.",
-        "responses": {
-          "200": {
-            "description": "A ping, received.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitHubWebhookReceived"
-                }
-              }
-            }
-          },
-          "201": {
-            "description": "Recorded.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitHubWebhookReceived"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Signed, but a header or the body is not what GitHub sends.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "invalid_delivery"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No `X-Hub-Signature-256`, or not GitHub’s signature over this body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "bad_signature"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "This delivery was recorded already: sent again, or replayed. Nothing changed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "duplicate_delivery"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "413": {
-            "description": "Over the 25 MB GitHub puts in a delivery at most.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "too_large"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Dropped: the event came through an installation no workspace holds, or through none.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "unknown_installation"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "no_installation"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`). The database does not answer (`unavailable`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "webhooks_not_configured"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "unavailable"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/me": {
       "get": {
         "summary": "Who is signed in",
@@ -3209,7 +3026,7 @@
     "/api/me/workspace/members": {
       "get": {
         "summary": "My active workspace's members, in the order they joined",
-        "description": "Every member of the workspace may list them. A person is named by the global id a cell knows them by (`id`), so the web app can put a name to the ids a cell answers with.",
+        "description": "Every member of the workspace may list them. A person is named by the id the rest of the API knows them by (`id`), so the web app can put a name to the ids other answers hold.",
         "responses": {
           "200": {
             "description": "The members, with their roles.",
@@ -3449,7 +3266,7 @@
             }
           },
           "409": {
-            "description": "A workspace in some region has that slug.",
+            "description": "A workspace has that slug.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3495,568 +3312,6 @@
         }
       }
     },
-    "/api/connections": {
-      "get": {
-        "summary": "What my session's active workspace is connected to",
-        "description": "Any member may read it; `canManage` says whether they may change it.",
-        "responses": {
-          "200": {
-            "description": "The workspace’s connections.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Connections"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "invalid_request"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Nobody is signed in.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "signed_out"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The person is not in the workspace their session names.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "not_a_member"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The session has no active workspace. The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "no_active_workspace"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "workspace_switched"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/connections/github/install": {
-      "post": {
-        "summary": "Start connecting GitHub to my active workspace",
-        "description": "The address on GitHub that installs the app, carrying a state signed for this session. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).",
-        "responses": {
-          "200": {
-            "description": "Where to send the person.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GitHubInstallAddress"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "invalid_request"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Nobody is signed in.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "signed_out"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_allowed"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The session has no active workspace. The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "no_active_workspace"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "workspace_switched"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "This server has no GitHub App settings.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "github_not_configured"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/github/callback": {
-      "get": {
-        "summary": "Where GitHub sends a person back after installing the app",
-        "description": "The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.",
-        "responses": {
-          "302": {
-            "description": "To `<PUBLIC_URL>/?github=<result>#/settings/connections`.",
-            "headers": {
-              "location": {
-                "schema": {
-                  "type": "string"
-                },
-                "required": true
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/connections/github/installations/{installationId}": {
-      "delete": {
-        "summary": "Disconnect a GitHub installation from my active workspace",
-        "description": "Removes the workspace’s record. The app stays installed on GitHub until someone uninstalls it there (`settingsUrl`). Only an owner or admin may.",
-        "parameters": [
-          {
-            "schema": {
-              "type": "string",
-              "description": "The installation’s id on GitHub, a positive whole number."
-            },
-            "required": true,
-            "description": "The installation’s id on GitHub, a positive whole number.",
-            "name": "installationId",
-            "in": "path"
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Disconnected."
-          },
-          "400": {
-            "description": "The id is not a GitHub id. Or the request names no workspace (`x-consola-workspace`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "invalid_request"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Nobody is signed in.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "signed_out"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_allowed"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The workspace holds no installation with that id, whether or not another does.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "error": {
-                      "type": "string",
-                      "enum": [
-                        "installation_not_found"
-                      ]
-                    }
-                  },
-                  "required": [
-                    "error"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The session has no active workspace. The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "no_active_workspace"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "workspace_switched"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    }
-                  ]
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/health": {
-      "get": {
-        "summary": "Whether the service can reach its database",
-        "responses": {
-          "200": {
-            "description": "It can.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean",
-                      "enum": [
-                        true
-                      ]
-                    }
-                  },
-                  "required": [
-                    "ok"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          },
-          "503": {
-            "description": "It cannot.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object",
-                  "properties": {
-                    "ok": {
-                      "type": "boolean",
-                      "enum": [
-                        false
-                      ]
-                    }
-                  },
-                  "required": [
-                    "ok"
-                  ],
-                  "additionalProperties": false
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/teams": {
       "get": {
         "summary": "The caller's workspace's teams, as the caller sees them",
@@ -4072,7 +3327,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4094,7 +3349,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4116,7 +3371,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4138,7 +3393,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4204,7 +3459,7 @@
             }
           },
           "400": {
-            "description": "The rules refuse the name, or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The rules refuse the name, or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4233,7 +3488,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4255,7 +3510,7 @@
             }
           },
           "403": {
-            "description": "The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4289,21 +3544,6 @@
                         "error"
                       ],
                       "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
                     }
                   ]
                 }
@@ -4311,7 +3551,7 @@
             }
           },
           "409": {
-            "description": "Another team of the workspace has the name, in any case (`name_taken`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "Another team of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4426,7 +3666,7 @@
             }
           },
           "400": {
-            "description": "The rules refuse the name, or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The rules refuse the name, or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4455,7 +3695,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4477,7 +3717,7 @@
             }
           },
           "403": {
-            "description": "The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4504,21 +3744,6 @@
                           "type": "string",
                           "enum": [
                             "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
                           ]
                         }
                       },
@@ -4555,7 +3780,7 @@
             }
           },
           "409": {
-            "description": "Another team of the workspace has the name, in any case. The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "Another team of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4651,7 +3876,7 @@
             "description": "The team is gone."
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4673,7 +3898,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4695,7 +3920,7 @@
             }
           },
           "403": {
-            "description": "The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4722,21 +3947,6 @@
                           "type": "string",
                           "enum": [
                             "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
                           ]
                         }
                       },
@@ -4773,7 +3983,7 @@
             }
           },
           "409": {
-            "description": "The workspace's first team, which is never deleted (`first_team`), a team that owns a factory, which is not deleted while it does (`owns_factories`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The workspace's first team, which is never deleted (`first_team`), or a team that owns a factory, which is not deleted while it does (`owns_factories`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4862,10 +4072,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The person's global id."
+              "description": "The person's id."
             },
             "required": true,
-            "description": "The person's global id.",
+            "description": "The person's id.",
             "name": "personId",
             "in": "path"
           }
@@ -4882,7 +4092,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4904,7 +4114,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4926,7 +4136,7 @@
             }
           },
           "403": {
-            "description": "The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4953,21 +4163,6 @@
                           "type": "string",
                           "enum": [
                             "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
                           ]
                         }
                       },
@@ -5004,7 +4199,7 @@
             }
           },
           "409": {
-            "description": "The person is not a member of the workspace (`not_a_workspace_member`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The person is not a member of the workspace (`not_a_workspace_member`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5076,10 +4271,10 @@
           {
             "schema": {
               "type": "string",
-              "description": "The person's global id."
+              "description": "The person's id."
             },
             "required": true,
-            "description": "The person's global id.",
+            "description": "The person's id.",
             "name": "personId",
             "in": "path"
           }
@@ -5096,7 +4291,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5118,7 +4313,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5140,7 +4335,7 @@
             }
           },
           "403": {
-            "description": "The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5167,21 +4362,6 @@
                           "type": "string",
                           "enum": [
                             "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
                           ]
                         }
                       },
@@ -5218,7 +4398,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5276,7 +4456,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5298,7 +4478,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5320,7 +4500,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5342,7 +4522,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5386,7 +4566,7 @@
       },
       "post": {
         "summary": "Make a blank factory, owned by a team",
-        "description": "Its files are stored in the cell, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.",
+        "description": "Its files are stored in Consola, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.",
         "requestBody": {
           "required": true,
           "content": {
@@ -5409,7 +4589,7 @@
             }
           },
           "400": {
-            "description": "The rules refuse the name, or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The rules refuse the name, or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5438,7 +4618,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5460,42 +4640,23 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -5523,7 +4684,7 @@
             }
           },
           "409": {
-            "description": "Another factory of the workspace has the name, in any case (`name_taken`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "Another factory of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5628,7 +4789,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5650,7 +4811,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5672,7 +4833,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5716,7 +4877,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5793,7 +4954,7 @@
             }
           },
           "400": {
-            "description": "The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5822,7 +4983,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -5844,42 +5005,23 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -5926,7 +5068,7 @@
             }
           },
           "409": {
-            "description": "Another factory of the workspace has the name, in any case (`name_taken`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "Another factory of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6042,7 +5184,7 @@
             }
           },
           "400": {
-            "description": "The version is not a number from 1. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The version is not a number from 1. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6064,7 +5206,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6086,7 +5228,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6149,7 +5291,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6228,7 +5370,7 @@
             }
           },
           "400": {
-            "description": "The files fail the factory schema (`invalid_files`), or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The files fail the factory schema (`invalid_files`), or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6257,7 +5399,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6279,42 +5421,23 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -6342,7 +5465,7 @@
             }
           },
           "409": {
-            "description": "The factory has a newer version than the one the files were edited from (`version_moved`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The factory has a newer version than the one the files were edited from (`version_moved`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6451,7 +5574,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6473,7 +5596,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6495,7 +5618,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6517,7 +5640,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6680,7 +5803,7 @@
             }
           },
           "400": {
-            "description": "A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "A phase or trigger Consola does not know, a cursor it did not give, a `limit` out of range or a `q` too long. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6702,7 +5825,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6724,7 +5847,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6746,7 +5869,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6792,7 +5915,7 @@
     "/api/runs/{runId}/approval": {
       "post": {
         "summary": "Approve or dismiss a run that waits for approval",
-        "description": "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.",
+        "description": "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. Consola records it and does not change the run: its runner acts on it.",
         "parameters": [
           {
             "schema": {
@@ -6825,7 +5948,7 @@
             }
           },
           "400": {
-            "description": "The body is not what the route takes. Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6847,7 +5970,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6869,7 +5992,7 @@
             }
           },
           "403": {
-            "description": "The caller sees the run, but is not on its factory's owning team. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The caller sees the run, but is not on its factory's owning team. Or: The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -6896,21 +6019,6 @@
                           "type": "string",
                           "enum": [
                             "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
                           ]
                         }
                       },
@@ -6947,7 +6055,7 @@
             }
           },
           "409": {
-            "description": "The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), the version is not the run's (`version_moved`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), or the version is not the run's (`version_moved`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7082,7 +6190,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7104,7 +6212,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7126,7 +6234,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7170,7 +6278,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7228,7 +6336,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7250,7 +6358,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7272,7 +6380,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7294,7 +6402,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7385,7 +6493,7 @@
             }
           },
           "400": {
-            "description": "The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`). Or the request names no workspace (`x-consola-workspace`).",
+            "description": "The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`). Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7441,7 +6549,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7463,48 +6571,29 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7608,7 +6697,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7630,7 +6719,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7652,7 +6741,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7674,7 +6763,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7742,7 +6831,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7764,7 +6853,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7786,7 +6875,7 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7830,7 +6919,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7899,7 +6988,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7921,7 +7010,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -7943,42 +7032,23 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -8006,7 +7076,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8052,7 +7122,7 @@
     "/api/cloud-sessions/{sessionId}/pass": {
       "post": {
         "summary": "A pass to a running session the caller sees: their own, or an agent run of the workspace",
-        "description": "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.",
+        "description": "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but `requireCaller`'s refusals.",
         "parameters": [
           {
             "schema": {
@@ -8086,7 +7156,7 @@
             }
           },
           "400": {
-            "description": "The request names no workspace (`x-consola-workspace`).",
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8108,7 +7178,7 @@
             }
           },
           "401": {
-            "description": "Nobody is signed in.",
+            "description": "No session: the person is signed out.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8130,42 +7200,23 @@
             }
           },
           "403": {
-            "description": "The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`).",
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
             "content": {
               "application/json": {
                 "schema": {
-                  "anyOf": [
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "not_a_member"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
-                    },
-                    {
-                      "type": "object",
-                      "properties": {
-                        "error": {
-                          "type": "string",
-                          "enum": [
-                            "bad_origin"
-                          ]
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "additionalProperties": false
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
                 }
               }
             }
@@ -8204,7 +7255,7 @@
             }
           },
           "409": {
-            "description": "The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed.",
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8245,7 +7296,7 @@
             }
           },
           "503": {
-            "description": "The cell has no pass key, and so no runner (`no_runner`).",
+            "description": "Consola has no pass key here, and so no runner (`no_runner`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8260,6 +7311,767 @@
                   },
                   "required": [
                     "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections": {
+      "get": {
+        "summary": "What my session's active workspace is connected to",
+        "description": "Any member may read it; `canManage` says whether they may change it. Takes `x-consola-workspace`.",
+        "responses": {
+          "200": {
+            "description": "The workspace’s connections.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Connections"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active, or no longer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "not_a_member"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/github/install": {
+      "post": {
+        "summary": "Start connecting GitHub to my active workspace",
+        "description": "The address on GitHub that installs the app, carrying a state signed for this person. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).",
+        "responses": {
+          "200": {
+            "description": "Where to send the person.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubInstallAddress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header: the request does not say which workspace its page shows.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active (`not_a_member`), is not an owner or admin of it (`not_allowed`), or the request did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no GitHub App settings.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "github_not_configured"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/github/callback": {
+      "get": {
+        "summary": "Where GitHub sends a person back after installing the app",
+        "description": "The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.",
+        "responses": {
+          "302": {
+            "description": "To `<PUBLIC_URL>/?github=<result>#/settings/connections`.",
+            "headers": {
+              "location": {
+                "schema": {
+                  "type": "string"
+                },
+                "required": true
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/connections/github/installations/{installationId}": {
+      "delete": {
+        "summary": "Disconnect a GitHub installation from my active workspace",
+        "description": "Removes the workspace’s record. The app stays installed on GitHub until someone uninstalls it there (`settingsUrl`). Only an owner or admin may.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "The installation’s id on GitHub, a positive whole number."
+            },
+            "required": true,
+            "description": "The installation’s id on GitHub, a positive whole number.",
+            "name": "installationId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Disconnected."
+          },
+          "400": {
+            "description": "No `x-consola-workspace` header, or the id is not a GitHub id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_request"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No session: the person is signed out.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "signed_out"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is not a member of the workspace their session has active (`not_a_member`), is not an owner or admin of it (`not_allowed`), or the request did not come from the web app (`bad_origin`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_a_member"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "not_allowed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "bad_origin"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The workspace holds no installation with that id, whether or not another does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "installation_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_active_workspace"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "workspace_switched"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/github/webhooks": {
+      "post": {
+        "summary": "Receive one of the GitHub App’s webhook deliveries",
+        "description": "The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is recorded for the workspace that holds its installation, once per delivery id, and an event recorded now starts the agent runs its factories’ teams fire.",
+        "responses": {
+          "200": {
+            "description": "Answered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubWebhookPong"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Recorded.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitHubWebhookRecorded"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed, but a header or the body is not what GitHub sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_delivery"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No `X-Hub-Signature-256`, or not GitHub’s signature over this body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "bad_signature"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The workspace had this delivery already: sent again, or replayed. Nothing changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "duplicate_delivery"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the 26214400 bytes (25 MB) GitHub puts in a delivery at most.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Dropped: the event came through an installation no workspace holds, or through none.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unknown_installation"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "no_installation"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`, `webhooks_not_configured`), or its database did not answer (`unavailable`): GitHub’s Redeliver sends it again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "webhooks_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "summary": "Whether the service can reach its database",
+        "description": "Needs no session: it says nothing a person or a workspace holds.",
+        "responses": {
+          "200": {
+            "description": "It can.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        true
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "It cannot.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "enum": [
+                        false
+                      ]
+                    }
+                  },
+                  "required": [
+                    "ok"
                   ],
                   "additionalProperties": false
                 }
