@@ -29,7 +29,6 @@ function secretsOf(config: CloudConfig): string[] {
     config.databaseUrl,
     config.authSecret,
     config.google.clientSecret,
-    config.cellTokenPrivateKey.d,
     config.github?.clientSecret ?? '',
     config.githubWebhookSecret ?? '',
   ];
@@ -39,13 +38,20 @@ function secretsOf(config: CloudConfig): string[] {
   } catch {
     // A pglite: address has no password.
   }
+  if (config.runner) {
+    secrets.push(config.runner.secret);
+    // The pass key's private part, however the rest of the key is written out.
+    const { d } = config.runner.passPrivateKey;
+    if (typeof d === 'string') secrets.push(d);
+  }
   // Longest first, so a secret inside another is hidden by the longer one.
   return secrets.filter((secret) => secret !== '').sort((a, b) => b.length - a.length);
 }
 
 /**
  * One plain line for a failure while the API starts: the error's own words, never the database
- * address or a secret.
+ * address or its password, `BETTER_AUTH_SECRET`, the Google or GitHub client secret, the webhook
+ * secret, the runner's secret or the pass key.
  */
 export function describeStartupFailure(error: unknown, config: CloudConfig): string {
   const message =

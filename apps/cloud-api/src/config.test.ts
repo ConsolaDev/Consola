@@ -1,15 +1,5 @@
-import { generateKeyPairSync } from 'node:crypto';
-import { REGIONS } from './shared/region.js';
 import { describe, expect, it } from 'vitest';
-import { ConfigError, cellKeyVariable, cellUrlVariable, loadConfig } from './config.js';
-
-// A key made for this run only, never one written down.
-const cellKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as {
-  kty: 'OKP';
-  crv: 'Ed25519';
-  x: string;
-  d: string;
-};
+import { ConfigError, loadConfig, seedRefusal } from './config.js';
 
 const valid = {
   DATABASE_URL: 'pglite:memory',
@@ -17,7 +7,6 @@ const valid = {
   PUBLIC_URL: 'http://localhost:5175',
   GOOGLE_CLIENT_ID: 'id.apps.googleusercontent.com',
   GOOGLE_CLIENT_SECRET: 's',
-  CELL_TOKEN_PRIVATE_KEY: JSON.stringify(cellKey),
 };
 
 function failureOf(env: Record<string, string | undefined>): ConfigError {
@@ -37,13 +26,40 @@ describe('loadConfig', () => {
       authSecret: 'x'.repeat(32),
       publicUrl: 'http://localhost:5175',
       port: 3100,
+      region: 'eu',
       google: { clientId: 'id.apps.googleusercontent.com', clientSecret: 's' },
-      cellTokenPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: cellKey.x, d: cellKey.d },
-      cellUrls: {},
-      cellPublicKeys: {},
       github: null,
       githubWebhookSecret: null,
+      runner: null,
     });
+  });
+
+  describe('the region', () => {
+    it('is eu when unset or empty', () => {
+      expect(loadConfig(valid).region).toBe('eu');
+      expect(loadConfig({ ...valid, REGION: '' }).region).toBe('eu');
+    });
+
+    it('reads REGION', () => {
+      expect(loadConfig({ ...valid, REGION: 'us' }).region).toBe('us');
+    });
+
+    it('refuses a region that is not listed', () => {
+      for (const region of ['EU', 'ap', 'eu-west']) {
+        const failure = failureOf({ ...valid, REGION: region });
+        expect(failure.problems).toEqual([expect.stringMatching(/^REGION: must be one of eu, us/)]);
+      }
+    });
+  });
+
+  it('ignores the settings the two apps it replaced read', () => {
+    const old = {
+      CELL_TOKEN_PRIVATE_KEY: 'not-a-key',
+      CELL_URL_EU: 'acme-cell',
+      CELL_PUBLIC_KEY_EU: 'nope',
+      CLOUD_GLOBAL_URL: 'ftp://global.sprocket.test',
+    };
+    expect(loadConfig({ ...valid, ...old })).toEqual(loadConfig(valid));
   });
 
   describe("the GitHub App's webhook secret", () => {
@@ -124,45 +140,21 @@ describe('loadConfig', () => {
     });
   });
 
-  it("reads each region's cell, as an origin, from its own variable", () => {
-    expect(
-      loadConfig({
-        ...valid,
-        CELL_URL_EU: 'http://127.0.0.1:3101/',
-        CELL_URL_US: 'https://us.cells.sprocket.test',
-      }).cellUrls,
-    ).toEqual({ eu: 'http://127.0.0.1:3101', us: 'https://us.cells.sprocket.test' });
-  });
-
-  it('names one cell variable for every region the contract lists', () => {
-    expect(REGIONS.map(cellUrlVariable)).toEqual(['CELL_URL_EU', 'CELL_URL_US']);
-  });
-
-  it('leaves out a region whose cell is unset or empty, so its messages wait', () => {
-    expect(loadConfig({ ...valid, CELL_URL_EU: 'http://127.0.0.1:3101' }).cellUrls).toEqual({
-      eu: 'http://127.0.0.1:3101',
+  describe('PORT', () => {
+    it('reads PORT when set', () => {
+      expect(loadConfig({ ...valid, PORT: '4000' }).port).toBe(4000);
     });
-    expect(loadConfig({ ...valid, CELL_URL_EU: '', CELL_URL_US: '' }).cellUrls).toEqual({});
-  });
 
-  it.each([
-    ['a path', 'http://127.0.0.1:3101/api'],
-    ['a query', 'http://127.0.0.1:3101/?region=eu'],
-    ['another scheme', 'ftp://127.0.0.1:3101'],
-    ['no address at all', 'acme-cell'],
-  ])("refuses a region's cell with %s, naming its variable", (_what, value) => {
-    const failure = failureOf({ ...valid, CELL_URL_US: value });
-    expect(failure.problems).toEqual([expect.stringMatching(/^CELL_URL_US: /)]);
-  });
+    it('takes an empty PORT as unset', () => {
+      expect(loadConfig({ ...valid, PORT: '' }).port).toBe(3100);
+    });
 
-  it('names a bad cell beside every other problem', () => {
-    const failure = failureOf({ CELL_URL_EU: 'acme-cell' });
-    expect(failure.problems.some((p) => p.startsWith('DATABASE_URL:'))).toBe(true);
-    expect(failure.problems.some((p) => p.startsWith('CELL_URL_EU:'))).toBe(true);
-  });
-
-  it('reads PORT when set', () => {
-    expect(loadConfig({ ...valid, PORT: '4000' }).port).toBe(4000);
+    it('refuses a port out of range, or no number', () => {
+      for (const port of ['0', '65536', '31.5', 'abc']) {
+        const failure = failureOf({ ...valid, PORT: port });
+        expect(failure.problems).toEqual([expect.stringMatching(/^PORT: /)]);
+      }
+    });
   });
 
   it('drops a trailing slash from PUBLIC_URL', () => {
@@ -189,7 +181,7 @@ describe('loadConfig', () => {
 
   it('refuses an unknown database scheme', () => {
     const failure = failureOf({ ...valid, DATABASE_URL: 'mysql://x' });
-    expect(failure.problems.join('\n')).toContain('DATABASE_URL');
+    expect(failure.problems).toEqual([expect.stringMatching(/^DATABASE_URL: /)]);
   });
 
   it('refuses a short secret', () => {
@@ -204,130 +196,109 @@ describe('loadConfig', () => {
   });
 
   it('names every problem at once', () => {
-    const failure = failureOf({});
+    const failure = failureOf({ REGION: 'ap' });
     for (const name of [
       'DATABASE_URL',
       'BETTER_AUTH_SECRET',
       'PUBLIC_URL',
       'GOOGLE_CLIENT_ID',
       'GOOGLE_CLIENT_SECRET',
-      'CELL_TOKEN_PRIVATE_KEY',
+      'REGION',
     ]) {
       expect(failure.problems.some((p) => p.startsWith(`${name}:`))).toBe(true);
       expect(failure.message).toContain(name);
     }
   });
+});
 
-  it('keeps only the members of the cell token key it signs with', () => {
-    const withMore = { ...cellKey, kid: 'sprocket-key', alg: 'EdDSA', use: 'sig' };
+// Stand-ins, never real credentials: a runner secret and a pass key's JWK on one line.
+const SECRET = 'sprocket-runner-secret-0123456789abcdef';
+const JWK = { kty: 'OKP', crv: 'Ed25519', x: 'x-of-the-key', d: 'd-of-the-key' };
+const runner = {
+  RUNNER_SECRET: SECRET,
+  RUNNER_WORKSPACE_ID: 'acme',
+  PASS_PRIVATE_KEY: JSON.stringify(JWK),
+};
+
+describe('loadConfig, the runner and its passes', () => {
+  it('has no runner when none of its three settings is set, or each is empty', () => {
+    expect(loadConfig(valid).runner).toBeNull();
     expect(
-      loadConfig({ ...valid, CELL_TOKEN_PRIVATE_KEY: JSON.stringify(withMore) })
-        .cellTokenPrivateKey,
-    ).toEqual({ kty: 'OKP', crv: 'Ed25519', x: cellKey.x, d: cellKey.d });
+      loadConfig({ ...valid, RUNNER_SECRET: '', RUNNER_WORKSPACE_ID: '', PASS_PRIVATE_KEY: '' })
+        .runner,
+    ).toBeNull();
+  });
+
+  it('reads all three together, the key as the JSON object it holds', () => {
+    expect(loadConfig({ ...valid, ...runner }).runner).toEqual({
+      secret: SECRET,
+      workspaceId: 'acme',
+      passPrivateKey: JWK,
+    });
+  });
+
+  it.each([['RUNNER_SECRET'], ['RUNNER_WORKSPACE_ID'], ['PASS_PRIVATE_KEY']] as const)(
+    'refuses the other two without %s, so no session starts without a key',
+    (left) => {
+      for (const unset of [undefined, '']) {
+        const failure = failureOf({ ...valid, ...runner, [left]: unset });
+        expect(failure.problems).toEqual([expect.stringMatching(new RegExp(`^${left}: `))]);
+        expect(failure.message).not.toContain(SECRET);
+        expect(failure.message).not.toContain('d-of-the-key');
+      }
+    },
+  );
+
+  it('refuses one of the three alone, naming the two it needs', () => {
+    const failure = failureOf({ ...valid, RUNNER_SECRET: SECRET });
+    expect(failure.problems).toEqual([
+      expect.stringMatching(/^RUNNER_WORKSPACE_ID: /),
+      expect.stringMatching(/^PASS_PRIVATE_KEY: /),
+    ]);
+    expect(failure.message).not.toContain(SECRET);
   });
 
   it.each([
-    ['missing', undefined],
-    ['empty', ''],
-    ['not JSON', `d=${cellKey.d}`],
-    ['JSON cut short', `{"kty":"OKP","crv":"Ed25519","d":"${cellKey.d}"`],
-    ['not an object', JSON.stringify([cellKey])],
-    ['another curve', JSON.stringify({ ...cellKey, crv: 'Ed448' })],
-    ['another key type', JSON.stringify({ ...cellKey, kty: 'EC' })],
-    ['a public key', JSON.stringify({ kty: 'OKP', crv: 'Ed25519', x: cellKey.x })],
-    ['a short `d`', JSON.stringify({ ...cellKey, d: cellKey.d.slice(1) })],
-    ['a `d` that is not base64url', JSON.stringify({ ...cellKey, d: `${cellKey.d.slice(1)}+` })],
-    ['no `x`', JSON.stringify({ kty: 'OKP', crv: 'Ed25519', d: cellKey.d })],
-  ])('refuses a cell token key that is %s, naming it and never echoing it', (_what, value) => {
-    const failure = failureOf({ ...valid, CELL_TOKEN_PRIVATE_KEY: value });
-    expect(failure.problems).toEqual([expect.stringMatching(/^CELL_TOKEN_PRIVATE_KEY: /)]);
-    expect(failure.message).toContain('CELL_TOKEN_PRIVATE_KEY');
-    if (value) expect(failure.message).not.toContain(value);
-    expect(failure.message).not.toContain(cellKey.d);
-    expect(failure.message).not.toContain(cellKey.d.slice(1, 20));
+    ['shorter than 32 characters', 'short-secret'],
+    ['with a space', 'sprocket runner secret 0123456789abcdef'],
+    ['with a character no header carries', 'sprocket-runner-secret-0123456789abcdéf'],
+  ])('refuses a RUNNER_SECRET %s, never quoting it', (_what, secret) => {
+    const failure = failureOf({ ...valid, ...runner, RUNNER_SECRET: secret });
+    expect(failure.problems).toEqual([expect.stringMatching(/^RUNNER_SECRET: /)]);
+    expect(failure.message).not.toContain(secret);
   });
 
-  describe("each region's cell's public key", () => {
-    // Keys made for this run only. Each cell signs its requests with its own.
-    const publicOf = () => {
-      const { x } = generateKeyPairSync('ed25519').publicKey.export({ format: 'jwk' });
-      return { kty: 'OKP', crv: 'Ed25519', x: x as string };
-    };
-    const euCell = publicOf();
-    const usCell = publicOf();
+  it.each([
+    ['not JSON', '{"kty":"OKP","d":"d-of-the-key"'],
+    ['a JSON list', JSON.stringify([JWK])],
+    ['a JSON string', JSON.stringify('d-of-the-key')],
+    ['JSON null', 'null'],
+  ])('refuses a PASS_PRIVATE_KEY that is %s, never quoting it', (_what, key) => {
+    const failure = failureOf({ ...valid, ...runner, PASS_PRIVATE_KEY: key });
+    expect(failure.problems).toEqual([expect.stringMatching(/^PASS_PRIVATE_KEY: /)]);
+    expect(failure.message).not.toContain('d-of-the-key');
+  });
 
-    it('names one variable for every region the contract lists', () => {
-      expect(REGIONS.map(cellKeyVariable)).toEqual(['CELL_PUBLIC_KEY_EU', 'CELL_PUBLIC_KEY_US']);
-    });
+  it("names the runner's problems beside every other", () => {
+    const failure = failureOf({ ...valid, BETTER_AUTH_SECRET: 'short', RUNNER_SECRET: SECRET });
+    expect(failure.problems).toEqual([
+      expect.stringMatching(/^BETTER_AUTH_SECRET: /),
+      expect.stringMatching(/^RUNNER_WORKSPACE_ID: /),
+      expect.stringMatching(/^PASS_PRIVATE_KEY: /),
+    ]);
+  });
+});
 
-    it("reads each region's, keeping only what checks a signature", () => {
-      const withMore = { ...usCell, kid: 'sprocket-us', alg: 'EdDSA', use: 'sig' };
-      expect(
-        loadConfig({
-          ...valid,
-          CELL_PUBLIC_KEY_EU: JSON.stringify(euCell),
-          CELL_PUBLIC_KEY_US: JSON.stringify(withMore),
-        }).cellPublicKeys,
-      ).toEqual({ eu: euCell, us: usCell });
-    });
-
-    it('leaves out a region whose key is unset or empty, so its cell can ask for nothing', () => {
-      expect(
-        loadConfig({ ...valid, CELL_PUBLIC_KEY_EU: JSON.stringify(euCell), CELL_PUBLIC_KEY_US: '' })
-          .cellPublicKeys,
-      ).toEqual({ eu: euCell });
-    });
-
-    it.each([
-      ['not JSON', 'x=abc', /JSON Web Key on one line/],
-      ['not an object', JSON.stringify([euCell]), /JSON Web Key on one line/],
-      ['another curve', JSON.stringify({ ...euCell, crv: 'Ed448' }), /Ed25519/],
-      ['a short `x`', JSON.stringify({ ...euCell, x: euCell.x.slice(1) }), /32 bytes/],
-      ['no `x`', JSON.stringify({ kty: 'OKP', crv: 'Ed25519' }), /32 bytes/],
-    ])('refuses a key that is %s', (_what, value, problem) => {
-      const failure = failureOf({ ...valid, CELL_PUBLIC_KEY_EU: value });
-      expect(failure.problems).toEqual([expect.stringMatching(/^CELL_PUBLIC_KEY_EU: /)]);
-      expect(failure.problems[0]).toMatch(problem);
-    });
-
-    it("refuses a cell's private key, and never echoes it", () => {
-      const pair = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
-      const failure = failureOf({ ...valid, CELL_PUBLIC_KEY_US: JSON.stringify(pair) });
-      expect(failure.problems).toEqual([
-        expect.stringMatching(/^CELL_PUBLIC_KEY_US: .*private part \(`d`\)/),
-      ]);
-      expect(failure.message).not.toContain(pair.d as string);
-    });
-
-    it('refuses one key for two cells: each signs with its own', () => {
-      const failure = failureOf({
-        ...valid,
-        CELL_PUBLIC_KEY_EU: JSON.stringify(euCell),
-        CELL_PUBLIC_KEY_US: JSON.stringify(euCell),
-      });
-      expect(failure.problems).toEqual([
-        'CELL_PUBLIC_KEY_US: is the key CELL_PUBLIC_KEY_EU names; each cell signs with a key of its own',
-      ]);
-    });
-
-    it("refuses cloud-global's own cell token key, so nothing it signs can pass for a cell's", () => {
-      const own = { kty: 'OKP', crv: 'Ed25519', x: cellKey.x };
-      const failure = failureOf({ ...valid, CELL_PUBLIC_KEY_EU: JSON.stringify(own) });
-      expect(failure.problems).toEqual([
-        "CELL_PUBLIC_KEY_EU: is the public half of CELL_TOKEN_PRIVATE_KEY, cloud-global's own key; a cell signs with a key of its own",
-      ]);
-    });
-
-    it('names a bad key beside every other problem', () => {
-      const failure = failureOf({
-        ...valid,
-        BETTER_AUTH_SECRET: 'short',
-        CELL_PUBLIC_KEY_EU: 'nope',
-      });
-      expect(failure.problems).toEqual([
-        expect.stringMatching(/^BETTER_AUTH_SECRET: /),
-        expect.stringMatching(/^CELL_PUBLIC_KEY_EU: /),
-      ]);
-    });
+describe('seedRefusal', () => {
+  it('lets the demo seed write to a local PGlite folder only', () => {
+    expect(seedRefusal('pglite:./.data/cloud-db')).toBeNull();
+    for (const url of [
+      'postgres://consola@localhost:5432/cloud',
+      'postgresql://consola@db.example.com/cloud',
+      'pglite:memory',
+      'pglite:',
+    ]) {
+      expect([url, seedRefusal(url)]).toEqual([url, expect.any(String)]);
+    }
   });
 });

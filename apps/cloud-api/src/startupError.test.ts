@@ -3,19 +3,12 @@ import type { CloudConfig } from './config.js';
 import { describeStartupFailure } from './startupError.js';
 
 const config: CloudConfig = {
-  databaseUrl: 'postgres://consola:s3cret-sprocket@db.sprocket.test:5432/consola_cloud',
+  databaseUrl: 'postgres://consola:s3cret%2Fsprocket@db.sprocket.test:5432/consola_cloud',
   authSecret: 'sprocket-test-secret-that-is-long-enough-to-sign-with',
   publicUrl: 'http://localhost:5175',
   port: 3100,
+  region: 'eu',
   google: { clientId: 'sprocket-test-client-id', clientSecret: 'sprocket-test-client-secret' },
-  cellTokenPrivateKey: {
-    kty: 'OKP',
-    crv: 'Ed25519',
-    x: 'sprocket-test-cell-key-public-part',
-    d: 'sprocket-test-cell-key-private-part',
-  },
-  cellUrls: {},
-  cellPublicKeys: {},
   github: {
     clientId: 'Iv23liSprocketTest',
     clientSecret: 'sprocket-test-github-client-secret',
@@ -23,6 +16,7 @@ const config: CloudConfig = {
     privateKeyPath: '/keys/github-app.pem',
   },
   githubWebhookSecret: 'sprocket-test-webhook-secret-0123456789',
+  runner: null,
 };
 
 describe('describeStartupFailure', () => {
@@ -57,15 +51,15 @@ describe('describeStartupFailure', () => {
 
   it('never shows the database URL or a secret', () => {
     const failure = new Error(
-      `could not use ${config.databaseUrl} (password s3cret-sprocket, client ${config.google.clientSecret}, ${config.authSecret})`,
+      `could not use ${config.databaseUrl} (client ${config.google.clientSecret}, ${config.authSecret})`,
     );
     const line = describeStartupFailure(failure, config);
-    expect(line).toBe('could not use <hidden> (password <hidden>, client <hidden>, <hidden>)');
+    expect(line).toBe('could not use <hidden> (client <hidden>, <hidden>)');
   });
 
-  it("never shows the cell token's private key", () => {
-    const failure = new Error(`could not sign with ${config.cellTokenPrivateKey.d}`);
-    expect(describeStartupFailure(failure, config)).toBe('could not sign with <hidden>');
+  it("never shows the database's password, encoded or not", () => {
+    const failure = new Error('password s3cret%2Fsprocket, decoded s3cret/sprocket');
+    expect(describeStartupFailure(failure, config)).toBe('password <hidden>, decoded <hidden>');
   });
 
   it("never shows the GitHub App's client secret", () => {
@@ -79,6 +73,23 @@ describe('describeStartupFailure', () => {
     expect(describeStartupFailure(failure, config)).toBe('could not check with <hidden>');
     const unset = { ...config, githubWebhookSecret: null };
     expect(describeStartupFailure(failure, unset)).toContain('could not check');
+  });
+
+  it("never shows the runner's secret or the pass key's private part", () => {
+    const secret = 'sprocket-runner-secret-0123456789abcdef';
+    const d = 'private-part-of-the-pass-key-0123456789abc';
+    const withRunner: CloudConfig = {
+      ...config,
+      runner: {
+        secret,
+        workspaceId: 'acme',
+        passPrivateKey: { kty: 'OKP', crv: 'Ed25519', x: 'public-part', d },
+      },
+    };
+    const failure = new Error(`refused ${secret} with {"d":"${d}"}`);
+    expect(describeStartupFailure(failure, withRunner)).toBe(
+      'refused <hidden> with {"d":"<hidden>"}',
+    );
   });
 
   it('says something for a failure with no message', () => {
