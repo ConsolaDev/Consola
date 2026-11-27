@@ -182,8 +182,9 @@ Each part is built in rings, and imports point inward only.
   (`connections.ts`: `mayManageConnections`, `checkInstallState`,
   `checkInstaller`, `administeredInstallations`, `newInstallChoice`,
   `choiceOutcome`, `checkInstallChoice`, `candidateOf`), what a webhook delivery's
-  headers name and the installation its payload came through (`webhooks.ts`:
-  `readDeliveryHeaders`, `installationOfEvent`), and what each GitHub token's
+  headers name, the installation its payload came through and whether it says
+  that installation changed (`webhooks.ts`: `readDeliveryHeaders`,
+  `installationOfEvent`, `changesInstallation`), and what each GitHub token's
   purpose may have and whether GitHub granted it (`gitHubTokens.ts`:
   `TOKEN_PURPOSES`, `scopeFor`, `grantedAsAsked`). It is plain TypeScript,
   with no I/O, and no package but the two shared ones (below).
@@ -655,7 +656,11 @@ is where it goes next when the person has no installation to connect.
   repositories are asked of GitHub (an installation token for metadata read,
   kept in memory until five minutes before it expires) and never stored. An
   answer is reused for a minute, so a member reloading the page cannot spend
-  the installation's rate limit.
+  the installation's rate limit, and dropped at once, with the token, when
+  GitHub reports a change to the installation: a signed `installation` or
+  `installation_repositories` delivery (any action) makes the GitHub App
+  forget both (`GitHubApp.forgetInstallation`, below, "Webhooks"), so the
+  next read lists what GitHub says now, with a new token.
 - `POST /api/connections/github/install`: where a Connect goes,
   `{ url, installUrl }`, both carrying one signed state (below): `url` is
   GitHub's sign-in for the app, where Connect starts, and `installUrl` the
@@ -794,8 +799,12 @@ development a Cloudflare tunnel brings them to this machine (decided
 - **Then, in order:** the headers and the body (400 `invalid_delivery`: no
   `X-GitHub-Event` or `X-GitHub-Delivery`, ones GitHub does not write, or a
   body that is no JSON object); GitHub's `ping`, answered 200
-  `{ result: 'pong' }` and recorded nowhere; the installation the payload names (`installationOfEvent`)
-  and the workspace that holds it (`InstallationStore.holderOf`), where an
+  `{ result: 'pong' }` and recorded nowhere; the installation the payload names (`installationOfEvent`),
+  which, for an event that says it changed (`changesInstallation`:
+  `installation` or `installation_repositories`, any action), the GitHub App
+  forgets at once (`forgetInstallation`: its listed repositories and its
+  token), whether or not a workspace holds it and before anything is
+  recorded; and the workspace that holds it (`InstallationStore.holderOf`), where an
   event through none, or through one no workspace holds (installed on GitHub
   but never connected, or disconnected), is dropped and logged, 422
   `no_installation` or `unknown_installation`; then the record.

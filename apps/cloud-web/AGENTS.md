@@ -925,6 +925,15 @@ anyone else whatever the page shows.
   `unavailable`. Both still show, so they can be disconnected. The page
   counts an installation's repositories and never lists them: their names
   are GitHub's to show, behind "Choose repositories".
+- **The page reads its connections again as it comes back into view**
+  (`onPageVisibilityChange`), most often after the person changed an
+  installation's repositories in GitHub's tab, but not within
+  `CONNECTIONS_REFRESH_MIN_MS` (5 s) of its last read (`refreshesOnShow`).
+  That read is quiet: the list stays on screen with no loading state, and a
+  read that does not answer keeps it (`afterQuietRead`). The API drops its
+  own copy of an installation's repositories when GitHub's webhook reports
+  the change (`apps/cloud-api/AGENTS.md`, "Connections"), so the read shows
+  GitHub's list once that delivery has arrived.
 - **Its look is Notion's and the like.** A connected service sits in the
   Connected group, a rounded list with each account indented under it; GitHub
   before anything is connected sits in Available with Connect; the services
