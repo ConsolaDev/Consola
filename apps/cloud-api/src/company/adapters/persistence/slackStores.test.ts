@@ -352,6 +352,46 @@ describe('the links', () => {
     expect(await links.findRequest('hash-2')).toBeNull();
   });
 
+  it("finds the newest link still open for a Slack user's factory and channel, and no other", async () => {
+    const writer = {
+      workspaceId: 'sprocket',
+      factoryId: factory.id,
+      slackTeamId: 'T0SPROCKET',
+      slackUserId: 'U0DANA',
+      channelId: 'C0GENERAL',
+    };
+    const newer = linkRequest({
+      tokenHash: 'hash-2',
+      factoryId: factory.id,
+      createdAt: at('2026-11-27T10:05:00Z'),
+      expiresAt: at('2026-11-27T10:20:00Z'),
+    });
+    await links.createRequest(newer);
+    expect(await links.openRequestOf(writer, at('2026-11-27T10:06:00Z'))).toEqual(newer);
+    // The first expires at 10:15, the newer at 10:20.
+    expect(await links.openRequestOf(writer, at('2026-11-27T10:20:00Z'))).toBeNull();
+    for (const other of [
+      { slackUserId: 'U0FAY' },
+      { channelId: 'C0PRICING' },
+      { slackTeamId: 'T0GLOBEX' },
+      { workspaceId: 'globex' },
+      { factoryId: 'another' },
+    ]) {
+      expect(
+        await links.openRequestOf({ ...writer, ...other }, at('2026-11-27T10:06:00Z')),
+      ).toBeNull();
+    }
+    await links.confirm({
+      tokenHash: 'hash-2',
+      personId: 'person-dana',
+      at: at('2026-11-27T10:07:00Z'),
+    });
+    // The newer is used: the first is still open, until 10:15.
+    expect((await links.openRequestOf(writer, at('2026-11-27T10:08:00Z')))?.tokenHash).toBe(
+      'hash-1',
+    );
+  });
+
   it('confirms an open link once, and links the Slack account to the person', async () => {
     const answer = await links.confirm({
       tokenHash: 'hash-1',

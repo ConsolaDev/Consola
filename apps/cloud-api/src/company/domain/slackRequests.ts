@@ -38,6 +38,8 @@ export const WHO_MAY_TALK_WORDS = {
   /** No link yet: the one-time link, for them alone. */
   link: (url: string) =>
     `Link your Slack account to Consola before I take your request: ${url}\nThe link is yours alone, works once and lasts ${SLACK_LINK_LIFETIME_SECONDS / 60} minutes. Then send your request again.`,
+  /** No link yet, and one sent a moment ago is still open: the token cannot be sent again. */
+  linkPending: `I sent you a link a moment ago; it works for ${SLACK_LINK_LIFETIME_SECONDS / 60} minutes. Open it, then send your request again.`,
   /** Linked, but no longer a member of the workspace. */
   notAMember:
     "You're no longer a member of this factory's workspace in Consola, so I can't take your request.",

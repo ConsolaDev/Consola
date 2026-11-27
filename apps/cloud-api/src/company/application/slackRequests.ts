@@ -54,7 +54,9 @@ export type SlackMessageOutcome =
   /** The bot cannot speak (its app needs adding to Slack again): nothing more is done. */
   | { kind: 'no-bot' }
   /** Refused, with a reply only the author sees. */
-  | { kind: 'slack-connect' | 'link-sent' | 'not-a-member' | 'not-seen' | 'empty' }
+  | {
+      kind: 'slack-connect' | 'link-sent' | 'link-pending' | 'not-a-member' | 'not-seen' | 'empty';
+    }
   /** The factory is gone. */
   | { kind: 'factory-gone' }
   /** The author may talk to the factory, and asked for something. */
@@ -96,7 +98,8 @@ function replyToAuthor(bot: Bot, message: SlackMessage, text: string): Promise<b
  *
  * 1. Slack Connect: an author of another Slack workspace than the app's is refused, with no link;
  * 2. no link: they get a one-time link to their Consola account (`requestSlackLink`), for them
- *    alone;
+ *    alone, unless one sent them for the factory and channel is still open, which they are
+ *    pointed to instead, so writing again makes no new link;
  * 3. no longer a member of the workspace, read live (`MembershipReader`);
  * 4. a member who cannot see the factory (`factoriesSeenBy`).
  *
@@ -112,7 +115,7 @@ export async function admitSlackMessage(
   const { workspaceId, factoryId } = app;
   const about = `Slack user ${message.userId} of factory ${factoryId}`;
   const refuse = async (
-    kind: 'slack-connect' | 'link-sent' | 'not-a-member' | 'not-seen' | 'empty',
+    kind: 'slack-connect' | 'link-sent' | 'link-pending' | 'not-a-member' | 'not-seen' | 'empty',
     text: string,
   ) => {
     await replyToAuthor(bot, message, text);
@@ -129,17 +132,17 @@ export async function admitSlackMessage(
     slackUserId: message.userId,
   });
   if (personId === null) {
-    const { url } = await requestSlackLink(
-      ports,
-      {
-        workspaceId,
-        factoryId,
-        slackTeamId: app.install.teamId,
-        slackUserId: message.userId,
-        channelId: message.channelId,
-      },
-      ports.publicUrl,
-    );
+    const writer = {
+      workspaceId,
+      factoryId,
+      slackTeamId: app.install.teamId,
+      slackUserId: message.userId,
+      channelId: message.channelId,
+    };
+    // Only the link's hash is kept, so it cannot be sent again: one still open is pointed to.
+    const open = await ports.links.openRequestOf(writer, new Date(ports.clock.nowSeconds() * 1000));
+    if (open !== null) return refuse('link-pending', WHO_MAY_TALK_WORDS.linkPending);
+    const { url } = await requestSlackLink(ports, writer, ports.publicUrl);
     return refuse('link-sent', WHO_MAY_TALK_WORDS.link(url));
   }
   const role = await ports.membership.roleOf(personId, workspaceId);

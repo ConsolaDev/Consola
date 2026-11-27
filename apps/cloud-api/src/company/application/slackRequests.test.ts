@@ -38,6 +38,7 @@ let lines: string[];
 let starts: Array<[string, SessionStartRequest]>;
 let tokens: LinkTokens;
 let sessionIds: number;
+let clockNow: number;
 let unreachable: boolean;
 
 const offer: Offer = {
@@ -56,6 +57,7 @@ beforeEach(async () => {
   starts = [];
   tokens = countingTokens();
   sessionIds = 0;
+  clockNow = NOW;
   unreachable = false;
 });
 afterEach(async () => {
@@ -77,7 +79,7 @@ function ports(connected: Offer | null = offer): SlackRequestPorts {
     sessions: stores.cloudSessions,
     runners,
     ids: { newId: () => `session-${++sessionIds}` },
-    clock: { nowSeconds: () => NOW },
+    clock: { nowSeconds: () => clockNow },
     factories: stores.factories,
     runs: stores.runs,
     teams: stores.teams,
@@ -161,6 +163,25 @@ describe('who may talk to a factory', () => {
     });
   });
 
+  it('sends one link at a time: writing again points to the one still open', async () => {
+    expect(await handle(mention())).toEqual({ kind: 'link-sent' });
+    clockNow = NOW + 14 * 60;
+    expect(await handle(mention({ ts: '1795000840.000100' }))).toEqual({ kind: 'link-pending' });
+    const [, again] = slack.of('chat.postEphemeral');
+    expect(again?.args.text).toBe(
+      'I sent you a link a moment ago; it works for 15 minutes. Open it, then send your request again.',
+    );
+    const links = createSlackStores(db).links;
+    expect(await links.findRequest('hash:token-1')).not.toBeNull();
+    expect(await links.findRequest('hash:token-2')).toBeNull();
+
+    // Another channel is another link; so is the same one once the first has expired.
+    expect(await handle(mention({ channel: 'C0PRICING' }))).toEqual({ kind: 'link-sent' });
+    clockNow = NOW + 15 * 60;
+    expect(await handle(mention({ ts: '1795000900.000100' }))).toEqual({ kind: 'link-sent' });
+    expect(await links.findRequest('hash:token-3')).toMatchObject({ channelId: 'C0CATALOG' });
+  });
+
   it('refuses a linked person who is no longer a member, read live', async () => {
     await linkSlackUser(db, 'U0FAY', 'person-fay');
     membership.remove('sprocket', 'person-fay');
@@ -217,7 +238,7 @@ describe('who may talk to a factory', () => {
       });
     expect(await handle(dm())).toEqual({ kind: 'link-sent' });
     expect(await handle(dm({ ts: '1795000000.000400', thread_ts: '1795000000.000300' }))).toEqual({
-      kind: 'link-sent',
+      kind: 'link-pending',
     });
     expect(slack.of('chat.postEphemeral')).toEqual([]);
     const [first, second] = slack.of('chat.postMessage').map((call) => call.args);

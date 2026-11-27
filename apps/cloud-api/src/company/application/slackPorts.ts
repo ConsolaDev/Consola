@@ -220,6 +220,21 @@ export type SlackLinkStore = {
   /** The link with that token's hash, or null. */
   findRequest(tokenHash: string): Promise<SlackLinkRequest | null>;
   /**
+   * The newest link sent to that Slack user, for that factory and channel in the workspace, that
+   * is still open at `at` (not used, not expired), or null: so a user who writes again is not sent
+   * a link each time.
+   */
+  openRequestOf(
+    writer: {
+      workspaceId: string;
+      factoryId: string;
+      slackTeamId: string;
+      slackUserId: string;
+      channelId: string;
+    },
+    at: Date,
+  ): Promise<SlackLinkRequest | null>;
+  /**
    * Uses the link, if it is still open at `at`, and links its Slack account to `personId` in
    * its workspace, in one transaction: the link is used only once, even by two at the same moment.
    */

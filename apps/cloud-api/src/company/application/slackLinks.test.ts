@@ -16,6 +16,7 @@ function keptRequests(): { links: SlackLinkStore; kept: SlackLinkRequest[] } {
         kept.push(request);
       },
       findRequest: unused,
+      openRequestOf: unused,
       confirm: unused,
       personOf: unused,
       linksOf: unused,

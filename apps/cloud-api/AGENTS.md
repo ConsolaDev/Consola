@@ -1358,7 +1358,9 @@ answers in the same Slack thread. Slack is on only with
   alone), in their thread if they wrote in one: an author from another Slack workspace than the app's
   (Slack Connect: `user_team`, `source_team` or `team` names another) is
   refused with no link; an author with no link gets a one-time link
-  (`requestSlackLink`); a linked person no longer a member, read live through
+  (`requestSlackLink`), unless one sent them for the factory and channel is
+  still open (`SlackLinkStore.openRequestOf`), which they are pointed to,
+  since only its hash is kept; a linked person no longer a member, read live through
   the `MembershipReader`, is refused; and so is a member who cannot see the
   factory (`factoriesSeenBy`). A message with no text is asked for one.
 - **The start** (`startSlackRequest`). First the checks, each refusal said in

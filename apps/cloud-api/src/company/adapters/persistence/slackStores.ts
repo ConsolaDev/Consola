@@ -1,4 +1,4 @@
-import { and, asc, eq, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull, sql } from 'drizzle-orm';
 import type {
   LinkConfirmation,
   SlackAppStore,
@@ -227,6 +227,26 @@ export function createSlackLinkStore(db: Database): SlackLinkStore {
         .select()
         .from(slackLinkRequests)
         .where(eq(slackLinkRequests.tokenHash, tokenHash))
+        .limit(1);
+      return row ? requestOf(row) : null;
+    },
+
+    async openRequestOf(writer, at) {
+      const [row] = await db
+        .select()
+        .from(slackLinkRequests)
+        .where(
+          and(
+            eq(slackLinkRequests.workspaceId, writer.workspaceId),
+            eq(slackLinkRequests.factoryId, writer.factoryId),
+            eq(slackLinkRequests.slackTeamId, writer.slackTeamId),
+            eq(slackLinkRequests.slackUserId, writer.slackUserId),
+            eq(slackLinkRequests.channelId, writer.channelId),
+            isNull(slackLinkRequests.usedAt),
+            gt(slackLinkRequests.expiresAt, at),
+          ),
+        )
+        .orderBy(desc(slackLinkRequests.createdAt))
         .limit(1);
       return row ? requestOf(row) : null;
     },
