@@ -1,7 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PGlite } from '@electric-sql/pglite';
+import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { getTableName, is, sql } from 'drizzle-orm';
 import type { SQL } from 'drizzle-orm';
 import { PgTable } from 'drizzle-orm/pg-core';
@@ -28,6 +30,89 @@ const declaredTables = declared
   .filter((value): value is PgTable => is(value, PgTable))
   .map((table) => getTableName(table))
   .sort();
+
+/** A schema as drizzle-kit reads and writes it: a snapshot in `drizzle/meta`. */
+type Snapshot = Parameters<typeof generateMigration>[0];
+
+/** The snapshot `db:generate` wrote with the chain's latest migration: the schema it last saw. */
+function latestSnapshot(): Snapshot {
+  const folder = new URL('../../drizzle/meta/', import.meta.url);
+  const snapshots = readdirSync(folder).filter((name) => /^\d+_snapshot\.json$/.test(name));
+  const latest = snapshots.sort().at(-1);
+  if (!latest) throw new Error('drizzle/meta holds no snapshot.');
+  return JSON.parse(readFileSync(new URL(latest, folder), 'utf8')) as Snapshot;
+}
+
+/**
+ * A copy of the one schema, as drizzle-kit reads it, with a column `team` does not have: a change
+ * to the schema that nobody generated a migration for.
+ */
+function schemaWithAColumnMore(): Snapshot {
+  const changed = structuredClone(generateDrizzleJson(SCHEMA));
+  const team = changed.tables['public.team'];
+  if (!team) throw new Error('The schema has no team table.');
+  team.columns.extra = { name: 'extra', type: 'text', primaryKey: false, notNull: false };
+  return changed;
+}
+
+/**
+ * What a database holds in `public`, as Postgres itself describes it: every column (its type,
+ * whether it may be null, its default), every constraint with its definition (keys, foreign keys,
+ * checks, uniques), every index with its definition, and every enum's values.
+ */
+async function catalogOf(query: (text: string) => Promise<unknown[]>) {
+  return {
+    columns: await query(
+      `select table_name, column_name, data_type, udt_name, is_nullable, column_default,
+         character_maximum_length, numeric_precision, is_identity, identity_generation,
+         is_generated, generation_expression
+       from information_schema.columns where table_schema = 'public'
+       order by table_name, column_name`,
+    ),
+    constraints: await query(
+      `select conrelid::regclass::text as table_name, conname, contype,
+         pg_get_constraintdef(oid) as definition
+       from pg_constraint where connamespace = 'public'::regnamespace
+       order by 1, 2`,
+    ),
+    indexes: await query(
+      `select tablename, indexname, indexdef from pg_indexes where schemaname = 'public'
+       order by 1, 2`,
+    ),
+    enums: await query(
+      `select t.typname, e.enumlabel from pg_type t join pg_enum e on e.enumtypid = t.oid
+       where t.typnamespace = 'public'::regnamespace
+       order by 1, e.enumsortorder`,
+    ),
+  };
+}
+
+/** The catalog of a fresh database migrated by the app's one chain, as the service's is. */
+async function catalogOfTheChain(thenRun?: string) {
+  const database = openDatabase('pglite:memory');
+  try {
+    await migrateDatabase(database);
+    if (thenRun) await database.accounts.execute(sql.raw(thenRun));
+    return await catalogOf((text) => rowsOf(database, sql.raw(text)));
+  } finally {
+    await database.close();
+  }
+}
+
+/**
+ * The catalog of a fresh database whose tables are made straight from `snapshot`, as the parts'
+ * store tests make theirs (`database.test-helpers.ts`): drizzle-kit's migration from nothing.
+ */
+async function catalogBuiltFrom(snapshot: Snapshot) {
+  const client = new PGlite();
+  try {
+    const statements = await generateMigration(generateDrizzleJson({}), snapshot);
+    for (const statement of statements) await client.exec(statement);
+    return await catalogOf(async (text) => (await client.query(text)).rows);
+  } finally {
+    await client.close();
+  }
+}
 
 describe('the one database', () => {
   it("declares both parts' tables in its one schema", () => {
@@ -130,5 +215,49 @@ describe('the one database', () => {
     } finally {
       await opened.close();
     }
+  });
+});
+
+// The parts' store tests make their tables straight from the schema, and the service migrates
+// the chain, so these keep the two the same: a schema change without `db:generate`, or a
+// migration edited into another shape, fails here rather than passing every store test.
+describe('the migration chain and the schema', () => {
+  it('leaves db:generate nothing to write: the latest snapshot is the schema', async () => {
+    expect(await generateMigration(latestSnapshot(), generateDrizzleJson(SCHEMA))).toEqual([]);
+  });
+
+  it('migrates a fresh database to exactly what the schema makes: columns, keys and indexes', async () => {
+    const [chain, built] = await Promise.all([
+      catalogOfTheChain(),
+      catalogBuiltFrom(generateDrizzleJson(SCHEMA)),
+    ]);
+    expect(chain.columns.length).toBeGreaterThan(50);
+    expect(chain.constraints.length).toBeGreaterThan(20);
+    expect(chain.indexes.length).toBeGreaterThan(10);
+    expect(chain).toEqual(built);
+  });
+
+  it('fails on a schema change that no migration was generated for', async () => {
+    const changed = schemaWithAColumnMore();
+    expect(await generateMigration(latestSnapshot(), changed)).toEqual([
+      'ALTER TABLE "team" ADD COLUMN "extra" text;',
+    ]);
+    const [chain, built] = await Promise.all([catalogOfTheChain(), catalogBuiltFrom(changed)]);
+    const extra = expect.objectContaining({ table_name: 'team', column_name: 'extra' });
+    expect(built.columns).toContainEqual(extra);
+    expect(chain.columns).not.toContainEqual(extra);
+    expect(chain).not.toEqual(built);
+  });
+
+  it('fails on a migration edited into another shape: an index more, a key less', async () => {
+    const [built, indexed, unkeyed] = await Promise.all([
+      catalogBuiltFrom(generateDrizzleJson(SCHEMA)),
+      catalogOfTheChain('create index "team_extra_idx" on "team" ("name")'),
+      catalogOfTheChain('alter table "team_member" drop constraint "team_member_team_fk"'),
+    ]);
+    expect(indexed.indexes).not.toEqual(built.indexes);
+    expect(indexed.constraints).toEqual(built.constraints);
+    expect(unkeyed.constraints).not.toEqual(built.constraints);
+    expect(unkeyed.indexes).toEqual(built.indexes);
   });
 });

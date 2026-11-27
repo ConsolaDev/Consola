@@ -1309,8 +1309,19 @@ A test sits beside its module and is named after it (`healthProbe.ts`,
 `healthProbe.test.ts`), and so do its helpers, if several tests share them
 (`database.test-helpers.ts`), which the build leaves out of `dist` ("The
 dependency rule"). Rules in `domain` are tested alone. Stores and use
-cases are tested on a migrated `pglite:memory` database through the real
-Drizzle stores: the database is never mocked. Company's tests make each
+cases are tested through the real Drizzle stores on a fresh in-memory PGlite
+database: the database is never mocked. Its tables are made straight from
+the part's own tables, by drizzle-kit's migration from nothing to them
+(`generateMigration(generateDrizzleJson({}), generateDrizzleJson(schema))`,
+in each part's `database.test-helpers.ts`, and for GitHub's tables in their
+tests), not by the chain, so a part's tests stand on its tables alone. The
+service migrates the chain instead, so `src/persistence/database.test.ts`
+keeps the two the same: the latest snapshot in `drizzle/meta` against the
+one schema leaves `db:generate` nothing to write, and a fresh database
+migrated by the chain holds exactly the columns, constraints, indexes and
+enums of one made from the schema, as Postgres's catalog describes them. A
+schema change without `db:generate`, or a migration edited into another
+shape, fails there and nowhere else. Company's tests make each
 `Caller` with `admitCaller` and use a fake `MembershipReader`
 (`company/application/membership.test-helpers.ts`: `fakeMembership`,
 `callerAs`); they never import an accounts file.
@@ -1365,7 +1376,8 @@ is therefore also tested directly, on the store.
   `pnpm --filter @consola/cloud-api db:generate --name <what>` after a schema
   changes. `drizzle.config.ts` reads accounts' `auth-schema.ts` and company's
   `tables.ts` and `gitHubTables.ts`. The migrations apply when the API starts,
-  and `db:generate` should then report no schema changes. The chain started
+  and `db:generate` should then report no schema changes, which
+  `src/persistence/database.test.ts` checks (above, "Tests"). The chain started
   again at `0000_init` when the apps merged, so a database from before it is
   not migrated: delete `.data` and start fresh (`README.md`).
 - For a required column on a table that has rows, drizzle-kit writes
