@@ -1,7 +1,21 @@
+import { createHmac, generateKeyPairSync } from 'node:crypto';
+import type { AddressInfo } from 'node:net';
+import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
+import {
+  PASS_AUDIENCE,
+  PASS_MAX_LIFETIME_SECONDS,
+  PASS_TYPE,
+  readCellMessage,
+  readPassClaims,
+} from '@consola/runner-protocol';
+import type { CellMessage } from '@consola/runner-protocol';
+import { serve } from '@hono/node-server';
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { eq, sql } from 'drizzle-orm';
 import { pgTable, text } from 'drizzle-orm/pg-core';
 import { Hono } from 'hono';
+import { compactVerify, importJWK } from 'jose';
+import WebSocket from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
 import { whoIsAskingOf } from './accounts/adapters/auth/betterAuth.js';
@@ -13,23 +27,31 @@ import type { CompanyEnv } from './company/adapters/http/caller.js';
 import {
   deleteTeam,
   deleteTeamMember,
+  getCloudSession,
+  getCloudSessionOptions,
   getFactory,
   getFactoryVersion,
   getRun,
+  listCloudSessions,
   listFactories,
+  listFactoryTemplates,
   listRuns,
   listTeams,
   patchFactory,
   patchTeam,
+  postCloudSession,
+  postCloudSessionPass,
+  postCloudSessionStop,
   postFactory,
   postFactoryVersion,
   postRunApproval,
   postTeam,
   putTeamMember,
 } from './company/adapters/http/contract.js';
-import { GITHUB_WEBHOOK_PATH } from './company/adapters/http/gitHubContract.js';
+import { GITHUB_WEBHOOK_PATH, postGitHubWebhook } from './company/adapters/http/gitHubContract.js';
+import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores } from './company/adapters/persistence/stores.js';
-import { teams } from './company/adapters/persistence/tables.js';
+import { cloudSessions, teams } from './company/adapters/persistence/tables.js';
 import { recordRun } from './company/application/runs.js';
 import { NO_STEP_DETAIL } from './company/domain/run.js';
 import type { RunWrite, StepRecord } from './company/domain/run.js';
@@ -1519,5 +1541,506 @@ describe('runs', () => {
         }),
       ).toEqual({ status: 415, body: { error: 'unsupported_media_type' } });
     });
+  });
+});
+
+// Agent runs: a GitHub event a workspace records for the first time starts them, through the
+// GitHub App's webhook, signed as GitHub signs it.
+
+/** The GitHub App's webhook secret on the app restarted to receive webhooks: a stand-in. */
+const WEBHOOK_SECRET = 'sprocket-webhook-secret-0123456789abcdef';
+
+/** The installation of Consola's GitHub App on the sprocket organisation, which Acme connects. */
+const INSTALLATION_ID = 41;
+
+/** `owner`'s workspace holds the installation, as a finished Connect leaves it. */
+async function connectsGitHub(owner: Member) {
+  const { installations } = createGitHubStores(harness.db.company);
+  const connected = await installations.connect({
+    installation: {
+      id: INSTALLATION_ID,
+      account: { id: 9001, login: 'sprocket', type: 'Organization' },
+      repositorySelection: 'selected',
+    },
+    workspaceId: owner.workspaceId,
+    connectedBy: owner.personId,
+    at: new Date(),
+  });
+  expect(connected).toBe('connected');
+}
+
+/** POSTs `payload` to `app`'s webhook route as GitHub does, and reads the answer by the contract. */
+async function deliverWebhook(
+  app: OpenAPIHono,
+  delivery: { event: string; deliveryId: string; payload: unknown },
+) {
+  const body = JSON.stringify(delivery.payload);
+  const signature = createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex');
+  const response = await app.request(GITHUB_WEBHOOK_PATH, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-github-event': delivery.event,
+      'x-github-delivery': delivery.deliveryId,
+      'x-hub-signature-256': `sha256=${signature}`,
+    },
+    body,
+  });
+  return { status: response.status, body: await answerOf(postGitHubWebhook, response) };
+}
+
+/** A pull request opened in the `sprocket` organisation's repository, as GitHub POSTs it. */
+const PULL_REQUEST_OPENED = {
+  action: 'opened',
+  number: 7,
+  pull_request: {
+    number: 7,
+    html_url: 'https://github.com/sprocket/catalog-portal/pull/7',
+    title: 'Price the catalog in euros',
+    body: 'Customers in Lyon asked.',
+    draft: false,
+    user: { login: 'octocat', type: 'User' },
+    head: { sha: 'b'.repeat(40), ref: 'euros' },
+    base: { ref: 'main' },
+    labels: [],
+  },
+  repository: { full_name: 'sprocket/catalog-portal' },
+  installation: { id: INSTALLATION_ID },
+};
+
+/** The code review team's files, as a save sends them. */
+const CODE_REVIEW_TEAM = CODE_REVIEW_TEAM_FILES.map(({ path, content }) => ({ path, content }));
+
+/** Every line the app writes to the console while a test runs. */
+function captureLogs(): () => string {
+  const spies = (['log', 'error', 'warn', 'info', 'debug'] as const).map((level) =>
+    vi.spyOn(console, level).mockImplementation(() => {}),
+  );
+  return () => spies.flatMap((spy) => spy.mock.calls.flat().map(String)).join('\n');
+}
+
+describe('agent teams', () => {
+  it('offer the code review team as a template, its files as factory-spec writes them', async () => {
+    const member = await harness.member('member');
+    const answer = await ask(listFactoryTemplates, '/api/factory-templates', member);
+    expect(answer).toEqual({
+      status: 200,
+      body: [
+        {
+          id: 'code-review-team',
+          name: 'Code review team',
+          description: expect.any(String),
+          files: CODE_REVIEW_TEAM,
+        },
+      ],
+    });
+  });
+
+  it("save beside the steps design's files with no issue, and refuse a team's problems by file", async () => {
+    const { owner, member, general } = await acmeWithMembers();
+    const factory = await makeFactory(owner, 'Reviews', general.id);
+    const both = [...FILES, ...CODE_REVIEW_TEAM];
+    const saved = await saveFiles(factory.id, member, { baseVersion: 1, files: both });
+    expect(saved).toMatchObject({ status: 201, body: { notices: [] } });
+
+    const broken = [
+      ...both,
+      { path: 'agents/stray/agent.md', content: '---\nagentType: NOBODY\n---\nHi.\n' },
+    ];
+    const refused = await saveFiles(factory.id, member, { baseVersion: 2, files: broken });
+    expect(refused).toMatchObject({
+      status: 400,
+      body: {
+        error: 'invalid_files',
+        issues: expect.arrayContaining([
+          expect.objectContaining({ file: 'agents/stray/agent.md' }),
+        ]),
+      },
+    });
+  });
+
+  it('start an agent run on an opened pull request, which every member sees in Runs, failed when no runner is connected', async () => {
+    const logs = captureLogs();
+    const { owner, member, general } = await acmeWithMembers();
+    const factory = await makeFactory(owner, 'Reviews', general.id);
+    await saveFiles(factory.id, owner, { baseVersion: 1, files: CODE_REVIEW_TEAM });
+    await connectsGitHub(owner);
+    const github = await harness.restart({ GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET });
+
+    const delivery = {
+      event: 'pull_request',
+      deliveryId: '5e1f0a2c-0001',
+      payload: PULL_REQUEST_OPENED,
+    };
+    expect(await deliverWebhook(github.app, delivery)).toEqual({
+      status: 201,
+      body: { result: 'recorded' },
+    });
+    // Delivered again: recorded before, so it starts nothing more.
+    expect(await deliverWebhook(github.app, delivery)).toEqual({
+      status: 409,
+      body: { error: 'duplicate_delivery' },
+    });
+
+    // The run is in Runs, a request whose conversation is its session; no one's Sessions list
+    // holds it.
+    const listed = await ask(listRuns, '/api/runs', member);
+    expect(listed.status).toBe(200);
+    const runs = (listed.body as { runs: Array<{ id: string }> }).runs;
+    expect(runs).toEqual([
+      expect.objectContaining({
+        kind: 'request',
+        status: 'failed',
+        trigger: 'event',
+        title: 'Price the catalog in euros',
+        error: 'No runner was connected for this workspace, so nothing ran.',
+        factory: expect.objectContaining({ id: factory.id }),
+      }),
+    ]);
+    const id = runs[0]?.id ?? '';
+    const read = await ask(getRun, `/api/runs/${id}`, member);
+    expect(read).toMatchObject({ status: 200, body: { conversation: { sessionId: id } } });
+    expect(await ask(listCloudSessions, '/api/cloud-sessions', member)).toEqual({
+      status: 200,
+      body: [],
+    });
+    const session = await ask(getCloudSession, `/api/cloud-sessions/${id}`, member);
+    expect(session).toEqual({
+      status: 200,
+      body: expect.objectContaining({
+        personId: null,
+        runnerId: null,
+        status: 'failed',
+        errorCode: 'runner_unavailable',
+        title: 'review-pull-requests · sprocket/catalog-portal#7 Price the catalog in euros',
+        origin: expect.objectContaining({ factoryId: factory.id, agent: 'orchestrator' }),
+        agentRun: null,
+      }),
+    });
+    // Ids and names reach the log, never what the event says.
+    expect(logs()).not.toContain('Lyon');
+    expect(logs()).not.toContain(WEBHOOK_SECRET);
+  });
+});
+
+describe('cloud sessions, with no runner configured (the channel when no runner socket is set up)', () => {
+  const start = { repository: 'sprocket/catalog-portal', harness: 'claude' };
+
+  it('answers 503 {"error":"no_runner"} to a start and records nothing', async () => {
+    const person = await harness.member('member');
+    const response = await harness.app.request('/api/cloud-sessions', {
+      method: 'POST',
+      headers: person.headers,
+      body: JSON.stringify(start),
+    });
+    expect(response.status).toBe(503);
+    expect(await answerOf(postCloudSession, response.clone())).toEqual({ error: 'no_runner' });
+    expect(await response.text()).toBe('{"error":"no_runner"}');
+    expect(await harness.db.company.select().from(cloudSessions)).toEqual([]);
+  });
+
+  it('answers 503 no_runner to the options', async () => {
+    const person = await harness.member('member');
+    expect(await ask(getCloudSessionOptions, '/api/cloud-sessions/options', person)).toEqual({
+      status: 503,
+      body: { error: 'no_runner' },
+    });
+  });
+
+  it('lists none, and holds no session by any id', async () => {
+    const person = await harness.member('member');
+    expect(await ask(listCloudSessions, '/api/cloud-sessions', person)).toEqual({
+      status: 200,
+      body: [],
+    });
+    expect(await ask(getCloudSession, '/api/cloud-sessions/session-1', person)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+    expect(await ask(postCloudSessionStop, '/api/cloud-sessions/session-1/stop', person)).toEqual({
+      status: 404,
+      body: { error: 'not_found' },
+    });
+  });
+
+  it('checks the session before the body', async () => {
+    const person = await harness.member('member');
+    expect(await ask(postCloudSession, '/api/cloud-sessions', person, { body: '{nope' })).toEqual({
+      status: 400,
+      body: { error: 'invalid_request' },
+    });
+    const headers = bare(person.workspaceId);
+    headers.set('content-type', 'text/plain');
+    const response = await harness.app.request('/api/cloud-sessions', {
+      method: 'POST',
+      headers,
+      body: '{nope',
+    });
+    expect(response.status).toBe(401);
+    expect(await answerOf(postCloudSession, response)).toEqual({ error: 'signed_out' });
+  });
+
+  it('needs a session', async () => {
+    const listed = await harness.app.request('/api/cloud-sessions', { headers: bare() });
+    expect(listed.status).toBe(401);
+    expect(await answerOf(listCloudSessions, listed)).toEqual({ error: 'signed_out' });
+    const started = await harness.app.request('/api/cloud-sessions', {
+      method: 'POST',
+      headers: bare(),
+    });
+    expect(started.status).toBe(401);
+    expect(await answerOf(postCloudSession, started)).toEqual({ error: 'signed_out' });
+  });
+});
+
+/** `vi.waitFor` with a timeout in line with the suite's own, so a loaded machine does not flake. */
+const waitFor = <T>(callback: () => T | Promise<T>) =>
+  vi.waitFor(callback, { timeout: 10_000, interval: 25 });
+
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+
+describe('a runner and its passes', () => {
+  // Stand-ins, never real credentials.
+  const RUNNER_SECRET = 'sprocket-runner-secret-0123456789abcdef';
+  const passJwk = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' }) as Record<
+    string,
+    unknown
+  >;
+  /** The runner's settings, for a runner that serves `workspaceId`. */
+  const runnerFor = (workspaceId: string) => ({
+    RUNNER_SECRET,
+    RUNNER_WORKSPACE_ID: workspaceId,
+    PASS_PRIVATE_KEY: JSON.stringify(passJwk),
+  });
+
+  /** A session row as runner-1 holds it for `who`, in their workspace. */
+  const held = (
+    id: string,
+    status: 'starting' | 'running',
+    who: { personId: string; workspaceId: string },
+  ) => ({
+    id,
+    workspaceId: who.workspaceId,
+    personId: who.personId,
+    repository: 'sprocket/catalog-portal',
+    harness: 'claude',
+    status,
+    title: null,
+    hostUrl: status === 'running' ? 'https://3000-sandbox.e2b.example' : null,
+    error: null,
+    errorCode: null,
+    runnerId: 'runner-1',
+    createdAt: nowSeconds(),
+    endedAt: null,
+  });
+
+  it('refuses an app that has a runner but a pass key that is no Ed25519 key, at compose', async () => {
+    const x25519 = generateKeyPairSync('x25519').privateKey.export({ format: 'jwk' });
+    await expect(
+      harness.restart({ ...runnerFor('acme'), PASS_PRIVATE_KEY: JSON.stringify(x25519) }),
+    ).rejects.toThrow(/^The configuration is not valid:\n {2}- PASS_PRIVATE_KEY: /);
+  });
+
+  it("signs a pass for the caller's running session, which the derived key verifies", async () => {
+    const logs = captureLogs();
+    const person = await harness.member('member');
+    const runner = await harness.restart(runnerFor(person.workspaceId));
+    await harness.db.company.insert(cloudSessions).values(held('session-1', 'running', person));
+
+    const response = await runner.app.request('/api/cloud-sessions/session-1/pass', {
+      method: 'POST',
+      headers: person.headers,
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const body = (await answerOf(postCloudSessionPass, response)) as {
+      pass: string;
+      hostUrl: string;
+      expiresAt: number;
+    };
+    expect(Object.keys(body).sort()).toEqual(['expiresAt', 'hostUrl', 'pass']);
+    expect(body.hostUrl).toBe('https://3000-sandbox.e2b.example');
+    expect(Number.isInteger(body.expiresAt)).toBe(true);
+
+    // EdDSA only, against the public half of PASS_PRIVATE_KEY, as the session's host checks it.
+    const publicKey = await importJWK(
+      { kty: 'OKP', crv: 'Ed25519', x: passJwk.x as string },
+      'EdDSA',
+    );
+    const verified = await compactVerify(body.pass, publicKey, { algorithms: ['EdDSA'] });
+    expect(verified.protectedHeader).toEqual({ alg: 'EdDSA', typ: PASS_TYPE });
+    const claims = readPassClaims(JSON.parse(new TextDecoder().decode(verified.payload)));
+    if (!claims.ok) throw new Error(claims.reason);
+    expect(claims.value).toMatchObject({
+      aud: PASS_AUDIENCE,
+      sub: person.personId,
+      ws: person.workspaceId,
+      sid: 'session-1',
+    });
+    expect(claims.value.exp - claims.value.iat).toBe(PASS_MAX_LIFETIME_SECONDS);
+    expect(body.expiresAt).toBe(claims.value.exp);
+
+    // Nothing the app logged holds the pass or the key that signs it.
+    expect(logs()).not.toContain(body.pass);
+    expect(logs()).not.toContain(String(passJwk.d));
+  });
+
+  it("is 404 not_found for a starting session, another person's, or an unknown id", async () => {
+    const logs = captureLogs();
+    const person = await harness.member('member');
+    const other = await harness.member('member', { workspace: person.workspaceId });
+    const runner = await harness.restart(runnerFor(person.workspaceId));
+    await harness.db.company
+      .insert(cloudSessions)
+      .values([held('session-1', 'starting', person), held('session-2', 'running', other)]);
+
+    for (const id of ['session-1', 'session-2', 'nope']) {
+      const response = await runner.app.request(`/api/cloud-sessions/${id}/pass`, {
+        method: 'POST',
+        headers: person.headers,
+      });
+      expect([id, response.status]).toEqual([id, 404]);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(await answerOf(postCloudSessionPass, response)).toEqual({ error: 'not_found' });
+    }
+    expect(logs()).not.toContain(String(passJwk.d));
+  });
+
+  it('is 503 no_runner on an app with no runner, and so no pass key', async () => {
+    const person = await harness.member('member');
+    await harness.db.company.insert(cloudSessions).values(held('session-1', 'running', person));
+    const response = await harness.app.request('/api/cloud-sessions/session-1/pass', {
+      method: 'POST',
+      headers: person.headers,
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(await answerOf(postCloudSessionPass, response)).toEqual({ error: 'no_runner' });
+  });
+
+  it("starts a session on the runner's socket, wired as main.ts wires it", async () => {
+    const logs = captureLogs();
+    const person = await harness.member('member');
+    const runner = await harness.restart(runnerFor(person.workspaceId));
+    const server = await new Promise<ReturnType<typeof serve>>((resolve) => {
+      const started = serve({ fetch: runner.app.fetch, hostname: '127.0.0.1', port: 0 }, () =>
+        resolve(started),
+      );
+      runner.api.injectWebSocket(started);
+    });
+    const port = (server.address() as AddressInfo).port;
+
+    // A bare upgrade, and ones with the person's session in place of the secret, are refused.
+    const cookie = person.headers.get('cookie') ?? '';
+    for (const headers of [
+      {},
+      { cookie },
+      { authorization: `Bearer ${cookieParts(cookie).token}` },
+    ]) {
+      const refused = new WebSocket(`ws://127.0.0.1:${port}/api/runner`, { headers });
+      // Ending a refused socket, still connecting, is an error the test expects.
+      refused.on('error', () => {});
+      const status = await new Promise<number>((resolve) =>
+        refused.once('unexpected-response', (_request, response) =>
+          resolve(response.statusCode ?? 0),
+        ),
+      );
+      expect(status).toBe(401);
+      refused.terminate();
+    }
+
+    const received: CellMessage[] = [];
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/api/runner`, {
+      headers: { authorization: `Bearer ${RUNNER_SECRET}` },
+    });
+    socket.on('message', (data) => {
+      const read = readCellMessage(JSON.parse(String(data)));
+      if (read.ok) received.push(read.value);
+    });
+    await new Promise((resolve) => socket.once('open', resolve));
+    socket.send(
+      JSON.stringify({
+        type: 'hello',
+        runnerId: 'runner-1',
+        repositories: ['sprocket/catalog-portal'],
+        harnesses: ['claude'],
+        runningSessionIds: [],
+        endedSessions: [],
+      }),
+    );
+    await waitFor(async () => {
+      const options = await runner.app.request('/api/cloud-sessions/options', {
+        headers: person.headers,
+      });
+      expect(options.status).toBe(200);
+      expect(await answerOf(getCloudSessionOptions, options)).toEqual({
+        repositories: ['sprocket/catalog-portal'],
+        harnesses: ['claude'],
+      });
+    });
+
+    const started = await runner.app.request('/api/cloud-sessions', {
+      method: 'POST',
+      headers: person.headers,
+      body: JSON.stringify({ repository: 'sprocket/catalog-portal', harness: 'claude' }),
+    });
+    expect(started.status).toBe(201);
+    const session = (await answerOf(postCloudSession, started)) as { id: string; status: string };
+    expect(session.status).toBe('starting');
+    await waitFor(() => expect(received).toHaveLength(1));
+    expect(received[0]).toMatchObject({
+      type: 'session.start',
+      sessionId: session.id,
+      workspaceId: person.workspaceId,
+      passPublicKeyPem: expect.stringMatching(/^-----BEGIN PUBLIC KEY-----/),
+    });
+
+    // The runner reports the session running, and its person gets a pass for it.
+    socket.send(
+      JSON.stringify({
+        type: 'session.update',
+        sessionId: session.id,
+        status: 'running',
+        hostUrl: 'https://3000-sandbox.e2b.example',
+      }),
+    );
+    await waitFor(async () => {
+      const pass = await runner.app.request(`/api/cloud-sessions/${session.id}/pass`, {
+        method: 'POST',
+        headers: person.headers,
+      });
+      expect(pass.status).toBe(200);
+      expect(await answerOf(postCloudSessionPass, pass)).toMatchObject({
+        hostUrl: 'https://3000-sandbox.e2b.example',
+      });
+    });
+    const reread = await runner.app.request(`/api/cloud-sessions/${session.id}`, {
+      headers: person.headers,
+    });
+    expect(await answerOf(getCloudSession, reread)).toMatchObject({
+      id: session.id,
+      status: 'running',
+      hostUrl: 'https://3000-sandbox.e2b.example',
+      runnerId: 'runner-1',
+    });
+    // Its person lists it, and stops it, which the runner is told.
+    expect(
+      (await ask(listCloudSessions, '/api/cloud-sessions', person, { app: runner.app })).body,
+    ).toEqual([expect.objectContaining({ id: session.id, status: 'running' })]);
+    const stopped = await ask(
+      postCloudSessionStop,
+      `/api/cloud-sessions/${session.id}/stop`,
+      person,
+      { app: runner.app },
+    );
+    expect(stopped).toMatchObject({ status: 202, body: { id: session.id, status: 'stopped' } });
+    await waitFor(() => expect(received).toHaveLength(2));
+    expect(received[1]).toMatchObject({ type: 'session.stop', sessionId: session.id });
+
+    expect(logs()).not.toContain(RUNNER_SECRET);
+    expect(logs()).not.toContain(String(passJwk.d));
+    socket.terminate();
+    runner.api.closeRunnerSockets();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   });
 });
