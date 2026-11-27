@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
+import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import { eq, sql } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { systemClock } from './company/adapters/clock/systemClock.js';
@@ -15,6 +16,7 @@ import {
   githubInstallation,
   githubTokenMint,
 } from './company/adapters/persistence/gitHubTables.js';
+import { cloudSessions } from './company/adapters/persistence/tables.js';
 import { mintGitHubToken } from './company/application/gitHubTokens.js';
 import type { GitHubTokenRequest } from './company/application/gitHubTokens.js';
 import { INSTALL_STATE_LIFETIME_SECONDS } from './company/domain/connections.js';
@@ -1166,6 +1168,76 @@ describe("GitHub's webhooks", () => {
     ]) {
       expect(lines).not.toContain(secret);
     }
+  });
+
+  describe('agent runs', () => {
+    /** A factory of Sprocket's first team holding the code review team, saved through the API. */
+    async function reviewFactory() {
+      const teams = await get('/api/teams', sprocket.headers);
+      const [first] = teams.body.teams as Array<{ id: string }>;
+      const made = await send(
+        'POST',
+        '/api/factories',
+        { name: 'Reviews', teamId: first?.id },
+        sprocket.headers,
+      );
+      expect(made.status).toBe(201);
+      const saved = await send(
+        'POST',
+        `/api/factories/${made.body.id}/versions`,
+        { baseVersion: 1, files: CODE_REVIEW_TEAM_FILES },
+        sprocket.headers,
+        '/api/factories/{factoryId}/versions',
+      );
+      expect(saved.status).toBe(201);
+    }
+
+    const storedSessions = () => harness.db.company.select().from(cloudSessions);
+
+    it('a pull request delivered twice starts its agent runs once', async () => {
+      logged();
+      await reviewFactory();
+      const body = fixture('pull_request.opened');
+
+      expect((await deliver(body, { event: 'pull_request' })).status).toBe(201);
+      // No runner is connected, so the run is recorded as failed, for no person.
+      expect(await storedSessions()).toEqual([
+        expect.objectContaining({
+          workspaceId: sprocket.workspaceId,
+          personId: null,
+          repository: 'sprocket/catalog-portal',
+          status: 'failed',
+          errorCode: 'runner_unavailable',
+        }),
+      ]);
+
+      expect(await deliver(body, { event: 'pull_request' })).toEqual({
+        status: 409,
+        body: { error: 'duplicate_delivery' },
+      });
+      expect(await storedSessions()).toHaveLength(1);
+      const runs = await get('/api/runs', sprocket.headers);
+      expect(runs.body.runs).toHaveLength(1);
+    });
+
+    it('an event no workspace holds starts none', async () => {
+      logged();
+      await reviewFactory();
+      expect(
+        (await deliver(through('pull_request.opened', 63), { event: 'pull_request' })).status,
+      ).toBe(422);
+      expect(await storedSessions()).toEqual([]);
+    });
+
+    it('an event for another workspace starts none of this one', async () => {
+      logged();
+      await reviewFactory();
+      // Acme's installation, 52: Acme has no factory, and Sprocket's does not hear it.
+      expect(
+        (await deliver(through('pull_request.opened', 52), { event: 'pull_request' })).status,
+      ).toBe(201);
+      expect(await storedSessions()).toEqual([]);
+    });
   });
 });
 
