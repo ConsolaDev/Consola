@@ -1,4 +1,4 @@
-import { MessageCircleQuestion, MessagesSquare, Workflow } from 'lucide-react';
+import { FolderGit2, MessageCircleQuestion, MessagesSquare, Workflow } from 'lucide-react';
 import { useId } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import {
@@ -6,7 +6,13 @@ import {
   CONVERSATION_LATER_WORDS,
   questionOpenWords,
 } from '../domain/runMessages';
-import { sessionScreen } from '../domain/cloudSession';
+import {
+  conversationSlackSource,
+  repositoryTitle,
+  repositoryWords,
+  sessionScreen,
+} from '../domain/cloudSession';
+import type { CloudSession } from '../domain/cloudSession';
 import {
   CONNECTING_WORDS,
   messageForSessionAnswer,
@@ -19,8 +25,10 @@ import type { RunPlace } from '../domain/runsRoute';
 import { agoInWords, fullTime, triggerWords } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
+import { OpenInSlack } from './AgentRunReport';
 import { Avatar } from './Avatar';
 import { RequestAutomations } from './RequestAutomations';
+import { ServiceMark } from './serviceMarks';
 import { SessionConversation } from './SessionConversation';
 import { StepTrace } from './StepTrace';
 import { useCloudSession } from './useCloudSession';
@@ -175,6 +183,7 @@ function Conversation({
   }
   return (
     <div className="run-conversation">
+      <SlackSourceLine detail={detail} session={null} />
       <RequestMessage detail={detail} members={members} now={now} />
 
       {request.question && (
@@ -219,6 +228,7 @@ function SessionHeld({
   const running = session !== null && sessionScreen(session).kind === 'running';
   return (
     <div className="run-conversation">
+      <SlackSourceLine detail={detail} session={session} />
       {!running && <RequestMessage detail={detail} members={members} now={now} />}
       {view.kind === 'loading' && (
         <p className="run-session-words" role="status">
@@ -252,6 +262,31 @@ function SessionHeld({
       )}
       {!running && <Outcome run={detail.run} />}
     </div>
+  );
+}
+
+/**
+ * Where a request came from in Slack, above its conversation: how (a mention, a direct message),
+ * the repository it works in once its session is read ("No repository" for a factory that names
+ * none), and Open in Slack, to its message. Read from its session's origin once that is read,
+ * else from the run (`conversationSlackSource`); nothing for a request that did not come from
+ * Slack.
+ */
+function SlackSourceLine({ detail, session }: { detail: RunDetail; session: CloudSession | null }) {
+  const source = conversationSlackSource(detail.run, session);
+  if (!source) return null;
+  return (
+    <p className="run-source">
+      <ServiceMark service="slack" size={14} />
+      <span>{source.words}</span>
+      {session && (
+        <span className="run-source-repository" title={repositoryTitle(session.repository)}>
+          <FolderGit2 size={14} aria-hidden="true" />
+          {repositoryWords(session.repository)}
+        </span>
+      )}
+      {source.url && <OpenInSlack url={source.url} />}
+    </p>
   );
 }
 

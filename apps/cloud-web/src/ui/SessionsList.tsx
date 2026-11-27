@@ -1,7 +1,14 @@
 import { Bot, FolderGit2, MessagesSquare, Plus } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { messageForRefusal } from '../domain/refusal';
-import { keepsShownOn, listPollIntervalMs, sessionLabel, startedAt } from '../domain/cloudSession';
+import {
+  keepsShownOn,
+  listPollIntervalMs,
+  repositoryTitle,
+  repositoryWords,
+  sessionLabel,
+  startedAt,
+} from '../domain/cloudSession';
 import type { CloudSession, SessionsAnswer } from '../domain/cloudSession';
 import {
   HARNESS_NAMES,
@@ -120,9 +127,9 @@ function SessionRow({ session, now }: { session: CloudSession; now: number }) {
         <span className="sessions-dot" data-status={session.status} aria-hidden="true" />
         <span className="sessions-row-title">{sessionLabel(session)}</span>
         <span className="sessions-row-meta">
-          <span className="sessions-tag" title={`Repository ${session.repository}`}>
+          <span className="sessions-tag" title={repositoryTitle(session.repository)}>
             <FolderGit2 size={12} aria-hidden="true" />
-            <span className="sessions-tag-text">{session.repository}</span>
+            <span className="sessions-tag-text">{repositoryWords(session.repository)}</span>
           </span>
           <span className="sessions-tag" title={`Harness ${HARNESS_NAMES[session.harness]}`}>
             <Bot size={12} aria-hidden="true" />

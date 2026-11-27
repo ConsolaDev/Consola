@@ -17,6 +17,9 @@ const config: CloudConfig = {
   },
   githubWebhookSecret: 'sprocket-test-webhook-secret-0123456789',
   runner: null,
+  connectionSecretsKey: 'c3Byb2NrZXQtY29ubmVjdGlvbi1zZWNyZXRzLWtleSE=',
+  slackPublicUrl: 'http://localhost:5175',
+  sandboxHosts: { suffixes: ['e2b.app'], local: false },
 };
 
 describe('describeStartupFailure', () => {
@@ -90,6 +93,11 @@ describe('describeStartupFailure', () => {
     expect(describeStartupFailure(failure, withRunner)).toBe(
       'refused <hidden> with {"d":"<hidden>"}',
     );
+  });
+
+  it('never shows the connection secrets key', () => {
+    const failure = new Error(`could not seal with ${config.connectionSecretsKey}`);
+    expect(describeStartupFailure(failure, config)).toBe('could not seal with <hidden>');
   });
 
   it('says something for a failure with no message', () => {

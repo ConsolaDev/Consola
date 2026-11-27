@@ -156,14 +156,14 @@ export async function startAgentRun(ports: AgentRunPorts, firing: Firing): Promi
 }
 
 /** What keeping an agent run's run needs: the runs, the clock, and the log. */
-type RunKeeping = { runs: RunStore; clock: Clock; report: (line: string) => void };
+export type RunKeeping = { runs: RunStore; clock: Clock; report: (line: string) => void };
 
 /**
  * Records an agent run's run as its session stands now (`agentRunRecord`). A run the app cannot
  * record (`recordRun`'s refusal, or a store that fails) is logged, with its id and why, and never
  * stops the session: the session is what runs, and the run only says so.
  */
-async function recordAgentRun(
+export async function recordAgentRun(
   ports: RunKeeping,
   session: CloudSession,
   facts: AgentRunFacts,
@@ -195,7 +195,8 @@ async function recordAgentRun(
  * when it was made) and the session as it is now. Every writer of a session goes through it (a
  * runner's update, its `hello`, a person's stop, a start handed over), so none can move a session
  * without its run. A run the app holds no record of is left alone and logged: the record made as
- * the session started is the only one that may create it.
+ * the session started is the only one that may create it. Who started the run (the person who
+ * asked in Slack) is the run's own, kept from that first record.
  */
 export function keepingRunsInStep(
   sessions: CloudSessionStore,
@@ -228,6 +229,7 @@ async function followSession(
       factoryVersion: found.run.factory.version,
       text: found.request.text,
       createdAt: found.run.createdAt,
+      startedBy: found.run.startedBy,
     });
   } catch (error) {
     const why = error instanceof Error ? error.message.split('\n')[0] : 'an unexpected error';

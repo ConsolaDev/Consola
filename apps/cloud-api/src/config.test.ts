@@ -31,6 +31,47 @@ describe('loadConfig', () => {
       github: null,
       githubWebhookSecret: null,
       runner: null,
+      connectionSecretsKey: null,
+      slackPublicUrl: 'http://localhost:5175',
+      sandboxHosts: { suffixes: ['e2b.app'], local: false },
+    });
+  });
+
+  describe("the sessions' host addresses", () => {
+    it('are under e2b.app, with no local sandboxes, when unset or empty', () => {
+      const expected = { suffixes: ['e2b.app'], local: false };
+      expect(loadConfig(valid).sandboxHosts).toEqual(expected);
+      expect(
+        loadConfig({ ...valid, SANDBOX_HOST_SUFFIXES: '', LOCAL_SANDBOXES: '' }).sandboxHosts,
+      ).toEqual(expected);
+    });
+
+    it('read a comma list of host names, lowercased, and LOCAL_SANDBOXES', () => {
+      expect(
+        loadConfig({
+          ...valid,
+          SANDBOX_HOST_SUFFIXES: ' E2B.app, sandboxes.sprocket.example ,',
+          LOCAL_SANDBOXES: 'true',
+        }).sandboxHosts,
+      ).toEqual({ suffixes: ['e2b.app', 'sandboxes.sprocket.example'], local: true });
+    });
+
+    it.each([
+      ['a scheme', 'https://e2b.app'],
+      ['a port', 'e2b.app:443'],
+      ['a leading dot', '.e2b.app'],
+      ['one label', 'localhost'],
+      ['an IP address', '10.0.0.7'],
+    ])('refuse a suffix with %s', (_, suffix) => {
+      expect(failureOf({ ...valid, SANDBOX_HOST_SUFFIXES: suffix }).problems).toEqual([
+        'SANDBOX_HOST_SUFFIXES: must be host names separated by commas, such as e2b.app, with no scheme, port or leading dot',
+      ]);
+    });
+
+    it('refuse LOCAL_SANDBOXES that is not true or false', () => {
+      expect(failureOf({ ...valid, LOCAL_SANDBOXES: 'yes' }).problems).toEqual([
+        'LOCAL_SANDBOXES: must be true or false',
+      ]);
     });
   });
 
@@ -286,6 +327,51 @@ describe('loadConfig, the runner and its passes', () => {
       expect.stringMatching(/^RUNNER_WORKSPACE_ID: /),
       expect.stringMatching(/^PASS_PRIVATE_KEY: /),
     ]);
+  });
+});
+
+describe('the connection secrets key', () => {
+  // 32 bytes in base64: a stand-in, never a real key.
+  const KEY = 'c3Byb2NrZXQtY29ubmVjdGlvbi1zZWNyZXRzLWtleSE=';
+
+  it('is null when unset or empty: then Slack is off', () => {
+    expect(loadConfig(valid).connectionSecretsKey).toBeNull();
+    expect(loadConfig({ ...valid, CONNECTION_SECRETS_KEY: '' }).connectionSecretsKey).toBeNull();
+  });
+
+  it('reads 32 bytes in base64', () => {
+    expect(loadConfig({ ...valid, CONNECTION_SECRETS_KEY: KEY }).connectionSecretsKey).toBe(KEY);
+  });
+
+  it.each([
+    ['too short', 'c3Byb2NrZXQ='],
+    ['too long', `${KEY.slice(0, -1)}AAAA`],
+    ['not base64', `${'!'.repeat(43)}=`],
+  ])('refuses one that is %s, never quoting it', (_what, key) => {
+    const failure = failureOf({ ...valid, CONNECTION_SECRETS_KEY: key });
+    expect(failure.problems).toEqual([expect.stringMatching(/^CONNECTION_SECRETS_KEY: /)]);
+    expect(failure.message).not.toContain(key);
+  });
+});
+
+describe("Slack's public address", () => {
+  it('is PUBLIC_URL when SLACK_PUBLIC_URL is unset or empty', () => {
+    expect(loadConfig(valid).slackPublicUrl).toBe('http://localhost:5175');
+    expect(loadConfig({ ...valid, SLACK_PUBLIC_URL: '' }).slackPublicUrl).toBe(
+      'http://localhost:5175',
+    );
+  });
+
+  it('reads SLACK_PUBLIC_URL, a tunnel’s address, without its slash', () => {
+    expect(
+      loadConfig({ ...valid, SLACK_PUBLIC_URL: 'https://sprocket-dev.trycloudflare.com/' })
+        .slackPublicUrl,
+    ).toBe('https://sprocket-dev.trycloudflare.com');
+  });
+
+  it('refuses one with a path', () => {
+    const failure = failureOf({ ...valid, SLACK_PUBLIC_URL: 'https://sprocket.test/api' });
+    expect(failure.problems).toEqual([expect.stringMatching(/^SLACK_PUBLIC_URL: /)]);
   });
 });
 

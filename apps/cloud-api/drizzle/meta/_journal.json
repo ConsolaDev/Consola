@@ -8,6 +8,20 @@
       "when": 1795758045799,
       "tag": "0000_init",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1795773178081,
+      "tag": "0001_slack",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1795780681887,
+      "tag": "0002_session_without_repository",
+      "breakpoints": true
     }
   ]
 }

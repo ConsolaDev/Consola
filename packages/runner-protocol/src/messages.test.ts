@@ -184,6 +184,26 @@ describe('readCellMessage', () => {
     expect(readCellMessage(wire(value))).toEqual({ ok: true, value });
   });
 
+  it('reads a session.start that names no repository, as one with none', () => {
+    const { repository: _repository, ...withNone } = start;
+    expect(readCellMessage(wire(withNone))).toEqual({ ok: true, value: withNone });
+    // What a sender writes for none, `undefined`, is no field once it is JSON.
+    expect(readCellMessage(wire({ ...start, repository: undefined }))).toEqual({
+      ok: true,
+      value: withNone,
+    });
+    const { checkout: _checkout, ...onDefaultBranch } = agentRun;
+    const run = { ...withNone, agentRun: onDefaultBranch };
+    expect(readCellMessage(wire(run))).toEqual({ ok: true, value: run });
+  });
+
+  it('refuses an agent run with a checkout but no repository, naming the fields', () => {
+    const { repository: _repository, ...withNone } = start;
+    const read = readCellMessage(wire({ ...withNone, agentRun }));
+    expect(read).toEqual({ ok: false, reason: expect.stringContaining('checkout') });
+    expect(read).toEqual({ ok: false, reason: expect.stringContaining('repository') });
+  });
+
   it.each([
     ['not an object', 'orchestrator'],
     ['without a prompt', { ...agentRun, prompt: undefined }],
@@ -206,6 +226,8 @@ describe('readCellMessage', () => {
     ['an extra field', { ...start, gitToken: 'x' }],
     ['an extra field on stop', { ...stop, force: true }],
     ['no workspaceId', { ...start, workspaceId: undefined }],
+    ['a null repository', { ...start, repository: null }],
+    ['an empty repository', { ...start, repository: '' }],
     ['an unknown harness', { ...start, harness: 'cursor' }],
     ['no key', { ...start, passPublicKeyPem: undefined }],
     ['an empty key', { ...start, passPublicKeyPem: '' }],

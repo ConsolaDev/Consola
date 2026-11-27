@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import {
   CommandId,
+  MessageId,
   ORCHESTRATION_PROTOCOL_HEADER,
   ORCHESTRATION_PROTOCOL_VERSION_TEXT,
   ORCHESTRATION_V2_WS_METHODS,
@@ -76,6 +77,7 @@ import {
 } from '../testing/t3Client.ts';
 import type { T3Client } from '../testing/t3Client.ts';
 import { SOCKET_FRAME_PARTS_QUERY_PARAM } from '@t3tools/shared/socketFrameParts';
+import { HOST_ID_PREFIX } from '../core/commandPolicy.ts';
 import { HOST_SCOPES } from './hostHttp.ts';
 import { PassKeyInvalid } from './passVerifier.ts';
 import { TICKET_LIFETIME_MS } from './socketTickets.ts';
@@ -505,6 +507,45 @@ describe('serveHost', () => {
             },
           ]);
           yield* runTheTurn(handle, prompt);
+        }),
+      ),
+    REPLAY_TIMEOUT_MS,
+  );
+
+  it(
+    'refuses a client’s command that takes an id the host keeps for its own, and runs nothing',
+    () =>
+      withServedReplay('simple', ({ spec, handle, prompt, connect }) =>
+        Effect.gen(function* () {
+          const { client } = yield* connect();
+          if (prompt.type !== 'message.dispatch') throw new Error('the fixture sends a message');
+          // An agent run's prompt, and a person's follow-up: ids a client must not take first.
+          for (const claimed of [
+            {
+              ...prompt,
+              commandId: CommandId.make(
+                `${HOST_ID_PREFIX}command:${spec.sessionId}:agent-run-prompt`,
+              ),
+            },
+            {
+              ...prompt,
+              messageId: MessageId.make(
+                `${HOST_ID_PREFIX}message:${spec.sessionId}:follow-up:slack:Ev1:ab12`,
+              ),
+            },
+          ]) {
+            const refused = yield* client[ORCHESTRATION_V2_WS_METHODS.dispatchCommand](
+              claimed,
+            ).pipe(Effect.flip);
+            expect(refused).toMatchObject({
+              _tag: 'OrchestrationV2DispatchCommandError',
+              message: `This host keeps ids that start with ${HOST_ID_PREFIX} for its own commands; send message.dispatch with another id.`,
+            });
+          }
+          expect(userMessages(handle)).toEqual([]);
+          // The same message under ids of the client's own runs.
+          yield* runTheTurn(handle, prompt);
+          expect(userMessages(handle)).toHaveLength(1);
         }),
       ),
     REPLAY_TIMEOUT_MS,

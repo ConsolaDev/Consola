@@ -1,0 +1,1 @@
+ALTER TABLE "cloud_session" ALTER COLUMN "repository" DROP NOT NULL;

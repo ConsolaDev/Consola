@@ -14,6 +14,7 @@ import type { FactoryFormMessages } from '../domain/factoryMessages';
 import type { Team } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { factoriesService } from '../services/factories';
+import { FactorySlackSection } from './FactorySlackSection';
 import { SourceChoice } from './SourceChoice';
 
 /**
@@ -23,7 +24,8 @@ import { SourceChoice } from './SourceChoice';
  * sees a factory may rename and move it, so there is no `canManage` to read.
  *
  * Every change reads the list again (`onChanged`), so the sidebar and this page show what the
- * API holds.
+ * API holds. Under it, the factory's Slack app (`FactorySlackSection`), which only owners and
+ * admins set up.
  */
 export function FactorySettingsPage({
   factory,
@@ -37,29 +39,32 @@ export function FactorySettingsPage({
   onChanged: () => Promise<void>;
 }) {
   return (
-    <section className="group" aria-labelledby="factory-settings-label">
-      <h2 id="factory-settings-label" className="group-label">
-        Settings
-      </h2>
-      <div className="group-box factory-settings">
-        <NameSetting
-          key={factory.name}
-          factory={factory}
-          workspace={workspace}
-          onChanged={onChanged}
-        />
-        <TeamSetting
-          key={factory.teamId}
-          factory={factory}
-          teams={teams}
-          workspace={workspace}
-          onChanged={onChanged}
-        />
-        <div className="factory-setting">
-          <SourceChoice chosen={factory.source.kind} readOnly />
+    <>
+      <section className="group" aria-labelledby="factory-settings-label">
+        <h2 id="factory-settings-label" className="group-label">
+          Settings
+        </h2>
+        <div className="group-box factory-settings">
+          <NameSetting
+            key={factory.name}
+            factory={factory}
+            workspace={workspace}
+            onChanged={onChanged}
+          />
+          <TeamSetting
+            key={factory.teamId}
+            factory={factory}
+            teams={teams}
+            workspace={workspace}
+            onChanged={onChanged}
+          />
+          <div className="factory-setting">
+            <SourceChoice chosen={factory.source.kind} readOnly />
+          </div>
         </div>
-      </div>
-    </section>
+      </section>
+      <FactorySlackSection key={factory.id} factory={factory} workspace={workspace} />
+    </>
   );
 }
 

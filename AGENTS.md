@@ -258,6 +258,16 @@ admits one runner for one workspace and no person. The app signs each
 session's pass with a key of its own (`PASS_PRIVATE_KEY`), and only
 `company/adapters/token` imports `jose`; the runner's socket
 (`company/adapters/runner`) may use `hono` and `@hono/node-ws`.
+Slack is a third (CON-144): each factory has a Slack app of its own. Slack's
+redirect after "Add to Slack" (`GET /api/slack/oauth/callback`) needs no
+cookie, since its state is signed for the workspace, the factory and the
+person, and Slack's events (`POST /api/slack/events/{factoryId}`) are signed
+with the app's signing secret and sit outside the origin check. The secrets
+the app keeps for a connection (a Slack app's client and signing secrets and
+bot token) are sealed with AES-256-GCM under `CONNECTION_SECRETS_KEY`, by
+`company/adapters/sealing` alone; without the key Slack is off.
+`SLACK_PUBLIC_URL` (a tunnel in development) is where Slack reaches the API,
+else `PUBLIC_URL`.
 
 Nothing in `apps/desktop` depends on the cloud apps, and neither imports from
 the desktop, the website, the other app or `packages/*`, with four
@@ -265,7 +275,8 @@ exceptions. `cloud-api`'s `company` part, and only it (with the ring's own
 tests, which drive it as a runner would), imports
 `packages/runner-protocol` (`@consola/runner-protocol`, MIT), what the app
 and its runners say to each other: the runner socket's messages, the readers
-of a repository and a harness, and the session pass's claims. It does no
+of a repository and a harness, the session pass's claims, and a follow-up the
+app sends an agent run's host. It does no
 I/O, so any layer of `company` may import it; before changing it, read
 `packages/runner-protocol/AGENTS.md`. `company` also imports
 `packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
@@ -343,7 +354,15 @@ orchestrator, which dispatches the others and posts the result itself. The cloud
 each as an agent run, a cloud session no person started, and records it as a
 request in Runs whose conversation is that session
 (`apps/cloud-api/AGENTS.md`, "Agent runs"); the host runs every agent of it in
-full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). Nothing
+full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). A
+mention of a factory's Slack bot, or a direct message to it, from a linked member
+who can see the factory, starts its orchestrator the same way, as a request that
+Consola answers in the Slack thread (`apps/cloud-api/AGENTS.md`, "Requests from
+Slack"). A factory needs no repository: one whose `factory.yml` lists none (or
+that has no `factory.yml`) has its request from Slack start in a sandbox whose
+working folder is empty and that holds no git token, so its agents can push
+nowhere (`session.start` leaves `repository` out; `packages/host/AGENTS.md`,
+"The `runner` command"). Nothing
 in the steps design depends on it. Known gap: the sandbox holds the runner's own
 git token and loads the pull request's own `.claude` settings, whoever opened it,
 so a runner serves agent runs only on repositories whose contributors are

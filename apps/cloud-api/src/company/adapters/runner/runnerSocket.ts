@@ -338,7 +338,8 @@ export function createRunnerSocket(deps: {
             type: 'session.start',
             sessionId: request.sessionId,
             workspaceId: request.workspaceId,
-            repository: request.repository,
+            // A session with no repository leaves the protocol's `repository` out.
+            ...(request.repository !== null ? { repository: request.repository } : {}),
             harness: request.harness,
             passPublicKeyPem: settings.passPublicKeyPem,
             ...(request.agentRun ? { agentRun: request.agentRun } : {}),

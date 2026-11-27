@@ -120,6 +120,7 @@ function portsFor(connected: Offer | null = offer) {
     ids: { newId: () => `run-${++next}` },
     clock,
     passes: null,
+    hosts: { sendFollowUp: async () => 'failed' },
     factories,
     runs: stores.runs,
     report,

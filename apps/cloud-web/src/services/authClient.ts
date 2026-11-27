@@ -14,9 +14,13 @@ async function attempt(call: () => Promise<{ error: unknown }>): Promise<string 
   }
 }
 
-export function signInWithGoogle(): Promise<string | null> {
+/**
+ * Signs in with Google, coming back to `returnTo`, a path of this page's own (`/`, or a one-time
+ * link's `/#/slack/link/<token>`), whether sign-in finished or failed.
+ */
+export function signInWithGoogle(returnTo = '/'): Promise<string | null> {
   return attempt(() =>
-    client.signIn.social({ provider: 'google', callbackURL: '/', errorCallbackURL: '/' }),
+    client.signIn.social({ provider: 'google', callbackURL: returnTo, errorCallbackURL: returnTo }),
   );
 }
 

@@ -5,18 +5,24 @@ import {
   agentRunPhaseWords,
   agentRunSummary,
   chatMounted,
+  conversationSlackSource,
   dispatchedAgents,
   isAgentRun,
   keepsShownOn,
+  originFacts,
   listPollIntervalMs,
   pollIntervalMs,
   pullRequestLabel,
   pullRequestUrl,
+  repositoryTitle,
+  repositoryWords,
   sessionLabel,
   sessionPollIntervalMs,
   sessionScreen,
   shortSha,
   shouldRenewPass,
+  showsRepository,
+  slackMessageUrl,
   startedAt,
 } from './cloudSession';
 import type {
@@ -25,10 +31,11 @@ import type {
   AgentRunReport,
   CellFailureCode,
   CloudSession,
-  CloudSessionOrigin,
+  AutomationOrigin,
   CloudSessionStatus,
   DispatchedAgentStatus,
   Harness,
+  SlackOrigin,
   StartRefusalCode,
 } from './cloudSession';
 import {
@@ -42,6 +49,8 @@ import {
   messageForSessionAnswer,
   messageForStartAnswer,
   messageForStopAnswer,
+  failedWords,
+  NO_REPOSITORY_WORDS,
   NO_RUNNER_WORDS,
   SESSION_STATUS_WORDS,
   START_NOTE,
@@ -84,6 +93,69 @@ describe('the contract', () => {
         : false
       : false = true;
     expect(exact).toBe(true);
+  });
+});
+
+describe('a session’s repository', () => {
+  const slackOrigin: SlackOrigin = {
+    kind: 'slack',
+    factoryId: 'f-2',
+    factoryName: 'Weekly report',
+    agent: 'orchestrator',
+    via: 'mention',
+    message: {
+      teamId: 'T0SPROCKET',
+      channelId: 'C0CATALOG',
+      threadTs: '1795000000.000100',
+      messageTs: '1795000000.000100',
+      permalink: 'https://sprocket.slack.com/archives/C0CATALOG/p1795000000000100',
+      title: 'Write up last week',
+    },
+  };
+
+  it('is named as it is, or says plainly that there is none', () => {
+    expect(repositoryWords('sprocket/catalog-portal')).toBe('sprocket/catalog-portal');
+    expect(repositoryWords(null)).toBe('No repository');
+    expect(NO_REPOSITORY_WORDS).toBe('No repository');
+    expect(repositoryTitle('sprocket/catalog-portal')).toBe('Repository sprocket/catalog-portal');
+    expect(repositoryTitle(null)).toBe(
+      'No repository: it works in an empty folder, with no git credentials, so it pushes nowhere.',
+    );
+  });
+
+  it('is shown beside a person’s session and a request from Slack, never twice beside a pull request', () => {
+    expect(showsRepository(session)).toBe(true);
+    expect(showsRepository({ origin: slackOrigin })).toBe(true);
+    const automation: AutomationOrigin = {
+      kind: 'automation',
+      factoryId: 'f-1',
+      factoryName: 'Code review',
+      automation: 'review-pull-requests',
+      agent: 'orchestrator',
+      item: {
+        kind: 'pull_request',
+        repository: 'sprocket/catalog-portal',
+        number: 12,
+        url: 'https://github.com/sprocket/catalog-portal/pull/12',
+        title: 'Fix the flaky login test',
+        headSha: '0123456789abcdef0123456789abcdef01234567',
+      },
+    };
+    // The pull request's label names its repository already.
+    expect(showsRepository({ origin: automation })).toBe(false);
+  });
+
+  it('never words a missing repository as text when a failure names one', () => {
+    const failed = {
+      repository: null,
+      harness: 'claude' as const,
+      error: null,
+      errorCode: 'repository_not_offered' as const,
+    };
+    expect(failedWords(failed)).toBe(
+      'The connected runner doesn’t offer its repository, so this run never started.',
+    );
+    expect(failedWords(failed)).not.toContain('null');
   });
 });
 
@@ -224,7 +296,7 @@ describe('sessionScreen', () => {
 });
 
 describe('an agent run', () => {
-  const origin: CloudSessionOrigin = {
+  const origin: AutomationOrigin = {
     kind: 'automation',
     factoryId: 'f-1',
     factoryName: 'Code review',
@@ -266,6 +338,83 @@ describe('an agent run', () => {
     expect(pullRequestUrl({ ...origin.item, url: 'javascript:alert(1)' })).toBeNull();
     expect(pullRequestUrl({ ...origin.item, url: 'http://github.com/x' })).toBeNull();
     expect(shortSha(origin.item.headSha)).toBe('0123456');
+  });
+
+  const slack: SlackOrigin = {
+    kind: 'slack',
+    factoryId: 'f-1',
+    factoryName: 'Code review',
+    agent: 'orchestrator',
+    via: 'mention',
+    message: {
+      teamId: 'T024BE7LD',
+      channelId: 'C024BE91L',
+      threadTs: '1732700000.000100',
+      messageTs: '1732700000.000100',
+      permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
+      title: 'Can you look at the flaky checkout test in catalog-portal?',
+    },
+  };
+
+  it('is an agent run when a request from Slack started it, too', () => {
+    expect(isAgentRun({ ...run, origin: slack })).toBe(true);
+  });
+
+  it('links a request from Slack to its message, only on https', () => {
+    expect(slackMessageUrl(slack)).toBe(slack.message.permalink);
+    const plain = { ...slack.message, permalink: 'http://sprocket.slack.com/archives/C1/p1' };
+    expect(slackMessageUrl({ ...slack, message: plain })).toBeNull();
+  });
+
+  it('says what an automation’s run is: its automation, pull request and commit', () => {
+    expect(originFacts(origin)).toEqual({
+      kind: 'automation',
+      factory: { id: 'f-1', name: 'Code review' },
+      automation: 'review-pull-requests',
+      pullRequest: 'sprocket/catalog-portal#12 Fix the flaky login test',
+      url: 'https://github.com/sprocket/catalog-portal/pull/12',
+      headSha: '0123456789abcdef0123456789abcdef01234567',
+      shortSha: '0123456',
+    });
+  });
+
+  it('says what a request from Slack is, with no pull request to read', () => {
+    expect(originFacts(slack)).toEqual({
+      kind: 'slack',
+      factory: { id: 'f-1', name: 'Code review' },
+      via: 'Mentioned in Slack',
+      title: 'Can you look at the flaky checkout test in catalog-portal?',
+      url: slack.message.permalink,
+    });
+    expect(originFacts({ ...slack, via: 'dm' })).toMatchObject({ via: 'Direct message in Slack' });
+    // A way of asking a newer API names is still from Slack.
+    const newer = { ...slack, via: 'reaction' } as unknown as SlackOrigin;
+    expect(originFacts(newer)).toMatchObject({ kind: 'slack', via: 'From Slack' });
+  });
+
+  it('names Slack as a request’s source: its session’s origin first, else the run’s record', () => {
+    const fromSlack = {
+      triggerDetail: 'slack_mention',
+      item: {
+        url: slack.message.permalink,
+        title: slack.message.title,
+        kind: 'slack' as const,
+        repo: null,
+        number: null,
+      },
+    };
+    expect(conversationSlackSource(fromSlack, { ...run, origin: { ...slack, via: 'dm' } })).toEqual(
+      { words: 'Direct message in Slack', url: slack.message.permalink },
+    );
+    // While the session is unread, the run's own record says it.
+    expect(conversationSlackSource(fromSlack, null)).toEqual({
+      words: 'Mentioned in Slack',
+      url: slack.message.permalink,
+    });
+    // An automation's run on a pull request did not come from Slack.
+    expect(
+      conversationSlackSource({ triggerDetail: 'pull_request.opened', item: null }, run),
+    ).toBeNull();
   });
 
   it('stands where the runner last reported, while the sandbox runs', () => {
@@ -370,9 +519,12 @@ describe('startedAt', () => {
 });
 
 describe('the sentences', () => {
+  /** What a person asked to start: a repository and a harness, as the form sends them. */
+  const asked = { repository: 'sprocket/catalog-portal', harness: 'claude' } as const;
+
   it('says no runner is connected', () => {
     expect(NO_RUNNER_WORDS).toBe('No runner is connected for this workspace.');
-    expect(messageForStartAnswer({ kind: 'refused', code: 'no_runner' }, session)).toBe(
+    expect(messageForStartAnswer({ kind: 'refused', code: 'no_runner' }, asked)).toBe(
       'No runner is connected for this workspace.',
     );
     expect(messageForPassAnswer({ kind: 'no-runner' })).toBe(
@@ -381,28 +533,28 @@ describe('the sentences', () => {
   });
 
   it('names the repository or the harness the runner does not offer', () => {
-    expect(
-      messageForStartAnswer({ kind: 'refused', code: 'repository_not_offered' }, session),
-    ).toBe('This runner does not offer sprocket/catalog-portal.');
+    expect(messageForStartAnswer({ kind: 'refused', code: 'repository_not_offered' }, asked)).toBe(
+      'This runner does not offer sprocket/catalog-portal.',
+    );
     expect(
       messageForStartAnswer(
         { kind: 'refused', code: 'harness_not_offered' },
-        { ...session, harness: 'codex' },
+        { ...asked, harness: 'codex' },
       ),
     ).toBe('This runner has no API key for Codex.');
-    expect(messageForStartAnswer({ kind: 'refused', code: 'harness_not_offered' }, session)).toBe(
+    expect(messageForStartAnswer({ kind: 'refused', code: 'harness_not_offered' }, asked)).toBe(
       'This runner has no API key for Claude Code.',
     );
   });
 
   it('says a start the API could not read', () => {
-    expect(messageForStartAnswer({ kind: 'refused', code: 'invalid_request' }, session)).toBe(
+    expect(messageForStartAnswer({ kind: 'refused', code: 'invalid_request' }, asked)).toBe(
       'Consola Cloud couldn’t read this repository or harness. Pick them again.',
     );
   });
 
   it('says a refusal of the API’s the way every page of the API does', () => {
-    expect(messageForStartAnswer({ kind: 'unavailable' }, session)).toBe(
+    expect(messageForStartAnswer({ kind: 'unavailable' }, asked)).toBe(
       'Consola Cloud isn’t answering. Start it with pnpm dev:cloud and try again.',
     );
     expect(messageForSessionAnswer({ kind: 'signed-out' })).toBe(

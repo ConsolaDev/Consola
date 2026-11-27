@@ -9,6 +9,7 @@ import {
   FACTORY_NAME_PROBLEMS,
 } from '../../domain/factory.js';
 import {
+  APPLIES_TO_KINDS,
   ITEM_KINDS,
   OUTPUT_TAIL_MAX,
   PHASES,
@@ -587,13 +588,24 @@ export const StepStatus = z.enum(STEP_STATUSES).openapi('StepStatus', {
 
 export const RunItem = z
   .strictObject({
-    url: z.string().openapi({ description: 'Its page, an https address.' }),
-    title: z.string().openapi({ description: 'Written by its author: text, never markup.' }),
-    kind: z.enum(ITEM_KINDS).nullable(),
+    url: z.string().openapi({
+      description: 'Its page, an https address: for a Slack message, its permalink.',
+    }),
+    title: z.string().openapi({
+      description:
+        'Written by its author: text, never markup. For a Slack message, its first line.',
+    }),
+    kind: z.enum(ITEM_KINDS).nullable().openapi({
+      description:
+        '`pr`, `issue`, or `slack`: the Slack message a request came from, with no `repo` or `number`.',
+    }),
     repo: z.string().nullable().openapi({ description: '`owner/name`, when known.' }),
     number: z.number().int().nullable(),
   })
-  .openapi('RunItem', { description: 'The pull request or issue a run is about.' });
+  .openapi('RunItem', {
+    description:
+      'The pull request or issue a run is about, or the Slack message a request came from.',
+  });
 
 export const PhaseCounts = z
   .strictObject({
@@ -633,7 +645,7 @@ export const RunSummary = z
     trigger: RunTrigger,
     triggerDetail: z.string().nullable().openapi({
       description:
-        "What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check.",
+        "What the trigger was: the event's name (`pull_request.opened`; for a request from Slack, `slack_mention` or `slack_dm`), the cron schedule, or the poll's check.",
     }),
     startedBy: z.string().nullable().openapi({
       description:
@@ -807,7 +819,7 @@ export const RunSource = z
     }),
     mode: z.enum(AUTOMATION_MODES),
     appliesTo: z
-      .array(z.enum(ITEM_KINDS))
+      .array(z.enum(APPLIES_TO_KINDS))
       .openapi({ description: 'Which items a run on demand takes; empty when none.' }),
   })
   .openapi('RunSource', {
@@ -1077,6 +1089,35 @@ export const CloudSessionOrigin = z
     description: "What started an agent run: an automation of a factory's agent team, on an item.",
   });
 
+export const SlackSessionOrigin = z
+  .strictObject({
+    kind: z.literal('slack'),
+    factoryId: z.string(),
+    factoryName: z.string(),
+    agent: z
+      .string()
+      .openapi({ description: 'The agent that takes the first turn: the orchestrator.' }),
+    via: z.enum(['mention', 'dm']).openapi({
+      description: '`mention`: the bot was mentioned in a channel; `dm`: sent a direct message.',
+    }),
+    message: z
+      .strictObject({
+        teamId: z.string().openapi({ description: 'The Slack workspace (`T…`).' }),
+        channelId: z.string().openapi({ description: 'The channel, or the direct message.' }),
+        threadTs: z.string().openapi({ description: 'The thread Consola answers in.' }),
+        messageTs: z.string().openapi({ description: 'The message itself.' }),
+        permalink: z.string().openapi({ description: "The message's permalink, from Slack." }),
+        title: z.string().openapi({
+          description: "The message's first line, cut: written by a person, shown as text.",
+        }),
+      })
+      .openapi({ description: 'The Slack message the request came from.' }),
+  })
+  .openapi('SlackSessionOrigin', {
+    description:
+      "What started a request from Slack: a person mentioned a factory's bot, or sent it a direct message, and its orchestrator takes it.",
+  });
+
 export const AgentRunReport = z
   .strictObject({
     state: z.enum(AGENT_RUN_STATES),
@@ -1108,7 +1149,10 @@ export const CloudSession = z
       description:
         'The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees.',
     }),
-    repository: z.string().openapi({ description: 'The repository, as `owner/name`.' }),
+    repository: z.string().nullable().openapi({
+      description:
+        'The repository it works in, as `owner/name`. Null for an agent run of a factory that names none (a request from Slack), which starts in an empty folder with no git credentials. A person’s session, and an agent run on a pull request, always have one.',
+    }),
     harness: Harness,
     status: z.enum(CLOUD_SESSION_STATUSES).openapi({
       description:
@@ -1139,8 +1183,9 @@ export const CloudSession = z
       .int()
       .nullable()
       .openapi({ description: 'When it ended, in epoch seconds; null while it lives.' }),
-    origin: z.union([CloudSessionOrigin, z.null()]).openapi({
-      description: "What started an agent run; null for a person's session.",
+    origin: z.union([CloudSessionOrigin, SlackSessionOrigin, z.null()]).openapi({
+      description:
+        "What started an agent run: an automation (`CloudSessionOrigin`) or a request from Slack (`SlackSessionOrigin`); null for a person's session.",
     }),
     agentRun: z.union([AgentRunReport, z.null()]).openapi({
       description: "The runner's last report of an agent run; null until it sent one.",

@@ -4,12 +4,17 @@ import {
   AGENT_RUN_PHASE_WORDS,
   failedWords,
   HARNESS_NAMES,
+  NO_REPOSITORY_TITLE,
+  NO_REPOSITORY_WORDS,
   SESSION_STATUS_WORDS,
   STARTING_WORDS,
   STOPPED_WORDS,
   UNPUSHED_CHANGES_WARNING,
 } from './cloudSessionMessages';
 import { safeItemUrl } from './runs';
+import type { RunItem } from './runs';
+import { SLACK_VIA_WORDS, slackSourceOf } from './runWords';
+import type { SlackSource } from './runWords';
 
 /**
  * Cloud sessions as the web app sees them: each a sandbox the workspace's runner runs, with an
@@ -34,7 +39,18 @@ export type Harness = CloudSession['harness'];
 export type CellFailureCode = NonNullable<CloudSession['errorCode']>;
 
 /** What started an agent run: an automation of a factory's agent team, on a pull request. */
-export type CloudSessionOrigin = Schemas['CloudSessionOrigin'];
+export type AutomationOrigin = Schemas['CloudSessionOrigin'];
+/**
+ * What started an agent run a person asked for in Slack, by mentioning a factory's bot
+ * (`via: 'mention'`) or messaging it (`dm`): the factory, its orchestrator, and the message
+ * (CON-144), whose `title` is its first line, written by a person and shown as text.
+ */
+export type SlackOrigin = Schemas['SlackSessionOrigin'];
+/**
+ * What started an agent run: an automation on a pull request, or a message in Slack. Every
+ * reader branches on its `kind` (`originFacts`): only an automation's has a pull request.
+ */
+export type AgentRunOrigin = NonNullable<CloudSession['origin']>;
 /** The runner's last report of an agent run. */
 export type AgentRunReport = Schemas['AgentRunReport'];
 export type AgentRunState = AgentRunReport['state'];
@@ -42,10 +58,16 @@ export type AgentRunState = AgentRunReport['state'];
 export type DispatchedAgent = NonNullable<AgentRunReport['agents']>[number];
 export type DispatchedAgentStatus = DispatchedAgent['status'];
 
-/** An agent run: a session an automation started, which nobody types into. */
-export type AgentRun = CloudSession & { origin: CloudSessionOrigin };
+/**
+ * An agent run: a session an automation, or a request from Slack, started, which nobody types
+ * into.
+ */
+export type AgentRun = CloudSession & { origin: AgentRunOrigin };
 
-/** Whether a session is an agent run (an automation started it), not a person's own. */
+/**
+ * Whether a session is an agent run (an automation, or a request from Slack, started it), not a
+ * person's own.
+ */
 export function isAgentRun(session: CloudSession): session is AgentRun {
   return session.origin !== null;
 }
@@ -79,14 +101,83 @@ export function agentRunPhaseWords(session: Pick<CloudSession, 'status' | 'agent
 }
 
 /** A pull request as a person names it: `owner/name#12 Title`. */
-export function pullRequestLabel(item: CloudSessionOrigin['item']): string {
+export function pullRequestLabel(item: AutomationOrigin['item']): string {
   const title = item.title.trim();
   return `${item.repository}#${item.number}${title ? ` ${title}` : ''}`;
 }
 
 /** The pull request's address, only when it is an `https:` one: the API passes GitHub's on. */
-export function pullRequestUrl(item: CloudSessionOrigin['item']): string | null {
+export function pullRequestUrl(item: AutomationOrigin['item']): string | null {
   return safeItemUrl(item.url);
+}
+
+/** The Slack message an agent run came from, only when its permalink is an `https:` one. */
+export function slackMessageUrl(origin: SlackOrigin): string | null {
+  return safeItemUrl(origin.message.permalink);
+}
+
+/**
+ * What an agent run's origin says, as its pages show it, read by its `kind`: an automation's run
+ * names the automation, its pull request (a link only on `https:`) and the commit it checks out;
+ * a request from Slack names how it came (`SLACK_VIA_WORDS`), the message's first line and the
+ * message (a link only on `https:`). Both name their factory.
+ */
+export type OriginFacts =
+  | {
+      kind: 'automation';
+      factory: { id: string; name: string };
+      automation: string;
+      pullRequest: string;
+      url: string | null;
+      headSha: string;
+      shortSha: string;
+    }
+  | {
+      kind: 'slack';
+      factory: { id: string; name: string };
+      via: string;
+      title: string;
+      url: string | null;
+    };
+
+export function originFacts(origin: AgentRunOrigin): OriginFacts {
+  const factory = { id: origin.factoryId, name: origin.factoryName };
+  if (origin.kind === 'slack') {
+    return {
+      kind: 'slack',
+      factory,
+      // A way of asking a newer API names is still from Slack.
+      via: Object.hasOwn(SLACK_VIA_WORDS, origin.via) ? SLACK_VIA_WORDS[origin.via] : 'From Slack',
+      title: origin.message.title,
+      url: slackMessageUrl(origin),
+    };
+  }
+  return {
+    kind: 'automation',
+    factory,
+    automation: origin.automation,
+    pullRequest: pullRequestLabel(origin.item),
+    url: pullRequestUrl(origin.item),
+    headSha: origin.item.headSha,
+    shortSha: shortSha(origin.item.headSha),
+  };
+}
+
+/**
+ * Slack as the source of a request's conversation, or null for a request that did not come from
+ * Slack. Its session's origin says it once the session is read (how it came, and its message);
+ * until then, or for a session that names none, the run's own record does (`slackSourceOf`: its
+ * `triggerDetail` and its Slack item).
+ */
+export function conversationSlackSource(
+  run: { triggerDetail: string | null; item: RunItem | null },
+  session: CloudSession | null,
+): SlackSource | null {
+  if (session !== null && isAgentRun(session)) {
+    const facts = originFacts(session.origin);
+    if (facts.kind === 'slack') return { words: facts.via, url: facts.url };
+  }
+  return slackSourceOf(run);
 }
 
 /** A commit as it is shown: its first seven characters. */
@@ -128,6 +219,28 @@ export function isSessionStatus(value: unknown): value is CloudSessionStatus {
 /** Whether a session has ended: it never moves again. */
 export function isEnded(status: CloudSessionStatus): boolean {
   return status === 'stopped' || status === 'failed';
+}
+
+/**
+ * The repository a session works in, as its pages name it: `owner/name`, or "No repository" for
+ * an agent run of a factory that names none, which works in an empty folder with no git token.
+ */
+export function repositoryWords(repository: string | null): string {
+  return repository ?? NO_REPOSITORY_WORDS;
+}
+
+/** What hovering a session's repository says: which it is, or that it has none, and so pushes nowhere. */
+export function repositoryTitle(repository: string | null): string {
+  return repository === null ? NO_REPOSITORY_TITLE : `Repository ${repository}`;
+}
+
+/**
+ * Whether a session's pages name its repository beside what started it: a person's session and a
+ * request from Slack do, whether it has one or not; an automation's run on a pull request names
+ * it in the pull request already (`pullRequestLabel`).
+ */
+export function showsRepository(session: Pick<CloudSession, 'origin'>): boolean {
+  return session.origin === null || session.origin.kind === 'slack';
 }
 
 /** What a session is called: its title, or "Session" and its id's first eight characters. */

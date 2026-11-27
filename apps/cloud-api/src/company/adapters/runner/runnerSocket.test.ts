@@ -304,6 +304,22 @@ describe('the runner socket', () => {
       });
     });
 
+    it('leaves the repository out of a start with none, which the runner reads', async () => {
+      const connected = await connect();
+      await runner.channel.startSession('runner-1', { ...start, repository: null });
+      // The test runner keeps only what the protocol's reader reads.
+      await waitFor(() => expect(connected.received).toHaveLength(1));
+      const [message] = connected.received;
+      expect(message).toEqual({
+        type: 'session.start',
+        sessionId: 's-1',
+        workspaceId: 'acme',
+        harness: 'claude',
+        passPublicKeyPem: passKey.publicKeyPem,
+      });
+      expect(message).not.toHaveProperty('repository');
+    });
+
     it('refuses a start for another runner or workspace, or with no runner connected', async () => {
       await expect(runner.channel.startSession('runner-1', start)).rejects.toThrow();
       const connected = await connect();

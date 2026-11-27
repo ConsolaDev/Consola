@@ -31,6 +31,7 @@ function secretsOf(config: CloudConfig): string[] {
     config.google.clientSecret,
     config.github?.clientSecret ?? '',
     config.githubWebhookSecret ?? '',
+    config.connectionSecretsKey ?? '',
   ];
   try {
     const { password } = new URL(config.databaseUrl);
@@ -51,7 +52,7 @@ function secretsOf(config: CloudConfig): string[] {
 /**
  * One plain line for a failure while the API starts: the error's own words, never the database
  * address or its password, `BETTER_AUTH_SECRET`, the Google or GitHub client secret, the webhook
- * secret, the runner's secret or the pass key.
+ * secret, the runner's secret, the pass key or the connection secrets key.
  */
 export function describeStartupFailure(error: unknown, config: CloudConfig): string {
   const message =

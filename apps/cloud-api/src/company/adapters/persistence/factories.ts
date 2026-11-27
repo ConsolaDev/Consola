@@ -104,6 +104,15 @@ export function createFactoryStore(db: Database): FactoryStore {
       return (await readFactories(db, workspaceId, factoryId))[0] ?? null;
     },
 
+    async workspaceOf(factoryId) {
+      const [row] = await db
+        .select({ workspaceId: factories.workspaceId })
+        .from(factories)
+        .where(eq(factories.factoryId, factoryId))
+        .limit(1);
+      return row?.workspaceId ?? null;
+    },
+
     async create(workspaceId, { name, teamId, personId }) {
       try {
         return await db.transaction(async (tx) => {

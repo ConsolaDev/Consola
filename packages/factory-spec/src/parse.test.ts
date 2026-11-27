@@ -320,12 +320,40 @@ describe('repos: (slice 3-B)', () => {
     expect(result.issues).toEqual([
       {
         message:
-          'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`.',
+          'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`: the owner is letters, digits and `-`, and the name is letters, digits, `-`, `_` and `.`, not starting with `.`.',
         path: 'repos[1]',
         line: 4,
         file: 'factory.yml',
       },
     ]);
+  });
+
+  // The runner protocol's shape (`isRepository`), so a cloud runner can be asked for each one.
+  it.each([
+    'sprocket_co/catalog-portal',
+    'sprocket.co/catalog-portal',
+    '../catalog-portal',
+    'sprocket/.github',
+    'sprocket/..',
+    'sprocket/.',
+    'sprocket/catalog portal',
+    'sprocket/catalog-portal/web',
+    '/catalog-portal',
+    'sprocket/',
+  ])('refuses %s, which a runner would not offer', (repo) =>
+    expect(parseFactoryYml(`version: 1\nrepos: ["${repo}"]\nautomations: []\n`).issues).toEqual([
+      expect.objectContaining({
+        path: 'repos[0]',
+        message: expect.stringContaining('not starting with `.`'),
+      }),
+    ]),
+  );
+
+  it('takes what a runner offers: dots, underscores and dashes in the name, dashes in the owner', () => {
+    const repos = ['sprocket/catalog-portal', 'sprocket-labs/catalog_portal.web', 'Sprocket/a..b'];
+    const result = parseFactoryYml(`version: 1\nrepos: [${repos.join(', ')}]\nautomations: []\n`);
+    expect(result.issues).toEqual([]);
+    expect(result.repos).toEqual(repos);
   });
 
   it('takes 50, and an empty list', () => {

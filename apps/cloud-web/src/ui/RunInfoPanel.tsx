@@ -40,6 +40,7 @@ import {
   questionWords,
   runnerWords,
   shareOf,
+  slackSourceOf,
   statusWords,
   triggerWords,
   versionWords,
@@ -49,6 +50,7 @@ import type { WorkspaceMember } from '../domain/teams';
 import { Avatar } from './Avatar';
 import { InfoPanel, InfoQuiet, InfoRow, InfoSection } from './InfoPanel';
 import { StatusGlyph } from './RunStatusIcon';
+import { ServiceMark } from './serviceMarks';
 
 const ICON = 14;
 
@@ -283,11 +285,14 @@ function StarterRow({
       />
     );
   }
+  const slack = slackSourceOf(run);
   return (
     <InfoRow
       icon={TRIGGER_ICONS[run.trigger] ?? <Timer size={ICON} />}
       label={
-        run.triggerDetail ? (
+        slack ? (
+          slack.words
+        ) : run.triggerDetail ? (
           <>
             {triggerWords(run.trigger)} <code className="run-info-code">{run.triggerDetail}</code>
           </>
@@ -315,9 +320,25 @@ function FactoryRow({ run, latestVersion }: { run: RunSummary; latestVersion: nu
   );
 }
 
-/** The run's pull request or issue, a link to it on its own site. */
+/**
+ * The run's pull request or issue, a link to it on its own site; or, for a request from Slack,
+ * how it came (a mention, a direct message), a link to its message in Slack.
+ */
 function ItemRow({ run }: { run: RunSummary }) {
   const { item } = run;
+  const slack = slackSourceOf(run);
+  if (slack) {
+    return (
+      <InfoRow
+        icon={<ServiceMark service="slack" size={ICON} />}
+        label={slack.words}
+        value={slack.url ? 'Open in Slack' : undefined}
+        title={item ? `${slack.words}: ${item.title}` : slack.words}
+        href={slack.url ?? undefined}
+        external
+      />
+    );
+  }
   if (!item) return null;
   const icon =
     item.kind === 'pr' ? (

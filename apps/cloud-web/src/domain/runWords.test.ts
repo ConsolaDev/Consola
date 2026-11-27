@@ -8,7 +8,10 @@ import {
   childrenWords,
   costInWords,
   durationInWords,
+  itemKindOf,
   itemLabel,
+  itemLinkWords,
+  itemNoun,
   lookOf,
   PHASE_HINTS,
   PHASE_LABELS,
@@ -16,6 +19,7 @@ import {
   questionWords,
   runnerWords,
   shareOf,
+  slackSourceOf,
   statusWords,
   stepKindWords,
   stepLook,
@@ -173,6 +177,84 @@ describe('itemLabel', () => {
 
   it('is the title for an item with no number', () => {
     expect(itemLabel({ ...item, number: null, kind: null })).toBe('Fix login');
+  });
+
+  it('is Slack for a Slack message, whose title is the request’s own', () => {
+    expect(itemLabel(slackItem)).toBe('Slack');
+  });
+});
+
+/** A request's Slack message, as the API's item names it (CON-144). */
+const slackItem = {
+  url: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
+  title: 'Can you look at the flaky checkout test in catalog-portal?',
+  kind: 'slack' as const,
+  repo: null,
+  number: null,
+};
+
+describe('an item’s kind', () => {
+  it('is the API’s kind, Slack’s included', () => {
+    expect(itemKindOf({ kind: 'pr' })).toBe('pr');
+    expect(itemKindOf({ kind: 'issue' })).toBe('issue');
+    expect(itemKindOf({ kind: 'slack' })).toBe('slack');
+  });
+
+  it('is other for none, and for a kind a newer API sends', () => {
+    expect(itemKindOf({ kind: null })).toBe('other');
+    expect(itemKindOf({ kind: 'ticket' })).toBe('other');
+  });
+
+  it('is said in a sentence, and on its link', () => {
+    expect(itemNoun(slackItem)).toBe('Slack message');
+    expect(itemNoun({ kind: 'pr' })).toBe('pull request');
+    expect(itemNoun({ kind: null })).toBe('item');
+    expect(itemLinkWords(slackItem)).toBe('Open in Slack');
+    expect(
+      itemLinkWords({
+        url: 'https://github.com/sprocket/catalog-portal/pull/12',
+        title: 'Fix login',
+        kind: 'pr',
+        repo: 'sprocket/catalog-portal',
+        number: 12,
+      }),
+    ).toBe('Open the pull request catalog-portal #12');
+  });
+});
+
+describe('Slack as a run’s source', () => {
+  it('says a mention and a direct message, with the message’s permalink', () => {
+    expect(slackSourceOf({ triggerDetail: 'slack_mention', item: slackItem })).toEqual({
+      words: 'Mentioned in Slack',
+      url: slackItem.url,
+    });
+    expect(slackSourceOf({ triggerDetail: 'slack_dm', item: slackItem })).toEqual({
+      words: 'Direct message in Slack',
+      url: slackItem.url,
+    });
+  });
+
+  it('is Slack for either sign alone', () => {
+    expect(slackSourceOf({ triggerDetail: 'slack_dm', item: null })).toEqual({
+      words: 'Direct message in Slack',
+      url: null,
+    });
+    expect(slackSourceOf({ triggerDetail: null, item: slackItem })).toEqual({
+      words: 'From Slack',
+      url: slackItem.url,
+    });
+  });
+
+  it('links a permalink only on https', () => {
+    const plain = { ...slackItem, url: 'http://sprocket.slack.com/archives/C1/p1' };
+    expect(slackSourceOf({ triggerDetail: 'slack_mention', item: plain })?.url).toBeNull();
+  });
+
+  it('is none for a run that did not come from Slack', () => {
+    expect(slackSourceOf({ triggerDetail: 'pull_request.opened', item: null })).toBeNull();
+    expect(slackSourceOf({ triggerDetail: null, item: { ...slackItem, kind: 'pr' } })).toBeNull();
+    // A property of every object is no trigger.
+    expect(slackSourceOf({ triggerDetail: 'toString', item: null })).toBeNull();
   });
 });
 

@@ -4,7 +4,7 @@ import type {
   AgentRunState,
   CloudSession,
   CloudSessionOptions,
-  CloudSessionOrigin,
+  AgentRunOrigin,
   CloudSessionPass,
   DispatchedAgent,
   DispatchedAgentStatus,
@@ -46,8 +46,12 @@ const isTextOrNull = (value: unknown): boolean => value === null || isText(value
 const isTime = (value: unknown): value is number =>
   typeof value === 'number' && Number.isFinite(value);
 
-/** What started an agent run, with the parts the pages read: the automation and its pull request. */
-function isOrigin(value: unknown): value is CloudSessionOrigin {
+/**
+ * What started an agent run, with the parts the pages read: the automation and its pull request,
+ * or the Slack message a person asked in.
+ */
+function isOrigin(value: unknown): value is AgentRunOrigin {
+  if (isObject(value) && value.kind === 'slack') return isSlackOrigin(value);
   if (!isObject(value) || value.kind !== 'automation') return false;
   const { item } = value;
   return (
@@ -63,6 +67,28 @@ function isOrigin(value: unknown): value is CloudSessionOrigin {
     isText(item.url) &&
     isText(item.title) &&
     isText(item.headSha)
+  );
+}
+
+/**
+ * A request from Slack's origin (CON-144): its factory, its orchestrator, how it came (`via`, as
+ * any word: one a newer API names still reads as Slack's) and its message, whose permalink the
+ * page links and whose first line it shows.
+ */
+function isSlackOrigin(value: Record<string, unknown>): boolean {
+  const { message } = value;
+  return (
+    isText(value.factoryId) &&
+    isText(value.factoryName) &&
+    isText(value.agent) &&
+    isText(value.via) &&
+    isObject(message) &&
+    isText(message.teamId) &&
+    isText(message.channelId) &&
+    isText(message.threadTs) &&
+    isText(message.messageTs) &&
+    isText(message.permalink) &&
+    isText(message.title)
   );
 }
 
@@ -114,7 +140,8 @@ function sessionOf(body: unknown): CloudSession | null {
     !isObject(body) ||
     !isText(body.id) ||
     body.id === '' ||
-    !isText(body.repository) ||
+    // Null for an agent run of a factory that names no repository.
+    !isTextOrNull(body.repository) ||
     !isHarness(body.harness) ||
     !isSessionStatus(body.status) ||
     !isTextOrNull(body.title) ||

@@ -10,7 +10,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useEffectEvent, useRef, useState } from 'react';
 import type { CSSProperties } from 'react';
 import {
   accountCount,
@@ -43,13 +43,18 @@ import type {
   ConnectionsState,
   GitHubAccount,
   GitHubConnection,
-  GitHubResult,
 } from '../domain/connections';
+import { slackConnected } from '../domain/slack';
+import type { SlackConnectionsAnswer, SlackResult } from '../domain/slack';
+import { isSlackSuccess, messageForSlackResult } from '../domain/slackMessages';
 import { disconnectGitHub, loadConnections, startGitHubConnect } from '../services/api';
 import { goToGitHub, takeGitHubResult } from '../services/gitHubRedirect';
+import { slackService } from '../services/slack';
+import { takeSlackResult } from '../services/slackAddress';
 import './ConnectionsPage.css';
 import type { SectionProps } from './sections';
 import { ServiceMark } from './serviceMarks';
+import { SlackConnection } from './SlackConnection';
 
 /** How long a disconnected account takes to fade from its list before the list loads again. */
 const LEAVE_MS = 180;
@@ -66,14 +71,26 @@ function rise(index: number): CSSProperties {
  * connected; only owners and admins see Connect and Disconnect, as the server says
  * (`canManage`), and the server refuses anyone else whatever the page shows. How the last
  * Connect ended (`?github=`) is read once, as the page mounts, and the account it added is
- * marked.
+ * marked; so is how an "Add to Slack" that named no factory ended (`?slack=`).
+ *
+ * Slack (CON-144) is one app per factory, set up in each factory's Settings: here it lists the
+ * factories with an app and the person's own linked Slack accounts (`SlackConnection`).
  */
 export function ConnectionsPage({ workspace }: SectionProps) {
-  const [arrival] = useState(() => ({ result: takeGitHubResult(), at: Date.now() }));
+  const [arrival] = useState(() => ({
+    result: takeGitHubResult(),
+    slack: takeSlackResult(),
+    at: Date.now(),
+  }));
   const [noticeOpen, setNoticeOpen] = useState(true);
+  const [slackNoticeOpen, setSlackNoticeOpen] = useState(true);
   const [state, setState] = useState<ConnectionsState | null>(null);
+  const [slack, setSlack] = useState<SlackConnectionsAnswer | null>(null);
   const latest = useRef(0);
+  const latestSlack = useRef(0);
   const title = useRef<HTMLHeadingElement>(null);
+  const connectedHeading = useRef<HTMLHeadingElement>(null);
+  const availableHeading = useRef<HTMLHeadingElement>(null);
 
   const workspaceId = workspace.id;
   const load = useCallback(async () => {
@@ -82,17 +99,71 @@ export function ConnectionsPage({ workspace }: SectionProps) {
     if (asked === latest.current) setState(answer);
   }, [workspaceId]);
 
+  const loadSlack = useCallback(async () => {
+    const asked = ++latestSlack.current;
+    const answer = await slackService.loadConnections({ id: workspaceId });
+    if (asked === latestSlack.current) setSlack(answer);
+  }, [workspaceId]);
+
   // The server answers for the session's active workspace, and refuses a call that names
   // another (`switched`). Settings mounts its page afresh for each workspace, so one load per
   // mount follows a switch.
   useEffect(() => {
     void load();
+    void loadSlack();
     return () => {
       latest.current++;
+      latestSlack.current++;
     };
-  }, [load]);
+  }, [load, loadSlack]);
 
   const { result } = arrival;
+  const github = state?.kind === 'loaded' ? state.connections : null;
+  const githubConnected = github !== null && github.github.installations.length > 0;
+  const slackIsConnected = slack !== null && slackConnected(slack);
+
+  const gitHubEntry = github && (
+    <GitHubService
+      workspaceId={workspaceId}
+      connections={github}
+      justConnected={
+        result === 'connected' ? justConnectedId(github.github.installations, arrival.at) : null
+      }
+      onChanged={load}
+    />
+  );
+  const slackEntry = slack && (
+    <SlackConnection
+      workspaceId={workspaceId}
+      answer={slack}
+      connected={slackIsConnected}
+      onChanged={loadSlack}
+    />
+  );
+  const anyConnected = githubConnected || slackIsConnected;
+
+  // A disconnected account or an unlinked one leaves with the button that had the keyboard, and
+  // its service may move to another group as it does: the keyboard goes to the heading of the
+  // group it sits in now, rather than falling out of the dialog.
+  const githubCount = github?.github.installations.length ?? null;
+  const slackCount = slack?.kind === 'listed' ? slack.links.length : null;
+  const lastCounts = useRef({ github: githubCount, slack: slackCount });
+  const headingFor = (isConnected: boolean) => (isConnected ? connectedHeading : availableHeading);
+  const giveFocus = useEffectEvent((service: 'github' | 'slack') => {
+    const lost = document.activeElement === null || document.activeElement === document.body;
+    if (!lost) return;
+    headingFor(service === 'github' ? githubConnected : slackIsConnected).current?.focus();
+  });
+  useEffect(() => {
+    const last = lastCounts.current;
+    lastCounts.current = { github: githubCount, slack: slackCount };
+    const fewer = (now: number | null, before: number | null) =>
+      now !== null && before !== null && now < before;
+    if (fewer(githubCount, last.github)) giveFocus('github');
+    else if (fewer(slackCount, last.slack)) giveFocus('slack');
+  }, [githubCount, slackCount]);
+  const githubAvailable = github !== null && !githubConnected;
+  const slackAvailable = slack !== null && !slackIsConnected;
 
   return (
     <div className="settings-section connections">
@@ -108,7 +179,8 @@ export function ConnectionsPage({ workspace }: SectionProps) {
 
       {result !== null && noticeOpen && (
         <Notice
-          result={result}
+          good={isSuccess(result)}
+          message={messageForGitHubResult(result)}
           onDismiss={() => {
             setNoticeOpen(false);
             // The button goes with the notice, so the keyboard lands on the page's title.
@@ -116,22 +188,40 @@ export function ConnectionsPage({ workspace }: SectionProps) {
           }}
         />
       )}
-
-      {state === null ? (
-        <Loading />
-      ) : state.kind === 'loaded' ? (
-        <GitHubGroup
-          workspaceId={workspaceId}
-          connections={state.connections}
-          justConnected={
-            result === 'connected'
-              ? justConnectedId(state.connections.github.installations, arrival.at)
-              : null
-          }
-          onChanged={load}
+      {arrival.slack !== null && slackNoticeOpen && (
+        <SlackNotice
+          result={arrival.slack}
+          onDismiss={() => {
+            setSlackNoticeOpen(false);
+            title.current?.focus();
+          }}
         />
+      )}
+
+      {state === null || slack === null ? (
+        <Loading />
       ) : (
-        <LoadFailed onRetry={load} />
+        <>
+          {anyConnected && (
+            <div className="connections-group">
+              <h3 ref={connectedHeading} tabIndex={-1} className="connections-group-label">
+                Connected
+              </h3>
+              {githubConnected && gitHubEntry}
+              {slackIsConnected && slackEntry}
+            </div>
+          )}
+          {(githubAvailable || slackAvailable || state.kind !== 'loaded') && (
+            <div className="connections-group">
+              <h3 ref={availableHeading} tabIndex={-1} className="connections-group-label">
+                Available
+              </h3>
+              {state.kind !== 'loaded' && <LoadFailed onRetry={load} />}
+              {githubAvailable && gitHubEntry}
+              {slackAvailable && slackEntry}
+            </div>
+          )}
+        </>
       )}
 
       <LaterGroup />
@@ -139,15 +229,33 @@ export function ConnectionsPage({ workspace }: SectionProps) {
   );
 }
 
-/** How the last Connect ended, said once, with a check that draws itself when it went well. */
-function Notice({
+/** How "Add to Slack" ended, when the callback sent the person here (no factory named). */
+function SlackNotice({
   result,
   onDismiss,
 }: {
-  result: GitHubResult | 'unknown';
+  result: SlackResult | 'unknown';
   onDismiss: () => void;
 }) {
-  const good = isSuccess(result);
+  return (
+    <Notice
+      good={isSlackSuccess(result)}
+      message={messageForSlackResult(result)}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+/** How the last Connect ended, said once, with a check that draws itself when it went well. */
+function Notice({
+  good,
+  message,
+  onDismiss,
+}: {
+  good: boolean;
+  message: string;
+  onDismiss: () => void;
+}) {
   return (
     <div className={good ? 'connections-notice done' : 'connections-notice problem'} role="status">
       {good ? (
@@ -164,7 +272,7 @@ function Notice({
       ) : (
         <CircleAlert className="connections-notice-icon" size={16} aria-hidden="true" />
       )}
-      <p>{messageForGitHubResult(result)}</p>
+      <p>{message}</p>
       <button
         type="button"
         className="connections-notice-close"
@@ -188,10 +296,10 @@ function ServiceTile({ service, live = false }: { service: string; live?: boolea
 }
 
 /**
- * GitHub: in the Connected group with its accounts under it once one is connected, else in
- * Available with Connect for those who may.
+ * GitHub: with its accounts under it once one is connected, in the Connected group, else with
+ * Connect for those who may, in Available. The page puts it in its group.
  */
-function GitHubGroup({
+function GitHubService({
   workspaceId,
   connections,
   justConnected,
@@ -206,19 +314,8 @@ function GitHubGroup({
   const { installations } = github;
   const [pending, setPending] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  const heading = useRef<HTMLHeadingElement>(null);
   const connected = installations.length > 0;
   const mayConnect = github.configured && canManage;
-
-  // A disconnected account leaves with the button that had the keyboard, so the keyboard comes
-  // to the group's heading rather than falling out of the dialog.
-  const count = installations.length;
-  const lastCount = useRef(count);
-  useEffect(() => {
-    const lost = document.activeElement === null || document.activeElement === document.body;
-    if (count < lastCount.current && lost) heading.current?.focus();
-    lastCount.current = count;
-  }, [count]);
 
   async function connect() {
     setPending(true);
@@ -247,10 +344,7 @@ function GitHubGroup({
         ? GITHUB_CONNECT_HINT
         : GITHUB_ASK_HINT;
     return (
-      <div className="connections-group">
-        <h3 ref={heading} tabIndex={-1} className="connections-group-label">
-          Available
-        </h3>
+      <>
         <ul className="connections-list">
           <li className="connections-service connections-rise">
             <ServiceTile service="github" />
@@ -285,15 +379,12 @@ function GitHubGroup({
           </li>
         </ul>
         {failed}
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="connections-group">
-      <h3 ref={heading} tabIndex={-1} className="connections-group-label">
-        Connected
-      </h3>
+    <>
       <ul className="connections-list">
         <li className="connections-service connections-rise">
           <ServiceTile service="github" live />
@@ -344,7 +435,7 @@ function GitHubGroup({
         )}
       </ul>
       {failed}
-    </div>
+    </>
   );
 }
 
