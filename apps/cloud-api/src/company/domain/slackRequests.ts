@@ -55,9 +55,6 @@ export const START_WORDS = {
   /** The factory's latest files hold no agent team with an orchestrator and no issues. */
   noOrchestrator: (factoryUrl: string) =>
     `This factory has no orchestrator in its files, so it can't take requests from Slack yet: ${factoryUrl}`,
-  /** The factory's `factory.yml` lists no repository to work in. */
-  noRepository: (factoryUrl: string) =>
-    `This factory lists no repository to work in. Add one to \`repos:\` in its factory.yml: ${factoryUrl}`,
   /** A request is already open in this thread (release 2 makes this a follow-up). */
   alreadyRunning: (runUrl: string) => `This thread already has a request running: ${runUrl}`,
   /** Slack gave no permalink for the message, so the run could not name it. */
@@ -117,10 +114,10 @@ export function slackOrigin(
 
 /**
  * The start the runner is handed for a request from Slack with id `runId`: factory-spec's plan
- * for the message (`planSlackRequest`), on the repository's default branch (no `checkout`), read
- * back with the protocol's reader so the app never sends what a runner would refuse. A plan that
- * cannot be made (no orchestrator) or that the reader refuses is `ok: false`, with the reason,
- * for the log.
+ * for the message (`planSlackRequest`), on the repository's default branch (no `checkout`), or in
+ * an empty folder for a request with no repository, read back with the protocol's reader so the
+ * app never sends what a runner would refuse. A plan that cannot be made (no orchestrator) or
+ * that the reader refuses is `ok: false`, with the reason, for the log.
  */
 export function slackRequestStart(
   team: AgentTeam,

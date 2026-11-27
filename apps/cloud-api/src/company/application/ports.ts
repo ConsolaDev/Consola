@@ -229,7 +229,8 @@ export type Offer = {
 export type SessionStartRequest = {
   sessionId: string;
   workspaceId: string;
-  repository: Repository;
+  /** Null for a session with no repository: the start then names none. */
+  repository: Repository | null;
   harness: Harness;
   /** For an agent run: its first agent, prompt, agents, files and checkout. */
   agentRun?: AgentRun;
