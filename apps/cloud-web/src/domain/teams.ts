@@ -5,9 +5,9 @@ import type { components } from './apiContract';
  * which is the authority on every rule here: the web app imports no package, so it keeps its own
  * copy of the name rule, to check a name before sending it. When the API disagrees, its answer
  * is what the page shows. The copies are checked against the API's contract
- * (`cellApiContract.ts`) as the app typechecks.
+ * (`apiContract.ts`) as the app typechecks.
  *
- * A team names its members by global id. Their names and emails are the API's, so the
+ * A team names its members by id. Their names and emails are the API's, so the
  * page puts the two together (`memberOf`).
  */
 
