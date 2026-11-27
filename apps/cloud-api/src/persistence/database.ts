@@ -64,8 +64,8 @@ export function openDatabase(url: string): OpenDatabase {
       client = new PGlite(location);
     }
     const opened: OpenDatabase = {
-      accounts: drizzlePglite(client, { schema: accountsSchema }) as unknown as AccountsDatabase,
-      company: drizzlePglite(client, { schema: companySchema }) as unknown as CompanyDatabase,
+      accounts: drizzlePglite(client, { schema: accountsSchema }),
+      company: drizzlePglite(client, { schema: companySchema }),
       close: () => client.close(),
     };
     migrators.set(opened, () =>
@@ -82,8 +82,8 @@ export function openDatabase(url: string): OpenDatabase {
       console.error(`A database connection was lost: ${error.message.split('\n')[0]}`);
     });
     const opened: OpenDatabase = {
-      accounts: drizzleNodePg(pool, { schema: accountsSchema }) as unknown as AccountsDatabase,
-      company: drizzleNodePg(pool, { schema: companySchema }) as unknown as CompanyDatabase,
+      accounts: drizzleNodePg(pool, { schema: accountsSchema }),
+      company: drizzleNodePg(pool, { schema: companySchema }),
       close: () => pool.end(),
     };
     migrators.set(opened, () =>

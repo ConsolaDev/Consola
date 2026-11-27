@@ -23,7 +23,7 @@ export type OpenDatabase = { db: Database; close(): Promise<void> };
 export function openMemoryDatabase(): OpenDatabase {
   const client = new PGlite();
   return {
-    db: drizzle(client, { schema }) as unknown as Database,
+    db: drizzle(client, { schema }),
     close: () => client.close(),
   };
 }
