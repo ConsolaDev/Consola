@@ -1,4 +1,4 @@
-import { isLive } from './runs';
+import { isLive, safeItemUrl } from './runs';
 import type {
   Phase,
   RunDetail,
@@ -174,11 +174,32 @@ export function triggerWords(trigger: RunTrigger): string {
   return knownWord(TRIGGER_LABELS, trigger);
 }
 
+/** What a run's item is: a pull request, an issue, a Slack message, or one this build cannot name. */
+export type ItemKind = 'pr' | 'issue' | 'slack' | 'other';
+
+/**
+ * What kind of item a run is about. It reads the kind as any word, not only the contract's: a
+ * request from Slack is about its message (`slack`, which the API's `RunItem` gains with
+ * CON-144), and a kind a newer API sends is `other`, never dropped.
+ */
+export function itemKindOf(item: { kind: string | null }): ItemKind {
+  switch (item.kind) {
+    case 'pr':
+    case 'issue':
+    case 'slack':
+      return item.kind;
+    default:
+      return 'other';
+  }
+}
+
 /**
  * A pull request or an issue as a chip names it: its repository's name and number
- * (`consola #96`), or, for an item with neither, its title.
+ * (`consola #96`); a Slack message as `Slack`, since its title is the request's own; or, for an
+ * item with neither, its title.
  */
 export function itemLabel(item: RunItem): string {
+  if (itemKindOf(item) === 'slack') return 'Slack';
   const repo = item.repo?.split('/').at(-1) ?? null;
   if (item.number !== null) return repo ? `${repo} #${item.number}` : `#${item.number}`;
   return item.title;
@@ -186,9 +207,51 @@ export function itemLabel(item: RunItem): string {
 
 /** What an item is, as a sentence names it. */
 export function itemNoun(item: Pick<RunItem, 'kind'>): string {
-  if (item.kind === 'pr') return 'pull request';
-  if (item.kind === 'issue') return 'issue';
-  return 'item';
+  switch (itemKindOf(item)) {
+    case 'pr':
+      return 'pull request';
+    case 'issue':
+      return 'issue';
+    case 'slack':
+      return 'Slack message';
+    case 'other':
+      return 'item';
+  }
+}
+
+/** What following a run's item says: "Open in Slack", or "Open the pull request consola #96". */
+export function itemLinkWords(item: RunItem): string {
+  return itemKindOf(item) === 'slack'
+    ? 'Open in Slack'
+    : `Open the ${itemNoun(item)} ${itemLabel(item)}`;
+}
+
+/** How a request from Slack came, by its `triggerDetail`. */
+export const SLACK_TRIGGER_WORDS = {
+  slack_mention: 'Mentioned in Slack',
+  slack_dm: 'Direct message in Slack',
+} as const;
+
+/** Where a request came from in Slack: how, in words, and its message's permalink. */
+export type SlackSource = { words: string; url: string | null };
+
+/**
+ * Slack as a run's source, or null for a run that did not come from Slack: a request whose
+ * trigger is a mention or a direct message (`slack_mention`, `slack_dm`), or whose item is the
+ * message it came from. The permalink is a link only on `https:` (`safeItemUrl`).
+ */
+export function slackSourceOf(run: {
+  triggerDetail: string | null;
+  item: RunItem | null;
+}): SlackSource | null {
+  const detail = run.triggerDetail;
+  const words =
+    detail !== null && Object.hasOwn(SLACK_TRIGGER_WORDS, detail)
+      ? SLACK_TRIGGER_WORDS[detail as keyof typeof SLACK_TRIGGER_WORDS]
+      : null;
+  const item = run.item && itemKindOf(run.item) === 'slack' ? run.item : null;
+  if (words === null && item === null) return null;
+  return { words: words ?? 'From Slack', url: item ? safeItemUrl(item.url) : null };
 }
 
 /** Where a run ran, in words: the cloud by its name, any other runner as the API names it. */

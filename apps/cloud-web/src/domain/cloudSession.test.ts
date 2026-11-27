@@ -17,6 +17,7 @@ import {
   sessionScreen,
   shortSha,
   shouldRenewPass,
+  slackMessageUrl,
   startedAt,
 } from './cloudSession';
 import type {
@@ -29,6 +30,7 @@ import type {
   CloudSessionStatus,
   DispatchedAgentStatus,
   Harness,
+  SlackOrigin,
   StartRefusalCode,
 } from './cloudSession';
 import {
@@ -266,6 +268,26 @@ describe('an agent run', () => {
     expect(pullRequestUrl({ ...origin.item, url: 'javascript:alert(1)' })).toBeNull();
     expect(pullRequestUrl({ ...origin.item, url: 'http://github.com/x' })).toBeNull();
     expect(shortSha(origin.item.headSha)).toBe('0123456');
+  });
+
+  it('links a request from Slack to its message, only on https', () => {
+    const slack: SlackOrigin = {
+      kind: 'slack',
+      factoryId: 'f-1',
+      factoryName: 'Code review',
+      agent: 'orchestrator',
+      message: {
+        teamId: 'T024BE7LD',
+        channelId: 'C024BE91L',
+        threadTs: '1732700000.000100',
+        messageTs: '1732700000.000100',
+        permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
+      },
+    };
+    expect(isAgentRun({ ...run, origin: slack })).toBe(true);
+    expect(slackMessageUrl(slack)).toBe(slack.message.permalink);
+    const plain = { ...slack.message, permalink: 'http://sprocket.slack.com/archives/C1/p1' };
+    expect(slackMessageUrl({ ...slack, message: plain })).toBeNull();
   });
 
   it('stands where the runner last reported, while the sandbox runs', () => {

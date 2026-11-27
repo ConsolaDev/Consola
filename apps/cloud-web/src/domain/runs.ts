@@ -1,5 +1,6 @@
 import type { Refusal } from './refusal';
 import type { components } from './apiContract';
+import type { components as SlackDraft } from './slackContractDraft';
 import type { WorkspaceMember } from './teams';
 
 /**
@@ -20,7 +21,12 @@ export type Phase = Schemas['Phase'];
 export type RunStatus = Schemas['RunStatus'];
 export type RunTrigger = Schemas['RunTrigger'];
 export type StepStatus = Schemas['StepStatus'];
-export type RunItem = Schemas['RunItem'];
+/**
+ * The pull request, issue or Slack message a run is about. A request from Slack is about its
+ * message (`kind: 'slack'`, its permalink and first line), which the API's `RunItem` gains with
+ * CON-144; until its contract does, the draft's names it.
+ */
+export type RunItem = Schemas['RunItem'] | SlackDraft['schemas']['SlackRunItem'];
 export type PhaseCounts = Schemas['PhaseCounts'];
 export type RunSummary = Schemas['RunSummary'];
 export type StepSummary = Schemas['StepSummary'];

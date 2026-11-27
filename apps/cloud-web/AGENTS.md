@@ -187,6 +187,11 @@ routes that run.
   and `ROLE_NAMES` must hold exactly what the contract does
   (`workspace.test.ts`'s type checks, `satisfies`): a region, a role or a
   problem the API gains fails the typecheck until the page names it.
+- **Until a route is in the contract, a draft stands in for it.** Slack's
+  routes (CON-144) are typed by `domain/slackContractDraft.ts`, written by
+  hand from the design in `openapi-typescript`'s shape, until `cloud-api`'s
+  `openapi.json` declares them; then it is deleted and every import of it
+  moves to `apiContract.ts`. Nothing else is ever typed by hand.
 - **The types do not check what arrives.** An answer from something that is
   not the API (a proxy's error page) or from a newer API is still read
   defensively, so a service keeps its checks of the status and the body's
@@ -562,6 +567,16 @@ the factory's orchestrator; the automations it starts are its children.
   by itself; the person's choice wins. The info panel's rows and an address
   naming one open it, scroll to it and light it once (`reveal.ts`). No line
   is drawn from one automation to another: no flow graph, by decision.
+- **A request from Slack** (CON-144) says so wherever its item would show: its
+  item is the message (`kind: 'slack'`, its permalink and first line), and its
+  `triggerDetail` says how it came (`slack_mention`, `slack_dm`). The run's
+  domain reads an item's kind as any word (`itemKindOf`), so `slackSourceOf`
+  finds Slack by either sign: the row's tag is Slack's mark and "Slack", the
+  info panel's row "Mentioned in Slack" or "Direct message in Slack" with Open
+  in Slack, and the header's link opens the message. The request's session
+  has an origin of its own (`kind: 'slack'`, its factory, its orchestrator and
+  its message), which `AgentRunFacts` says as "A request from Slack to
+  <factory>" with Open in Slack.
 - **Text a run carries is untrusted** (a request may be a pasted ticket): it
   is shown as text, never markup, and an item's address is a link only on
   `https:` (`safeItemUrl`), which the API also holds it to.

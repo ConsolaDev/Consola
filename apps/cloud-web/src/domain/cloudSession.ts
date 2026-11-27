@@ -1,5 +1,6 @@
 import type { Refusal } from './refusal';
 import type { components, paths } from './apiContract';
+import type { components as SlackDraft } from './slackContractDraft';
 import {
   AGENT_RUN_PHASE_WORDS,
   failedWords,
@@ -25,7 +26,13 @@ import { safeItemUrl } from './runs';
 
 type Schemas = components['schemas'];
 
-export type CloudSession = Schemas['CloudSession'];
+/**
+ * A cloud session. Its `origin` is wider than the contract's until the API's names the origin of
+ * a request from Slack (CON-144): then this is `Schemas['CloudSession']` again.
+ */
+export type CloudSession = Omit<Schemas['CloudSession'], 'origin'> & {
+  origin: CloudSessionOrigin | null;
+};
 export type CloudSessionOptions = Schemas['CloudSessionOptions'];
 export type CloudSessionPass = Schemas['CloudSessionPass'];
 export type CloudSessionStatus = CloudSession['status'];
@@ -34,7 +41,15 @@ export type Harness = CloudSession['harness'];
 export type CellFailureCode = NonNullable<CloudSession['errorCode']>;
 
 /** What started an agent run: an automation of a factory's agent team, on a pull request. */
-export type CloudSessionOrigin = Schemas['CloudSessionOrigin'];
+export type AutomationOrigin = Schemas['CloudSessionOrigin'];
+/**
+ * What started an agent run a person asked for in Slack, by mentioning a factory's bot or
+ * messaging it: the factory, its orchestrator, and the message (CON-144). Named by the draft
+ * until the API's contract names it.
+ */
+export type SlackOrigin = SlackDraft['schemas']['SlackSessionOrigin'];
+/** What started an agent run: an automation on a pull request, or a message in Slack. */
+export type CloudSessionOrigin = AutomationOrigin | SlackOrigin;
 /** The runner's last report of an agent run. */
 export type AgentRunReport = Schemas['AgentRunReport'];
 export type AgentRunState = AgentRunReport['state'];
@@ -79,14 +94,19 @@ export function agentRunPhaseWords(session: Pick<CloudSession, 'status' | 'agent
 }
 
 /** A pull request as a person names it: `owner/name#12 Title`. */
-export function pullRequestLabel(item: CloudSessionOrigin['item']): string {
+export function pullRequestLabel(item: AutomationOrigin['item']): string {
   const title = item.title.trim();
   return `${item.repository}#${item.number}${title ? ` ${title}` : ''}`;
 }
 
 /** The pull request's address, only when it is an `https:` one: the API passes GitHub's on. */
-export function pullRequestUrl(item: CloudSessionOrigin['item']): string | null {
+export function pullRequestUrl(item: AutomationOrigin['item']): string | null {
   return safeItemUrl(item.url);
+}
+
+/** The Slack message an agent run came from, only when its permalink is an `https:` one. */
+export function slackMessageUrl(origin: SlackOrigin): string | null {
+  return safeItemUrl(origin.message.permalink);
 }
 
 /** A commit as it is shown: its first seven characters. */

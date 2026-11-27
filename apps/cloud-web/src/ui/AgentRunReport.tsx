@@ -6,8 +6,9 @@ import {
   pullRequestLabel,
   pullRequestUrl,
   shortSha,
+  slackMessageUrl,
 } from '../domain/cloudSession';
-import type { AgentRun } from '../domain/cloudSession';
+import type { AgentRun, AutomationOrigin, SlackOrigin } from '../domain/cloudSession';
 import {
   AGENT_RUN_LABEL,
   DISPATCHED_STATUS_WORDS,
@@ -17,14 +18,58 @@ import {
   noSummaryWords,
 } from '../domain/cloudSessionMessages';
 import { hashOfFactoryPage } from '../domain/factoryNav';
+import { ServiceMark } from './serviceMarks';
 
 /**
  * What an agent run is, said above everything else on its page: an agent run, the automation
  * that started it in its factory (a link to the factory's definition), its pull request (a link
- * to GitHub, in a new tab) and the commit it checks out.
+ * to GitHub, in a new tab) and the commit it checks out; or, for a request from Slack, its
+ * factory and its message (a link to Slack, in a new tab).
  */
 export function AgentRunFacts({ run }: { run: AgentRun }) {
   const { origin } = run;
+  return origin.kind === 'slack' ? (
+    <SlackRequestFacts origin={origin} />
+  ) : (
+    <AutomationFacts origin={origin} />
+  );
+}
+
+/** A request someone sent a factory's bot in Slack: the factory, and the message in Slack. */
+function SlackRequestFacts({ origin }: { origin: SlackOrigin }) {
+  const url = slackMessageUrl(origin);
+  return (
+    <>
+      <span className="agent-run-kind">
+        <Workflow size={13} aria-hidden="true" />
+        {AGENT_RUN_LABEL}
+      </span>
+      <span>
+        A request from Slack to{' '}
+        <a className="agent-run-link" href={hashOfFactoryPage(origin.factoryId)}>
+          {origin.factoryName}
+        </a>
+      </span>
+      {url && (
+        <a
+          className="agent-run-link"
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="The message in Slack"
+        >
+          <ServiceMark service="slack" size={12} />
+          Open in Slack
+          <ExternalLink size={12} aria-hidden="true" />
+          <span className="sr-only"> (opens Slack in a new tab)</span>
+        </a>
+      )}
+    </>
+  );
+}
+
+/** An automation's run on a pull request: the automation, the pull request and its commit. */
+function AutomationFacts({ origin }: { origin: AutomationOrigin }) {
   const pullRequest = pullRequestLabel(origin.item);
   const url = pullRequestUrl(origin.item);
   return (
