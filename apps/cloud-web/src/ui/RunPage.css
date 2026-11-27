@@ -413,6 +413,17 @@
   margin: 0 auto;
 }
 
+/* Where a request came from in Slack, over its conversation: quiet, one line. */
+.run-source {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
 .run-messages {
   display: flex;
   flex-direction: column;

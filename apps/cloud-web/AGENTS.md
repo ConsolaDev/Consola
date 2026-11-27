@@ -192,13 +192,6 @@ routes that run.
   and `ROLE_NAMES` must hold exactly what the contract does
   (`workspace.test.ts`'s type checks, `satisfies`): a region, a role or a
   problem the API gains fails the typecheck until the page names it.
-- **Until a schema is in the contract, a draft stands in for it.** What a
-  request from Slack adds to runs and cloud sessions (CON-144, lane C: the
-  `slack` item kind, the `slack` session origin) is typed by
-  `domain/slackContractDraft.ts`, written by hand from the design, until
-  `cloud-api`'s `openapi.json` declares it; then it is deleted and
-  `domain/runs.ts` and `domain/cloudSession.ts` take the contract's names.
-  Nothing else is ever typed by hand.
 - **The types do not check what arrives.** An answer from something that is
   not the API (a proxy's error page) or from a newer API is still read
   defensively, so a service keeps its checks of the status and the body's
@@ -577,15 +570,23 @@ the factory's orchestrator; the automations it starts are its children.
   naming one open it, scroll to it and light it once (`reveal.ts`). No line
   is drawn from one automation to another: no flow graph, by decision.
 - **A request from Slack** (CON-144) says so wherever its item would show: its
-  item is the message (`kind: 'slack'`, its permalink and first line), and its
-  `triggerDetail` says how it came (`slack_mention`, `slack_dm`). The run's
-  domain reads an item's kind as any word (`itemKindOf`), so `slackSourceOf`
-  finds Slack by either sign: the row's tag is Slack's mark and "Slack", the
-  info panel's row "Mentioned in Slack" or "Direct message in Slack" with Open
-  in Slack, and the header's link opens the message. The request's session
-  has an origin of its own (`kind: 'slack'`, its factory, its orchestrator and
-  its message), which `AgentRunFacts` says as "A request from Slack to
-  <factory>" with Open in Slack.
+  item is the message (`kind: 'slack'`, its permalink and first line, no
+  `repo` or `number`), its `triggerDetail` says how it came (`slack_mention`,
+  `slack_dm`) and `startedBy` is the linked person. The run's domain reads an
+  item's kind as any word (`itemKindOf`), so `slackSourceOf` finds Slack by
+  either sign: the row's tag is Slack's mark and "Slack", the info panel's
+  row "Mentioned in Slack" or "Direct message in Slack" with Open in Slack,
+  and the header's link opens the message. Its Conversation tab opens with the
+  same line (`conversationSlackSource`: the session's origin once read, else
+  the run's record).
+- **A session's origin is read by its kind, never assumed.** An agent run is
+  started by an automation on a pull request (`kind: 'automation'`, with an
+  `item`) or by a request from Slack (`kind: 'slack'`: its factory, its
+  orchestrator, `via` (`mention` or `dm`) and its message, with no `item`).
+  Every reader goes through `originFacts`, which branches on `kind`;
+  `AgentRunFacts` says an automation's run as before and a Slack request as
+  "Mentioned in Slack to <factory>" with Open in Slack. Only `agent` is read
+  directly, since both have it.
 - **Text a run carries is untrusted** (a request may be a pasted ticket): it
   is shown as text, never markup, and an item's address is a link only on
   `https:` (`safeItemUrl`), which the API also holds it to.
@@ -672,9 +673,10 @@ id, and every status is the API's.
 ### Agent runs
 
 An agent run is a cloud session an automation of a factory's agent team
-started on a pull request (`origin` set), which nobody types into: its first
-agent (the orchestrator) dispatches others and posts on the pull request. Every
-member opens and may stop one.
+started on a pull request, or a request from Slack started (`origin` set, by
+its `kind`: see "Runs"), which nobody types into: its first agent (the
+orchestrator) dispatches others and posts its answer (on the pull request, or
+in the Slack thread). Every member opens and may stop one.
 
 - **It is in Runs, not in Sessions.** The API lists each agent run as a run,
   a request whose `conversation` is its session

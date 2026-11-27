@@ -5,9 +5,11 @@ import {
   agentRunPhaseWords,
   agentRunSummary,
   chatMounted,
+  conversationSlackSource,
   dispatchedAgents,
   isAgentRun,
   keepsShownOn,
+  originFacts,
   listPollIntervalMs,
   pollIntervalMs,
   pullRequestLabel,
@@ -26,7 +28,7 @@ import type {
   AgentRunReport,
   CellFailureCode,
   CloudSession,
-  CloudSessionOrigin,
+  AutomationOrigin,
   CloudSessionStatus,
   DispatchedAgentStatus,
   Harness,
@@ -226,7 +228,7 @@ describe('sessionScreen', () => {
 });
 
 describe('an agent run', () => {
-  const origin: CloudSessionOrigin = {
+  const origin: AutomationOrigin = {
     kind: 'automation',
     factoryId: 'f-1',
     factoryName: 'Code review',
@@ -270,24 +272,81 @@ describe('an agent run', () => {
     expect(shortSha(origin.item.headSha)).toBe('0123456');
   });
 
-  it('links a request from Slack to its message, only on https', () => {
-    const slack: SlackOrigin = {
-      kind: 'slack',
-      factoryId: 'f-1',
-      factoryName: 'Code review',
-      agent: 'orchestrator',
-      message: {
-        teamId: 'T024BE7LD',
-        channelId: 'C024BE91L',
-        threadTs: '1732700000.000100',
-        messageTs: '1732700000.000100',
-        permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
-      },
-    };
+  const slack: SlackOrigin = {
+    kind: 'slack',
+    factoryId: 'f-1',
+    factoryName: 'Code review',
+    agent: 'orchestrator',
+    via: 'mention',
+    message: {
+      teamId: 'T024BE7LD',
+      channelId: 'C024BE91L',
+      threadTs: '1732700000.000100',
+      messageTs: '1732700000.000100',
+      permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
+      title: 'Can you look at the flaky checkout test in catalog-portal?',
+    },
+  };
+
+  it('is an agent run when a request from Slack started it, too', () => {
     expect(isAgentRun({ ...run, origin: slack })).toBe(true);
+  });
+
+  it('links a request from Slack to its message, only on https', () => {
     expect(slackMessageUrl(slack)).toBe(slack.message.permalink);
     const plain = { ...slack.message, permalink: 'http://sprocket.slack.com/archives/C1/p1' };
     expect(slackMessageUrl({ ...slack, message: plain })).toBeNull();
+  });
+
+  it('says what an automation’s run is: its automation, pull request and commit', () => {
+    expect(originFacts(origin)).toEqual({
+      kind: 'automation',
+      factory: { id: 'f-1', name: 'Code review' },
+      automation: 'review-pull-requests',
+      pullRequest: 'sprocket/catalog-portal#12 Fix the flaky login test',
+      url: 'https://github.com/sprocket/catalog-portal/pull/12',
+      headSha: '0123456789abcdef0123456789abcdef01234567',
+      shortSha: '0123456',
+    });
+  });
+
+  it('says what a request from Slack is, with no pull request to read', () => {
+    expect(originFacts(slack)).toEqual({
+      kind: 'slack',
+      factory: { id: 'f-1', name: 'Code review' },
+      via: 'Mentioned in Slack',
+      title: 'Can you look at the flaky checkout test in catalog-portal?',
+      url: slack.message.permalink,
+    });
+    expect(originFacts({ ...slack, via: 'dm' })).toMatchObject({ via: 'Direct message in Slack' });
+    // A way of asking a newer API names is still from Slack.
+    const newer = { ...slack, via: 'reaction' } as unknown as SlackOrigin;
+    expect(originFacts(newer)).toMatchObject({ kind: 'slack', via: 'From Slack' });
+  });
+
+  it('names Slack as a request’s source: its session’s origin first, else the run’s record', () => {
+    const fromSlack = {
+      triggerDetail: 'slack_mention',
+      item: {
+        url: slack.message.permalink,
+        title: slack.message.title,
+        kind: 'slack' as const,
+        repo: null,
+        number: null,
+      },
+    };
+    expect(conversationSlackSource(fromSlack, { ...run, origin: { ...slack, via: 'dm' } })).toEqual(
+      { words: 'Direct message in Slack', url: slack.message.permalink },
+    );
+    // While the session is unread, the run's own record says it.
+    expect(conversationSlackSource(fromSlack, null)).toEqual({
+      words: 'Mentioned in Slack',
+      url: slack.message.permalink,
+    });
+    // An automation's run on a pull request did not come from Slack.
+    expect(
+      conversationSlackSource({ triggerDetail: 'pull_request.opened', item: null }, run),
+    ).toBeNull();
   });
 
   it('stands where the runner last reported, while the sandbox runs', () => {
