@@ -1,3 +1,4 @@
+import { whenConnected } from './connections';
 import { FIELD_OF_PROBLEM, slackTeamLabel } from './slack';
 import type {
   ConfirmLinkAnswer,
@@ -311,6 +312,31 @@ export const SLACK_SET_UP_HINT = 'Set up a factory’s app in that factory’s S
 export function factoryCount(count: number): string {
   return count === 1 ? '1 factory' : `${count} factories`;
 }
+
+const ON_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+// English like every other sentence on the page, so "3 days ago" never reads in another language.
+const DAYS_AGO = new Intl.RelativeTimeFormat('en', { numeric: 'auto' });
+
+/**
+ * When a Slack account was linked, as its row says it: "linked today", "linked yesterday",
+ * "linked 3 days ago", then "linked Nov 2, 2026". Null for a time that cannot be read.
+ */
+export function linkedSentence(linkedAt: string, now: Date): string | null {
+  const when = whenConnected(linkedAt, now);
+  if (when === null) return null;
+  switch (when.kind) {
+    case 'today':
+      return 'linked today';
+    case 'days-ago':
+      return `linked ${DAYS_AGO.format(-when.days, 'day')}`;
+    case 'on':
+      return `linked ${ON_DATE.format(when.date)}`;
+  }
+}
+
+/** What Slack says on Connections to someone who may set an app up, with no factory yet. */
+export const SLACK_NO_FACTORY_HINT =
+  'Each factory has a Slack app of its own. Make a factory, then set up its app in its Settings.';
 
 /** The heading of the person's own linked accounts. */
 export const YOUR_ACCOUNTS = 'Your Slack accounts';

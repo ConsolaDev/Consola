@@ -4,6 +4,8 @@ import type { SlackLinkRequest } from './slack';
 import {
   installedWhere,
   isSlackSuccess,
+  factoryCount,
+  linkedSentence,
   linkGoneWords,
   linkQuestion,
   messageForConfirmFailure,
@@ -112,5 +114,21 @@ describe('the link page’s words', () => {
       'This link is for Sprocket, and you have Sprocket Labs open. Switch to link your account there.',
     );
     expect(otherWorkspaceWords(null, 'Sprocket Labs')).toContain('another of your workspaces');
+  });
+});
+
+describe('Slack on Connections', () => {
+  it('counts the factories with an app', () => {
+    expect(factoryCount(1)).toBe('1 factory');
+    expect(factoryCount(3)).toBe('3 factories');
+  });
+
+  it('says when an account was linked, in days, then as a date', () => {
+    const now = new Date(2026, 10, 27, 12);
+    expect(linkedSentence(new Date(2026, 10, 27, 9).toISOString(), now)).toBe('linked today');
+    expect(linkedSentence(new Date(2026, 10, 26, 9).toISOString(), now)).toBe('linked yesterday');
+    expect(linkedSentence(new Date(2026, 10, 24, 9).toISOString(), now)).toBe('linked 3 days ago');
+    expect(linkedSentence(new Date(2026, 9, 2, 9).toISOString(), now)).toMatch(/^linked /);
+    expect(linkedSentence('not a time', now)).toBeNull();
   });
 });

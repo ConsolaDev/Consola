@@ -25,7 +25,7 @@ The app is built in layers, and imports point inward only.
   failed sign-in or sign-out, for each problem with a new workspace, a taken
   slug, a failed switch, an icon not set and the create form's hints;
   connections (`connections.ts`: the answers of `/api/connections`, a
-  Connect's results, the services that come later) and their sentences
+  Connect's results, the services that come after GitHub and Slack) and their sentences
   (`connectionMessages.ts`); why what a workspace holds could not be read,
   and its sentence (`refusal.ts`: `Refusal`, `messageForRefusal`); teams (`teams.ts`:
   `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`, `addableTo`,
@@ -900,8 +900,10 @@ create form) shows the same link at its foot.
 
 Settings' Connections page (`ui/ConnectionsPage.tsx`, with its own
 `ConnectionsPage.css`, at `#/settings/connections`) shows what the active
-workspace is connected to: GitHub, and the services that come later
-(`LATER_SERVICES`), listed as not connected. The API is `cloud-api` (its
+workspace is connected to: GitHub, Slack (`ui/SlackConnection.tsx`; see
+"Slack"), and the services that come later (`LATER_SERVICES`), listed as not
+connected. Each of GitHub and Slack sits in the Connected group once it is
+connected, else in Available. The API is `cloud-api` (its
 `AGENTS.md`, "Connections"), and it decides everything: the page shows Connect
 and Disconnect only when the server says `canManage`, and the server refuses
 anyone else whatever the page shows.
@@ -929,7 +931,8 @@ anyone else whatever the page shows.
   are GitHub's to show, behind "Choose repositories".
 - **Its look is Notion's and the like.** A connected service sits in the
   Connected group, a rounded list with each account indented under it; GitHub
-  before anything is connected sits in Available with Connect; the services
+  before anything is connected sits in Available with Connect, and Slack with
+  where to set it up; the services
   that come later are a grid of tiles. A service is known by its mark
   (`ui/serviceMarks.tsx`: each owner's trademark, shown only to name the
   service; GitHub's in the text colour), and an account by GitHub's picture of
@@ -939,6 +942,17 @@ anyone else whatever the page shows.
   ("Just connected", `justConnectedId`): the newest installation, only if it
   is minutes old. An installation says when it was connected in words for the
   last few days (`connectedSentence`).
+- **Slack is each factory's own**, so nothing is connected from this page: it
+  lists the factories with an app (`slackService.loadConnections`: the
+  factories the person sees, each one's app read, those not set up left out),
+  each its tile, name, `@handle in <Slack workspace>`, state and a link to the
+  factory's settings, where it is set up; then "Your Slack accounts", the
+  person's own links in the workspace, each its Slack workspace, its Slack id,
+  when it was linked (`linkedSentence`) and Unlink, which asks nothing: the bot
+  sends a new link at the next mention. Slack is connected once a factory has
+  an app or the person a link (`slackConnected`). Slack off on the server says
+  so, with no list. How an "Add to Slack" that named no factory ended
+  (`?slack=`) is said here.
 - Motion plays once, as a row arrives or an answer lands (a staggered rise,
   the success check drawing itself, the connected dot's ping), and none plays
   under `prefers-reduced-motion`. Escape inside Disconnect's question answers

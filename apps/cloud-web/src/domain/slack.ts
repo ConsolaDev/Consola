@@ -192,10 +192,14 @@ export const SLACK_RESULTS = [
   'not_configured',
 ] as const satisfies readonly SlackResult[];
 
+function isSlackResult(value: string): value is SlackResult {
+  return (SLACK_RESULTS as readonly string[]).includes(value);
+}
+
 /** The result `?slack=` names, `unknown` for one this page does not know, null for none. */
 export function readSlackResult(value: string | null): SlackResult | 'unknown' | null {
   if (value === null) return null;
-  return (SLACK_RESULTS as readonly string[]).includes(value) ? (value as SlackResult) : 'unknown';
+  return isSlackResult(value) ? value : 'unknown';
 }
 
 /**
