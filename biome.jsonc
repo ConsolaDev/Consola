@@ -23,11 +23,9 @@
       // Copied from t3code; kept byte for byte (vendor/t3code/UPSTREAM.md).
       "!packages/agent-ui/src/t3",
       "!packages/agent-ui/src/gt.config.json",
-      // The APIs' contracts and the web app's types, generated and compared byte for byte.
-      "!apps/cloud-global/openapi.json",
-      "!apps/cloud-region/openapi.json",
+      // The API's contract and the web app's types, generated and compared byte for byte.
+      "!apps/cloud-api/openapi.json",
       "!apps/cloud-web/src/domain/apiContract.ts",
-      "!apps/cloud-web/src/domain/cellApiContract.ts",
       // Embedded from packages/factory-spec/templates/ by its templates:embed script.
       "!packages/factory-spec/src/team/codeReviewTeam.generated.ts"
     ]

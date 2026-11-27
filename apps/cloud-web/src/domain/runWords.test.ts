@@ -25,7 +25,7 @@ import {
   workedFor,
 } from './runWords';
 
-/** A run as the cell answers one, with what a test changes. */
+/** A run as the API answers one, with what a test changes. */
 function aRun(overrides: Partial<RunSummary> = {}): RunSummary {
   return {
     id: 'run-1',
@@ -101,7 +101,7 @@ describe('statusWords', () => {
     );
   });
 
-  it('still says a status a newer cell sends', () => {
+  it('still says a status a newer API sends', () => {
     expect(statusWords(aRun({ status: 'paused-for-lunch' as RunStatus }))).toBe('Paused for lunch');
   });
 });
@@ -125,7 +125,7 @@ describe('lookOf', () => {
     expect(look({ status: 'waiting', waitingOn: 'run', phase: 'needs-you' })).toBe('needs-you');
   });
 
-  it('draws a status a newer cell sends by its phase', () => {
+  it('draws a status a newer API sends by its phase', () => {
     expect(look({ status: 'thinking' as RunStatus, phase: 'active' })).toBe('running');
     expect(look({ status: 'thinking' as RunStatus, phase: 'odd' as RunSummary['phase'] })).toBe(
       'stopped',

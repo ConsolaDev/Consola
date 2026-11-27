@@ -10,7 +10,7 @@ import './Sessions.css';
 /**
  * The Sessions section: the person's cloud sessions (`#/sessions`), the form that starts one
  * (`#/sessions/new`) or one session (`#/sessions/<id>`), whichever the address names. All of them
- * live in the workspace's regional cell, and each person sees only their own.
+ * live in the API, and each person sees only their own.
  */
 export function SessionsSection({ workspace }: SectionProps) {
   const hash = useSyncExternalStore(onHashChange, currentHash);

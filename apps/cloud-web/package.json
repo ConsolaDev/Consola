@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "api:generate": "vitest run src/domain/apiContract.test.ts src/domain/cellApiContract.test.ts --update",
+    "api:generate": "vitest run src/domain/apiContract.test.ts --update",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -21,24 +21,6 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
 };
 
 /**
- * Where each region's cell listens, read from the same variables cloud-global's outbox reads
- * (`CELL_URL_EU`, `CELL_URL_US`), with the cells' dev addresses as defaults. The page reaches a
- * region's cell at `/cell/<region>/…` on its own origin, so the cell needs no CORS and the page
- * holds no address of its own.
- */
-const CELLS: Record<string, string> = {
-  eu: process.env.CELL_URL_EU ?? 'http://127.0.0.1:3101',
-  us: process.env.CELL_URL_US ?? 'http://127.0.0.1:3102',
-};
-
-const cellProxies = Object.fromEntries(
-  Object.entries(CELLS).map(([region, target]) => {
-    const prefix = `/cell/${region}`;
-    return [prefix, { target, rewrite: (path: string) => path.slice(prefix.length) || '/' }];
-  }),
-);
-
-/**
  * Ships `@consola/agent-ui`'s notices beside the chat the build bundles from its `dist/`, as
  * `agent-ui/THIRD-PARTY-NOTICES` and `agent-ui/LICENSE` (that package's `AGENTS.md`,
  * "Build"): this app's own licence tooling sees one MIT package, never the packages
@@ -63,7 +45,7 @@ function agentUiNotices(): Plugin {
 
 /**
  * `@consola/factory-spec`, which the definition page checks a factory's files with, is linked
- * from the workspace and built as CommonJS (the cell and the desktop `require` it). Vite reads a
+ * from the workspace and built as CommonJS (the API and the desktop `require` it). Vite reads a
  * linked package as ES modules unless told: so the dev server pre-bundles it, and the build
  * converts it as it does a package from `node_modules`.
  */
@@ -79,7 +61,9 @@ export default defineConfig({
     port: 5175,
     strictPort: true,
     host: 'localhost',
-    proxy: { '/api': { target: 'http://127.0.0.1:3100', xfwd: true }, ...cellProxies },
+    // The page and the API share one origin: `/api` goes to `cloud-api`, so the session cookie
+    // is first-party and the API needs no CORS. The forwarded headers tell it the page's host.
+    proxy: { '/api': { target: 'http://127.0.0.1:3100', xfwd: true } },
   },
   define: {
     __CONSOLA_COMMIT__: JSON.stringify(commit()),

@@ -52,7 +52,7 @@ export function GeneralPage({ workspace, onWorkspaceChanged }: SectionProps) {
             </span>
           </p>
           <p className="settings-option-description">
-            {place ? `${place}. ` : ''}Chosen when the workspace was created, and it can’t change.
+            {place ? `${place}. ` : ''}Set when the workspace was created, and it can’t change.
           </p>
         </div>
       </div>

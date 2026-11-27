@@ -1,10 +1,10 @@
-import type { CellRefusal } from './cell';
-import type { components } from './cellApiContract';
+import type { Refusal } from './refusal';
+import type { components } from './apiContract';
 import type { WorkspaceMember } from './teams';
 
 /**
- * A workspace's runs as the web app sees them. They live in the workspace's regional cell
- * (`apps/cloud-region/AGENTS.md`, "Runs"), which decides everything: which runs a person sees,
+ * A workspace's runs as the web app sees them. They live in the API
+ * (`apps/cloud-api/AGENTS.md`, "Runs"), which decides everything: which runs a person sees,
  * each run's phase (a request rolls up to `needs-you` while one of its automations needs
  * someone), the chips' counts and what the filter menus offer. The page only shows it.
  *
@@ -37,7 +37,7 @@ export type RunFacets = RunList['facets'];
 
 /**
  * Every phase, in the order the chips show them: what is running, what ended (well, badly), what
- * waits on someone, what was stopped. The cell's `counts` hold exactly these (`runs.test.ts`).
+ * waits on someone, what was stopped. The API's `counts` hold exactly these (`runs.test.ts`).
  */
 export const PHASES = [
   'active',
@@ -72,7 +72,7 @@ export function isLive(run: { phase: Phase }): boolean {
 }
 
 /**
- * Whether a step will not run again in this attempt: the cell's own rule for a run's progress
+ * Whether a step will not run again in this attempt: the API's own rule for a run's progress
  * (`progress.done`), so the steps pane and the info panel count alike. Read by its status, never
  * by whether it has a finish time.
  */
@@ -88,20 +88,20 @@ const ENDED_STEP_STATUSES: ReadonlySet<StepStatus> = new Set<StepStatus>([
   'not-run',
 ]);
 
-/** A page of runs, at most this many, as the cell allows. */
+/** A page of runs, at most this many, as the API allows. */
 export const PAGE_MAX = 100;
-/** A page of runs, as the cell gives one unasked. */
+/** A page of runs, as the API gives one unasked. */
 export const PAGE_SIZE = 50;
 
 /**
  * How many runs a refresh of the list asks for: as many as it shows, so every row shown is read
- * again, up to the cell's page.
+ * again, up to the API's page.
  */
 export function refreshLimit(shown: number): number {
   return Math.min(PAGE_MAX, Math.max(PAGE_SIZE, shown));
 }
 
-/** Newest first, as the cell orders them: by `createdAt`, then by id. */
+/** Newest first, as the API orders them: by `createdAt`, then by id. */
 function newerFirst(a: RunSummary, b: RunSummary): number {
   if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
   if (a.id === b.id) return 0;
@@ -191,7 +191,7 @@ export function starterOf(
 }
 
 /**
- * An item's address, only when it is a web page on `https:`: it lands in a link. The cell refuses
+ * An item's address, only when it is a web page on `https:`: it lands in a link. The API refuses
  * any other, and the page checks again.
  */
 export function safeItemUrl(url: string): string | null {
@@ -205,16 +205,16 @@ export function safeItemUrl(url: string): string | null {
 /** What reading a page of runs came to. */
 export type RunsAnswer =
   | { kind: 'listed'; list: RunList }
-  /** The cell refused the list's filters or its place in the list (a cursor it cannot read). */
+  /** The API refused the list's filters or its place in the list (a cursor it cannot read). */
   | { kind: 'invalid' }
-  | CellRefusal;
+  | Refusal;
 
 /** What reading one run came to. */
 export type RunAnswer =
   | { kind: 'found'; detail: RunDetail }
-  /** No such run, or one the person does not see: the cell says the same of both. */
+  /** No such run, or one the person does not see: the API says the same of both. */
   | { kind: 'not-found' }
-  | CellRefusal;
+  | Refusal;
 
 /** What reading the workspace's members came to, to name who started each run. */
-export type MembersAnswer = { kind: 'listed'; members: WorkspaceMember[] } | CellRefusal;
+export type MembersAnswer = { kind: 'listed'; members: WorkspaceMember[] } | Refusal;

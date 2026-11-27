@@ -40,15 +40,15 @@ beforeEach(() => {
   mkdirSync(main);
   git(main, 'init', '--quiet', '--initial-branch=main');
   write(join(main, '.gitignore'), '.env*\n!.env.example\n');
-  write(join(main, 'apps', 'cloud-global', 'package.json'), '{}');
-  write(join(main, 'apps', 'cloud-global', '.env.example'), 'SECRET=\n');
+  write(join(main, 'apps', 'cloud-api', 'package.json'), '{}');
+  write(join(main, 'apps', 'cloud-api', '.env.example'), 'SECRET=\n');
   write(join(main, 'packages', 'sandbox', 'package.json'), '{}');
   git(main, 'add', '.');
   git(main, 'commit', '--quiet', '-m', 'init');
   git(main, 'worktree', 'add', '--quiet', worktree);
 
   write(join(main, '.env.local'), 'ROOT=acme\n');
-  write(join(main, 'apps', 'cloud-global', '.env'), 'SECRET=acme\n');
+  write(join(main, 'apps', 'cloud-api', '.env'), 'SECRET=acme\n');
   write(join(main, 'packages', 'sandbox', '.env'), 'KEY=acme\n');
 });
 
@@ -84,28 +84,28 @@ describe('linkEnvFiles', () => {
   it("links every env file the main checkout has, at the root and in each package's folder", () => {
     assert.deepEqual(linkEnvFiles(worktree).sort(), [
       '.env.local',
-      join('apps', 'cloud-global', '.env'),
+      join('apps', 'cloud-api', '.env'),
       join('packages', 'sandbox', '.env'),
     ]);
-    const linked = join(worktree, 'apps', 'cloud-global', '.env');
+    const linked = join(worktree, 'apps', 'cloud-api', '.env');
     assert.equal(lstatSync(linked).isSymbolicLink(), true);
-    assert.equal(readlinkSync(linked), join(main, 'apps', 'cloud-global', '.env'));
+    assert.equal(readlinkSync(linked), join(main, 'apps', 'cloud-api', '.env'));
     assert.equal(readFileSync(linked, 'utf8'), 'SECRET=acme\n');
   });
 
   it('leaves the example alone', () => {
     linkEnvFiles(worktree);
-    assert.equal(lstatSync(join(worktree, 'apps', 'cloud-global', '.env.example')).isFile(), true);
+    assert.equal(lstatSync(join(worktree, 'apps', 'cloud-api', '.env.example')).isFile(), true);
   });
 
   it('never replaces what is already there, and a second run changes nothing', () => {
-    write(join(worktree, 'apps', 'cloud-global', '.env'), 'SECRET=mine\n');
+    write(join(worktree, 'apps', 'cloud-api', '.env'), 'SECRET=mine\n');
     assert.deepEqual(linkEnvFiles(worktree).sort(), [
       '.env.local',
       join('packages', 'sandbox', '.env'),
     ]);
     assert.equal(
-      readFileSync(join(worktree, 'apps', 'cloud-global', '.env'), 'utf8'),
+      readFileSync(join(worktree, 'apps', 'cloud-api', '.env'), 'utf8'),
       'SECRET=mine\n',
     );
     assert.deepEqual(linkEnvFiles(worktree), []);

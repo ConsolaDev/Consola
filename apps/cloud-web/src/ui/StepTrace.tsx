@@ -47,7 +47,7 @@ import './StepTrace.css';
  * finishes; their own choice wins over that. A failed run says first where it broke, and that
  * step's name takes them to it.
  *
- * When the cell holds the file the run executed (`source`), Steps and File are two views of one
+ * When the API holds the file the run executed (`source`), Steps and File are two views of one
  * run, a tablist at the trace's head, and the address keeps which is shown and the step chosen
  * (`place`, written through `onPlace`). They are linked: "View in file" on a step shows its lines
  * and lights them once; a step's lines in the file choose it, and Show in steps takes the person

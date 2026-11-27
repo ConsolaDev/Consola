@@ -59,7 +59,7 @@ export type RunInfoSectionId = 'request' | 'automations' | 'budget' | 'run' | 'd
  * A run's facts beside it, as the desktop's info panel states a session's. A request has three
  * sections: the request itself, the automations it started (each live, each opening in the
  * request's Automations tab) and its budget. An automation run has what it is, what started it (its request, when one
- * did, which it links to) and what it cost; then, when the cell holds the file it ran, its
+ * did, which it links to) and what it cost; then, when the API holds the file it ran, its
  * Definition: the file (a link to its File view), the version against the latest, the trigger,
  * the mode and what it applies to.
  */

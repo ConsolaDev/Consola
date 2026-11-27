@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Factory } from '../domain/factories';
 import type { Team } from '../domain/teams';
-import { createApi } from './api';
 import { createFactoriesService } from './factories';
 
 const ACME = { id: 'ws-acme' };
@@ -18,7 +17,7 @@ const releases: Factory = {
 const docs: Factory = { ...releases, id: 'f-2', name: 'Docs', teamId: 't-2', latestVersion: 3 };
 
 type Answer = { status: number; body?: unknown };
-type Seen = { method: string; url: string; authorization: string | null; body: string };
+type Seen = { method: string; url: string; workspace: string | null; body: string };
 
 const json = ({ status, body }: Answer) =>
   new Response(body === undefined ? null : JSON.stringify(body), {
@@ -26,95 +25,56 @@ const json = ({ status, body }: Answer) =>
     headers: body === undefined ? {} : { 'content-type': 'application/json' },
   });
 
-/**
- * A service against stand-ins: `global` answers cloud-global's routes and `cell` the cell's, each
- * by `METHOD path`, and every request is recorded. Tokens are minted `token-1`, `token-2`, …
- */
-function harness(options: {
-  global?: Record<string, Answer>;
-  cell?: Record<string, Answer | ((seen: Seen) => Answer)>;
-  workspaceId?: string;
-}) {
+/** A service against a stand-in for the API, which answers each route by `METHOD path`. */
+function harness(routes: Record<string, Answer | ((seen: Seen) => Answer)> = {}) {
   const seen: Seen[] = [];
-  let minted = 0;
-  const record = async (request: Request): Promise<Seen> => {
-    const entry = {
-      method: request.method,
-      url: request.url,
-      authorization: request.headers.get('authorization'),
-      body: await request.text(),
-    };
-    seen.push(entry);
-    return entry;
-  };
-  const globalFetch = async (request: Request) => {
-    const entry = await record(request);
-    const route = `${entry.method} ${new URL(entry.url).pathname}`;
-    const answer = options.global?.[route];
-    if (answer) return json(answer);
-    if (route === 'POST /api/cell-token') {
-      minted += 1;
-      return json({
-        status: 200,
-        body: {
-          token: `token-${minted}`,
-          expiresAt: 1300,
-          workspaceId: options.workspaceId ?? ACME.id,
-          region: 'eu',
-        },
-      });
-    }
-    return json({ status: 404, body: { error: 'not_found' } });
-  };
-  const cellFetch = async (request: Request) => {
-    const entry = await record(request);
-    const route = `${entry.method} ${new URL(entry.url).pathname}`;
-    const answer = options.cell?.[route];
-    if (!answer) return json({ status: 404, body: { error: 'not_found' } });
-    return json(typeof answer === 'function' ? answer(entry) : answer);
-  };
   const service = createFactoriesService({
-    api: createApi({ baseUrl: 'http://web.test', fetch: globalFetch }),
-    cellFetch,
-    cellOrigin: 'http://web.test',
-    nowSeconds: () => 1000,
+    baseUrl: 'http://web.test',
+    fetch: async (request) => {
+      const entry = {
+        method: request.method,
+        url: request.url,
+        workspace: request.headers.get('x-consola-workspace'),
+        body: await request.text(),
+      };
+      seen.push(entry);
+      const answer = routes[`${entry.method} ${new URL(entry.url).pathname}`];
+      if (!answer) return json({ status: 404, body: { error: 'not_found' } });
+      return json(typeof answer === 'function' ? answer(entry) : answer);
+    },
   });
-  const toCell = () => seen.filter((entry) => entry.url.includes('/cell/'));
-  const mints = () => seen.filter((entry) => entry.url.endsWith('/api/cell-token'));
-  return { service, seen, toCell, mints };
+  return { service, seen };
 }
 
+const SWITCHED_ANSWER = { status: 409, body: { error: 'workspace_switched' } };
+
 const LISTED = {
-  'GET /cell/eu/api/factories': { status: 200, body: { factories: [docs, releases] } },
-  'GET /cell/eu/api/teams': { status: 200, body: { teams: [general, platform], canManage: true } },
+  'GET /api/factories': { status: 200, body: { factories: [docs, releases] } },
+  'GET /api/teams': { status: 200, body: { teams: [general, platform], canManage: true } },
 };
 
 describe('loadFactories', () => {
-  it('shows exactly the factories the cell lists, in its order, with the teams it lists', async () => {
-    const { service, toCell, mints } = harness({ cell: LISTED });
+  it('shows exactly the factories the API lists, in its order, with the teams it lists', async () => {
+    const { service, seen } = harness(LISTED);
     expect(await service.loadFactories(ACME)).toEqual({
       kind: 'listed',
       factories: [docs, releases],
       teams: [general, platform],
     });
-    expect(toCell().map(({ method, url, authorization }) => [method, url, authorization])).toEqual(
+    expect(seen.map(({ method, url, workspace }) => [method, url, workspace])).toEqual(
       expect.arrayContaining([
-        ['GET', 'http://web.test/cell/eu/api/factories', 'Bearer token-1'],
-        ['GET', 'http://web.test/cell/eu/api/teams', 'Bearer token-1'],
+        ['GET', 'http://web.test/api/factories', 'ws-acme'],
+        ['GET', 'http://web.test/api/teams', 'ws-acme'],
       ]),
     );
-    // The two reads share one token.
-    expect(mints()).toHaveLength(1);
   });
 
-  it("filters nothing: a member's list is the cell's, whatever teams it names", async () => {
-    // The cell filters by access. A member in Platform alone sees Platform's factory, and the
+  it("filters nothing: a member's list is the API's, whatever teams it names", async () => {
+    // The API filters by access. A member in Platform alone sees Platform's factory, and the
     // page shows what it is given, not what it would work out.
     const { service } = harness({
-      cell: {
-        'GET /cell/eu/api/factories': { status: 200, body: { factories: [docs] } },
-        'GET /cell/eu/api/teams': { status: 200, body: { teams: [platform], canManage: false } },
-      },
+      'GET /api/factories': { status: 200, body: { factories: [docs] } },
+      'GET /api/teams': { status: 200, body: { teams: [platform], canManage: false } },
     });
     expect(await service.loadFactories(ACME)).toEqual({
       kind: 'listed',
@@ -123,12 +83,10 @@ describe('loadFactories', () => {
     });
   });
 
-  it('is an empty list when the cell lists none', async () => {
+  it('is an empty list when the API lists none', async () => {
     const { service } = harness({
-      cell: {
-        'GET /cell/eu/api/factories': { status: 200, body: { factories: [] } },
-        'GET /cell/eu/api/teams': { status: 200, body: { teams: [general], canManage: true } },
-      },
+      'GET /api/factories': { status: 200, body: { factories: [] } },
+      'GET /api/teams': { status: 200, body: { teams: [general], canManage: true } },
     });
     expect(await service.loadFactories(ACME)).toEqual({
       kind: 'listed',
@@ -137,56 +95,31 @@ describe('loadFactories', () => {
     });
   });
 
-  it('mints a token again once when the cell refuses one', async () => {
-    let refused = 0;
-    const { service, mints } = harness({
-      cell: {
-        ...LISTED,
-        'GET /cell/eu/api/factories': () =>
-          ++refused === 1
-            ? { status: 401, body: { error: 'invalid_token' } }
-            : LISTED['GET /cell/eu/api/factories'],
-      },
-    });
-    expect((await service.loadFactories(ACME)).kind).toBe('listed');
-    expect(mints()).toHaveLength(2);
-  });
-
-  it('asks no cell when the token is for another workspace than the page shows', async () => {
-    const { service, toCell } = harness({ workspaceId: 'ws-sprocket', cell: LISTED });
-    expect(await service.loadFactories(ACME)).toEqual({ kind: 'switched' });
-    expect(toCell()).toEqual([]);
-  });
-
-  it('is pending while the cell does not hold the workspace yet', async () => {
-    const pending = { status: 409, body: { error: 'workspace_pending' } };
-    for (const route of ['GET /cell/eu/api/factories', 'GET /cell/eu/api/teams']) {
-      const { service } = harness({ cell: { ...LISTED, [route]: pending } });
-      expect(await service.loadFactories(ACME), route).toEqual({ kind: 'pending' });
+  it('is switched when either read finds the session on another workspace', async () => {
+    for (const route of ['GET /api/factories', 'GET /api/teams']) {
+      const { service } = harness({ ...LISTED, [route]: SWITCHED_ANSWER });
+      expect(await service.loadFactories(ACME), route).toEqual({ kind: 'switched' });
     }
   });
 
-  it('is signed out only when cloud-global says so', async () => {
+  it('is signed out only on a 401', async () => {
     const { service } = harness({
-      global: { 'POST /api/cell-token': { status: 401, body: { error: 'signed_out' } } },
-      cell: LISTED,
+      ...LISTED,
+      'GET /api/factories': { status: 401, body: { error: 'signed_out' } },
     });
     expect(await service.loadFactories(ACME)).toEqual({ kind: 'signed-out' });
   });
 
   it('is unavailable for anything it does not expect', async () => {
     for (const [route, answer] of [
-      ['GET /cell/eu/api/factories', { status: 503, body: { error: 'token_check_unavailable' } }],
-      [
-        'GET /cell/eu/api/factories',
-        { status: 421, body: { error: 'wrong_region', region: 'us' } },
-      ],
-      ['GET /cell/eu/api/factories', { status: 502 }],
-      ['GET /cell/eu/api/factories', { status: 200, body: { factories: 'none' } }],
-      ['GET /cell/eu/api/factories', { status: 200, body: { factories: [{ id: 'f-1' }] } }],
-      ['GET /cell/eu/api/teams', { status: 500 }],
+      ['GET /api/factories', { status: 409, body: { error: 'workspace_pending' } }],
+      ['GET /api/factories', { status: 400, body: { error: 'invalid_request' } }],
+      ['GET /api/factories', { status: 502 }],
+      ['GET /api/factories', { status: 200, body: { factories: 'none' } }],
+      ['GET /api/factories', { status: 200, body: { factories: [{ id: 'f-1' }] } }],
+      ['GET /api/teams', { status: 500 }],
     ] as const) {
-      const { service } = harness({ cell: { ...LISTED, [route]: answer } });
+      const { service } = harness({ ...LISTED, [route]: answer });
       expect(await service.loadFactories(ACME), JSON.stringify(answer)).toEqual({
         kind: 'unavailable',
       });
@@ -203,13 +136,11 @@ describe('loadFactory', () => {
     files: [{ path: 'factory.yml', content: 'automations: []\n' }],
   };
 
-  it("reads one factory with its latest version's files, from the cell, with its token", async () => {
-    const { service, toCell } = harness({
-      cell: {
-        'GET /cell/eu/api/factories/f-1': {
-          status: 200,
-          body: { factory: { ...releases, latestVersion: 2 }, version },
-        },
+  it("reads one factory with its latest version's files, for the workspace the page shows", async () => {
+    const { service, seen } = harness({
+      'GET /api/factories/f-1': {
+        status: 200,
+        body: { factory: { ...releases, latestVersion: 2 }, version },
       },
     });
     expect(await service.loadFactory(ACME, 'f-1')).toEqual({
@@ -217,16 +148,18 @@ describe('loadFactory', () => {
       factory: { ...releases, latestVersion: 2 },
       version,
     });
-    expect(toCell().map(({ method, url, authorization }) => [method, url, authorization])).toEqual([
-      ['GET', 'http://web.test/cell/eu/api/factories/f-1', 'Bearer token-1'],
+    expect(seen.map(({ method, url, workspace }) => [method, url, workspace])).toEqual([
+      ['GET', 'http://web.test/api/factories/f-1', 'ws-acme'],
     ]);
   });
 
   it("answers in the page's terms for each refusal", async () => {
     const cases: Array<[Answer, unknown]> = [
       [{ status: 404, body: { error: 'factory_not_found' } }, { kind: 'not-found' }],
-      [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'pending' }],
-      [{ status: 503, body: { error: 'token_check_unavailable' } }, { kind: 'unavailable' }],
+      [SWITCHED_ANSWER, { kind: 'switched' }],
+      [{ status: 409, body: { error: 'no_active_workspace' } }, { kind: 'switched' }],
+      [{ status: 403, body: { error: 'not_a_member' } }, { kind: 'switched' }],
+      [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'unavailable' }],
       [{ status: 404, body: { error: 'not_found' } }, { kind: 'unavailable' }],
       [{ status: 200, body: { factory: releases } }, { kind: 'unavailable' }],
       [
@@ -236,28 +169,20 @@ describe('loadFactory', () => {
       [{ status: 500 }, { kind: 'unavailable' }],
     ];
     for (const [answer, read] of cases) {
-      const { service } = harness({ cell: { 'GET /cell/eu/api/factories/f-1': answer } });
+      const { service } = harness({ 'GET /api/factories/f-1': answer });
       expect(await service.loadFactory(ACME, 'f-1'), JSON.stringify(answer)).toEqual(read);
     }
-  });
-
-  it('asks no cell for a workspace the session no longer has open', async () => {
-    const { service, toCell } = harness({ workspaceId: 'ws-sprocket' });
-    expect(await service.loadFactory(ACME, 'f-1')).toEqual({ kind: 'switched' });
-    expect(toCell()).toEqual([]);
   });
 });
 
 describe('changing factories', () => {
-  it('makes, renames and moves a factory on the cell, with its token', async () => {
-    const { service, toCell } = harness({
-      cell: {
-        'POST /cell/eu/api/factories': { status: 201, body: releases },
-        'PATCH /cell/eu/api/factories/f-1': ({ body }) => ({
-          status: 200,
-          body: { ...releases, ...JSON.parse(body) },
-        }),
-      },
+  it('makes, renames and moves a factory, for the workspace the page shows', async () => {
+    const { service, seen } = harness({
+      'POST /api/factories': { status: 201, body: releases },
+      'PATCH /api/factories/f-1': ({ body }) => ({
+        status: 200,
+        body: { ...releases, ...JSON.parse(body) },
+      }),
     });
     expect(await service.createFactory(ACME, { name: 'Releases', teamId: 't-1' })).toEqual({
       kind: 'changed',
@@ -271,23 +196,27 @@ describe('changing factories', () => {
       kind: 'changed',
       factory: { ...releases, teamId: 't-2' },
     });
-    expect(toCell().map(({ method, url, body }) => [method, new URL(url).pathname, body])).toEqual([
-      ['POST', '/cell/eu/api/factories', '{"name":"Releases","teamId":"t-1"}'],
+    expect(
+      seen.map(({ method, url, workspace, body }) => [
+        method,
+        new URL(url).pathname,
+        workspace,
+        body,
+      ]),
+    ).toEqual([
+      ['POST', '/api/factories', 'ws-acme', '{"name":"Releases","teamId":"t-1"}'],
       // Each change sends only what it changes.
-      ['PATCH', '/cell/eu/api/factories/f-1', '{"name":"Shipping"}'],
-      ['PATCH', '/cell/eu/api/factories/f-1', '{"teamId":"t-2"}'],
+      ['PATCH', '/api/factories/f-1', 'ws-acme', '{"name":"Shipping"}'],
+      ['PATCH', '/api/factories/f-1', 'ws-acme', '{"teamId":"t-2"}'],
     ]);
-    expect(new Set(toCell().map((entry) => entry.authorization))).toEqual(
-      new Set(['Bearer token-1']),
-    );
   });
 
   it('encodes the factory in the path', async () => {
-    const { service, toCell } = harness({
-      cell: { 'PATCH /cell/eu/api/factories/a%2Fb': { status: 200, body: releases } },
+    const { service, seen } = harness({
+      'PATCH /api/factories/a%2Fb': { status: 200, body: releases },
     });
     expect((await service.renameFactory(ACME, 'a/b', 'Releases')).kind).toBe('changed');
-    expect(new URL(toCell()[0]?.url ?? '').pathname).toBe('/cell/eu/api/factories/a%2Fb');
+    expect(new URL(seen[0]?.url ?? '').pathname).toBe('/api/factories/a%2Fb');
   });
 
   const REFUSALS: Array<[Answer, unknown]> = [
@@ -298,10 +227,13 @@ describe('changing factories', () => {
     [{ status: 409, body: { error: 'name_taken' } }, { kind: 'name-taken' }],
     [{ status: 404, body: { error: 'team_not_found' } }, { kind: 'team-not-found' }],
     [{ status: 404, body: { error: 'factory_not_found' } }, { kind: 'factory-not-found' }],
-    [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'pending' }],
+    [SWITCHED_ANSWER, { kind: 'switched' }],
+    [{ status: 403, body: { error: 'not_a_member' } }, { kind: 'switched' }],
+    [{ status: 401, body: { error: 'signed_out' } }, { kind: 'signed-out' }],
+    [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'unavailable' }],
     [{ status: 400, body: { error: 'invalid_request' } }, { kind: 'unavailable' }],
+    [{ status: 403, body: { error: 'bad_origin' } }, { kind: 'unavailable' }],
     [{ status: 415, body: { error: 'unsupported_media_type' } }, { kind: 'unavailable' }],
-    [{ status: 503, body: { error: 'token_check_unavailable' } }, { kind: 'unavailable' }],
     [{ status: 404, body: { error: 'not_found' } }, { kind: 'unavailable' }],
     [{ status: 200, body: { id: 'f-1' } }, { kind: 'unavailable' }],
     [{ status: 500 }, { kind: 'unavailable' }],
@@ -309,7 +241,7 @@ describe('changing factories', () => {
 
   it("answers in the page's terms for each refusal of a new factory", async () => {
     for (const [answer, change] of REFUSALS) {
-      const { service } = harness({ cell: { 'POST /cell/eu/api/factories': answer } });
+      const { service } = harness({ 'POST /api/factories': answer });
       expect(
         await service.createFactory(ACME, { name: 'Releases', teamId: 't-1' }),
         JSON.stringify(answer),
@@ -319,7 +251,7 @@ describe('changing factories', () => {
 
   it("answers in the page's terms for each refusal of a rename or a move", async () => {
     for (const [answer, change] of REFUSALS) {
-      const { service } = harness({ cell: { 'PATCH /cell/eu/api/factories/f-1': answer } });
+      const { service } = harness({ 'PATCH /api/factories/f-1': answer });
       expect(await service.renameFactory(ACME, 'f-1', 'Shipping'), JSON.stringify(answer)).toEqual(
         change,
       );
@@ -327,27 +259,12 @@ describe('changing factories', () => {
     }
   });
 
-  it('sends no change for a workspace the session no longer has open', async () => {
-    const { service, toCell } = harness({ workspaceId: 'ws-sprocket' });
-    expect(await service.moveFactory(ACME, 'f-1', 't-2')).toEqual({ kind: 'switched' });
-    expect(toCell()).toEqual([]);
-  });
-
-  it('is unavailable when the cell does not answer at all', async () => {
+  it('is unavailable when the API does not answer at all', async () => {
     const service = createFactoriesService({
-      api: createApi({
-        baseUrl: 'http://web.test',
-        fetch: async () =>
-          json({
-            status: 200,
-            body: { token: 't', expiresAt: 1300, workspaceId: ACME.id, region: 'eu' },
-          }),
-      }),
-      cellFetch: async () => {
+      baseUrl: 'http://web.test',
+      fetch: async () => {
         throw new TypeError('Failed to fetch');
       },
-      cellOrigin: 'http://web.test',
-      nowSeconds: () => 1000,
     });
     expect(await service.createFactory(ACME, { name: 'Releases', teamId: 't-1' })).toEqual({
       kind: 'unavailable',
@@ -371,45 +288,33 @@ describe('saveFactory', () => {
 
   it('sends every file as the next version of the one they were read from', async () => {
     const { service, seen } = harness({
-      cell: {
-        'POST /cell/eu/api/factories/f-1/versions': {
-          status: 201,
-          body: { version: saved, notices: [] },
-        },
-      },
+      'POST /api/factories/f-1/versions': { status: 201, body: { version: saved, notices: [] } },
     });
     expect(await service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
       kind: 'saved',
       version: saved,
     });
     const sent = seen.find((entry) => entry.url.endsWith('/api/factories/f-1/versions'));
-    expect(sent?.authorization).toBe('Bearer token-1');
+    expect(sent?.workspace).toBe('ws-acme');
     expect(JSON.parse(sent?.body ?? '')).toEqual({ baseVersion: 3, files });
   });
 
-  it('says every issue the cell found, and that someone saved first', async () => {
+  it('says every issue the API found, and that someone saved first', async () => {
     const issues = [
       { message: 'No skill named `relase`.', file: 'agents/reviewer.md', path: 'skills', line: 4 },
       { message: 'A factory holds at most 500 files.', path: '' },
     ];
     const refused = harness({
-      cell: {
-        'POST /cell/eu/api/factories/f-1/versions': {
-          status: 400,
-          body: { error: 'invalid_files', issues },
-        },
-      },
+      'POST /api/factories/f-1/versions': { status: 400, body: { error: 'invalid_files', issues } },
     });
     expect(await refused.service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
       kind: 'invalid',
       issues,
     });
     const moved = harness({
-      cell: {
-        'POST /cell/eu/api/factories/f-1/versions': {
-          status: 409,
-          body: { error: 'version_moved', latestVersion: 5 },
-        },
+      'POST /api/factories/f-1/versions': {
+        status: 409,
+        body: { error: 'version_moved', latestVersion: 5 },
       },
     });
     expect(await moved.service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
@@ -420,28 +325,21 @@ describe('saveFactory', () => {
 
   it.each([
     [{ status: 404, body: { error: 'factory_not_found' } }, { kind: 'not-found' }],
-    [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'pending' }],
+    [SWITCHED_ANSWER, { kind: 'switched' }],
     [{ status: 413, body: { error: 'too_large' } }, { kind: 'too-large' }],
+    [{ status: 409, body: { error: 'workspace_pending' } }, { kind: 'unavailable' }],
     [{ status: 400, body: { error: 'invalid_files', issues: 'nope' } }, { kind: 'unavailable' }],
     [{ status: 409, body: { error: 'version_moved' } }, { kind: 'unavailable' }],
     [{ status: 201, body: { version: { version: 'four' }, notices: [] } }, { kind: 'unavailable' }],
     [{ status: 500, body: { error: 'boom' } }, { kind: 'unavailable' }],
   ])("answers %j in the page's terms", async (answer, expected) => {
-    const { service } = harness({ cell: { 'POST /cell/eu/api/factories/f-1/versions': answer } });
+    const { service } = harness({ 'POST /api/factories/f-1/versions': answer });
     expect(await service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual(expected);
-  });
-
-  it('saves nothing for a workspace the session no longer has open', async () => {
-    const { service, seen } = harness({ workspaceId: 'ws-other' });
-    expect(await service.saveFactory(ACME, 'f-1', { baseVersion: 3, files })).toEqual({
-      kind: 'switched',
-    });
-    expect(seen.some((entry) => entry.url.includes('/versions'))).toBe(false);
   });
 });
 
 describe('loadTemplates', () => {
-  const TEMPLATES = 'GET /cell/eu/api/factory-templates';
+  const TEMPLATES = 'GET /api/factory-templates';
   const team = {
     id: 'code-review-team',
     name: 'Code review team',
@@ -452,25 +350,24 @@ describe('loadTemplates', () => {
     ],
   };
 
-  it('answers the templates the cell offers, with their files, on a cell token', async () => {
-    const { service, toCell } = harness({ cell: { [TEMPLATES]: { status: 200, body: [team] } } });
+  it('answers the templates the API offers, with their files', async () => {
+    const { service, seen } = harness({ [TEMPLATES]: { status: 200, body: [team] } });
     expect(await service.loadTemplates(ACME)).toEqual({ kind: 'listed', templates: [team] });
-    expect(toCell()[0]?.authorization).toBe('Bearer token-1');
+    expect(seen[0]?.workspace).toBe('ws-acme');
   });
 
   it.each([
     [{ status: 200, body: { templates: [team] } }],
     [{ status: 200, body: [{ ...team, files: [{ path: 'a.md' }] }] }],
-    [{ status: 503, body: { error: 'token_check_unavailable' } }],
+    [{ status: 503, body: { error: 'unavailable' } }],
     [{ status: 404, body: { error: 'not_found' } }],
   ])('is unavailable for %j', async (answer) => {
-    const { service } = harness({ cell: { [TEMPLATES]: answer } });
+    const { service } = harness({ [TEMPLATES]: answer });
     expect(await service.loadTemplates(ACME)).toEqual({ kind: 'unavailable' });
   });
 
-  it('reads nothing for a workspace the session no longer has open', async () => {
-    const { service, toCell } = harness({ workspaceId: 'ws-other' });
+  it('is switched for a workspace the session no longer has open', async () => {
+    const { service } = harness({ [TEMPLATES]: SWITCHED_ANSWER });
     expect(await service.loadTemplates(ACME)).toEqual({ kind: 'switched' });
-    expect(toCell()).toHaveLength(0);
   });
 });

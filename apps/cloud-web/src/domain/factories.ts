@@ -1,29 +1,29 @@
-import type { CellRefusal } from './cell';
-import type { components as cell } from './cellApiContract';
+import type { Refusal } from './refusal';
+import type { components } from './apiContract';
 import type { FactoryIssue } from './factoryProblems';
 import type { Team } from './teams';
 
 /**
- * A workspace's factories as the web app sees them. They live in the workspace's regional cell,
+ * A workspace's factories as the web app sees them. They live in the API,
  * which is the authority on every rule here, and on who sees what: owners and admins see every
  * factory, a member the factories of the teams they are in. The page never filters what the
- * cell lists. It keeps its own copy of the name rule, to check a name before sending it, and
- * offers as owners only the teams the cell lists for the person (`GET /api/teams`), which are
- * exactly the teams the cell lets them make or move a factory for.
+ * API lists. It keeps its own copy of the name rule, to check a name before sending it, and
+ * offers as owners only the teams the API lists for the person (`GET /api/teams`), which are
+ * exactly the teams the API lets them make or move a factory for.
  */
 
-export type Factory = cell['schemas']['Factory'];
+export type Factory = components['schemas']['Factory'];
 
-/** Where a factory's files come from, as the cell names it. */
+/** Where a factory's files come from, as the API names it. */
 export type FactorySourceKind = Factory['source']['kind'];
 
-/** What the cell names as a problem with a factory's name. */
-export type FactoryNameProblem = cell['schemas']['InvalidFactory']['problems'][number];
+/** What the API names as a problem with a factory's name. */
+export type FactoryNameProblem = components['schemas']['InvalidFactory']['problems'][number];
 
 /** A problem with a new factory: its name's, or no team chosen to own it. */
 export type NewFactoryProblem = FactoryNameProblem | 'team_missing';
 
-/** Every problem the cell names; `factoryMessages.ts` has a sentence for each, keyed by the type. */
+/** Every problem the API names; `factoryMessages.ts` has a sentence for each, keyed by the type. */
 const NAME_PROBLEMS: Record<FactoryNameProblem, true> = {
   name_missing: true,
   name_too_long: true,
@@ -40,9 +40,9 @@ export const FACTORY_NAME_MAX = 64;
 const CONTROL = /\p{Cc}/u;
 
 /**
- * A factory's name, trimmed, when the cell would take it: 1 to `FACTORY_NAME_MAX` characters
+ * A factory's name, trimmed, when the API would take it: 1 to `FACTORY_NAME_MAX` characters
  * with no control character. Every problem is named at once. Whether another factory has the
- * name is the cell's to say (`name-taken`).
+ * name is the API's to say (`name-taken`).
  */
 export function checkFactoryName(
   name: string,
@@ -68,7 +68,7 @@ export function newFactoryDraft(teams: readonly Team[]): FactoryDraft {
 }
 
 /**
- * A new factory, when the cell would take it: a good name and one of `teams` to own it. A team
+ * A new factory, when the API would take it: a good name and one of `teams` to own it. A team
  * the person no longer sees counts as none chosen.
  */
 export function checkNewFactory(
@@ -86,7 +86,7 @@ export function checkNewFactory(
 }
 
 /**
- * The team that owns `factory`, among those the cell lists for the person, or null. The cell
+ * The team that owns `factory`, among those the API lists for the person, or null. The API
  * lists every team that owns a factory the person sees, so null is only a list read between a
  * change and the next load.
  */
@@ -95,7 +95,7 @@ export function owningTeam(factory: Factory, teams: readonly Team[]): Team | nul
 }
 
 /**
- * Whether moving `factory` to `teamId` is a move the page sends: to one of the teams the cell
+ * Whether moving `factory` to `teamId` is a move the page sends: to one of the teams the API
  * lists for the person, and not the one that owns it now.
  */
 export function isMove(factory: Factory, teamId: string, teams: readonly Team[]): boolean {
@@ -104,7 +104,7 @@ export function isMove(factory: Factory, teamId: string, teams: readonly Team[])
 
 /**
  * Where a factory's files can come from, in the order the page offers them. Only `stored` is
- * one the cell has; a GitHub repository comes later (9.4), so it is shown, and not offered.
+ * one the API has; a GitHub repository comes later (9.4), so it is shown, and not offered.
  */
 export type SourceOption =
   | { kind: FactorySourceKind; available: true }
@@ -119,17 +119,15 @@ export const SOURCE_OPTIONS: readonly SourceOption[] = [
 export type FactoriesState =
   | {
       kind: 'listed';
-      /** Exactly what the cell lists for the person, in its order: by name. */
+      /** Exactly what the API lists for the person, in its order: by name. */
       factories: Factory[];
       /**
-       * The teams the cell lists for the person: every team for owners and admins, the teams they
+       * The teams the API lists for the person: every team for owners and admins, the teams they
        * are in for a member. They name each factory's team, and they are the teams create and
        * move offer.
        */
       teams: Team[];
     }
-  /** The cell does not hold the workspace yet: `cloud-global` is still telling it. */
-  | { kind: 'pending' }
   /** The session's workspace is not the one the page shows: another tab switched it. */
   | { kind: 'switched' }
   | { kind: 'signed-out' }
@@ -144,41 +142,39 @@ export type FactoryChange =
   | { kind: 'team-not-found' }
   /** The factory is gone, or now belongs to a team the person is not in. */
   | { kind: 'factory-not-found' }
-  | { kind: 'pending' }
   | { kind: 'switched' }
   | { kind: 'signed-out' }
   | { kind: 'unavailable' };
 
 /** A factory's version of its files, as saved. */
-export type FactoryVersion = cell['schemas']['FactoryVersion'];
+export type FactoryVersion = components['schemas']['FactoryVersion'];
 
-export type FactoryFile = cell['schemas']['FactoryFile'];
+export type FactoryFile = components['schemas']['FactoryFile'];
 
 /**
  * Ready-made factory files a person can start from (`GET /api/factory-templates`), such as the
  * code review team: they join a factory's files as unsaved changes (`withFiles`), and reach the
- * cell only through the ordinary save, which checks them as any other files.
+ * API only through the ordinary save, which checks them as any other files.
  */
-export type FactoryTemplate = cell['schemas']['FactoryTemplate'];
+export type FactoryTemplate = components['schemas']['FactoryTemplate'];
 
 /** What reading the templates came to. */
-export type TemplatesAnswer = { kind: 'listed'; templates: FactoryTemplate[] } | CellRefusal;
+export type TemplatesAnswer = { kind: 'listed'; templates: FactoryTemplate[] } | Refusal;
 
 /** What reading one factory with its latest version's files came to. */
 export type FactoryRead =
   | { kind: 'found'; factory: Factory; version: FactoryVersion }
   /** The factory is gone, or now belongs to a team the person is not in. */
   | { kind: 'not-found' }
-  | { kind: 'pending' }
   | { kind: 'switched' }
   | { kind: 'signed-out' }
   | { kind: 'unavailable' };
 
 /** What saving a factory's files as its next version came to. */
 export type FactorySave =
-  /** Saved: the version the cell stored. */
+  /** Saved: the version the API stored. */
   | { kind: 'saved'; version: FactoryVersion }
-  /** The cell found the files break the factory schema: every issue. Nothing was saved. */
+  /** The API found the files break the factory schema: every issue. Nothing was saved. */
   | { kind: 'invalid'; issues: FactoryIssue[] }
   /** Someone saved a newer version since the files were read. Nothing was saved. */
   | { kind: 'version-moved'; latestVersion: number }
@@ -186,7 +182,6 @@ export type FactorySave =
   | { kind: 'too-large' }
   /** The factory is gone, or now belongs to a team the person is not in. */
   | { kind: 'not-found' }
-  | { kind: 'pending' }
   | { kind: 'switched' }
   | { kind: 'signed-out' }
   | { kind: 'unavailable' };

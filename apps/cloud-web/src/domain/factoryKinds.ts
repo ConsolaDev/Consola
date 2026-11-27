@@ -23,7 +23,7 @@ export const NEW_KINDS: readonly NewKind[] = ['automation', 'agent', 'skill'];
 /** What a path is to the format; null for a file of a folder read later (`evals/`). */
 export type FileKind = 'factory' | NewKind | 'skill-file';
 
-/** The longest a file's path may be, in characters: the cell's limit. */
+/** The longest a file's path may be, in characters: the API's limit. */
 export const PATH_MAX = 256;
 
 const AUTOMATION_PATH = /^automations\/([^/]+)\.yaml$/;

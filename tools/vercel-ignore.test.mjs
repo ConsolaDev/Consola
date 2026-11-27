@@ -19,7 +19,7 @@ const pushing = (env, files, base = 'a'.repeat(40)) =>
   decide({ env, readVercelignore: () => vercelignore, changes: () => ({ base, files }) });
 
 const desktopOnly = [
-  'apps/cloud-global/src/app.ts',
+  'apps/cloud-api/src/compose.ts',
   'apps/desktop/src/main/index.ts',
   'apps/desktop/src/renderer/App.tsx',
   'pnpm-lock.yaml',
@@ -80,7 +80,7 @@ test('a preview skips a change to the desktop, and production deploys it', () =>
   const deployed = pushing(production, desktopOnly);
   assert.equal(deployed.deploy, true);
   assert.match(deployed.reason, /apps\/desktop\/src\/renderer\/App\.tsx/);
-  assert.doesNotMatch(deployed.reason, /cloud-global|src\/main/);
+  assert.doesNotMatch(deployed.reason, /cloud-api|src\/main/);
 });
 
 test("a preview deploys for the website's own files, and names them", () => {

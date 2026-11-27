@@ -23,8 +23,6 @@ import {
   templateFilesCount,
 } from './factoryMessages';
 
-const ACME = { name: 'Acme', region: 'eu' };
-
 describe('adding a template', () => {
   it('says how many files it added and replaced, and that saving keeps them', () => {
     const name = 'Code review team';
@@ -175,8 +173,8 @@ describe('the definition’s sentences', () => {
   });
 
   it('say a save that did not land', () => {
-    expect(messageForSave({ kind: 'not-found' }, ACME)).toBe(FACTORY_GONE);
-    expect(messageForSave({ kind: 'too-large' }, ACME)).toMatch(/nothing was saved/);
-    expect(messageForSave({ kind: 'unavailable' }, ACME)).toMatch(/Europe|region/);
+    expect(messageForSave({ kind: 'not-found' })).toBe(FACTORY_GONE);
+    expect(messageForSave({ kind: 'too-large' })).toMatch(/nothing was saved/);
+    expect(messageForSave({ kind: 'unavailable' })).toMatch(/Consola Cloud isn’t answering/);
   });
 });

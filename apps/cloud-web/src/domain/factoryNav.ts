@@ -56,7 +56,7 @@ export function hashOfFactoryPage(factoryId: string, page: FactoryPageId = FACTO
 }
 
 /**
- * Where `#/factories` alone lands: the first factory's first page, as the cell lists them, or
+ * Where `#/factories` alone lands: the first factory's first page, as the API lists them, or
  * null for none, which the page sends to the dashboard's first section.
  */
 export function factoryLanding(factories: readonly Factory[]): string | null {

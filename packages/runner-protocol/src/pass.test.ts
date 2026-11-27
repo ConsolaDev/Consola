@@ -19,7 +19,7 @@ const grant = {
 
 describe('the pass contract', () => {
   it('names an audience that is no cell token and a type of its own', () => {
-    // cloud-contract's CELL_TOKEN_AUDIENCE: a package may not import it, so it is written here.
+    // The audience of the cell token the cloud app no longer mints: a pass never names it.
     expect(PASS_AUDIENCE).not.toBe('consola-cell');
     expect(PASS_TYPE.length).toBeGreaterThan(0);
     expect(PASS_MAX_LIFETIME_SECONDS).toBeGreaterThan(0);

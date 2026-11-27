@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { paths } from './cellApiContract';
+import type { paths } from './apiContract';
 import {
   agentRunPhase,
   agentRunPhaseWords,
@@ -65,18 +65,16 @@ const session: CloudSession = {
   agentRun: null,
 };
 
-const ACME = { name: 'Acme', region: 'eu' };
-
 describe('the contract', () => {
-  it('names every harness, failure code and status the cell has', () => {
-    // A harness, a code or a status the cell gains fails the typecheck until the page words it.
+  it('names every harness, failure code and status the API has', () => {
+    // A harness, a code or a status the API gains fails the typecheck until the page words it.
     const harnesses: Record<Harness, string> = HARNESS_NAMES;
     const statuses: Record<CloudSessionStatus, string> = SESSION_STATUS_WORDS;
     expect(Object.keys(harnesses).sort()).toEqual(['claude', 'codex']);
     expect(Object.keys(statuses).sort()).toEqual(['failed', 'running', 'starting', 'stopped']);
   });
 
-  it('refuses a start only with the codes the cell answers', () => {
+  it('refuses a start only with the codes the API answers', () => {
     type Refused =
       | paths['/api/cloud-sessions']['post']['responses'][400]['content']['application/json']['error']
       | paths['/api/cloud-sessions']['post']['responses'][503]['content']['application/json']['error'];
@@ -126,7 +124,6 @@ describe('listPollIntervalMs', () => {
 describe('keepsShownOn', () => {
   it('keeps what was shown through a read that failed for a while: the next may work', () => {
     expect(keepsShownOn({ kind: 'unavailable' })).toBe(true);
-    expect(keepsShownOn({ kind: 'pending' })).toBe(true);
   });
 
   it('ends what was shown, a running chat included, once signed out or switched', () => {
@@ -134,7 +131,7 @@ describe('keepsShownOn', () => {
     expect(keepsShownOn({ kind: 'switched' })).toBe(false);
   });
 
-  it('ends a session the cell no longer has', () => {
+  it('ends a session the API no longer has', () => {
     expect(keepsShownOn({ kind: 'not-found' })).toBe(false);
   });
 });
@@ -202,7 +199,7 @@ describe('sessionScreen', () => {
     ['runner_unreachable', 'The runner couldn’t be reached to start this session.'],
     ['runner_failed', 'The runner stopped this session without saying why.'],
   ] satisfies Array<[CellFailureCode, string]>)(
-    'words the cell’s code %s, never the code itself',
+    'words the API’s code %s, never the code itself',
     (errorCode, words) => {
       expect(sessionScreen({ ...session, status: 'failed', errorCode })).toEqual({
         kind: 'failed',
@@ -211,7 +208,7 @@ describe('sessionScreen', () => {
     },
   );
 
-  it('says the session failed when the cell gave neither a message nor a code it knows', () => {
+  it('says the session failed when the API gave neither a message nor a code it knows', () => {
     expect(sessionScreen({ ...session, status: 'failed' })).toEqual({
       kind: 'failed',
       words: 'This session failed.',
@@ -353,10 +350,10 @@ describe('an agent run', () => {
     ],
     [
       'agent_run_invalid',
-      'The region couldn’t put this run together from the factory’s files, so it never started.',
+      'Consola Cloud couldn’t put this run together from the factory’s files, so it never started.',
     ],
   ] satisfies Array<[CellFailureCode, string]>)(
-    'words the cell’s code %s for a run it could not hand to a runner',
+    'words the API’s code %s for a run it could not hand to a runner',
     (errorCode, words) => {
       expect(sessionScreen({ ...run, status: 'failed', errorCode })).toEqual({
         kind: 'failed',
@@ -367,7 +364,7 @@ describe('an agent run', () => {
 });
 
 describe('startedAt', () => {
-  it('is the session’s start, from the cell’s epoch seconds', () => {
+  it('is the session’s start, from the API’s epoch seconds', () => {
     expect(startedAt(session)).toBe('2026-11-18T11:06:40.000Z');
   });
 });
@@ -375,49 +372,48 @@ describe('startedAt', () => {
 describe('the sentences', () => {
   it('says no runner is connected', () => {
     expect(NO_RUNNER_WORDS).toBe('No runner is connected for this workspace.');
-    expect(messageForStartAnswer({ kind: 'refused', code: 'no_runner' }, session, ACME)).toBe(
+    expect(messageForStartAnswer({ kind: 'refused', code: 'no_runner' }, session)).toBe(
       'No runner is connected for this workspace.',
     );
-    expect(messageForPassAnswer({ kind: 'no-runner' }, ACME)).toBe(
+    expect(messageForPassAnswer({ kind: 'no-runner' })).toBe(
       'No runner is connected for this workspace.',
     );
   });
 
   it('names the repository or the harness the runner does not offer', () => {
     expect(
-      messageForStartAnswer({ kind: 'refused', code: 'repository_not_offered' }, session, ACME),
+      messageForStartAnswer({ kind: 'refused', code: 'repository_not_offered' }, session),
     ).toBe('This runner does not offer sprocket/catalog-portal.');
     expect(
       messageForStartAnswer(
         { kind: 'refused', code: 'harness_not_offered' },
         { ...session, harness: 'codex' },
-        ACME,
       ),
     ).toBe('This runner has no API key for Codex.');
-    expect(
-      messageForStartAnswer({ kind: 'refused', code: 'harness_not_offered' }, session, ACME),
-    ).toBe('This runner has no API key for Claude Code.');
-  });
-
-  it('says a start the cell could not read', () => {
-    expect(messageForStartAnswer({ kind: 'refused', code: 'invalid_request' }, session, ACME)).toBe(
-      'The region couldn’t read this repository or harness. Pick them again.',
+    expect(messageForStartAnswer({ kind: 'refused', code: 'harness_not_offered' }, session)).toBe(
+      'This runner has no API key for Claude Code.',
     );
   });
 
-  it('says a refusal of the cell’s the way every page of the cell does', () => {
-    expect(messageForStartAnswer({ kind: 'unavailable' }, session, ACME)).toBe(
-      'The EU region isn’t answering. Start it with pnpm dev:cloud-region and try again.',
+  it('says a start the API could not read', () => {
+    expect(messageForStartAnswer({ kind: 'refused', code: 'invalid_request' }, session)).toBe(
+      'Consola Cloud couldn’t read this repository or harness. Pick them again.',
     );
-    expect(messageForSessionAnswer({ kind: 'signed-out' }, ACME)).toBe(
+  });
+
+  it('says a refusal of the API’s the way every page of the API does', () => {
+    expect(messageForStartAnswer({ kind: 'unavailable' }, session)).toBe(
+      'Consola Cloud isn’t answering. Start it with pnpm dev:cloud and try again.',
+    );
+    expect(messageForSessionAnswer({ kind: 'signed-out' })).toBe(
       'You’ve been signed out. Reload to sign in again.',
     );
   });
 
   it('says a session that is not the person’s, or not there', () => {
     const gone = 'This session isn’t here. It may be someone else’s, or the link may be wrong.';
-    expect(messageForSessionAnswer({ kind: 'not-found' }, ACME)).toBe(gone);
-    expect(messageForStopAnswer({ kind: 'not-found' }, ACME)).toBe(gone);
+    expect(messageForSessionAnswer({ kind: 'not-found' })).toBe(gone);
+    expect(messageForStopAnswer({ kind: 'not-found' })).toBe(gone);
   });
 
   it('says what starting a session trusts', () => {

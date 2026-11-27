@@ -1,6 +1,5 @@
-/* Where a factory's files come from: a choice drawn as the create workspace form draws its
-   regions, one source to a tile. What comes later is dashed, and never chosen. Every class here
-   is `factories-source*`, beside `factories-later`. */
+/* Where a factory's files come from: a choice of tiles, one source to a tile. What comes later
+   is dashed, and never chosen. Every class here is `factories-source*`, beside `factories-later`. */
 
 /* A legend is not a flex item, so the fieldset spaces its parts with margins. */
 .factories-sources {

@@ -11,7 +11,6 @@ import type { ApproveAnswer } from './runApproval';
 const NOW = Date.parse('2026-11-23T12:00:00.000Z');
 const ago = (ms: number) => new Date(NOW - ms).toISOString();
 const team = { team: { id: 't-1', name: 'Core' } };
-const workspace = { name: 'Acme', region: 'eu' };
 const alice = {
   id: 'p-alice',
   name: 'Alice',
@@ -65,7 +64,7 @@ describe('receiptWords', () => {
 
 describe('messageForApproveAnswer', () => {
   const said = (kind: Exclude<ApproveAnswer, { kind: 'answered' }>['kind']) =>
-    messageForApproveAnswer({ kind }, team, workspace);
+    messageForApproveAnswer({ kind }, team);
 
   it('has its own sentence for every refusal', () => {
     const kinds = [
@@ -75,7 +74,6 @@ describe('messageForApproveAnswer', () => {
       'not-waiting',
       'already-answered',
       'version-moved',
-      'pending',
       'switched',
       'signed-out',
       'unavailable',
@@ -85,8 +83,8 @@ describe('messageForApproveAnswer', () => {
     expect(said('not-allowed')).toBe(
       'Only people on Core can answer this run, and you’re not on it now.',
     );
-    expect(said('pending')).toBe(
-      'Acme is still being set up in its region. Try again in a moment.',
+    expect(said('unavailable')).toBe(
+      'Consola Cloud isn’t answering. Start it with pnpm dev:cloud and try again.',
     );
   });
 });

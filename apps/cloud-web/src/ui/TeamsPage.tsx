@@ -15,10 +15,10 @@ import { TeamNameForm } from './TeamNameForm';
 import './TeamsPage.css';
 
 /**
- * Settings → Teams: the workspace's teams, from its regional cell. Owners and admins see every
- * team and change them; a member sees the teams they are in, with no controls, since the cell
+ * Settings → Teams: the workspace's teams, from the API. Owners and admins see every
+ * team and change them; a member sees the teams they are in, with no controls, since the API
  * says which (`canManage`). After every change the page loads the teams again, so it shows what
- * the cell holds, whoever else changed it meanwhile.
+ * the API holds, whoever else changed it meanwhile.
  */
 export function TeamsPage({ workspace }: SectionProps) {
   const [state, setState] = useState<TeamsState | null>(null);
@@ -68,8 +68,8 @@ export function TeamsPage({ workspace }: SectionProps) {
 
       {state && state.kind !== 'listed' && (
         <div className="teams-card teams-notice">
-          <p role="alert">{messageForTeamsState(state, workspace)}</p>
-          {(state.kind === 'pending' || state.kind === 'unavailable') && (
+          <p role="alert">{messageForTeamsState(state)}</p>
+          {state.kind === 'unavailable' && (
             <button type="button" className="settings-button" onClick={() => void load()}>
               Try again
             </button>
@@ -85,7 +85,7 @@ export function TeamsPage({ workspace }: SectionProps) {
             onCancel={() => setCreating(false)}
             onSubmit={async (name) => {
               const answer = await teamsService.createTeam({ id: workspaceId }, name);
-              const failure = messageForTeamChange(answer, workspace);
+              const failure = messageForTeamChange(answer);
               if (failure === null) {
                 setCreating(false);
                 await load();

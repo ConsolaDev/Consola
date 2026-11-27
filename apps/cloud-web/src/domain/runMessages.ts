@@ -1,29 +1,23 @@
-import { messageForCellRefusal } from './cell';
+import { messageForRefusal } from './refusal';
 import type { RunAnswer, RunsAnswer } from './runs';
 import { clockTime } from './runWords';
 
 /** What the Runs pages say, for each answer and each empty list. */
 
-/** Why the list could not be shown, for the workspace and its region. */
-export function messageForRunsAnswer(
-  answer: Exclude<RunsAnswer, { kind: 'listed' }>,
-  workspace: { name: string; region: string },
-): string {
+/** Why the list could not be shown. */
+export function messageForRunsAnswer(answer: Exclude<RunsAnswer, { kind: 'listed' }>): string {
   if (answer.kind === 'invalid') {
-    return 'The region couldn’t read this list’s filters. Clear them and try again.';
+    return 'Consola Cloud couldn’t read this list’s filters. Clear them and try again.';
   }
-  return messageForCellRefusal(answer, workspace);
+  return messageForRefusal(answer);
 }
 
-/** Why a run could not be shown, for the workspace and its region. */
-export function messageForRunAnswer(
-  answer: Exclude<RunAnswer, { kind: 'found' }>,
-  workspace: { name: string; region: string },
-): string {
+/** Why a run could not be shown. */
+export function messageForRunAnswer(answer: Exclude<RunAnswer, { kind: 'found' }>): string {
   if (answer.kind === 'not-found') {
     return 'This run isn’t here. It may belong to a team you’re not in, or the link may be wrong.';
   }
-  return messageForCellRefusal(answer, workspace);
+  return messageForRefusal(answer);
 }
 
 /** A list that refreshed and could not: the rows stay as they were read last. */

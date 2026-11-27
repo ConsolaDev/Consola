@@ -41,7 +41,7 @@ function useHash(): string {
  *
  * Settings is no page of its own: the nav's last link opens it as a dialog over the page that
  * was open (`#/settings/<page>`), as in the desktop app, and closing it goes back to that page.
- * An address that opens Settings directly (cloud-global's GitHub callback) has the first
+ * An address that opens Settings directly (the API's GitHub callback) has the first
  * section behind it.
  */
 export function Dashboard({

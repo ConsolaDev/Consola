@@ -20,14 +20,14 @@ import './NewFactoryDialog.css';
 
 /**
  * New factory, a modal dialog over the dashboard, opened from the sidebar's +: a name, the team
- * that owns it, and where its files come from. The teams offered are the ones the cell lists for
+ * that owns it, and where its files come from. The teams offered are the ones the API lists for
  * the person, exactly the teams it lets them make a factory for; someone it lists in no team is
  * told to ask to be added to one. Its files are stored by Consola; a GitHub repository is shown
  * as coming later, and cannot be chosen.
  *
  * Nothing is said about a field until the person first tries to create it; from then on the
- * page's own check follows their typing, and what the cell answers is shown under the field it
- * is about. A team the cell no longer lists for them reads the list again (`onStale`). Once it
+ * page's own check follows their typing, and what the API answers is shown under the field it
+ * is about. A team the API no longer lists for them reads the list again (`onStale`). Once it
  * is made, `onCreated` closes the dialog and opens the new factory.
  */
 export function NewFactoryDialog({
@@ -94,11 +94,11 @@ export function NewFactoryDialog({
       return;
     }
     setPending(false);
-    refuse(messagesForFactoryChange(answer, workspace));
+    refuse(messagesForFactoryChange(answer));
     if (answer.kind === 'team-not-found') await onStale();
   }
 
-  // A team the cell no longer lists for the person (the list was read again) is none chosen.
+  // A team the API no longer lists for the person (the list was read again) is none chosen.
   const teamId = teams.some((team) => team.id === draft.teamId) ? draft.teamId : null;
   const described = (...ids: Array<string | false>) => ids.filter(Boolean).join(' ') || undefined;
 

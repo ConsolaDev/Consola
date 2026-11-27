@@ -40,7 +40,7 @@ export function OverviewPage({ me, workspace }: SectionProps) {
             {place && <p className="overview-region-place">{place}</p>}
             <p className="overview-region-note">
               <Lock size={12} aria-hidden="true" />
-              Chosen when the workspace was created, and it can’t change.
+              Set when the workspace was created, and it can’t change.
             </p>
           </div>
           <RegionMap region={workspace.region} />

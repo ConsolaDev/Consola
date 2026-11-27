@@ -5,7 +5,6 @@ import {
   messageForSwitchFailure,
   messagesForCreateRefusal,
   messagesForWorkspaceProblems,
-  REGION_HINT,
   SLUG_HINT,
   WORKSPACES_UNAVAILABLE,
 } from './messages';
@@ -56,12 +55,9 @@ const slugRule = 'Use lowercase letters, digits and single dashes, up to 48 char
 
 describe('messagesForWorkspaceProblems', () => {
   it('puts each problem under the field it is about', () => {
-    expect(
-      messagesForWorkspaceProblems(['name_missing', 'slug_invalid', 'region_unknown']),
-    ).toEqual({
+    expect(messagesForWorkspaceProblems(['name_missing', 'slug_invalid'])).toEqual({
       name: 'Give the workspace a name.',
       slug: slugRule,
-      region: 'Pick a region.',
     });
     expect(messagesForWorkspaceProblems(['name_too_long'])).toEqual({
       name: 'Keep the name to 64 characters or fewer.',
@@ -118,11 +114,5 @@ describe('WORKSPACES_UNAVAILABLE', () => {
 describe('the create form’s hints', () => {
   it('say what a slug may hold, and that it is unique', () => {
     expect(SLUG_HINT).toBe('Lowercase letters, digits and dashes. No two workspaces share one.');
-  });
-
-  it('say that the region can never be changed', () => {
-    expect(REGION_HINT).toBe(
-      'Pick the one nearest your team. A workspace’s region can’t be changed once it’s created.',
-    );
   });
 });

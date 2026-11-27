@@ -11,8 +11,8 @@ import './RunsSection.css';
 
 /**
  * The Runs section: the workspace's runs, as a list (`#/runs`, its filters after `?`) or one run
- * (`#/runs/<id>`), whichever the address names. Both live in the workspace's regional cell; the
- * names of the people who started them come from `cloud-global`, read once as the section opens.
+ * (`#/runs/<id>`), whichever the address names. Both live in the API; the
+ * names of the people who started them come from the API, read once as the section opens.
  *
  * The section remembers the list's address as it last showed it, so a run's page leads back to
  * the list the person came from, filters and all.

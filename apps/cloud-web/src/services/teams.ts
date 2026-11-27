@@ -1,21 +1,14 @@
 import { isTeamProblem } from '../domain/teams';
 import type { TeamChange, TeamsState, WorkspaceMember } from '../domain/teams';
-import {
-  codeOf,
-  createCellSession,
-  PENDING,
-  pageCellSession,
-  SIGNED_OUT,
-  SWITCHED,
-  UNAVAILABLE,
-} from './cell';
-import type { CellApi, CellDeps, CellRefusal, CellSession } from './cell';
+import type { ApiOptions, Api } from './api';
+import { codeOf, UNAVAILABLE, workspaceCalls } from './workspaceCalls';
+import type { Refusal } from './workspaceCalls';
 
 /*
- * A workspace's teams, from its regional cell (`cell.ts`: the token, the address, the states a
- * cell answers), and its members from `cloud-global`, to name the people in them. Every call
- * answers in domain types. Only a 401 from `cloud-global` means signed out; anything the calls do
- * not expect, a cell that does not answer included, is `unavailable`.
+ * A workspace's teams, and its members to name the people in them, from the API, for the
+ * workspace the page shows (`workspaceCalls.ts`: the header, and the caller's refusals every
+ * route shares). Every call answers in domain types and never throws. Only a 401 means signed
+ * out; anything a call does not expect, an API that does not answer included, is `unavailable`.
  */
 
 const CHANGED = { kind: 'changed' } as const;
@@ -35,7 +28,7 @@ export type TeamsService = {
 };
 
 /** What a change's answer comes to, for the statuses every change shares. */
-function changeOf(answer: { error?: unknown; response: Response } | CellRefusal): TeamChange {
+function changeOf(answer: { error?: unknown; response: Response } | Refusal): TeamChange {
   if ('kind' in answer) return answer;
   const { status } = answer.response;
   const code = codeOf(answer.error);
@@ -53,39 +46,35 @@ function changeOf(answer: { error?: unknown; response: Response } | CellRefusal)
     if (code === 'name_taken') return { kind: 'name-taken' };
     if (code === 'first_team') return { kind: 'first-team' };
     if (code === 'not_a_workspace_member') return { kind: 'not-a-member' };
-    if (code === 'workspace_pending') return PENDING;
   }
   return UNAVAILABLE;
 }
 
 /**
- * The teams service. The page uses `teamsService`, on the page's way to its cell; a test builds
- * its own with `cloud-global`'s client and the cell's `fetch` stood in for, and an origin to
- * resolve the cell's address against.
+ * The teams service. The page uses `teamsService`; a test builds its own with the API's `fetch`
+ * stood in for, and an origin to resolve its address against.
  */
-export function createTeamsService(deps: CellDeps & { session?: CellSession } = {}): TeamsService {
-  const session = deps.session ?? createCellSession(deps);
-  const { api, onCell } = session;
+export function createTeamsService(options: ApiOptions = {}): TeamsService {
+  const onWorkspace = workspaceCalls(options);
 
-  /** Runs a change on the cell, answering how it went, and never throwing. */
+  /** Runs a change for the workspace, answering how it went, and never throwing. */
   async function change(
     workspaceId: string,
-    call: (cell: CellApi) => Promise<{ error?: unknown; response: Response }>,
+    call: (api: Api) => Promise<{ error?: unknown; response: Response }>,
   ): Promise<TeamChange> {
     try {
-      return changeOf(await onCell(workspaceId, call));
+      return changeOf(await onWorkspace(workspaceId, call));
     } catch {
       return UNAVAILABLE;
     }
   }
 
-  /** The workspace's members from `cloud-global`, or why they could not be had. */
-  async function membersOf(): Promise<WorkspaceMember[] | CellRefusal> {
-    const { data, error, response } = await api.GET('/api/me/workspace/members');
-    if (response.status === 401) return SIGNED_OUT;
+  /** The workspace's members, or why they could not be had. */
+  async function membersOf(workspaceId: string): Promise<WorkspaceMember[] | Refusal> {
+    const answer = await onWorkspace(workspaceId, (api) => api.GET('/api/me/workspace/members'));
+    if ('kind' in answer) return answer;
+    const { data, response } = answer;
     if (response.status === 200 && Array.isArray(data?.members)) return data.members;
-    const code = codeOf(error);
-    if (code === 'no_active_workspace' || code === 'not_a_member') return SWITCHED;
     return UNAVAILABLE;
   }
 
@@ -93,16 +82,15 @@ export function createTeamsService(deps: CellDeps & { session?: CellSession } = 
     async loadTeams(workspace) {
       try {
         const [teams, members] = await Promise.all([
-          onCell(workspace.id, (cell) => cell.GET('/api/teams')),
-          membersOf(),
+          onWorkspace(workspace.id, (api) => api.GET('/api/teams')),
+          membersOf(workspace.id),
         ]);
-        if ('kind' in members) return members;
         if ('kind' in teams) return teams;
-        const { data, error, response } = teams;
+        if ('kind' in members) return members;
+        const { data, response } = teams;
         if (response.status === 200 && data && Array.isArray(data.teams)) {
           return { kind: 'listed', teams: data.teams, canManage: data.canManage, members };
         }
-        if (response.status === 409 && codeOf(error) === 'workspace_pending') return PENDING;
         return UNAVAILABLE;
       } catch {
         return UNAVAILABLE;
@@ -110,32 +98,32 @@ export function createTeamsService(deps: CellDeps & { session?: CellSession } = 
     },
 
     createTeam(workspace, name) {
-      return change(workspace.id, (cell) => cell.POST('/api/teams', { body: { name } }));
+      return change(workspace.id, (api) => api.POST('/api/teams', { body: { name } }));
     },
 
     renameTeam(workspace, teamId, name) {
-      return change(workspace.id, (cell) =>
-        cell.PATCH('/api/teams/{teamId}', { params: { path: { teamId } }, body: { name } }),
+      return change(workspace.id, (api) =>
+        api.PATCH('/api/teams/{teamId}', { params: { path: { teamId } }, body: { name } }),
       );
     },
 
     deleteTeam(workspace, teamId) {
-      return change(workspace.id, (cell) =>
-        cell.DELETE('/api/teams/{teamId}', { params: { path: { teamId } } }),
+      return change(workspace.id, (api) =>
+        api.DELETE('/api/teams/{teamId}', { params: { path: { teamId } } }),
       );
     },
 
     addTeamMember(workspace, teamId, personId) {
-      return change(workspace.id, (cell) =>
-        cell.PUT('/api/teams/{teamId}/members/{personId}', {
+      return change(workspace.id, (api) =>
+        api.PUT('/api/teams/{teamId}/members/{personId}', {
           params: { path: { teamId, personId } },
         }),
       );
     },
 
     removeTeamMember(workspace, teamId, personId) {
-      return change(workspace.id, (cell) =>
-        cell.DELETE('/api/teams/{teamId}/members/{personId}', {
+      return change(workspace.id, (api) =>
+        api.DELETE('/api/teams/{teamId}/members/{personId}', {
           params: { path: { teamId, personId } },
         }),
       );
@@ -144,4 +132,4 @@ export function createTeamsService(deps: CellDeps & { session?: CellSession } = 
 }
 
 /** The page's teams service. */
-export const teamsService = createTeamsService({ session: pageCellSession });
+export const teamsService = createTeamsService();

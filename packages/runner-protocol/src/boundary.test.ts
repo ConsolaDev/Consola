@@ -5,8 +5,8 @@ import * as ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 /**
- * Keeps the package free of I/O, since the cell (from every layer) and the host import it, their
- * `domain` and `application` included. A source file imports only other source files in `src/`
+ * Keeps the package free of I/O, since the cloud app's `company` part (from every layer) and the
+ * host import it, their `domain` and `application` included. A source file imports only other source files in `src/`
  * (never a package, never a `node:` builtin, never test code), and refers to no global that
  * reaches the machine (`process`, `fetch`, `console`, the clock and the timers). `index.ts` is
  * the entry point and holds only `export … from`. Tests may reach the machine and import the
@@ -317,14 +317,14 @@ describe('the package does no I/O', () => {
     ['messages.ts', '@consola/factory-spec', false],
     ['messages.ts', './cellToken.test.js', false],
     ['messages.ts', '../package.json', false],
-    ['messages.ts', '../../../apps/cloud-global/src/domain/region.js', false],
+    ['messages.ts', '../../../apps/cloud-api/src/shared/region.js', false],
     ['messages.test.ts', 'vitest', true],
     ['messages.test.ts', 'node:fs', true],
     ['messages.test.ts', 'typescript', true],
     ['messages.test.ts', './cellToken.js', true],
     ['messages.test.ts', 'jose', false],
     ['messages.test.ts', '@consola/sandbox', false],
-    ['messages.test.ts', '../../../apps/cloud-region/src/compose.js', false],
+    ['messages.test.ts', '../../../apps/cloud-api/src/compose.js', false],
   ])('%s importing %s is allowed: %s', (file, specifier, allowed) => {
     expect(violationsOf(file, `import x from '${specifier}';`)).toEqual(
       allowed ? [] : [`${file} imports ${specifier}`],

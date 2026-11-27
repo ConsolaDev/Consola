@@ -18,13 +18,13 @@ import './ApprovalCard.css';
 
 /**
  * A run that waits for approval, at the top of its pane (the design mock's approval card): why it
- * asks, in the cell's words; what approving lets run, each command and each agent with what it is
+ * asks, in the API's words; what approving lets run, each command and each agent with what it is
  * asked; who may answer. Anyone on the factory's owning team gets Approve and Dismiss; Dismiss
  * asks once, in place. Everyone else reads the same card with no buttons.
  *
- * An answer is recorded by the cell and acted on by the run's runner, so the card turns into its
+ * An answer is recorded by the API and acted on by the run's runner, so the card turns into its
  * receipt and the page reads the run again (`onAnswered`). Every refusal says why and reads the
- * run again too, so the card shows what the cell holds now.
+ * run again too, so the card shows what the API holds now.
  */
 export function ApprovalCard({
   approval,
@@ -46,7 +46,7 @@ export function ApprovalCard({
   const [asking, setAsking] = useState(false);
   const [sending, setSending] = useState<ApprovalDecision | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  // The answer given here, shown at once, and drawn as it lands: the cell's own comes with the next read.
+  // The answer given here, shown at once, and drawn as it lands: the API's own comes with the next read.
   const [given, setGiven] = useState<RunApproval['answer']>(null);
   const answer = given ?? approval.answer;
 
@@ -60,7 +60,7 @@ export function ApprovalCard({
     setSending(null);
     setAsking(false);
     if (result.kind === 'answered') setGiven(result.approval.answer);
-    else setFailure(messageForApproveAnswer(result, approval, workspace));
+    else setFailure(messageForApproveAnswer(result, approval));
     onAnswered();
   };
 

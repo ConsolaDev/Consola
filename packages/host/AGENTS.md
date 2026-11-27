@@ -67,7 +67,7 @@ Imports point inward only; `src/boundary.test.ts` fails on any that does not.
   `pnpm --filter @consola/agent-ui test` after changing any of these.
 
   `@consola/cloud-session-e2e`'s test (`packages/cloud-session-e2e`, a cloud
-  session end to end against the built cell) uses it too, by path: its
+  session end to end against the built cloud app) uses it too, by path: its
   `vite.config.ts` takes `setup.ts` as its setup file, and its
   `src/cloudSession.test.ts` imports `machine.ts` (`writeFakeClis`, `readCalls`,
   `cliVariablesIn`, `homeVariables`, `pathWith`), `replay.ts` (`loadReplay`,
@@ -85,8 +85,8 @@ To add a ring, add a row to `LAYERS` and a case to the table in
 
 No file imports another `@consola/*` package, tests included, but two, each by
 its own name and never a path inside it (`@consola/sandbox/dist/index.js` is
-refused): `@consola/runner-protocol` (MIT), what a runner and its cell say to
-each other, which does no I/O, so every ring may name it; and
+refused): `@consola/runner-protocol` (MIT), what a runner and its cell, the
+cloud app, say to each other, which does no I/O, so every ring may name it; and
 `@consola/sandbox`, the interface the runner starts sandboxes through, in
 `adapters`, `testing` and `bin.ts` only, never `core` or `runtime`. One entry
 point of `@consola/sandbox` is named on its own: `@consola/sandbox/e2b`, the E2B
@@ -928,8 +928,8 @@ delivery, the cap, refusals), `adapters/mcpHttp.test.ts`, and `stdoutEvents.test
 ## The `runner` command
 
 `consola-host runner` is the host's other role: a workspace's runner. It dials
-its regional cell (`apps/cloud-region/AGENTS.md`, "The runner's socket") and
-runs each session the cell asks for in a sandbox of its own, through
+its cell, the cloud app (`apps/cloud-api/AGENTS.md`, "The runner's socket"),
+and runs each session the cell asks for in a sandbox of its own, through
 `@consola/sandbox`, where the template's start script clones the repository and
 runs `consola-host session`. The messages are `@consola/runner-protocol`'s; read
 its `AGENTS.md` first.
@@ -1143,7 +1143,7 @@ replacement (4000) exits 1 saying why, both within the grace. With
 the grace, saying the runner did not stop in time.
 It runs the real bin for each start failure. `sandboxSessions.test.ts` drives the sessions over the fake
 provider, and `cellSocket.test.ts` the socket against a `ws` server.
-`@consola/cloud-session-e2e` runs the same runner against the built cell, end to end
+`@consola/cloud-session-e2e` runs the same runner against the built cloud app, end to end
 (`packages/cloud-session-e2e/AGENTS.md`).
 
 ## The bundle and the session template
@@ -1286,8 +1286,8 @@ pending approval included (it is lost); start it again for a new session.
 
 ## Local cloud session demo
 
-A cloud session by hand, on this Mac: `cloud-global`, its web app and the EU
-cell run locally, and the runner starts each session in an E2B sandbox. The
+A cloud session by hand, on this Mac: the cloud app (`apps/cloud-api`) and its
+web app run locally, and the runner starts each session in an E2B sandbox. The
 automated version, with no credential and no provider, is
 `packages/cloud-session-e2e`. Every secret below lives in a local `.env`, which
 git ignores (`.env*`) and which is never committed; `pnpm install` links a
@@ -1299,15 +1299,12 @@ must match another file's:
 
 | File | Process | For the demo |
 | --- | --- | --- |
-| `apps/cloud-global/.env` | the API (3100) and the web app (5175), `pnpm dev:cloud` | its REQUIRED block (Google sign-in, `CELL_TOKEN_PRIVATE_KEY`) and `CELL_URL_EU` |
-| `apps/cloud-region/.env` | the EU cell (3101), `pnpm dev:cloud-region` | its RUNNER block: `RUNNER_SECRET`, `RUNNER_WORKSPACE_ID`, `PASS_PRIVATE_KEY` |
+| `apps/cloud-api/.env` | the API (3100) and the web app (5175), `pnpm dev:cloud` | its REQUIRED block (Google sign-in) and its RUNNER block: `RUNNER_SECRET`, `RUNNER_WORKSPACE_ID`, `PASS_PRIVATE_KEY` |
 | `packages/host/.env` | the runner, through Node's `--env-file` (step 3) | `CONSOLA_RUNNER_SECRET`, `CONSOLA_RUNNER_REPOSITORIES`, `E2B_API_KEY`, `ANTHROPIC_API_KEY`, `GIT_TOKEN` |
 | `packages/sandbox/.env` | `template:build`, the sandbox package's live tests | `E2B_API_KEY`, only to rebuild the `consola-session` template |
 
-The web app has no `.env`: it reaches the API on 3100 and the cell at
-`CELL_URL_EU` from the shell (`http://127.0.0.1:3101` when unset). Two values
-are shared: the runner's `CONSOLA_RUNNER_SECRET` is the cell's `RUNNER_SECRET`,
-and the cell's address (its `PORT`, 3101) is cloud-global's `CELL_URL_EU`. The
+The web app has no `.env`: it reaches the API on 3100. One value is shared:
+the runner's `CONSOLA_RUNNER_SECRET` is the API's `RUNNER_SECRET`. The
 template is already built on Consola's account (`sandbox-template/README.md`
 records its id); rebuild it only after changing the host's code or the
 template.
@@ -1315,16 +1312,15 @@ template.
 Then, from the repository root:
 
 1. `pnpm dev:cloud` (the API on 3100, the web app on
-   `http://localhost:5175`). Sign in with Google and make a workspace in the
-   `eu` region. Its id is in `http://localhost:5175/api/workspaces`, opened in
-   the signed-in browser: put it in the cell's `RUNNER_WORKSPACE_ID`, with the
-   cell's other two RUNNER settings (all three or none, or the cell refuses to
-   start).
-2. `pnpm dev:cloud-region` (the cell on 3101).
-3. `pnpm exec turbo run build --filter=@consola/host^...` once, then
-   `node --env-file=packages/host/.env packages/host/src/main.ts runner --cell-url ws://127.0.0.1:3101/api/runner --runner-id demo-runner`.
+   `http://localhost:5175`). Sign in with Google and make a workspace. Its id
+   is in `http://localhost:5175/api/workspaces`, opened in the signed-in
+   browser: put it in the API's `RUNNER_WORKSPACE_ID`, with its other two
+   RUNNER settings (all three or none, or the API refuses to start), and start
+   `pnpm dev:cloud` again.
+2. `pnpm exec turbo run build --filter=@consola/host^...` once, then
+   `node --env-file=packages/host/.env packages/host/src/main.ts runner --cell-url ws://127.0.0.1:3100/api/runner --runner-id demo-runner`.
    Its log on stderr says `connected to the cell` once it is.
-4. In the web app, open Sessions (`http://localhost:5175/#/sessions`), choose
+3. In the web app, open Sessions (`http://localhost:5175/#/sessions`), choose
    New session (`#/sessions/new`), and start a Claude session on the test
    repository. Its page says "Starting the sandbox…" until the runner reports
    the host ready, then shows the chat. Its sandbox is created with public

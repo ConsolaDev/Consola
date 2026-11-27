@@ -5,8 +5,7 @@ import { scope } from './ci-scope.mjs';
 
 const all = [
   '@consola/automation-engine',
-  '@consola/cloud-global',
-  '@consola/cloud-region',
+  '@consola/cloud-api',
   '@consola/cloud-web',
   '@consola/factory-spec',
   '@consola/website',
@@ -17,8 +16,7 @@ const everything = {
   website: true,
   packages: [
     '@consola/automation-engine',
-    '@consola/cloud-global',
-    '@consola/cloud-region',
+    '@consola/cloud-api',
     '@consola/cloud-web',
     '@consola/factory-spec',
   ],
@@ -34,20 +32,14 @@ test('a push to main checks everything', () => {
   );
 });
 
-test('a change to the cell checks the web app too, whose cell types are generated from it', () => {
-  assert.deepEqual(checks(pr(['apps/cloud-region/src/main.ts'], ['@consola/cloud-region'])), {
-    desktop: false,
-    website: false,
-    packages: ['@consola/cloud-region', '@consola/cloud-web'],
-  });
-});
-
-test('a change to cloud-global checks the web app too, whose API types are generated from it', () => {
-  assert.deepEqual(checks(pr(['apps/cloud-global/openapi.json'], ['@consola/cloud-global'])), {
-    desktop: false,
-    website: false,
-    packages: ['@consola/cloud-global', '@consola/cloud-web'],
-  });
+test('a change to the cloud API checks the web app too, whose API types are generated from it', () => {
+  for (const file of ['apps/cloud-api/openapi.json', 'apps/cloud-api/src/main.ts']) {
+    assert.deepEqual(checks(pr([file], ['@consola/cloud-api'])), {
+      desktop: false,
+      website: false,
+      packages: ['@consola/cloud-api', '@consola/cloud-web'],
+    });
+  }
 });
 
 test('a change to the desktop checks the website too, whose demo is its renderer', () => {

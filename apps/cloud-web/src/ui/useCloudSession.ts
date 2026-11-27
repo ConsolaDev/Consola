@@ -28,9 +28,9 @@ export type ChatAccess =
  * run's Conversation tab (an agent run's) both hold a session this way.
  *
  * It reads the session again every 2 s while it starts and every 10 s while it runs (5 s for an
- * agent run, whose report moves), and never once it has ended. It asks the cell for a pass once it
+ * agent run, whose report moves), and never once it has ended. It asks the API for a pass once it
  * reads the session running; the read that finds it ended drops the pass, which unmounts the chat
- * and its connection, and nothing reconnects. A read that fails while the cell or `cloud-global`
+ * and its connection, and nothing reconnects. A read that fails while the API
  * is out keeps the session as it was read, saying when (`keepsShownOn`); any other refusal (gone,
  * signed out, another workspace) shows instead, and a running chat goes with its pass.
  */
@@ -68,7 +68,7 @@ export function useCloudSession(workspace: MyWorkspace, sessionId: string) {
       if (pass.kind === 'issued') {
         setAccess({ kind: 'open', pass: pass.pass.pass, hostUrl: pass.pass.hostUrl });
       } else if (pass.kind !== 'not-found') {
-        setAccess({ kind: 'refused', message: messageForPassAnswer(pass, workspace) });
+        setAccess({ kind: 'refused', message: messageForPassAnswer(pass) });
       }
       // Not found: the host has not said its address yet, or the session just ended. The next
       // read asks again, or finds it ended.
@@ -76,11 +76,11 @@ export function useCloudSession(workspace: MyWorkspace, sessionId: string) {
     return sessionPollIntervalMs(session);
   });
 
-  /** The chat's `onPassExpired`: a new pass from the cell, only while the session runs. */
+  /** The chat's `onPassExpired`: a new pass from the API, only while the session runs. */
   const renewPass = async (): Promise<string> => {
     const shown = latest.current.view;
     if (shown.kind !== 'shown' || !shouldRenewPass(shown.session.status)) {
-      throw new Error(messageForPassAnswer({ kind: 'not-found' }, workspace));
+      throw new Error(messageForPassAnswer({ kind: 'not-found' }));
     }
     try {
       return await cloudSessionsService.renewPass(workspace, sessionId);

@@ -1,8 +1,8 @@
 /**
- * The runner's socket to its cell (`apps/cloud-region`, "The runner's socket"): it dials out,
- * so the cell never has to reach the runner. Its secret travels in the upgrade's `Authorization`
- * header, which `ws` can send and Node's own WebSocket cannot portably. The messages are
- * `@consola/runner-protocol`'s.
+ * The runner's socket to its cell, the cloud app (`apps/cloud-api`, "The runner's socket"): it
+ * dials out, so the cell never has to reach the runner. Its secret travels in the upgrade's
+ * `Authorization` header, which `ws` can send and Node's own WebSocket cannot portably. The
+ * messages are `@consola/runner-protocol`'s.
  *
  * - Every connection opens with `hello`: the offer, the sessions the runner still holds, and the
  *   ends the cell may not have heard (`EndedSessions`). Then each live session's state goes again

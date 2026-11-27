@@ -2,7 +2,7 @@
   "name": "@consola/runner-protocol",
   "version": "0.0.0",
   "private": true,
-  "description": "What a runner (`consola-host runner`) and a regional cell exchange: the messages over the runner's socket, the session pass both sides check, and the lines the sandbox's start script prints.",
+  "description": "What a runner (`consola-host runner`) and its cell, the cloud app, exchange: the messages over the runner's socket, the session pass both sides check, and the lines the sandbox's start script prints.",
   "license": "MIT",
   "type": "module",
   "exports": {

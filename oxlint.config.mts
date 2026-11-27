@@ -24,7 +24,6 @@ export default defineConfig({
     'packages/agent-ui/src/t3/**',
     // Generated and compared byte for byte.
     'apps/cloud-web/src/domain/apiContract.ts',
-    'apps/cloud-web/src/domain/cellApiContract.ts',
   ],
   rules: {
     // ---- Rules of the preset, with this repository's options ----
@@ -51,7 +50,7 @@ export default defineConfig({
         varsIgnorePattern: '^_',
       },
     ],
-    // A name's length is counted in code points, by the cell and the page
+    // A name's length is counted in code points, by the API and the page
     // alike, so a string spread into an array is meant.
     'typescript/no-misused-spread': ['error', { allow: ['string'] }],
     // Sorting strings by code unit is the order meant: stable whatever the
@@ -217,9 +216,8 @@ export default defineConfig({
         'tools/**',
         '.github/scripts/**',
         '**/tests/fixtures/**',
-        'apps/cloud-global/src/main.ts',
-        'apps/cloud-region/src/main.ts',
-        'apps/cloud-region/src/seed.ts',
+        'apps/cloud-api/src/main.ts',
+        'apps/cloud-api/src/seed.ts',
         'apps/desktop/test-pty.js',
       ],
       rules: { 'no-console': 'off' },

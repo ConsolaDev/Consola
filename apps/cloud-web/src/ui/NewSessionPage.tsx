@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from 'react';
 import type { FormEvent } from 'react';
-import { messageForCellRefusal } from '../domain/cell';
-import type { CellRefusal } from '../domain/cell';
+import { messageForRefusal } from '../domain/refusal';
+import type { Refusal } from '../domain/refusal';
 import type { CloudSessionOptions, Harness } from '../domain/cloudSession';
 import {
   HARNESS_NAMES,
@@ -20,7 +20,7 @@ type FormView =
   | { kind: 'offered'; options: CloudSessionOptions }
   /** No runner is connected for the workspace: its sentence takes the form's place. */
   | { kind: 'no-runner' }
-  | { kind: 'refused'; answer: CellRefusal };
+  | { kind: 'refused'; answer: Refusal };
 
 /**
  * The form that starts a cloud session: a repository and a harness, each from what the
@@ -83,7 +83,7 @@ export function NewSessionPage({ workspace }: { workspace: MyWorkspace }) {
       setView({ kind: 'no-runner' });
       return;
     }
-    setProblem(messageForStartAnswer(answer, asked, workspace));
+    setProblem(messageForStartAnswer(answer, asked));
   }
 
   return (
@@ -102,15 +102,9 @@ export function NewSessionPage({ workspace }: { workspace: MyWorkspace }) {
 
       {(view.kind === 'no-runner' || view.kind === 'refused') && (
         <div className="sessions-notice" role="alert">
-          <p>
-            {view.kind === 'no-runner'
-              ? NO_RUNNER_WORDS
-              : messageForCellRefusal(view.answer, workspace)}
-          </p>
+          <p>{view.kind === 'no-runner' ? NO_RUNNER_WORDS : messageForRefusal(view.answer)}</p>
           <div className="sessions-actions">
-            {(view.kind === 'no-runner' ||
-              view.answer.kind === 'pending' ||
-              view.answer.kind === 'unavailable') && (
+            {(view.kind === 'no-runner' || view.answer.kind === 'unavailable') && (
               <button type="button" className="button" onClick={tryAgain}>
                 Try again
               </button>

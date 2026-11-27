@@ -8,7 +8,7 @@ import './SourceChoice.css';
 
 /**
  * Where a factory's files come from, as a choice of every source the page knows: the one the
- * cell has (stored by Consola) and the ones that come later (a GitHub repository), shown so the
+ * API has (stored by Consola) and the ones that come later (a GitHub repository), shown so the
  * idea is there, and never chosen. On a new factory the stored source is chosen; on a factory's
  * settings nothing can be chosen (`readOnly`), since the source cannot change yet.
  */

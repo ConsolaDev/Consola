@@ -4,7 +4,7 @@ import { costInWords, durationInWords, workedFor } from './runWords';
 
 /**
  * A step of an automation run, as its trace says it: the desktop's (`Automations/stepDetail.ts`),
- * for what the cell holds of a step. Every sentence a step's row and its open trace say is
+ * for what the API holds of a step. Every sentence a step's row and its open trace say is
  * here; the page only lays them out.
  */
 
@@ -408,7 +408,7 @@ const BASE_TYPES: Record<string, string> = {
 
 /**
  * A declared output's type as a sentence says it: `text`, `a number`, `true or false`,
- * `one of approve, request-changes`. A type this build does not know is said as the cell gave it.
+ * `one of approve, request-changes`. A type this build does not know is said as the API gave it.
  */
 export function outputTypeWords(type: string): string {
   const trimmed = type.trim();
@@ -433,7 +433,7 @@ export function limitWords(ms: number): string {
   return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
 }
 
-/** The file an agent is defined in: `agents/<name>.md`, unless the cell already gave a path. */
+/** The file an agent is defined in: `agents/<name>.md`, unless the API already gave a path. */
 export function agentFile(agent: string): string {
   return agent.includes('/') || agent.endsWith('.md') ? agent : `agents/${agent}.md`;
 }

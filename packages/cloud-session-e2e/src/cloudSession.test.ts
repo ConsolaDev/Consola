@@ -1,14 +1,14 @@
-// @effect-diagnostics nodeBuiltinImport:off - It starts the cell, the runner and a key server on this machine.
-// @effect-diagnostics globalFetch:off - It calls the cell's API as the web app would.
+// @effect-diagnostics nodeBuiltinImport:off - It starts the cloud app and the runner on this machine.
+// @effect-diagnostics globalFetch:off - It calls the cloud app's API as the web app would.
 // @effect-diagnostics globalTimers:off - Its waits poll outside any Effect runtime.
-// @effect-diagnostics globalDate:off - Its waits and its tokens read the wall clock.
+// @effect-diagnostics globalDate:off - Its waits and the session it writes read the wall clock.
 /**
- * A Consola cloud session end to end, with no credential and no provider: the cell as it is built
- * (`@consola/cloud-region`'s `dist/main.js`), trusting a key set served here as `cloud-global`
- * serves its own; the runner command over local sandboxes (`@consola/host`'s
- * `src/testing/replayRunner.ts`, whose sandboxes run the session command over a replayed Claude);
- * and t3's own client, connected to the session's host with the pass the cell signed. A person's
- * requests carry a cell token signed here as `cloud-global` signs one.
+ * A Consola cloud session end to end, with no Google, no credential and no provider: the cloud
+ * app as it is built (`@consola/cloud-api`'s `dist/main.js`) on a PGlite folder of the test's own;
+ * the runner command over local sandboxes (`@consola/host`'s `src/testing/replayRunner.ts`, whose
+ * sandboxes run the session command over a replayed Claude); and t3's own client, connected to the
+ * session's host with the pass the app signed. A person is signed in by a session the test writes
+ * into the app's database, and every request carries its cookie, signed as Better Auth signs one.
  *
  * Every process runs on a machine of the test's own (`@consola/host`'s `src/testing/machine.ts`):
  * a temporary home, no CLI or API-key variable, none of the runner's secrets (an E2B key, a git
@@ -18,21 +18,15 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import { generateKeyPairSync } from 'node:crypto';
-import type { KeyObject } from 'node:crypto';
+import { createHmac, generateKeyPairSync, randomBytes, randomUUID } from 'node:crypto';
+import type { JsonWebKey } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer as createHttpServer } from 'node:http';
-import type { Server } from 'node:http';
 import { createRequire } from 'node:module';
 import { createServer as createNetServer } from 'node:net';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import {
-  CELL_TOKEN_ALGORITHM,
-  CELL_TOKEN_KEYS_PATH,
-  cellTokenClaims,
-} from '@consola/cloud-contract';
+import { PGlite } from '@electric-sql/pglite';
 import {
   cliVariablesIn,
   homeVariables,
@@ -50,13 +44,11 @@ import * as Effect from 'effect/Effect';
 import * as Fiber from 'effect/Fiber';
 import * as Option from 'effect/Option';
 import * as Stream from 'effect/Stream';
-import { calculateJwkThumbprint, exportJWK, SignJWT } from 'jose';
-import type { JWK } from 'jose';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 
 const resolve = createRequire(import.meta.url).resolve;
-/** The cell as `pnpm --filter @consola/cloud-region build` writes it (turbo's `^build` does). */
-const CELL_MAIN = join(dirname(resolve('@consola/cloud-region/package.json')), 'dist', 'main.js');
+/** The cloud app as `pnpm --filter @consola/cloud-api build` writes it (turbo's `^build` does). */
+const APP_MAIN = join(dirname(resolve('@consola/cloud-api/package.json')), 'dist', 'main.js');
 /** The runner command, its sandboxes local processes of a replayed session (test-only). */
 const REPLAY_RUNNER = join(
   dirname(resolve('@consola/host/package.json')),
@@ -65,22 +57,37 @@ const REPLAY_RUNNER = join(
   'replayRunner.ts',
 );
 
-// Stand-ins, never real credentials. The runner's secret is the cell's `RUNNER_SECRET` (at least
+// Stand-ins, never real credentials. The runner's secret is the app's `RUNNER_SECRET` (at least
 // 32 printable characters); the API key and the git token are the runner's, which it hands a
-// sandbox and scrubs from everything it says.
+// sandbox and scrubs from everything it says. Better Auth signs session cookies with the app's
+// `BETTER_AUTH_SECRET`, and so does the test.
 const RUNNER_SECRET = 'runner-secret-sprocket-0123456789abcdef';
+const AUTH_SECRET = 'auth-secret-sprocket-e2e-0123456789abcdef';
 const RUNNER_ID = 'r-1';
 const REPOSITORY = 'sprocket/catalog-portal';
-const WORKSPACE_ID = 'workspace-sprocket';
-const PERSON_ID = 'person-acme-1';
+/** Acme's person, whom the test signs in. */
+const PERSON = { id: 'person-acme-1', name: 'Ada Acme', email: 'ada@acme.test' } as const;
+/** The workspace the person makes, the one the runner serves. */
+const WORKSPACE = { name: 'Sprocket', slug: 'sprocket' } as const;
+/** The web app's origin (`PUBLIC_URL`), which every change must come from, as a browser's does. */
+const WEB_ORIGIN = 'http://localhost:5175';
+/**
+ * Better Auth's session cookie: its default name, with no `__Secure-` prefix since `PUBLIC_URL`
+ * is http (`createCookieGetter` in better-auth's `cookies/index.mjs`).
+ */
+const SESSION_COOKIE = 'better-auth.session_token';
+/** The workspace the page shows, which every company request carries (the app's `caller.ts`). */
+const WORKSPACE_HEADER = 'x-consola-workspace';
+/** As long as Better Auth's own sessions last (seven days), from when the test writes one. */
+const SESSION_LIFETIME_MS = 7 * 24 * 60 * 60 * 1000;
 /** What the `simple` fixture's Claude answers (`claude_transcript.ndjson`). */
 const ASSISTANT_TEXT = 'fixture simple ok';
 
 /** Starting node and loading t3 takes seconds; under load, far more. */
 const WAIT_MS = 90_000;
 const TEST_TIMEOUT_MS = 240_000;
-/** How long the teardown gives the cell to stop on SIGTERM before it kills it. */
-const CELL_STOP_GRACE_MS = 10_000;
+/** How long the app is given to stop on SIGTERM before it is killed. */
+const APP_STOP_GRACE_MS = 10_000;
 
 type Exited = { readonly code: number | null; readonly signal: NodeJS.Signals | null };
 
@@ -92,10 +99,13 @@ type Started = {
   readonly exited: Promise<Exited>;
 };
 
-/** The cell's answer to a request: its status and its JSON body. */
+/** The cloud app, started and listening. */
+type App = Started & { readonly url: string; readonly port: number };
+
+/** The app's answer to a request: its status and its JSON body. */
 type Answer<A> = { readonly status: number; readonly body: A };
 
-/** A cloud session as the cell answers it (`CloudSession` in its contract). */
+/** A cloud session as the app answers it (`CloudSession` in its contract). */
 type CloudSession = {
   readonly id: string;
   readonly status: 'starting' | 'running' | 'stopped' | 'failed';
@@ -107,18 +117,25 @@ type CloudSession = {
 
 type CloudSessionPass = { readonly pass: string; readonly hostUrl: string };
 
-/** Everything one test runs on: its machine, the key server, the cell and the runner. */
-type Cloud = {
+/** One test's machine: its folder, its home, the fake CLIs' record and the environment. */
+type Machine = {
   readonly root: string;
   readonly home: string;
   readonly record: string;
   readonly env: NodeJS.ProcessEnv;
-  readonly keys: Server;
-  readonly signingKey: KeyObject;
-  readonly kid: string;
-  readonly passPrivateKey: JWK;
-  readonly cellUrl: string;
-  readonly cell: Started;
+  /** The app's PGlite folder. */
+  readonly database: string;
+};
+
+/** The person signed in: their session's token, and the workspace they made, active in it. */
+type SignedIn = { readonly token: string; readonly workspaceId: string };
+
+/** Everything one test runs on: its machine, the person signed in, the app and the runner. */
+type Cloud = {
+  readonly machine: Machine;
+  readonly signedIn: SignedIn;
+  readonly passPrivateKey: JsonWebKey;
+  readonly app: App;
   readonly runner: Started;
   /** Every process a sandbox ran, for the teardown should a test end early. */
   readonly sandboxPids: number[];
@@ -196,7 +213,7 @@ const descendantsOf = (pid: number): number[] => {
   return found;
 };
 
-/** A port nothing listens on just now, for the cell (its `PORT` takes no 0). */
+/** A port nothing listens on just now, for the app (its `PORT` takes no 0). */
 const freePort = () =>
   new Promise<number>((done, fail) => {
     const server = createNetServer();
@@ -207,20 +224,9 @@ const freePort = () =>
     });
   });
 
-/** `cloud-global`'s key route, on a port of its own, publishing `jwk` alone. */
-const serveKeys = (jwk: JWK) =>
-  new Promise<Server>((done) => {
-    const server = createHttpServer((request, response) => {
-      const found = request.method === 'GET' && request.url === CELL_TOKEN_KEYS_PATH;
-      response
-        .writeHead(found ? 200 : 404, { 'content-type': 'application/json' })
-        .end(JSON.stringify(found ? { keys: [jwk] } : {}));
-    });
-    server.listen(0, '127.0.0.1', () => done(server));
-  });
-
-const portOf = (server: Server) => (server.address() as AddressInfo).port;
-
+let machine: Machine | undefined;
+/** Every app process the test started, those that only prepared its database included. */
+let apps: Started[] = [];
 let cloud: Cloud | undefined;
 
 const current = (): Cloud => {
@@ -228,47 +234,184 @@ const current = (): Cloud => {
   return cloud;
 };
 
-/** A cell token for Acme's person in Sprocket's workspace, signed as `cloud-global` signs one. */
-const cellToken = ({ signingKey, kid }: Cloud) =>
-  new SignJWT({
-    ...cellTokenClaims({
-      personId: PERSON_ID,
-      workspaceId: WORKSPACE_ID,
-      role: 'member',
-      region: 'eu',
-      issuedAt: Math.floor(Date.now() / 1000),
-    }),
-  })
-    .setProtectedHeader({ alg: CELL_TOKEN_ALGORITHM, kid })
-    .sign(signingKey);
+/**
+ * The session cookie's value for `token`, signed as Better Auth signs it: better-call's
+ * `signCookieValue` (its `crypto.mjs`), which `setSignedCookie` runs when Better Auth sets
+ * `better-auth.session_token` (`setSessionCookie`): the token, a dot and the base64 HMAC-SHA256
+ * of the token under the secret, URI-encoded. `getSignedCookie` checks it the same way.
+ */
+const signedCookie = (token: string) =>
+  encodeURIComponent(
+    `${token}.${createHmac('sha256', AUTH_SECRET).update(token).digest('base64')}`,
+  );
 
-/** Asks the cell's API as a person in the workspace, with a token of their own. */
-const askCell = async <A>(
+/** What the web app's page sends: the session cookie, its origin, and the workspace it shows. */
+const fromPage = (token: string, workspaceId?: string): Headers => {
+  const headers = new Headers({
+    cookie: `${SESSION_COOKIE}=${signedCookie(token)}`,
+    origin: WEB_ORIGIN,
+  });
+  if (workspaceId !== undefined) headers.set(WORKSPACE_HEADER, workspaceId);
+  return headers;
+};
+
+/** The runner the app admits: the one workspace it serves, and the key passes are signed with. */
+type AppRunner = { readonly workspaceId: string; readonly passPrivateKey: JsonWebKey };
+
+/**
+ * Every variable the app reads (`config.ts`), set here: `main.ts` loads `apps/cloud-api/.env`
+ * for any left unset, and a worktree's is the developer's own. An empty one is unset to the app,
+ * yet set to `.env`'s loader, so it stays empty: no GitHub App, no webhook secret, and with
+ * `runner` null no runner.
+ */
+const appEnvironment = (
+  { env, database }: Machine,
+  port: number,
+  runner: AppRunner | null,
+): NodeJS.ProcessEnv => ({
+  ...env,
+  DATABASE_URL: `pglite:${database}`,
+  BETTER_AUTH_SECRET: AUTH_SECRET,
+  // Better Auth signs with this list's first secret, when it has one, before `BETTER_AUTH_SECRET`.
+  BETTER_AUTH_SECRETS: '',
+  PUBLIC_URL: WEB_ORIGIN,
+  GOOGLE_CLIENT_ID: 'sprocket-e2e.apps.googleusercontent.com',
+  GOOGLE_CLIENT_SECRET: 'sprocket-e2e-google-client-secret',
+  REGION: 'eu',
+  PORT: String(port),
+  GITHUB_APP_CLIENT_ID: '',
+  GITHUB_APP_CLIENT_SECRET: '',
+  GITHUB_APP_SLUG: '',
+  GITHUB_APP_PRIVATE_KEY_PATH: '',
+  GITHUB_WEBHOOK_SECRET: '',
+  RUNNER_SECRET: runner === null ? '' : RUNNER_SECRET,
+  RUNNER_WORKSPACE_ID: runner === null ? '' : runner.workspaceId,
+  PASS_PRIVATE_KEY: runner === null ? '' : JSON.stringify(runner.passPrivateKey),
+});
+
+/** Starts the app on a free port, once it listens. */
+const startApp = async (on: Machine, runner: AppRunner | null): Promise<App> => {
+  const port = await freePort();
+  const started = startNode(APP_MAIN, [], appEnvironment(on, port, runner));
+  apps.push(started);
+  await waitFor(() => {
+    if (!isRunning(started.child)) {
+      throw new Error(`the app exited; its stderr:\n${started.stderr()}`);
+    }
+    return started.stdout().includes(`on http://127.0.0.1:${port}`) ? true : undefined;
+  }, 'the app to listen');
+  return { ...started, url: `http://127.0.0.1:${port}`, port };
+};
+
+/** Stops the app as `main.ts` has it on SIGTERM, killing it once the grace is over. */
+const stopApp = async (app: Started): Promise<Exited> => {
+  if (isRunning(app.child)) app.child.kill('SIGTERM');
+  let timer: NodeJS.Timeout | undefined;
+  const graceOver = new Promise<'grace over'>((done) => {
+    timer = setTimeout(() => done('grace over'), APP_STOP_GRACE_MS);
+  });
+  const ended = await Promise.race([app.exited, graceOver]);
+  clearTimeout(timer);
+  if (ended !== 'grace over') return ended;
+  app.child.kill('SIGKILL');
+  return app.exited;
+};
+
+/** Stops an app that only prepared the database: it must stop on its own, closing its folder. */
+const expectStops = async (app: Started) => {
+  expect(
+    await stopApp(app),
+    `the app did not stop on SIGTERM; its stderr:\n${app.stderr()}`,
+  ).toEqual({
+    code: 0,
+    signal: null,
+  });
+};
+
+/**
+ * Writes Acme's person (`user`) and a session of theirs (`session`), with no workspace active,
+ * into the app's migrated folder, with the app stopped (PGlite takes one process per folder): the
+ * rows Better Auth's own sign-in writes once Google answered. The session's token is random.
+ */
+const writePerson = async (database: string): Promise<string> => {
+  const token = randomBytes(24).toString('base64url');
+  const now = new Date();
+  const expiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS);
+  const db = new PGlite(database);
+  try {
+    // The columns are `timestamp` with no time zone, which Drizzle reads as UTC: an ISO time's
+    // `Z` is dropped, and its UTC wall time kept.
+    await db.query(
+      'insert into "user" (id, name, email, email_verified, created_at, updated_at) values ($1, $2, $3, true, $4, $4)',
+      [PERSON.id, PERSON.name, PERSON.email, now.toISOString()],
+    );
+    await db.query(
+      'insert into "session" (id, token, user_id, expires_at, created_at, updated_at) values ($1, $2, $3, $4, $5, $5)',
+      [randomUUID(), token, PERSON.id, expiresAt.toISOString(), now.toISOString()],
+    );
+  } finally {
+    await db.close();
+  }
+  return token;
+};
+
+/**
+ * Signs Acme's person in without Google. The app, started once with no runner, makes and migrates
+ * its PGlite folder; with it stopped, the test writes the person and their session
+ * (`writePerson`). Started again, the app makes their workspace through `POST /api/workspaces`,
+ * as the web app asks, so it is born whole (its owner's `member` row, its first team) and is
+ * the session's active workspace.
+ */
+const signIn = async (on: Machine): Promise<SignedIn> => {
+  await expectStops(await startApp(on, null));
+  const token = await writePerson(on.database);
+  const app = await startApp(on, null);
+  const headers = fromPage(token);
+  headers.set('content-type', 'application/json');
+  const made = await fetch(`${app.url}/api/workspaces`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(WORKSPACE),
+  });
+  const workspace = (await made.json()) as { readonly id: string; readonly slug: string };
+  expect(made.status).toBe(201);
+  expect(workspace.slug).toBe(WORKSPACE.slug);
+  const me = await fetch(`${app.url}/api/me`, { headers: fromPage(token) });
+  expect(me.status).toBe(200);
+  expect(await me.json()).toMatchObject({
+    user: { id: PERSON.id },
+    workspace: { id: workspace.id, role: 'owner', region: 'eu' },
+  });
+  await expectStops(app);
+  return { token, workspaceId: workspace.id };
+};
+
+/** Asks the app's API as the person signed in, from the page of their workspace. */
+const askApp = async <A>(
   method: 'GET' | 'POST',
   path: string,
   body?: unknown,
 ): Promise<Answer<A>> => {
-  const running = current();
-  const response = await fetch(`${running.cellUrl}${path}`, {
-    method,
-    headers: {
-      authorization: `Bearer ${await cellToken(running)}`,
-      ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+  const { app, signedIn } = current();
+  const headers = fromPage(signedIn.token, signedIn.workspaceId);
+  const request: RequestInit = { method, headers };
+  if (body !== undefined) {
+    headers.set('content-type', 'application/json');
+    request.body = JSON.stringify(body);
+  }
+  const response = await fetch(`${app.url}${path}`, request);
   return { status: response.status, body: (await response.json()) as A };
 };
 
 const readSession = async (sessionId: string): Promise<CloudSession> => {
-  const answer = await askCell<CloudSession>('GET', `/api/cloud-sessions/${sessionId}`);
+  const answer = await askApp<CloudSession>('GET', `/api/cloud-sessions/${sessionId}`);
   expect(answer.status).toBe(200);
   return answer.body;
 };
 
 /** Starts a Claude session on the runner's repository; it is `starting` until the runner says. */
 const startSession = async (): Promise<CloudSession> => {
-  const answer = await askCell<CloudSession>('POST', '/api/cloud-sessions', {
+  const answer = await askApp<CloudSession>('POST', '/api/cloud-sessions', {
     repository: REPOSITORY,
     harness: 'claude',
   });
@@ -277,8 +420,8 @@ const startSession = async (): Promise<CloudSession> => {
     status: 'starting',
     repository: REPOSITORY,
     harness: 'claude',
-    personId: PERSON_ID,
-    workspaceId: WORKSPACE_ID,
+    personId: PERSON.id,
+    workspaceId: current().signedIn.workspaceId,
     runnerId: RUNNER_ID,
   });
   return answer.body;
@@ -351,21 +494,26 @@ const chat = Effect.fn('chat')(function* (hostPort: number, pass: string, sessio
   return Option.getOrElse(answer, () => '');
 }, Effect.scoped);
 
-/** Every secret the test made: none may show in what the cell or the runner printed. */
+/** Every secret the test made: none may show in what any app process or the runner printed. */
 const expectNothingSecretPrinted = (passes: readonly string[]) => {
-  const { cell, runner, passPrivateKey } = current();
-  const printed = [cell.stdout(), cell.stderr(), runner.stdout(), runner.stderr()].join('\n');
-  for (const secret of [RUNNER_SECRET, String(passPrivateKey.d), ...passes]) {
+  const { runner, passPrivateKey, signedIn } = current();
+  const printed = [
+    ...apps.flatMap((app) => [app.stdout(), app.stderr()]),
+    runner.stdout(),
+    runner.stderr(),
+  ].join('\n');
+  const secrets = [RUNNER_SECRET, AUTH_SECRET, String(passPrivateKey.d), signedIn.token, ...passes];
+  for (const secret of secrets) {
     expect(printed).not.toContain(secret);
   }
-  // The runner's stdout is empty: everything it says goes to the cell, its log to stderr.
+  // The runner's stdout is empty: everything it says goes to the app, its log to stderr.
   expect(runner.stdout()).toBe('');
 };
 
 beforeEach(async () => {
-  if (!existsSync(CELL_MAIN)) {
+  if (!existsSync(APP_MAIN)) {
     throw new Error(
-      `${CELL_MAIN} is not built: run \`pnpm exec turbo run test --filter=@consola/cloud-session-e2e\`, which builds it first.`,
+      `${APP_MAIN} is not built: run \`pnpm exec turbo run test --filter=@consola/cloud-session-e2e\`, which builds it first.`,
     );
   }
   // The machine: a home of its own, and fake CLIs first on the PATH.
@@ -384,31 +532,16 @@ beforeEach(async () => {
     delete env[name];
   }
   Object.assign(env, homeVariables(home), { PATH: pathWith(bin) });
+  const on: Machine = { root, home, record, env, database: join(root, 'cloud-db') };
+  machine = on;
 
-  // `cloud-global`'s signing key, published where the cell fetches it.
-  const { privateKey: signingKey, publicKey } = generateKeyPairSync('ed25519');
-  const jwk = await exportJWK(publicKey);
-  const kid = await calculateJwkThumbprint(jwk);
-  const keys = await serveKeys({ ...jwk, kid, alg: CELL_TOKEN_ALGORITHM, use: 'sig' });
-  // The cell's own key for passes (`pass-key:generate` makes one the same way).
+  const signedIn = await signIn(on);
+  // The app's own key for passes (`pass-key:generate` makes one the same way).
   const passPrivateKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'jwk' });
-
-  // Every variable the cell reads is set here: `main.ts` loads `apps/cloud-region/.env` for any
-  // left unset, and a worktree's is the developer's own.
-  const port = await freePort();
-  const cell = startNode(CELL_MAIN, [], {
-    ...env,
-    DATABASE_URL: 'pglite:memory',
-    REGION: 'eu',
-    PORT: String(port),
-    CLOUD_GLOBAL_URL: `http://127.0.0.1:${portOf(keys)}`,
-    RUNNER_SECRET,
-    RUNNER_WORKSPACE_ID: WORKSPACE_ID,
-    PASS_PRIVATE_KEY: JSON.stringify(passPrivateKey),
-  });
+  const app = await startApp(on, { workspaceId: signedIn.workspaceId, passPrivateKey });
   const runner = startNode(
     REPLAY_RUNNER,
-    ['runner', '--cell-url', `ws://127.0.0.1:${port}/api/runner`, '--runner-id', RUNNER_ID],
+    ['runner', '--cell-url', `ws://127.0.0.1:${app.port}/api/runner`, '--runner-id', RUNNER_ID],
     {
       ...env,
       CONSOLA_RUNNER_SECRET: RUNNER_SECRET,
@@ -417,31 +550,14 @@ beforeEach(async () => {
       GIT_TOKEN: 'test',
     },
   );
-  cloud = {
-    root,
-    home,
-    record,
-    env,
-    keys,
-    signingKey,
-    kid,
-    passPrivateKey,
-    cellUrl: `http://127.0.0.1:${port}`,
-    cell,
-    runner,
-    sandboxPids: [],
-  };
+  cloud = { machine: on, signedIn, passPrivateKey, app, runner, sandboxPids: [] };
 
-  await waitFor(() => {
-    if (!isRunning(cell.child)) throw new Error(`the cell exited; its stderr:\n${cell.stderr()}`);
-    return cell.stdout().includes(`on http://127.0.0.1:${port}`) ? true : undefined;
-  }, 'the cell to listen');
-  // The runner has said hello once the cell offers its repository and harness to a person.
+  // The runner has said hello once the app offers its repository and harness to the person.
   const options = await waitFor(async () => {
     if (!isRunning(runner.child)) {
       throw new Error(`the runner exited; its stderr:\n${runner.stderr()}`);
     }
-    const answer = await askCell<unknown>('GET', '/api/cloud-sessions/options');
+    const answer = await askApp<unknown>('GET', '/api/cloud-sessions/options');
     return answer.status === 200 ? answer.body : undefined;
   }, 'the runner to connect');
   expect(options).toEqual({ repositories: [REPOSITORY], harnesses: ['claude'] });
@@ -449,30 +565,29 @@ beforeEach(async () => {
 
 afterEach(async () => {
   const ended = cloud;
+  const endedMachine = machine;
+  const endedApps = apps;
   cloud = undefined;
-  if (ended === undefined) return;
-  // Nothing outlives the test: the runner's sandboxes, the runner, then the cell.
-  const left = isRunning(ended.runner.child) ? descendantsOf(ended.runner.child.pid ?? -1) : [];
-  for (const pid of [...ended.sandboxPids, ...left]) {
-    if (isAlive(pid)) process.kill(pid, 'SIGKILL');
+  machine = undefined;
+  apps = [];
+  // Nothing outlives the test: the runner's sandboxes, the runner, then every app process.
+  if (ended !== undefined) {
+    const { runner, sandboxPids } = ended;
+    const left = isRunning(runner.child) ? descendantsOf(runner.child.pid ?? -1) : [];
+    for (const pid of [...sandboxPids, ...left]) {
+      if (isAlive(pid)) process.kill(pid, 'SIGKILL');
+    }
+    if (isRunning(runner.child)) runner.child.kill('SIGKILL');
+    await runner.exited;
   }
-  if (isRunning(ended.runner.child)) ended.runner.child.kill('SIGKILL');
-  await ended.runner.exited;
-  // The cell stops as `main.ts` has it on SIGTERM; one that has not within the grace is killed.
-  if (isRunning(ended.cell.child)) ended.cell.child.kill('SIGTERM');
-  const graceOver = sleep(CELL_STOP_GRACE_MS).then(() => 'grace over' as const);
-  if ((await Promise.race([ended.cell.exited, graceOver])) === 'grace over') {
-    ended.cell.child.kill('SIGKILL');
-    await ended.cell.exited;
-  }
-  ended.keys.closeAllConnections();
-  await new Promise<void>((done) => ended.keys.close(() => done()));
-  const calls = readCalls(ended.record);
-  rmSync(ended.root, { recursive: true, force: true });
+  for (const app of endedApps) await stopApp(app);
+  if (endedMachine === undefined) return;
+  const calls = readCalls(endedMachine.record);
+  rmSync(endedMachine.root, { recursive: true, force: true });
   for (const call of calls) {
-    expect(call).toMatchObject({ home: ended.home, claudeConfigDir: '', codexHome: '' });
+    expect(call).toMatchObject({ home: endedMachine.home, claudeConfigDir: '', codexHome: '' });
   }
-}, CELL_STOP_GRACE_MS * 3);
+}, APP_STOP_GRACE_MS * 3);
 
 describe('a cloud session', () => {
   it(
@@ -486,22 +601,22 @@ describe('a cloud session', () => {
       const sandbox = sandboxProcesses();
       expect(sandbox.length).toBeGreaterThan(0);
 
-      const issued = await askCell<CloudSessionPass>('POST', `/api/cloud-sessions/${id}/pass`);
+      const issued = await askApp<CloudSessionPass>('POST', `/api/cloud-sessions/${id}/pass`);
       expect(issued.status).toBe(200);
       expect(issued.body.hostUrl).toBe(hostUrl);
       const { pass } = issued.body;
       const answer = await Effect.runPromise(chat(Number(new URL(hostUrl).port), pass, id));
       expect(answer).toContain(ASSISTANT_TEXT);
-      // The host titled the thread, and the title reached the cell through the runner.
+      // The host titled the thread, and the title reached the app through the runner.
       await waitFor(
         async () => ((await readSession(id)).title === REPLAY_TITLE ? true : undefined),
-        "the thread's title to reach the cell",
+        "the thread's title to reach the app",
       );
 
-      const stopped = await askCell<CloudSession>('POST', `/api/cloud-sessions/${id}/stop`);
+      const stopped = await askApp<CloudSession>('POST', `/api/cloud-sessions/${id}/stop`);
       expect(stopped.status).toBe(202);
       expect(stopped.body).toMatchObject({ status: 'stopped' });
-      // The cell told the runner, which stopped the sandbox: its replayed host is gone.
+      // The app told the runner, which stopped the sandbox: its replayed host is gone.
       await noneAlive(sandbox, "the sandbox's processes to end");
       expect(await readSession(id)).toMatchObject({
         status: 'stopped',
@@ -527,7 +642,7 @@ describe('a cloud session', () => {
       // The runner says each session's end on its socket, stops its sandboxes, then closes.
       expect(await runner.exited).toEqual({ code: 0, signal: null });
       await noneAlive(sandbox, "the sandbox's processes to end");
-      // The cell kept the end the runner said before it closed: not running, not failed.
+      // The app kept the end the runner said before it closed: not running, not failed.
       expect(await sessionOnceNot(id, 'running')).toMatchObject({
         status: 'stopped',
         error: null,

@@ -13,7 +13,6 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ```bash
 pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
 pnpm run dev:cloud        # Consola Cloud: the API (3100) and the web app (5175)
-pnpm run dev:cloud-region # Consola Cloud's regional cell (3101), set up by its .env
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
@@ -70,16 +69,14 @@ hides it, so the suite refuses to run and names the file to move.
 
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`), `apps/website` (`@consola/website`),
-`apps/cloud-global` (`@consola/cloud-global`), `apps/cloud-region`
-(`@consola/cloud-region`), `apps/cloud-web` (`@consola/cloud-web`),
-`packages/factory-spec` (`@consola/factory-spec`, MIT),
-`packages/automation-engine` (`@consola/automation-engine`),
-`packages/sandbox` (`@consola/sandbox`), `packages/cloud-contract`
-(`@consola/cloud-contract`), `packages/runner-protocol`
+`apps/cloud-api` (`@consola/cloud-api`), `apps/cloud-web`
+(`@consola/cloud-web`), `packages/factory-spec` (`@consola/factory-spec`,
+MIT), `packages/automation-engine` (`@consola/automation-engine`),
+`packages/sandbox` (`@consola/sandbox`), `packages/runner-protocol`
 (`@consola/runner-protocol`, MIT), `packages/host` (`@consola/host`, AGPL),
 `packages/agent-ui` (`@consola/agent-ui`, MIT), `packages/cloud-session-e2e`
-(`@consola/cloud-session-e2e`, a cloud session end to end: the built cell, a
-runner on local sandboxes and t3's client, with no credential) and the copied
+(`@consola/cloud-session-e2e`, a cloud session end to end: the built cloud
+app, a runner on local sandboxes and t3's client, with no credential) and the copied
 t3code packages under `vendor/t3code/` ("Vendored t3code", below). Turborepo
 orchestrates builds, tests, and typechecking; the root runs leave `vendor/`
 out. Paths below beginning with `src/`, `scripts/`, or `dist/` are relative to
@@ -97,7 +94,7 @@ runs pnpm through `npx pnpm@<version>`: keep that version equal to
 app's runtime.
 
 `.env` files are gitignored, so a new git worktree has none, and an app that
-needs one (`apps/cloud-global/.env`, say) will not start there. `pnpm install`
+needs one (`apps/cloud-api/.env`, say) will not start there. `pnpm install`
 fixes that: its `postinstall` (`tools/link-worktree-env.mjs`) links every
 `.env` and `.env.*` the main checkout has, at the root or in a package's
 folder, into the worktree, as symbolic links to the main checkout's files. It
@@ -210,71 +207,99 @@ packages' tests use. Before changing it, or adding a provider, read
 
 ### Consola Cloud
 
-`apps/cloud-global` (`@consola/cloud-global`, Hono, Better Auth, Drizzle on
-PGlite or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React)
-are the company layer's first piece: Google sign-in and workspaces people make,
-belong to several of and switch between. `cloud-global` is the control plane's
-global part, which every region shares. Every workspace has a region (`eu` or
-`us`), picked when it is made and never changed. What `cloud-global` may store
-is the always-global list in its `AGENTS.md`, pinned by a test; anything else
-belongs in a regional cell. `apps/cloud-region` (`@consola/cloud-region`, Hono, Drizzle on PGlite or
-Postgres) is the regional cell: one copy per region, configured with its
-region, holding what a workspace has there that is not global. It holds no
-accounts (people are referenced by their global id), and every table carries
-the workspace id. It trusts `cloud-global`'s token: every request but its
-health check, the runner's socket, the outbox's deliveries and the GitHub
-webhook events `cloud-global` passes on (those two signed with the same key)
-carries a cell token, checked with `cloud-global`'s public keys,
-and the person, workspace and role come from that token alone, never from the
-request. The runner's socket (`GET /api/runner`) is the one other trust root,
-for the POC until runners are enrolled: a shared secret (`RUNNER_SECRET`),
-compared in constant time, that admits one runner for one workspace and no
-person. The cell signs each session's pass with a key of its own
-(`PASS_PRIVATE_KEY`), never `cloud-global`'s, and in the cell only
-`adapters/token` imports `jose`; the runner's socket (`adapters/runner`) may
-use `hono` and `@hono/node-ws`. Nothing in `apps/desktop` depends on the cloud apps, and none
-imports from the desktop, the website, another app or `packages/*`, with five
-exceptions. `cloud-global` and `cloud-region` both import
-`packages/cloud-contract` (`@consola/cloud-contract`), what the two agree on:
-the regions, the workspace roles, the claims of the token `cloud-global` mints
-for a cell, the outbox messages it sends one and how it delivers them, the
-GitHub events it passes on, and a cell's signed request for a GitHub token. It
-does
-no I/O, so any layer of either app may import it; before changing it, read
-`packages/cloud-contract/AGENTS.md`. `cloud-region` also imports
-`packages/runner-protocol` (`@consola/runner-protocol`, MIT), what a cell and
-its runners say to each other: the runner socket's messages, the readers of a
-repository and a harness, and the session pass's claims. It also does no I/O,
-so any layer of the cell may import it; before changing it, read
-`packages/runner-protocol/AGENTS.md`. And `cloud-region` imports
+`apps/cloud-api` (`@consola/cloud-api`, Hono, Better Auth, Drizzle on PGlite
+or Postgres) and `apps/cloud-web` (`@consola/cloud-web`, Vite and React) are
+the company layer: Google sign-in, the workspaces people make, belong to
+several of and switch between, and what a workspace holds (its teams,
+factories, runs, GitHub connection and cloud sessions). The API is one app
+with one database and one migration chain. Every workspace keeps its region
+(`eu` or `us`) on its record, and every new workspace takes the deployment's
+(`REGION`, `eu` when unset); no route moves one.
+
+The app has two parts, each with its own domain, application and adapters
+layers: `src/accounts/` (people, sign-in, sessions, workspaces and who is in
+them) and `src/company/` (what a workspace holds, GitHub included).
+`src/shared/` holds the regions and the workspace roles, which both use.
+Only the composition ring (`src/*.ts`, with `src/persistence/`, which opens
+the one database, and the HTTP suites' `src/testing/`) imports both parts:
+`company` never imports `accounts` or Better Auth, and `accounts` never
+imports `company` (`src/boundary.test.ts`). The seam is there so that a later split stays a
+data move, not a rewrite, and two rules keep it so, each a failing test
+(`src/rules.test.ts`, with the boundary test):
+
+- **Every company table carries its workspace id**, a not-null
+  `workspace_id`. Only the accounts tables do not, each named in the test
+  with its reason: `user`, `account`, `session`, `verification`,
+  `organization` (the workspace registry, whose id is the workspace id),
+  `member` and `invitation`.
+- **Company data refers to people only by id.** No company table has a
+  foreign key into an accounts table, no company column holds an email or a
+  person's name, and no company file imports accounts' files or Better Auth,
+  or declares or names an accounts table itself (a `pgTable('member', …)`, a
+  `"user"` in its SQL), which the one database client would otherwise allow.
+  A name reaches a page only through accounts' own
+  `GET /api/me/workspace/members`.
+
+A company route takes who is asking from Better Auth's session cookie, and
+the person's role from a live read of `member` on every request, through a
+port `company` declares and `accounts` implements (`MembershipReader`). The
+workspace is the session's active one, never the request's. Every company
+request also carries `x-consola-workspace`, the workspace the page shows,
+only as a guard: a page whose session another tab switched is refused (409
+`workspace_switched`) instead of acting in the other workspace. Company
+changes are authorised by the cookie, so they sit behind the origin check
+(403 `bad_origin`) like accounts' changes; only Better Auth's own routes
+(`/api/auth/`), which check their own origins, and GitHub's webhooks are
+outside it. Two callers are no person. GitHub's webhooks
+(`POST /api/github/webhooks`) are signed with `GITHUB_WEBHOOK_SECRET`. The
+runner's socket (`GET /api/runner`) is, for the POC until runners are
+enrolled, a shared secret (`RUNNER_SECRET`), compared in constant time, that
+admits one runner for one workspace and no person. The app signs each
+session's pass with a key of its own (`PASS_PRIVATE_KEY`), and only
+`company/adapters/token` imports `jose`; the runner's socket
+(`company/adapters/runner`) may use `hono` and `@hono/node-ws`.
+
+Nothing in `apps/desktop` depends on the cloud apps, and neither imports from
+the desktop, the website, the other app or `packages/*`, with four
+exceptions. `cloud-api`'s `company` part, and only it (with the ring's own
+tests, which drive it as a runner would), imports
+`packages/runner-protocol` (`@consola/runner-protocol`, MIT), what the app
+and its runners say to each other: the runner socket's messages, the readers
+of a repository and a harness, and the session pass's claims. It does no
+I/O, so any layer of `company` may import it; before changing it, read
+`packages/runner-protocol/AGENTS.md`. `company` also imports
 `packages/factory-spec` (`@consola/factory-spec`), the factory files' schema
 every runner shares, to check the factory files it stores; it does no I/O
-either, so any layer of the cell may import it. `cloud-web`'s `domain`
+either, so any layer of `company` may import it. `cloud-web`'s `domain`
 imports it too, and only there (its `boundary.test.ts`), so a factory's
 definition page checks the files as the person edits them with the very rules
-the cell saves them by. It holds no Node builtin, so it loads in a browser
+the API saves them by. It holds no Node builtin, so it loads in a browser
 (its `sha256.test.ts`). Last, `cloud-web`'s `ui` imports `packages/agent-ui`
 (`@consola/agent-ui`, MIT), the chat a running cloud session's page mounts,
 with its stylesheet, and only there, never in `domain`, `services` or a
-test. Setup is in `apps/cloud-global/README.md` and
-`apps/cloud-region/README.md`. Before
-changing a cloud app, read its own `AGENTS.md` (`apps/cloud-global/AGENTS.md`,
-`apps/cloud-region/AGENTS.md`, `apps/cloud-web/AGENTS.md`): it holds the layer
-rules and the dependency rule that keeps them apart.
+test. Setup is in `apps/cloud-api/README.md`. Before changing a cloud app,
+read its own `AGENTS.md` (`apps/cloud-api/AGENTS.md`,
+`apps/cloud-web/AGENTS.md`): it holds the layer rules and the dependency rule
+that keeps them apart.
 
 **Every HTTP API a cloud app serves has a contract, and every client calls
 it through types generated from that contract.** This holds for every route,
 in every cloud app, a new app included:
 
-- The routes are declared in Zod with `@hono/zod-openapi`, in the app's
-  `src/adapters/http/contract.ts`, with every status a route answers and its
-  body (strict objects). `app.ts` registers each with `app.openapi`, never
-  `app.get`, `app.post` and the like, and lists it in `ROUTES`.
+- The routes are declared in Zod with `@hono/zod-openapi`, in the
+  `adapters/http` contract of the part that serves them
+  (`src/accounts/adapters/http/contract.ts`,
+  `src/company/adapters/http/contract.ts` and, for GitHub's,
+  `gitHubContract.ts` beside it), with every status a route answers and its
+  body (strict objects). Each part registers its routes with `app.openapi`,
+  never `app.get`, `app.post` and the like, on the one app `compose.ts` hands
+  it, and lists them in its routes list, which the app's `ROUTES` joins with
+  the ring's one route, `GET /api/health` (`src/http/health.ts`).
 - The app's `openapi.json` is generated from them (`openapi:generate`) and
   committed. `openapi.test.ts` fails while it is stale, and while the app
   serves a route the contract does not declare (`OUTSIDE_THE_CONTRACT` names
   the exceptions, such as Better Auth's own routes, each with its reason).
-- The app's HTTP suite checks every answer it reads against the route's
+- The app's HTTP suites check every answer they read against the route's
   schema.
 - A client's types are generated from that `openapi.json`, which it reads as
   a file and never imports (`cloud-web`'s `domain/apiContract.ts`, by
@@ -283,22 +308,23 @@ in every cloud app, a new app included:
   `fetch` in its services.
 - The package graph cannot see a file read across apps, so
   `.github/scripts/ci-scope.mjs` checks the client with every change to the
-  API (`cloud-global` → `cloud-web`), and a new pair is added there.
+  API (`cloud-api` → `cloud-web`), and a new pair is added there.
 
-A cell is no exception: `cloud-region` declares its routes in a contract of its
-own, and a client of the cell gets its own generated types and client, the
-same way. Each app's `AGENTS.md` ("The contract", "The API's contract") holds
-the details and the library's traps.
+`apps/cloud-api/AGENTS.md` ("The contract") holds the details and the
+library's traps.
 
 The browser talks only to the web app's origin. Vite proxies `/api` to the API,
 so the session cookie is first-party and the API needs no CORS. Better Auth
 owns sign-in and sessions, and its tables are generated
-(`pnpm --filter @consola/cloud-global auth:generate`), never hand-edited.
+(`pnpm --filter @consola/cloud-api auth:generate`), never hand-edited.
 Workspaces are Consola's own routes (`/api/workspaces`), with every route of
-Better Auth's organisation plugin closed. Every table that holds company data
-carries `organization_id`, and a person reaches it through `member`.
+Better Auth's organisation plugin closed. A workspace is Better Auth's
+`organization` row, whose id is the `workspace_id` every company table
+carries, and a person is in it through `member`. A workspace is born whole:
+its row, its owner's `member` row, its first team and the owner's place in
+that team are written in one transaction.
 
-`mayJoin` (`apps/cloud-global/src/domain/joinRule.ts`) is checked before an account
+`mayJoin` (`apps/cloud-api/src/accounts/domain/joinRule.ts`) is checked before an account
 is created and before every new session. It is open for now (any Google
 account with a verified email), so this deployment is for local use only. The
 later rule that limits it to the company lands in `mayJoin` and so gates every
@@ -313,10 +339,10 @@ one agent, which deliberately breaks the north star's rule that the file decides
 route. A factory may hold an agent team (`agents/<name>/agent.md`,
 `automations/<name>/automation.md`, `skills/<name>/…`, factory-spec's
 `parseAgentTeam`), whose automations hand a pull request's event to one agent, the
-orchestrator, which dispatches the others and posts the result itself. The cell starts
+orchestrator, which dispatches the others and posts the result itself. The cloud app starts
 each as an agent run, a cloud session no person started, and records it as a
 request in Runs whose conversation is that session
-(`apps/cloud-region/AGENTS.md`, "Agent runs"); the host runs every agent of it in
+(`apps/cloud-api/AGENTS.md`, "Agent runs"); the host runs every agent of it in
 full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). Nothing
 in the steps design depends on it. Known gap: the sandbox holds the runner's own
 git token and loads the pull request's own `.claude` settings, whoever opened it,
@@ -333,7 +359,7 @@ them. A change that cannot be avoided, every file copied and every re-sync are r
 serves t3's RPC behind a session pass, and in its runner role (`consola-host runner`) starts
 sessions in sandboxes through `@consola/sandbox` (on E2B, from the `consola-session` template in
 `packages/host/sandbox-template/`, which runs the host from a bundle that is never published),
-speaking `@consola/runner-protocol` to its cell (the only two Consola packages it imports), and
+speaking `@consola/runner-protocol` to the cloud app (the only two Consola packages it imports), and
 `packages/agent-ui` (`@consola/agent-ui`, MIT),
 t3's chat view behind `AgentChat`, which `cloud-web` mounts for a cloud session. Read each
 one's `AGENTS.md` before changing it. The copied packages' own checks are not part of

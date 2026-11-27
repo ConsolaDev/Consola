@@ -43,7 +43,7 @@ export function SessionConversation({
   session: CloudSession;
   access: ChatAccess;
   renewPass: () => Promise<string>;
-  /** Reads the session again, for a pass the cell refused. */
+  /** Reads the session again, for a pass the API refused. */
   onRetry: () => void;
 }) {
   const screen = sessionScreen(session);
