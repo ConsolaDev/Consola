@@ -25,10 +25,10 @@ export type BotPorts = {
 
 /** A factory's bot, with its token opened. Each call answers what Slack said, or null. */
 export type Bot = {
-  /** Posts in a thread everyone in the channel sees. */
+  /** Posts what everyone in the channel sees, in a thread when one is named. */
   post(message: {
     channel: string;
-    threadTs: string;
+    threadTs?: string;
     text: string;
     blocks?: SlackBlock[];
   }): Promise<boolean>;

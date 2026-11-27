@@ -80,14 +80,15 @@ export type SlackMessageOutcome =
    */
   | { kind: 'start-failed'; session: CloudSession };
 
-/** Where a reply only the author sees goes: in their thread, or in the channel. */
-function whisperTo(bot: Bot, message: SlackMessage, text: string): Promise<boolean> {
-  return bot.whisper({
-    channel: message.channelId,
-    user: message.userId,
-    ...(inThread(message) ? { threadTs: message.threadTs } : {}),
-    text,
-  });
+/**
+ * A reply only the author sees. In a direct message the channel is theirs and the bot's alone, so
+ * it is a message there, as `sayLinked` sends one; elsewhere it is ephemeral
+ * (`chat.postEphemeral`). Either goes in their thread when they wrote in one.
+ */
+function replyToAuthor(bot: Bot, message: SlackMessage, text: string): Promise<boolean> {
+  const thread = inThread(message) ? { threadTs: message.threadTs } : {};
+  if (message.via === 'dm') return bot.post({ channel: message.channelId, ...thread, text });
+  return bot.whisper({ channel: message.channelId, user: message.userId, ...thread, text });
 }
 
 /**
@@ -114,7 +115,7 @@ export async function admitSlackMessage(
     kind: 'slack-connect' | 'link-sent' | 'not-a-member' | 'not-seen' | 'empty',
     text: string,
   ) => {
-    await whisperTo(bot, message, text);
+    await replyToAuthor(bot, message, text);
     ports.report(`Did not take the message of ${about}: ${kind}.`);
     return { kind };
   };

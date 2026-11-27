@@ -204,6 +204,29 @@ describe('who may talk to a factory', () => {
     expect(slack.of('chat.postEphemeral')).toEqual([]);
   });
 
+  it('answers an author in a direct message with a message there, in their thread if any', async () => {
+    const dm = (over: Record<string, unknown> = {}) =>
+      callbackOf({
+        type: 'message',
+        channel_type: 'im',
+        user: 'U0BOB',
+        text: 'Is the catalog priced in euros yet?',
+        ts: '1795000000.000300',
+        channel: 'D0BOB',
+        ...over,
+      });
+    expect(await handle(dm())).toEqual({ kind: 'link-sent' });
+    expect(await handle(dm({ ts: '1795000000.000400', thread_ts: '1795000000.000300' }))).toEqual({
+      kind: 'link-sent',
+    });
+    expect(slack.of('chat.postEphemeral')).toEqual([]);
+    const [first, second] = slack.of('chat.postMessage').map((call) => call.args);
+    expect(first).toMatchObject({ channel: 'D0BOB' });
+    expect(first).not.toHaveProperty('threadTs');
+    expect(String(first?.text)).toMatch(/^Link your Slack account to Consola/);
+    expect(second).toMatchObject({ channel: 'D0BOB', threadTs: '1795000000.000300' });
+  });
+
   it("answers in the author's thread when they wrote in one, else in the channel", async () => {
     await handle(mention({ thread_ts: '1794999999.000001' }));
     expect(slack.of('chat.postEphemeral')[0]?.args.threadTs).toBe('1794999999.000001');

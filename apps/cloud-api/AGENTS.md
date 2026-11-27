@@ -1353,8 +1353,9 @@ answers in the same Slack thread. Slack is on only with
   `bot_id` or a `subtype`, the bot's own messages and edits are dropped, and
   so, in release 1, are channel messages without a mention and reactions.
 - **Who may talk** (`admitSlackMessage`, `application/slackRequests.ts`), in
-  this order, each refusal a reply only the author sees, in their thread if
-  they wrote in one: an author from another Slack workspace than the app's
+  this order, each refusal a reply only the author sees (ephemeral in a
+  channel, a plain message in a direct message, which is theirs and the bot's
+  alone), in their thread if they wrote in one: an author from another Slack workspace than the app's
   (Slack Connect: `user_team`, `source_team` or `team` names another) is
   refused with no link; an author with no link gets a one-time link
   (`requestSlackLink`); a linked person no longer a member, read live through
