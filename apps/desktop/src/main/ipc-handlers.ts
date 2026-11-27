@@ -249,6 +249,7 @@ import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { HookSignals } from './attention/hookSignals';
 import type { AttentionSignal } from './attention/hookSignals';
+import { isPersonKey } from './attention/personInput';
 import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
@@ -3026,10 +3027,19 @@ export function setupIpcHandlers(): boolean {
 
   // The only path the person's own keys take (a queued prompt, a paste and a
   // dropped file each have their own), so it is where answering a snoozed
-  // session is heard.
+  // session is heard, and a question dismissed with Esc, which no hook
+  // reports: the composer back on screen is the only word of it.
   ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, instanceId: string, data: string) => {
-    manager.get(instanceId)?.write(data);
-    if (typeof data === 'string') snoozer?.personInput(instanceId, data);
+    const terminal = manager.get(instanceId);
+    terminal?.write(data);
+    if (typeof data !== 'string') return;
+    snoozer?.personInput(instanceId, data);
+    const question = isPersonKey(data) ? hookSignals.openQuestion(instanceId) : undefined;
+    if (terminal && question !== undefined) {
+      void terminal.showsComposerAfterKeys().then((shown) => {
+        if (shown) hookSignals.dismissed(instanceId, question);
+      });
+    }
   });
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_PASTE, (_event, instanceId: string, text: string) => {
