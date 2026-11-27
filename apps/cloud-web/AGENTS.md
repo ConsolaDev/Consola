@@ -98,8 +98,9 @@ The app is built in layers, and imports point inward only.
   `definitionBanner.ts`, whether the definition's banner was hidden). A service
   answers in domain types and sentences, never in a library's own.
 - `src/ui/` holds the React screens (`App.tsx` and the cards beside it:
-  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, and the narrow page's
-  topbar with `SignOutButton`), the dashboard (`Dashboard.tsx` with its
+  `SignInCard`, `ProfileCard`, `CreateWorkspaceCard`, the one-time link from
+  Slack's `SlackLinkPage`, and the narrow page's topbar with
+  `SignOutButton`), the dashboard (`Dashboard.tsx` with its
   sidebar's workspace menu, `WorkspaceSwitcher`, and `AccountMenu`, its list
   of sections `sections.tsx` with each section's page, such as
   `OverviewPage.tsx` with `RegionMap` and `CopySlug`, `RunsSection.tsx`
@@ -191,11 +192,13 @@ routes that run.
   and `ROLE_NAMES` must hold exactly what the contract does
   (`workspace.test.ts`'s type checks, `satisfies`): a region, a role or a
   problem the API gains fails the typecheck until the page names it.
-- **Until a route is in the contract, a draft stands in for it.** Slack's
-  routes (CON-144) are typed by `domain/slackContractDraft.ts`, written by
-  hand from the design in `openapi-typescript`'s shape, until `cloud-api`'s
-  `openapi.json` declares them; then it is deleted and every import of it
-  moves to `apiContract.ts`. Nothing else is ever typed by hand.
+- **Until a schema is in the contract, a draft stands in for it.** What a
+  request from Slack adds to runs and cloud sessions (CON-144, lane C: the
+  `slack` item kind, the `slack` session origin) is typed by
+  `domain/slackContractDraft.ts`, written by hand from the design, until
+  `cloud-api`'s `openapi.json` declares it; then it is deleted and
+  `domain/runs.ts` and `domain/cloudSession.ts` take the contract's names.
+  Nothing else is ever typed by hand.
 - **The types do not check what arrives.** An answer from something that is
   not the API (a proxy's error page) or from a newer API is still read
   defensively, so a service keeps its checks of the status and the body's
@@ -760,7 +763,7 @@ under a topbar of their own.
   first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
   the hash only. A page sent back with a result before the hash (sign-in's
-  `?error=`, GitHub's `?github=`) reads and clears it in its own service, with
+  `?error=`, GitHub's `?github=`, Slack's `?slack=`) reads and clears it in its own service, with
   `history.replaceState` of `pathname + search + hash`, which keeps the
   section.
 - **Every member sees every section.** What a person may do on a page is the
@@ -820,7 +823,8 @@ under a topbar of their own.
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/FactoryDefinition.css`,
   `ui/NewFactoryDialog.css`,
-  `ui/SourceChoice.css`, `ui/FactorySlack.css`, `ui/GeneralPage.css`,
+  `ui/SourceChoice.css`, `ui/FactorySlack.css`, `ui/SlackLinkPage.css`,
+  `ui/GeneralPage.css`,
   `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
   `ui/ApprovalCard.css`, `ui/RequestAutomations.css`, `ui/Sessions.css`),
@@ -976,6 +980,25 @@ plainly (`not-configured`).
   `SlackCallbackResult` (`satisfies`, and the sentences' exhaustive switch).
 - **Every change shows what the API answered**: a save of the credentials
   shows the app it answers; Disconnect reads the app again.
+- **The one-time link page** (`ui/SlackLinkPage.tsx`, `SlackLinkPage.css`) is
+  the hash `#/slack/link/<token>`, the address the bot sends someone it does
+  not know yet (`<PUBLIC_URL>/#/slack/link/<token>`). `App.tsx` shows it in the
+  narrow column whoever is signed in, before the dashboard
+  (`currentSlackLinkToken`, `onSlackLinkChange`). Signed out, it is the
+  sign-in card with its own title, which signs in back to the link
+  (`signInWithGoogle(returnTo)`: Better Auth takes a relative callback with a
+  hash). Signed in, it reads the link for the session's active workspace
+  (`GET /api/slack/link-requests/{token}`, which says whether the link is for
+  it: `inActiveWorkspace`) and asks "Link Slack account U… in <Slack
+  workspace> to you in <workspace>?" with Link. A link for another of the
+  person's workspaces offers Switch (`switchWorkspace`, then the page loads
+  again and reads the link again); one for a workspace the person's list does
+  not hold says they are not a member; one used, expired or unknown says to
+  mention the factory's bot again for a new one. Once linked, it says to send
+  the request again in Slack. What it shows is `linkPageView`'s, a pure
+  function of who is signed in, their workspaces, the link and the confirm.
+  Leaving it replaces its entry with the dashboard (`leaveSlackLink`), so back
+  does not return to a link that has done its work.
 
 ## Adding a feature
 

@@ -1,0 +1,48 @@
+/* The one-time link page (`SlackLinkPage`): a card in the narrow column, as sign-in's is, headed
+   by Slack's mark joined to Consola's. Every class here is `slack-link-`. */
+
+.slack-link-marks {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+}
+
+.slack-link-tile {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 10px;
+  background: var(--color-background);
+  color: var(--text);
+}
+
+.slack-link-tile .brand-mark {
+  width: 22px;
+  height: 22px;
+}
+
+.slack-link-question {
+  font-weight: var(--font-weight-medium);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+}
+
+.slack-link-done {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--green-11);
+}
+
+.slack-link-done svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.slack-link-actions {
+  flex-wrap: wrap;
+}
