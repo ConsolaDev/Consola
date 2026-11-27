@@ -55,6 +55,12 @@ export type CloudConfig = {
    * logged.
    */
   connectionSecretsKey: string | null;
+  /**
+   * Where Slack reaches the API: its events and the redirect after "Add to Slack", which every
+   * factory's manifest names. `SLACK_PUBLIC_URL` when set (a tunnel's address, in development),
+   * else `PUBLIC_URL`.
+   */
+  slackPublicUrl: string;
 };
 
 /** Where the web app's dev proxy, the runner and the webhook tunnel expect the API. */
@@ -177,6 +183,14 @@ const rawEnv = z.object({
       return z.NEVER;
     })
     .optional(),
+  SLACK_PUBLIC_URL: z
+    .string()
+    .refine(
+      (value) => originOf(value) !== null,
+      'must be an http or https address with no path, query or fragment',
+    )
+    .transform((value) => originOf(value) as string)
+    .optional(),
   // No message quotes the value: it is a key.
   CONNECTION_SECRETS_KEY: z
     .string()
@@ -188,7 +202,13 @@ const rawEnv = z.object({
 const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
 
 /** The variables that are optional one by one, each unset when empty. */
-const OPTIONAL = ['REGION', 'PORT', ...RUNNER_SETTINGS, 'CONNECTION_SECRETS_KEY'] as const;
+const OPTIONAL = [
+  'REGION',
+  'PORT',
+  ...RUNNER_SETTINGS,
+  'CONNECTION_SECRETS_KEY',
+  'SLACK_PUBLIC_URL',
+] as const;
 
 /** The GitHub App's settings: all of them or none, so a half-made app never starts. */
 const GITHUB_SETTINGS = [
@@ -301,6 +321,7 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
         ? { secret, workspaceId, passPrivateKey }
         : null,
     connectionSecretsKey: parsed.CONNECTION_SECRETS_KEY ?? null,
+    slackPublicUrl: parsed.SLACK_PUBLIC_URL ?? parsed.PUBLIC_URL,
   };
 }
 

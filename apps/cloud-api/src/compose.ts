@@ -26,7 +26,11 @@ import { randomIds } from './company/adapters/persistence/cloudSessions.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores as createCompanyStores } from './company/adapters/persistence/stores.js';
 import { createRunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import { createSlackStores } from './company/adapters/persistence/slackStores.js';
 import { createSecretSealer } from './company/adapters/sealing/secretSealer.js';
+import { createSlackInstallStateSigner } from './company/adapters/slack/installStateSigner.js';
+import { linkTokens } from './company/adapters/slack/linkTokens.js';
+import { createSlackApi } from './company/adapters/slack/slackApi.js';
 import type { RunnerSocket } from './company/adapters/runner/runnerSocket.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
@@ -187,10 +191,28 @@ export async function composeApi(
   });
 
   // Slack is off without the key that seals its secrets.
+  const slackStores = createSlackStores(db.company);
   const sealer = config.connectionSecretsKey
     ? createSecretSealer(config.connectionSecretsKey)
     : null;
-  registerSlackRoutes(app, { whoIsAsking, membership, publicUrl: config.publicUrl, sealer });
+  registerSlackRoutes(app, {
+    whoIsAsking,
+    membership,
+    publicUrl: config.publicUrl,
+    slackPublicUrl: config.slackPublicUrl,
+    slack: sealer && {
+      teams: company.teams,
+      factories: company.factories,
+      apps: slackStores.apps,
+      links: slackStores.links,
+      sealer,
+      states: createSlackInstallStateSigner(config.authSecret),
+      api: createSlackApi(),
+      tokens: linkTokens,
+      clock: systemClock,
+      report,
+    },
+  });
   registerSlackEventRoutes(app, { log: console });
 
   registerHealthRoute(app, [

@@ -285,9 +285,15 @@ export type SlackManifest = {
     };
     bot_user: { display_name: string; always_online: false };
   };
-  oauth_config: { redirect_urls: string[]; scopes: { bot: string[] } };
+  oauth_config: {
+    redirect_urls: string[];
+    scopes: { bot: Array<(typeof SLACK_BOT_SCOPES)[number]> };
+  };
   settings: {
-    event_subscriptions: { request_url: string; bot_events: string[] };
+    event_subscriptions: {
+      request_url: string;
+      bot_events: Array<(typeof SLACK_BOT_EVENTS)[number]>;
+    };
     org_deploy_enabled: false;
     socket_mode_enabled: false;
     token_rotation_enabled: false;
@@ -378,4 +384,55 @@ const LINK_TOKEN = /^[A-Za-z0-9_-]{43}$/;
 /** Whether `value` has the shape of a link's token, so anything else is not looked up. */
 export function isLinkTokenShape(value: string): boolean {
   return LINK_TOKEN.test(value);
+}
+
+// "Add to Slack": Slack's authorise page, and the signed state that comes back from it.
+
+/** How long an "Add to Slack" started in Consola may take to come back from Slack, in seconds. */
+export const SLACK_INSTALL_STATE_LIFETIME_SECONDS = 10 * 60;
+
+/**
+ * What an "Add to Slack" carries through Slack and back, signed: the workspace and the factory
+ * whose app is being added, the person who started it, and until when (whole seconds since the
+ * epoch). The callback needs no session: this says who asked.
+ */
+export type SlackInstallState = {
+  workspaceId: string;
+  factoryId: string;
+  personId: string;
+  expiresAt: number;
+};
+
+/** The state for an "Add to Slack" the person starts now. */
+export function newSlackInstallState(
+  asking: { workspaceId: string; personId: string },
+  factoryId: string,
+  now: number,
+): SlackInstallState {
+  return {
+    workspaceId: asking.workspaceId,
+    factoryId,
+    personId: asking.personId,
+    expiresAt: now + SLACK_INSTALL_STATE_LIFETIME_SECONDS,
+  };
+}
+
+/** Whether a state Slack brought back is still in time. */
+export function slackInstallStateInTime(state: SlackInstallState, now: number): boolean {
+  return now < state.expiresAt;
+}
+
+/** Slack's authorise page for the app, asking for the bot's scopes, with the signed state. */
+export function slackAuthorizeUrl(request: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+}): string {
+  const query = new URLSearchParams({
+    client_id: request.clientId,
+    scope: SLACK_BOT_SCOPES.join(','),
+    redirect_uri: request.redirectUri,
+    state: request.state,
+  });
+  return `https://slack.com/oauth/v2/authorize?${query.toString()}`;
 }

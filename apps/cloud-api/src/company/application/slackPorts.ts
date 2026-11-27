@@ -6,6 +6,7 @@
 import type {
   Sealed,
   SlackInstall,
+  SlackInstallState,
   SlackLinkRequest,
   SlackPersonLink,
   SlackPosted,
@@ -22,15 +23,6 @@ export type SecretSealer = {
   seal(secret: string): Sealed;
   /** The secret, or null when the text is not one this sealer sealed (another key, or changed). */
   open(sealed: Sealed): string | null;
-};
-
-/** What an "Add to Slack" carries through Slack and back: who started it, for which factory. */
-export type SlackInstallState = {
-  workspaceId: string;
-  factoryId: string;
-  personId: string;
-  /** Whole seconds since the epoch. */
-  expiresAt: number;
 };
 
 /** Signs an "Add to Slack" state, and reads one back only when this signer signed it. */
@@ -50,6 +42,8 @@ export type LinkTokens = {
   /** What is kept of a token, and looked up by: its SHA-256, in hex. */
   hashOf(token: string): string;
 };
+
+export type { SlackInstallState };
 
 // Slack's Web API.
 
