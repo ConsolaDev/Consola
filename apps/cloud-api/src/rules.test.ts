@@ -55,6 +55,7 @@ const ACCOUNT_TABLES: Record<string, string> = {
 const NAME_COLUMNS: Record<string, string> = {
   'team.name': "the team's name, which the workspace gives it",
   'factory.name': "the factory's name, which the workspace gives it",
+  'slack_app.team_name': "the Slack workspace's name, which its admins give it",
 };
 
 /** A table as the rules read it, from the schema or from the migrations alike. */

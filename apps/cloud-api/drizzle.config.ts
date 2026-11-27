@@ -8,6 +8,7 @@ export default defineConfig({
     './src/accounts/adapters/persistence/auth-schema.ts',
     './src/company/adapters/persistence/tables.ts',
     './src/company/adapters/persistence/gitHubTables.ts',
+    './src/company/adapters/persistence/slackTables.ts',
   ],
   out: './drizzle',
 });

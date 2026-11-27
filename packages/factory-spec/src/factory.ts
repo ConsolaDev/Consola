@@ -668,3 +668,20 @@ export function storedFactoryFiles(
     outside: [],
   };
 }
+
+/**
+ * `factory.yml`'s `repos:` in a set of files, as `parseFactory` reads it from the same set
+ * (`storedFactoryFiles`): the repositories the factory works in, each `owner/name`, in the order
+ * written. The steps design reads it for a run-owned checkout, and an agent team for where a
+ * request that names no repository works (`AgentTeam.repositories`). None when the set has no
+ * `factory.yml`, or one `parseFactory` cannot read whole, or one whose `repos:` has a problem:
+ * `parseFactory` reports those, so this reports nothing. Never throws.
+ */
+export function factoryRepositories(
+  files: ReadonlyArray<{ path: string; content: string }>,
+): string[] {
+  const { factoryYml } = storedFactoryFiles(files.filter((file) => file.path === 'factory.yml'));
+  if (factoryYml === null) return [];
+  const read = guarded(() => parseFactoryYml(factoryYml));
+  return read.ok ? [...read.value.repos] : [];
+}
