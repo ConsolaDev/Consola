@@ -81,6 +81,7 @@ const COMPANY_ADAPTERS = [
   'company/adapters/token',
   'company/adapters/clock',
   'company/adapters/runner',
+  'company/adapters/host',
 ];
 const ACCOUNTS = ['accounts/domain', 'accounts/application', ...ACCOUNTS_ADAPTERS];
 const COMPANY = ['company/domain', 'company/application', ...COMPANY_ADAPTERS];
@@ -196,6 +197,15 @@ const LAYERS: Layer[] = [
   // The runners' channel and their socket, a route of its own (`hono`, `@hono/node-ws`): no
   // database, and no token library, since the pass is signed in `adapters/token`.
   adapter('company', 'company/adapters/runner', [
+    ...DATABASE_LIBRARIES,
+    ...AUTH_LIBRARIES,
+    ...TOKEN_LIBRARIES,
+  ]),
+
+  // The sessions' hosts over `fetch`, at the address a runner reported: no HTTP framework, no
+  // database, and no token library, since the pass is signed in `adapters/token`.
+  adapter('company', 'company/adapters/host', [
+    ...HTTP_LIBRARIES,
     ...DATABASE_LIBRARIES,
     ...AUTH_LIBRARIES,
     ...TOKEN_LIBRARIES,

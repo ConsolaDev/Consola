@@ -1,7 +1,7 @@
 // What the use cases need from the world outside, each implemented by an adapter.
 
 import type { WorkspaceRole } from '../../shared/workspaceRole.js';
-import type { AgentRun, Harness, PassClaims, Repository } from '@consola/runner-protocol';
+import type { AgentRun, FollowUp, Harness, PassClaims, Repository } from '@consola/runner-protocol';
 import type { CloudSession, CloudSessionStatus, RunnerIdentity } from '../domain/cloudSession.js';
 import type { Factory, FactoryChange, FactoryFile, FactoryVersion } from '../domain/factory.js';
 import type {
@@ -251,7 +251,10 @@ export type CloudSessionChanges = Partial<
 /** The app's record of its cloud sessions. Every method throws when the database does not answer. */
 export type CloudSessionStore = {
   insert(session: CloudSession): Promise<void>;
-  /** One session by id, whoever's. For the runner's updates, never for a person's request. */
+  /**
+   * One session by id, whoever's. For the runner's updates and the app's own follow-ups (which
+   * check the workspace), never for a person's request.
+   */
   find(sessionId: string): Promise<CloudSession | null>;
   /**
    * The session if `personId` sees it in `workspaceId` (`isSeenBy`): their own, or one of the
@@ -290,6 +293,25 @@ export type PassSigner = {
   sign(claims: PassClaims): Promise<string>;
 };
 
+/**
+ * What a session's host said of a follow-up: `delivered` now, or `already-delivered` under the
+ * same key; `not-ready` while its run's first message is not yet sent; `not-here` when the host
+ * at that address takes no follow-up for the session (it refused the pass, or runs no agent run);
+ * `failed` when it could not be reached in time, or answered anything else.
+ */
+export type HostFollowUpAnswer =
+  | 'delivered'
+  | 'already-delivered'
+  | 'not-ready'
+  | 'not-here'
+  | 'failed';
+
+/** How the app reaches a running session's host, at the address its runner reported. */
+export type HostChannel = {
+  /** Sends a follow-up with a pass for its author. Never throws: a failure is `failed`. */
+  sendFollowUp(hostUrl: string, pass: string, followUp: FollowUp): Promise<HostFollowUpAnswer>;
+};
+
 /** Everything the cloud session use cases need. */
 export type CloudSessionPorts = {
   sessions: CloudSessionStore;
@@ -298,7 +320,12 @@ export type CloudSessionPorts = {
   clock: Clock;
   /** Null when the app has no pass key: then it has no runner either, and issues no pass. */
   passes: PassSigner | null;
+  /** The sessions' hosts, for a follow-up to a running agent run (`sendFollowUp`). */
+  hosts: HostChannel;
 };
+
+/** What sending a follow-up needs: the sessions, the time, a pass for its author, and the host. */
+export type FollowUpPorts = Pick<CloudSessionPorts, 'sessions' | 'clock' | 'passes' | 'hosts'>;
 
 /** What a runner's messages need: the sessions, and the time. */
 export type RunnerUpdatePorts = Pick<CloudSessionPorts, 'sessions' | 'clock'>;

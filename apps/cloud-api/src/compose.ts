@@ -13,6 +13,7 @@ import { checkHealth as checkAccountsHealth } from './accounts/application/healt
 import { systemClock } from './company/adapters/clock/systemClock.js';
 import { createGitHubApp, loadGitHubAppKey } from './company/adapters/github/gitHubApp.js';
 import { createInstallStateSigner } from './company/adapters/github/installStateSigner.js';
+import { createHostChannel } from './company/adapters/host/hostChannel.js';
 import { createWebhookSignatures } from './company/adapters/github/webhookSignatures.js';
 import { COMPANY_ROUTES, registerCompanyRoutes } from './company/adapters/http/app.js';
 import { GITHUB_ROUTES, registerGitHubRoutes } from './company/adapters/http/gitHub.js';
@@ -130,6 +131,8 @@ export async function composeApi(
     ids: randomIds,
     clock: systemClock,
     passes: passKey?.signer ?? null,
+    // A running session's host, at the address its runner reported: a follow-up's way in.
+    hosts: createHostChannel(),
   };
 
   const app = createFrontDoor({ publicUrl: config.publicUrl, originExempt: ORIGIN_EXEMPT });
