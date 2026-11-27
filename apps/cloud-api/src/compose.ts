@@ -32,6 +32,7 @@ import { createSlackInstallStateSigner } from './company/adapters/slack/installS
 import { linkTokens } from './company/adapters/slack/linkTokens.js';
 import { createSlackApi } from './company/adapters/slack/slackApi.js';
 import type { RunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import { slackSignatures } from './company/adapters/slack/eventSignatures.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
 import { checkHealth as checkCompanyHealth } from './company/application/health.js';
@@ -65,6 +66,20 @@ export const ROUTES = [
  * Origin, and are signed instead.
  */
 export const ORIGIN_EXEMPT = ['/api/auth/', GITHUB_WEBHOOK_PATH, SLACK_EVENTS_PATH_PREFIX] as const;
+
+/**
+ * Runs work once the answer that started it is sent: on the next turn of the event loop, so the
+ * answer goes first. A task that throws is logged in one line, with nothing of what it held.
+ */
+const afterTheAnswer =
+  (report: (line: string) => void) =>
+  (task: () => Promise<void>): void => {
+    setImmediate(() => {
+      task().catch(() => {
+        report('Work after an answer failed, and said nothing of why.');
+      });
+    });
+  };
 
 /** The app, assembled. */
 export type Api = {
@@ -213,7 +228,24 @@ export async function composeApi(
       report,
     },
   });
-  registerSlackEventRoutes(app, { log: console });
+  // Each factory's Slack events: checked and recorded at once, and handled after the answer,
+  // since Slack wants one within three seconds.
+  registerSlackEventRoutes(app, {
+    slack: sealer
+      ? {
+          apps: slackStores.apps,
+          factories: company.factories,
+          events: slackStores.events,
+          sealer,
+          signatures: slackSignatures,
+          clock: systemClock,
+          later: afterTheAnswer(report),
+          // The requests a mention or a direct message starts come next.
+          handle: async () => {},
+        }
+      : null,
+    log: console,
+  });
 
   registerHealthRoute(app, [
     () => checkAccountsHealth(accounts.health),

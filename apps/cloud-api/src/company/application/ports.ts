@@ -90,6 +90,11 @@ export type FactoryStore = {
   /** One factory, or null when the workspace has no factory with that id. */
   get(workspaceId: string, factoryId: string): Promise<Factory | null>;
   /**
+   * The workspace that holds the factory, whichever it is, or null when no factory has that id:
+   * for Slack's events, which name a factory alone. The one call not scoped by a workspace.
+   */
+  workspaceOf(factoryId: string): Promise<string | null>;
+  /**
    * Makes a factory owned by the team, its files stored here, with a first version that holds no
    * files, saved by `personId`. `name-taken` when another factory of the workspace has the name,
    * in any case; `team-not-found` when the workspace has no such team.
