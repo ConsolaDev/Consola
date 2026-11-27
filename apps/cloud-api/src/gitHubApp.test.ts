@@ -215,27 +215,30 @@ describe('GitHub as a connection', () => {
       }
       if (route === 'GET https://api.github.com/installation/repositories') {
         const installation = headers.get('authorization')?.replace('Bearer ghs_installation_', '');
-        return Response.json({
-          total_count: 1,
-          repositories: [
-            {
-              id: Number(installation) * 10,
-              full_name: `sprocket/catalog-portal-${installation}`,
-              private: true,
-              html_url: `https://github.com/sprocket/catalog-portal-${installation}`,
-            },
-          ],
+        const repositories = Array.from({ length: repositoriesCovered }, (_, n) => {
+          const name = `sprocket/catalog-portal-${installation}${n === 0 ? '' : `-${n}`}`;
+          return {
+            id: Number(installation) * 10 + n,
+            full_name: name,
+            private: true,
+            html_url: `https://github.com/${name}`,
+          };
         });
+        return Response.json({ total_count: repositories.length, repositories });
       }
       throw new Error(`The test made an unexpected request to ${method} ${url}`);
     });
   }
+
+  /** How many repositories GitHub says each installation covers. */
+  let repositoriesCovered: number;
 
   beforeEach(async () => {
     reachable = {};
     membersOnly = new Set();
     membersOnlyOf = new Set();
     gitHubDown = false;
+    repositoriesCovered = 1;
     await start(withGitHubApp());
     fakeGitHub();
   });
@@ -1190,6 +1193,56 @@ describe('GitHub as a connection', () => {
       status: 403,
       body: { error: 'not_a_member' },
     });
+  });
+
+  it('lists what GitHub says now once GitHub reports the installation changed, inside the minute', async () => {
+    await restart({ ...withGitHubApp(), GITHUB_WEBHOOK_SECRET: WEBHOOK_SECRET });
+    const dana = await harness.member('owner');
+    reachable = { 'dana-code': [sprocketOrg] };
+    expect((await connect(dana.headers, 41, 'dana-code')).result).toBe('connected');
+
+    const repositoryNames = async () => {
+      const listed = await get('/api/connections', dana.headers);
+      const [installation] = listed.body.github.installations;
+      return installation.repositories.repositories.map(
+        (each: { fullName: string }) => each.fullName,
+      );
+    };
+    const mints = () =>
+      seen.filter((call) => call.url.endsWith('/app/installations/41/access_tokens')).length;
+
+    repositoriesCovered = 2;
+    expect(await repositoryNames()).toEqual([
+      'sprocket/catalog-portal-41',
+      'sprocket/catalog-portal-41-1',
+    ]);
+    // The person removes a repository on GitHub. Within the minute, the list read stands.
+    repositoriesCovered = 1;
+    expect(await repositoryNames()).toHaveLength(2);
+    expect(mints()).toBe(1);
+
+    // GitHub reports it: the next read asks GitHub again, with a new token.
+    const body = JSON.stringify({
+      action: 'removed',
+      installation: { id: 41 },
+      repositories_removed: [{ id: 411, full_name: 'sprocket/catalog-portal-41-1' }],
+    });
+    const delivered = await harness.app.request('/api/github/webhooks', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-github-event': 'installation_repositories',
+        'x-github-delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0958',
+        'x-hub-signature-256': `sha256=${createHmac('sha256', WEBHOOK_SECRET).update(body).digest('hex')}`,
+      },
+      body,
+    });
+    expect(await answerOf('POST', '/api/github/webhooks', delivered)).toEqual({
+      status: 201,
+      body: { result: 'recorded' },
+    });
+    expect(await repositoryNames()).toEqual(['sprocket/catalog-portal-41']);
+    expect(mints()).toBe(2);
   });
 
   it('disconnecting removes the record, and leaves the app installed on GitHub', async () => {

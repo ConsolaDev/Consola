@@ -494,6 +494,12 @@ export function createGitHubApp(deps: {
       });
     },
 
+    forgetInstallation(installationId) {
+      // A token minted before the change may not reach what the installation covers now.
+      installationTokens.delete(installationId);
+      repositoriesRead.delete(installationId);
+    },
+
     async repositoriesOf(installationId) {
       const what = `listing installation ${installationId}'s repositories`;
       const read = repositoriesRead.get(installationId);

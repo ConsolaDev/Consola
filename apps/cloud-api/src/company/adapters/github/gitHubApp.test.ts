@@ -513,6 +513,58 @@ describe("an installation's repositories", () => {
     expect(listed).toBe(2);
   });
 
+  it('lists again with a new token once told the installation changed, inside the minute', async () => {
+    let listed = 0;
+    let covered = [repository(1, 'sprocket/catalog-portal'), repository(2, 'sprocket/api')];
+    const { github, minted } = gitHubWith(() => {
+      listed += 1;
+      return Response.json({ total_count: covered.length, repositories: covered });
+    });
+    let now = NOW;
+    const { app } = appFor(github, () => now);
+
+    const before = await app.repositoriesOf(41);
+    expect(before.kind === 'listed' && before.repositories).toHaveLength(2);
+
+    // GitHub reports the installation now covers one repository: within the minute, and with a
+    // token that has an hour left, the list is read again, with a new token.
+    covered = [repository(2, 'sprocket/api')];
+    now += 10_000;
+    app.forgetInstallation(41);
+    const after = await app.repositoriesOf(41);
+    expect(after).toEqual({
+      kind: 'listed',
+      repositories: [
+        { id: 2, fullName: 'sprocket/api', private: true, url: 'https://github.com/sprocket/api' },
+      ],
+    });
+    expect(listed).toBe(2);
+    expect(minted()).toBe(2);
+    const lists = github.calls.filter((call) => call.url.pathname === '/installation/repositories');
+    expect(lists.map((call) => call.headers.get('authorization'))).toEqual([
+      'Bearer ghs_installation_1',
+      'Bearer ghs_installation_2',
+    ]);
+
+    // Then the new list is reused for its minute, as any is.
+    await app.repositoriesOf(41);
+    expect(listed).toBe(2);
+  });
+
+  it('forgets only the installation it is told of', async () => {
+    let listed = 0;
+    const { github, minted } = gitHubWith(() => {
+      listed += 1;
+      return Response.json({ total_count: 0, repositories: [] });
+    });
+    const { app } = appFor(github);
+    await app.repositoriesOf(41);
+    app.forgetInstallation(52);
+    await app.repositoriesOf(41);
+    expect(listed).toBe(1);
+    expect(minted()).toBe(1);
+  });
+
   it('drops a token GitHub stops taking', async () => {
     let refuse = true;
     const { github, minted } = gitHubWith(() =>

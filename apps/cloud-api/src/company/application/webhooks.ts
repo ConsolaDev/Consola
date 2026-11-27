@@ -1,7 +1,17 @@
-import { installationOfEvent, PING_EVENT, readDeliveryHeaders } from '../domain/webhooks.js';
+import {
+  changesInstallation,
+  installationOfEvent,
+  PING_EVENT,
+  readDeliveryHeaders,
+} from '../domain/webhooks.js';
 import type { GitHubEvent } from '../domain/webhooks.js';
 import { startAgentRunsFor } from './agentRuns.js';
-import type { GitHubEventStore, InstallationStore, WebhookSignatures } from './gitHubPorts.js';
+import type {
+  GitHubApp,
+  GitHubEventStore,
+  InstallationStore,
+  WebhookSignatures,
+} from './gitHubPorts.js';
 import type { AgentRunPorts } from './ports.js';
 
 /** One webhook delivery, as GitHub sent it: the body's bytes and the headers that matter. */
@@ -124,6 +134,12 @@ export async function recordGitHubEvent(
  * the workspace had already, sent again or replayed, is a `duplicate`, and changes nothing. An
  * event recorded now starts the agent runs it fires (`recordGitHubEvent`), which never changes
  * the outcome. A database that does not answer, for the holder or the record, is `unavailable`.
+ *
+ * An event that says its installation changed (`changesInstallation`: `installation` or
+ * `installation_repositories`, any action) makes the GitHub App forget what it keeps of that
+ * installation, its repositories and its token, as soon as the installation is read and before
+ * anything is recorded, whether or not a workspace holds it: Connections then lists what GitHub
+ * says now, rather than what it said up to a minute before.
  */
 export async function receiveGitHubWebhook(
   ports: {
@@ -132,6 +148,8 @@ export async function receiveGitHubWebhook(
     installations: InstallationStore;
     events: GitHubEventStore;
     agentRuns?: AgentRunPorts;
+    /** What forgets an installation that changed; null or left out when the app is not configured. */
+    github?: Pick<GitHubApp, 'forgetInstallation'> | null;
   },
   sent: WebhookDelivery,
 ): Promise<WebhookOutcome> {
@@ -149,6 +167,7 @@ export async function receiveGitHubWebhook(
 
   const installationId = installationOfEvent(body.payload);
   if (installationId === null) return { kind: 'no-installation', delivery };
+  if (changesInstallation(delivery.event)) ports.github?.forgetInstallation(installationId);
   let workspaceId: string | null;
   try {
     workspaceId = await installations.holderOf(installationId);

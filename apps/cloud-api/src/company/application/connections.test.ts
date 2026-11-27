@@ -105,6 +105,7 @@ function fakeGitHub(
       used.add(code);
       return { kind: 'read', installations: reachable.map(factsOf) };
     },
+    forgetInstallation: () => {},
     async repositoriesOf(installationId) {
       if (installationId === acmeOrg.id) return { kind: 'gone' };
       return {

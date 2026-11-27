@@ -103,8 +103,15 @@ export type GitHubApp = {
    */
   installationsOf(code: string): Promise<PersonAnswer<{ installations: InstallerFacts[] }>>;
   /**
-   * The repositories an installation covers, as GitHub says now. An installation GitHub no
-   * longer has (uninstalled, or suspended) is `gone`.
+   * Forgets what is kept of one installation: its repositories as last listed, and the
+   * installation token they were listed with. The next `repositoriesOf` asks GitHub again, with
+   * a new token. Called when GitHub reports that the installation changed. It never throws.
+   */
+  forgetInstallation(installationId: number): void;
+  /**
+   * The repositories an installation covers, as GitHub says now, or as it said less than a
+   * minute ago, unless the installation was forgotten since (`forgetInstallation`). An
+   * installation GitHub no longer has (uninstalled, or suspended) is `gone`.
    */
   repositoriesOf(
     installationId: number,

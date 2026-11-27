@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import { bodyLimit } from 'hono/body-limit';
 import type {
+  GitHubApp,
   GitHubEventStore,
   InstallationStore,
   WebhookSignatures,
@@ -69,6 +70,8 @@ export type WebhookRouteDeps = {
   events: GitHubEventStore;
   /** What starting an event's agent runs needs; left out, an event starts none. */
   agentRuns?: AgentRunPorts;
+  /** The GitHub App, which forgets an installation GitHub says changed; null when not configured. */
+  github?: Pick<GitHubApp, 'forgetInstallation'> | null;
   log: WebhookLog;
 };
 
@@ -81,7 +84,7 @@ export type WebhookRouteDeps = {
  * before anything else. Each outcome is logged in one line, and answered with its status.
  */
 export function webhookRoutes(app: OpenAPIHono, deps: WebhookRouteDeps): void {
-  const { signatures, installations, events, agentRuns, log } = deps;
+  const { signatures, installations, events, agentRuns, github, log } = deps;
 
   const size = bodyLimit({
     maxSize: GITHUB_PAYLOAD_MAX_BYTES,
@@ -93,7 +96,7 @@ export function webhookRoutes(app: OpenAPIHono, deps: WebhookRouteDeps): void {
 
   app.openapi({ ...postGitHubWebhook, middleware: [size] as const }, async (c) => {
     const outcome = await receiveGitHubWebhook(
-      { signatures, installations, events, agentRuns },
+      { signatures, installations, events, agentRuns, github },
       {
         body: new Uint8Array(await c.req.arrayBuffer()),
         signature: c.req.header('x-hub-signature-256'),

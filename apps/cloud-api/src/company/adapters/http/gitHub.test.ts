@@ -81,8 +81,14 @@ const github: GitHubApp = {
           })),
         }
       : { kind: 'code-refused' },
+  forgetInstallation: (installationId) => {
+    forgotten.push(installationId);
+  },
   repositoriesOf: async () => ({ kind: 'listed', repositories: [] }),
 };
+
+/** The installations the GitHub App was told to forget, in order. */
+const forgotten: number[] = [];
 
 const SIGNING_SECRET = 'sprocket-test-secret-that-is-long-enough-to-sign-with';
 
@@ -134,6 +140,7 @@ beforeEach(async () => {
   ]);
   reachable = [];
   lines.length = 0;
+  forgotten.length = 0;
   app = build();
 });
 
@@ -479,6 +486,21 @@ describe("GitHub's routes", () => {
         'Recorded GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 (pull_request) for workspace sprocket (installation 41).',
         'Refused GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 (pull_request): workspace sprocket (installation 41) had it already.',
       ]);
+    });
+
+    it('has the GitHub App forget an installation GitHub says changed, and no other', async () => {
+      await post(signed(pullRequest));
+      expect(forgotten).toEqual([]);
+
+      const removed = JSON.stringify({ action: 'removed', installation: { id: 41 } });
+      const answer = await post(
+        signed(removed, {
+          'x-github-event': 'installation_repositories',
+          'x-github-delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0959',
+        }),
+      );
+      expect(await declared(postGitHubWebhook, answer)).toEqual({ result: 'recorded' });
+      expect(forgotten).toEqual([41]);
     });
 
     it("answers GitHub's ping with 200", async () => {

@@ -263,12 +263,14 @@ export function registerGitHubRoutes(app: OpenAPIHono, deps: GitHubRouteDeps): v
   });
 
   // GitHub's webhooks: GitHub sends no Origin and no cookie, and the signature over the body is
-  // what says a delivery is GitHub's.
+  // what says a delivery is GitHub's. An installation GitHub says changed is forgotten by the
+  // app that lists its repositories, so Connections reads GitHub again.
   webhookRoutes(app, {
     signatures: deps.webhooks.signatures,
     installations,
     events: deps.webhooks.events,
     agentRuns: deps.webhooks.agentRuns,
+    github,
     log: deps.webhooks.log ?? console,
   });
 }
