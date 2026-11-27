@@ -204,6 +204,71 @@ end of its settings page's address). `--pull-request-json <file>` reads the
 pull request, or a whole payload GitHub sent, from a file instead of `gh`;
 `--action`, `--api-url` and `--env` are in `AGENTS.md`, "Agent runs".
 
+## Connect a factory to Slack
+
+Each factory has a Slack app of its own, with its own name and `@handle`
+("Cloud · Design: Slack as a Connection (CON-144)",
+https://linear.app/consola/document/cloud-design-slack-as-a-connection-con-144-b235f62bdf94).
+A workspace's owners and admins set it up from the factory's settings; every
+member who sees the factory sees where it stands. Slack calls the API at two
+addresses, both on Slack's public address: the factory's events
+(`/api/slack/events/<factory id>`) and the redirect after "Add to Slack"
+(`/api/slack/oauth/callback`).
+
+1. **The key.** Slack is off until `CONNECTION_SECRETS_KEY` is set ("The
+   connection secrets key", below): the API seals each app's client secret,
+   signing secret and bot token with it.
+
+2. **The tunnel.** Slack has to reach the API, which `localhost` is not. Start
+   the tunnel ("Receive GitHub's webhooks", step 2), which prints Slack's two
+   URLs too:
+
+   ```bash
+   pnpm --filter @consola/cloud-api webhooks:tunnel
+   ```
+
+   Put its address in `.env` as `SLACK_PUBLIC_URL=https://<tunnel address>`
+   and restart `pnpm dev:cloud`. Every factory's manifest names that address.
+   Without it, the manifest names `PUBLIC_URL`, which is right once the API
+   is served on the web app's own public address. A quick tunnel's address is
+   new each time it starts, so an app made from an older one needs its
+   Request URL (Event Subscriptions) and Redirect URL (OAuth & Permissions)
+   set again in Slack, as the script says; a named tunnel keeps its address.
+
+3. **Create the app in Slack.** In the factory's settings, under Slack, the
+   button opens Slack's "create an app from a manifest" page with the
+   factory's manifest filled in (`GET /api/factories/<id>/slack` answers it,
+   with the URL). Pick the Slack workspace and press Create. Creating an app
+   may need a Slack admin.
+
+4. **Paste the app's credentials.** From the app's Basic Information page,
+   App Credentials: the Client ID, the Client Secret and the Signing Secret
+   (`PUT /api/factories/<id>/slack/credentials`). The secrets are sealed and
+   never shown again.
+
+5. **Add to Slack.** The button sends the browser to Slack's authorise page
+   (`POST /api/factories/<id>/slack/install`). Slack sends it back to the
+   callback, on the tunnel's address, which needs no session: the state it
+   carries is signed for the workspace, the factory and the person, for ten
+   minutes. The API exchanges the code for the bot token with the app's own
+   credentials, keeps the token sealed, and sends the browser to the
+   factory's settings with `?slack=<result>` (`installed`, or why not).
+
+Then invite the bot to the channels it should listen in: `/invite @<handle>`.
+Disconnect (`DELETE /api/factories/<id>/slack`) revokes the bot token and
+forgets everything kept for the app; the app itself stays in Slack until it
+is deleted on its page there (`https://api.slack.com/apps/<app id>`).
+
+A person links their Slack account to theirs once. When someone not linked
+yet mentions or DMs a factory's bot, the bot sends them, and only them, a
+one-time link, `<PUBLIC_URL>/#/slack/link/<token>`, which works once for 15
+minutes. They open it signed in, in the workspace it names, and confirm
+(`POST /api/slack/link-requests/<token>`); the bot then says "You're linked.
+Send your request again." Each person sees and removes their own links
+(`GET /api/slack/links`, `DELETE /api/slack/links/<id>`). Consola keeps no
+Slack name or email: only the Slack workspace's and user's ids and the
+person's.
+
 ## Teams, factories and runs
 
 Every route below takes the session cookie, as the web app sends it, and

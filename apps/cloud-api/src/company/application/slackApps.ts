@@ -120,13 +120,15 @@ async function revokeQuietly(
   const token = sealed === null ? null : ports.sealer.open(sealed);
   const what = `factory ${app.factoryId} (workspace ${app.workspaceId})`;
   if (token === null) {
-    if (sealed !== null)
+    if (sealed !== null) {
       ports.report(`Could not revoke the Slack bot token of ${what}: it does not open.`);
+    }
     return;
   }
   const answer = await ports.slack.authRevoke(token);
-  if (!answer.ok)
+  if (!answer.ok) {
     ports.report(`Slack did not revoke the bot token of ${what}: ${wordsOf(answer.error)}.`);
+  }
 }
 
 /** A Slack error in words for a log line: Slack's code, or why it could not be asked. */

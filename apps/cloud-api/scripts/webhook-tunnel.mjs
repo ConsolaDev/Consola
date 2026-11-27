@@ -1,14 +1,16 @@
-// Brings GitHub's webhooks to the API on this machine through a Cloudflare tunnel, and says what
-// to set on the GitHub App. Run it beside `pnpm dev:cloud`:
+// Brings GitHub's webhooks and Slack's events to the API on this machine through a Cloudflare
+// tunnel, and says what to set on the GitHub App and on each factory's Slack app. Run it beside
+// `pnpm dev:cloud`:
 //
 //   pnpm --filter @consola/cloud-api webhooks:tunnel
 //
 // By default it starts a quick tunnel (no Cloudflare account), whose address is new each time it
 // starts, so the App's webhook URL has to be set again after every start. With
 // CLOUDFLARE_TUNNEL_NAME and CLOUDFLARE_TUNNEL_HOSTNAME set, it runs that named tunnel instead,
-// whose address stays put. It reads apps/cloud-api/.env, as the API does, for PORT and to say
-// whether GITHUB_WEBHOOK_SECRET is set; it never prints the secret. README.md, "Receive GitHub's
-// webhooks", has the whole set-up.
+// whose address stays put. It reads apps/cloud-api/.env, as the API does, for PORT, to say
+// whether GITHUB_WEBHOOK_SECRET and CONNECTION_SECRETS_KEY are set, and whether SLACK_PUBLIC_URL
+// is the tunnel's address; it never prints a secret. README.md, "Receive GitHub's webhooks" and
+// "Connect a factory to Slack", has the whole set-up.
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -19,6 +21,10 @@ if (existsSync(ENV_FILE)) process.loadEnvFile(ENV_FILE);
 // The route the App's webhook URL ends in (`GITHUB_WEBHOOK_PATH`, in
 // src/company/adapters/http/gitHubContract.ts).
 const WEBHOOK_PATH = '/api/github/webhooks';
+// Slack's request URL for a factory, and its redirect after "Add to Slack" (`slackEventsPath` and
+// `SLACK_OAUTH_CALLBACK_PATH`, in src/company/domain/slack.ts).
+const SLACK_EVENTS_PATH = '/api/slack/events/<factory id>';
+const SLACK_CALLBACK_PATH = '/api/slack/oauth/callback';
 const port = process.env.PORT || '3100';
 const origin = `http://127.0.0.1:${port}`;
 const named = process.env.CLOUDFLARE_TUNNEL_NAME?.trim() ?? '';
@@ -39,7 +45,25 @@ const secretLine =
     : `  Secret:      ${secret === '' ? 'none yet' : 'the one set is under 32 characters'}. Make one with \`openssl rand -hex 32\`, put it in apps/cloud-api/.env as\n` +
       '               GITHUB_WEBHOOK_SECRET=<it>, restart `pnpm dev:cloud`, and paste the same value here';
 
-/** Says, once, what to set on the GitHub App for the tunnel at `address`. */
+/** What Slack needs of the tunnel at `address`: the API's settings, then each app's. */
+function slackLines(address) {
+  const slackUrl = process.env.SLACK_PUBLIC_URL?.trim().replace(/\/$/, '') ?? '';
+  const keySet = (process.env.CONNECTION_SECRETS_KEY ?? '') !== '';
+  return [
+    `Slack's events and its redirect after "Add to Slack" reach ${origin} through ${address} too.`,
+    slackUrl === address
+      ? "  SLACK_PUBLIC_URL is this address: each factory's manifest names it."
+      : `  Set SLACK_PUBLIC_URL=${address} in apps/cloud-api/.env and restart \`pnpm dev:cloud\`, so each factory's manifest names it.`,
+    keySet
+      ? '  CONNECTION_SECRETS_KEY is set (not shown).'
+      : '  CONNECTION_SECRETS_KEY is not set, so Slack is off: make one with `pnpm --filter @consola/cloud-api secrets-key:generate`.',
+    "On each factory's Slack app (api.slack.com/apps, your app), if it was made from an older address:",
+    `  Event Subscriptions, Request URL: ${address}${SLACK_EVENTS_PATH}`,
+    `  OAuth & Permissions, Redirect URL: ${address}${SLACK_CALLBACK_PATH}`,
+  ];
+}
+
+/** Says, once, what to set on the GitHub App and the Slack apps for the tunnel at `address`. */
 function announce(address) {
   console.log(
     [
@@ -50,9 +74,13 @@ function announce(address) {
       `  Webhook URL: ${address}${WEBHOOK_PATH}`,
       secretLine,
       'Then, under Permissions & events, subscribe to the events you want (Pull request, Push), and',
-      'press Redeliver on any delivery under Advanced to send it again. Ctrl+C stops the tunnel.',
+      'press Redeliver on any delivery under Advanced to send it again.',
+      '',
+      ...slackLines(address),
+      '',
+      'Ctrl+C stops the tunnel.',
       named === ''
-        ? 'This is a quick tunnel: its address changes each time it starts, so set the URL again then.'
+        ? 'This is a quick tunnel: its address changes each time it starts, so set these URLs again then.'
         : '',
       '',
     ].join('\n'),

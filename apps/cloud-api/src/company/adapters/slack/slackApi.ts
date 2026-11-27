@@ -1,10 +1,5 @@
 import { z } from 'zod';
-import type {
-  SlackAnswer,
-  SlackApi,
-  SlackBlock,
-  SlackError,
-} from '../../application/slackPorts.js';
+import type { SlackAnswer, SlackApi, SlackError } from '../../application/slackPorts.js';
 
 /** Slack's Web API. */
 export const SLACK_API_URL = 'https://slack.com/api';
@@ -120,7 +115,6 @@ export function createSlackApi(deps: { fetch?: Fetch; baseUrl?: string } = {}): 
   }
 
   const bearer = (token: string) => `Bearer ${token}`;
-  const blocksOf = (blocks: SlackBlock[] | undefined) => (blocks ? { blocks } : {});
 
   return {
     oauthAccess: ({ clientId, clientSecret, code, redirectUri }) =>
@@ -168,8 +162,9 @@ export function createSlackApi(deps: { fetch?: Fetch; baseUrl?: string } = {}): 
           body: {
             channel: message.channel,
             text: message.text,
-            ...blocksOf(message.blocks),
-            ...(message.threadTs ? { thread_ts: message.threadTs } : {}),
+            // JSON leaves out what is undefined.
+            blocks: message.blocks,
+            thread_ts: message.threadTs || undefined,
           },
         },
         PostMessage,
@@ -185,8 +180,9 @@ export function createSlackApi(deps: { fetch?: Fetch; baseUrl?: string } = {}): 
             channel: message.channel,
             user: message.user,
             text: message.text,
-            ...blocksOf(message.blocks),
-            ...(message.threadTs ? { thread_ts: message.threadTs } : {}),
+            // JSON leaves out what is undefined.
+            blocks: message.blocks,
+            thread_ts: message.threadTs || undefined,
           },
         },
         PostEphemeral,
