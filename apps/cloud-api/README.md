@@ -89,7 +89,9 @@ GitHub Apps, New GitHub App), separate from the one a deployment uses: an app
 has one webhook address, so each environment needs its own.
 
 - **Callback URL:** `http://localhost:5175/api/github/callback`, the web app's
-  address, so the redirect back carries your session cookie.
+  address, so the redirect back carries your session cookie. It is the first
+  (and only) callback URL: Connect's sign-in names none, so GitHub sends you
+  back to the first.
 - **Request user authorization (OAuth) during installation:** on. The
   `installation_id` in GitHub's redirect can be forged, so Consola exchanges
   the redirect's one-time code for your GitHub token, checks with GitHub that
@@ -114,10 +116,30 @@ the repository: `.gitignore` covers `.env` files, not keys).
 
 Connect only from Consola. An installation made on GitHub directly is never
 recorded for a workspace: Connect sends GitHub a state only your session can
-finish with. If the app is already installed on an account, Connect takes you
-to its settings on GitHub, and saving them there brings you back connected.
-Disconnecting removes Consola's record only; the app stays installed on GitHub
-until you uninstall it there, which the page links to.
+finish with. Connect starts with GitHub's sign-in for the app
+(`github.com/login/oauth/authorize`), which always sends you back:
+
+- If you own accounts (your own, or organisations you are an owner of) that
+  have the app installed already, and no workspace holds those installations,
+  the Connections page lists them: press **Connect** beside the one to connect,
+  or **Install on another account**.
+- If you own none, you go on to the app's install page, and GitHub sends you
+  back connected once you install it on an account.
+
+Connect never sends you to an existing installation's settings on GitHub to
+save: GitHub would not send you back. It redirects after an installation is
+changed only to a Setup URL with "Redirect on update" ticked, and an app that
+requests user authorization during installation, as Consola's must, cannot
+have a Setup URL ([GitHub Docs: About the setup URL](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-setup-url)).
+Change which repositories an installation covers on GitHub, from the page's
+"Choose repositories" link, once it is connected. Disconnecting removes
+Consola's record only; the app stays installed on GitHub until you uninstall
+it there, which the page links to.
+
+To try the existing-installation path locally: install the development app on
+your account from `github.com/apps/<slug>` directly (Consola records nothing
+for it), then press Connect in Settings → Connections. GitHub signs you in and
+sends you back to the page, which offers that account.
 
 Every token the API mints for a workspace's work is recorded
 (`github_token_mint`), never the token itself. Minting needs the app's

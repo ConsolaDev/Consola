@@ -25,8 +25,9 @@ The app is built in layers, and imports point inward only.
   failed sign-in or sign-out, for each problem with a new workspace, a taken
   slug, a failed switch, an icon not set and the create form's hints;
   connections (`connections.ts`: the answers of `/api/connections`, a
-  Connect's results, the services that come later) and their sentences
-  (`connectionMessages.ts`); why what a workspace holds could not be read,
+  Connect's results and what the callback sent the page back with,
+  `readGitHubReturn`, the choice of an installation and its answers, the
+  services that come later) and their sentences (`connectionMessages.ts`); why what a workspace holds could not be read,
   and its sentence (`refusal.ts`: `Refusal`, `messageForRefusal`); teams (`teams.ts`:
   `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`, `addableTo`,
   `TeamsState`, `TeamChange`) and their sentences (`teamMessages.ts`);
@@ -73,7 +74,8 @@ The app is built in layers, and imports point inward only.
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
   `switchWorkspace`, `setWorkspaceIcon`, `loadConnections`,
-  `startGitHubConnect`, `disconnectGitHub`, through `createApi`, an
+  `startGitHubConnect`, `loadGitHubChoice`, `connectChosenGitHub`,
+  `disconnectGitHub`, through `createApi`, an
   `openapi-fetch` client typed by the contract), what a workspace holds
   (`workspaceCalls.ts`: `workspaceCalls`, the way every service of a
   workspace's calls the API, naming the workspace and reading the caller's
@@ -85,7 +87,7 @@ The app is built in layers, and imports point inward only.
   (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
   `openHash`, `replaceHash`, `onHashChange`; `settingsAddress.ts`:
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
-  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`; `runsAddress.ts`:
+  `gitHubRedirect.ts`: `takeGitHubReturn`, `goToGitHub`; `runsAddress.ts`:
   `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`,
   `showRunPlace`), whether the
   page is in view (`pageVisibility.ts`), and the browser's storage, for a
@@ -739,7 +741,7 @@ under a topbar of their own.
   first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
   the hash only. A page sent back with a result before the hash (sign-in's
-  `?error=`, GitHub's `?github=`) reads and clears it in its own service, with
+  `?error=`, GitHub's `?github=` and `&choice=`) reads and clears it in its own service, with
   `history.replaceState` of `pathname + search + hash`, which keeps the
   section.
 - **Every member sees every section.** What a person may do on a page is the
@@ -878,18 +880,36 @@ and Disconnect only when the server says `canManage`, and the server refuses
 anyone else whatever the page shows.
 
 - **Every call names the workspace the page shows** (`loadConnections`,
-  `startGitHubConnect` and `disconnectGitHub` take it), as every call about
-  what a workspace holds does (see "What a workspace holds"). A load refused
-  for another workspace, none, or one the person left is `switched`; a
-  Connect or Disconnect refused so is `unavailable`, and changes nothing.
-- **Connect** asks the server for the install address and sends the person
-  there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
-  them back through the API's callback to
-  `/?github=<result>#/settings/connections`, an address the two keep in step
-  (`CONNECTIONS_PAGE` in `cloud-api`). The page reads the result once as it
-  mounts (`takeGitHubResult`), clears it from the address and says it
-  (`messageForGitHubResult`). A result it does not know is `unknown`, never
-  shown raw.
+  `startGitHubConnect`, `loadGitHubChoice`, `connectChosenGitHub` and
+  `disconnectGitHub` take it), as every call about what a workspace holds
+  does (see "What a workspace holds"). A load refused for another workspace,
+  none, or one the person left is `switched`; a Connect, a choice made or a
+  Disconnect refused so is `unavailable`, and changes nothing.
+- **Connect** asks the server where to go and sends the person to GitHub's
+  sign-in for the app (`url`, through `goToGitHub`), only if it is on
+  `https://github.com`; the answer's install page (`installUrl`) is checked
+  the same way. It starts with the sign-in, not the install page, because
+  GitHub sends no one back from an existing installation's settings
+  (`apps/cloud-api/AGENTS.md`, "Connections"). GitHub sends them back through
+  the API's callback to `/?github=<result>#/settings/connections`, an address
+  the two keep in step (`CONNECTIONS_PAGE` in `cloud-api`). The page reads it
+  once as it mounts (`takeGitHubReturn`), clears `github` and `choice` from
+  the address and says the result (`messageForGitHubResult`). A result it
+  does not know is `unknown`, never shown raw.
+- **A choice of account** (`?github=choose&choice=<signed choice>`): the
+  person signed in and owns accounts with the app installed already, which no
+  workspace holds. The page reads them from the API (`loadGitHubChoice`) and
+  shows them as a group above GitHub's, drawn as Connected is (GitHub, then
+  each account under it with **Connect <account>**, `connectAccountLabel`),
+  with **Install on another account** last, which goes to the install page
+  (`installUrl`), and Not now, which drops the choice. Choosing one sends it
+  back (`connectChosenGitHub`); connected, the choice goes and the page's
+  notice says `connected` (or `already_connected`) and marks the account, as
+  a fresh install's does. Every refusal (`messageForChoiceFailure`: another
+  session's, too late, for another workspace, no longer an owner or admin,
+  not offered, taken meanwhile) is said in the page's voice; one that comes
+  as the choice is read stands in the group's place, as a notice. A
+  `choose` with no choice is a Connect that did not finish.
 - **Disconnect** asks first, in place, never with a browser dialog, and says
   that the app stays installed on GitHub. Each installation links to its
   settings there (`settingsUrl`).

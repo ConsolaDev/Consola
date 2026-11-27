@@ -176,9 +176,12 @@ Each part is built in rings, and imports point inward only.
   (`caller.ts`: `admitCaller`, `Caller`), teams (`team.ts`), factories
   (`factory.ts`) and their templates (`factoryTemplates.ts`), runs (`run.ts`,
   `runApproval.ts`, `runSource.ts`), cloud sessions (`cloudSession.ts`),
-  agent runs (`agentRun.ts`), and GitHub: who may connect it and whether a
-  Connect's state finishes in this session (`connections.ts`:
-  `mayManageConnections`, `checkInstallState`), what a webhook delivery's
+  agent runs (`agentRun.ts`), and GitHub: who may connect it, whether a
+  Connect's state finishes in this session, which installations a person
+  administers and whether a choice of them is this session's to make
+  (`connections.ts`: `mayManageConnections`, `checkInstallState`,
+  `checkInstaller`, `administeredInstallations`, `newInstallChoice`,
+  `checkInstallChoice`, `candidateOf`), what a webhook delivery's
   headers name and the installation its payload came through (`webhooks.ts`:
   `readDeliveryHeaders`, `installationOfEvent`), and what each GitHub token's
   purpose may have and whether GitHub granted it (`gitHubTokens.ts`:
@@ -191,12 +194,14 @@ Each part is built in rings, and imports point inward only.
   sessions' `sessionOptions`, `startSession`, `listSessions`, `getSession`,
   `stopSession`, `applyRunnerUpdate` and `issuePass`; a runner's
   `runnerConnected`, in `runners.ts`; and GitHub's `listConnections`,
-  `startGitHubInstall`, `finishGitHubInstall`, `disconnectGitHub`,
-  `receiveGitHubWebhook` and `mintGitHubToken`. `ports.ts` holds the stores,
+  `startGitHubInstall`, `finishGitHubInstall`, `readGitHubChoice`,
+  `connectChosenInstallation`, `disconnectGitHub`, `receiveGitHubWebhook` and
+  `mintGitHubToken`. `ports.ts` holds the stores,
   the probes, the `MembershipReader`, the `TeamStore`, the `FactoryStore`, the
   `RunStore`, the `CloudSessionStore`, the `RunnerChannel`, the `PassSigner`,
   `Ids`, the `Clock` and the `AgentRunPorts`; `gitHubPorts.ts` holds GitHub's:
-  the GitHub App, the Connect state's signer, the webhook signatures, the
+  the GitHub App, the Connect state's signer and the choice's
+  (`InstallChoiceSigner`), the webhook signatures, the
   installation and token-mint stores, and the `GitHubEventStore`. A use case
   is a plain function that takes its ports first.
 - `company/adapters/` implements the ports with a library, one folder each:
@@ -214,9 +219,11 @@ Each part is built in rings, and imports point inward only.
     route asks a use case and maps its answer to a status and a body;
   - `github/` is GitHub's REST API over `fetch`, and `node:crypto`: the app
     (`gitHubApp.ts`, which reads the app's `.pem` with `loadGitHubAppKey`),
-    the signed state of a Connect (`installStateSigner.ts`) and the webhook
-    signature check (`webhookSignatures.ts`). It is the only code that holds
-    the GitHub App's private key, client secret and webhook secret;
+    the signed state of a Connect (`installStateSigner.ts`) and choice of
+    installation (`installChoiceSigner.ts`), each on `createSignedTokens`
+    (`signedTokens.ts`) under a key of its own, and the webhook signature
+    check (`webhookSignatures.ts`). It is the only code that holds the GitHub
+    App's private key, client secret and webhook secret;
   - `token/` is jose: the `PassSigner`, on the app's pass key, with the public
     half it derives (`passSigner.ts`);
   - `clock/` is the machine's clock, the `Clock`;
@@ -308,7 +315,7 @@ Each part is built in rings, and imports point inward only.
       never imports `hono` or a database library;
     - `adapters/github` never imports `hono`, a database library or `jose`. It
       signs its app token with `node:crypto`, and reaches the routes only as
-      the `GitHubApp` and `InstallStateSigner` ports;
+      the `GitHubApp`, `InstallStateSigner` and `InstallChoiceSigner` ports;
     - `adapters/clock` imports no package;
     - `adapters/runner` may import `hono` and `@hono/*` (`@hono/node-ws`),
       since the runner's socket is a route, and never a database library or
@@ -619,12 +626,27 @@ sees what is connected; owners and admins connect and disconnect
 optional together (`config.ts`, `readGitHubApp`): with none set, `github` is
 null, the routes say so, and the service still starts. Every route below is in
 the contract (`gitHubContract.ts`: `getConnections`, `postGitHubInstall`,
-`getGitHubCallback`, `deleteGitHubInstallation`), the callback too: it answers
-only a redirect, and `CALLBACK_RESULT` (`gitHub.ts`) names each way a Connect
-ends as the contract lists them (`GITHUB_CALLBACK_RESULTS`). Connections,
-Install and Disconnect take `requireCaller` and `callerFailures`; the callback
-takes neither, and reads the person and the active workspace through
-`whoIsAsking`.
+`getGitHubCallback`, `getGitHubChoice`, `postGitHubChoice`,
+`deleteGitHubInstallation`), the callback too: it answers only a redirect, and
+`CALLBACK_RESULT` (`gitHub.ts`) names each way a Connect ends as the contract
+lists them (`GITHUB_CALLBACK_RESULTS`). Connections, Install, the choice and
+Disconnect take `requireCaller` (`callerFailures` for the reads,
+`changeFailures` for the changes); the callback takes neither, and reads the
+person and the active workspace through `whoIsAsking`.
+
+**Why a Connect starts with GitHub's sign-in** (CON-159). GitHub sends a person
+back from its install page only after a new installation. On an account that
+has the app already, the install page is that installation's Configure page,
+and saving there sends no one back: GitHub redirects after an installation is
+changed only to a Setup URL with "Redirect on update" ticked, and an app that
+requests user authorization during installation, as Consola's must (the code
+is how Consola checks the person against GitHub), cannot have a Setup URL
+([GitHub Docs: About the setup URL](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/about-the-setup-url)).
+GitHub's sign-in authorization for the app
+(`https://github.com/login/oauth/authorize?client_id=…&state=…`, no
+`redirect_uri`, so the app's callback URL) always sends the person back, with a
+code and no `installation_id`. So a Connect starts there, and the install page
+is where it goes next when the person has no installation to connect.
 
 - `GET /api/connections`: the active workspace's installations, each with its
   account, when it was connected, its settings page on GitHub (`settingsUrl`)
@@ -634,24 +656,34 @@ takes neither, and reads the person and the active workspace through
   kept in memory until five minutes before it expires) and never stored. An
   answer is reused for a minute, so a member reloading the page cannot spend
   the installation's rate limit.
-- `POST /api/connections/github/install`: the address that installs the app,
-  `{ url }`, carrying a signed state (below). Members get 403 `not_allowed`;
-  an unconfigured app is 503 `github_not_configured`.
+- `POST /api/connections/github/install`: where a Connect goes,
+  `{ url, installUrl }`, both carrying one signed state (below): `url` is
+  GitHub's sign-in for the app, where Connect starts, and `installUrl` the
+  app's install page, for installing it on another account. Members get 403
+  `not_allowed`; an unconfigured app is 503 `github_not_configured`.
 - `GET /api/github/callback`: the app's callback URL, where GitHub sends the
   person back (with "Request user authorization (OAuth) during installation"
-  on). It always redirects to
+  on), from signing in or from installing. It redirects to
   `<PUBLIC_URL>/?github=<result>#/settings/connections`, where `<result>` is
   `finishGitHubInstall`'s outcome in snake case (`connected`, `taken`,
-  `not_installer`, …) or `signed_out`. The web app's Settings, on its
-  Connections page, reads it once and clears it. That address is the web
-  app's (`CONNECTIONS_PAGE` in `gitHub.ts`), so the two change together.
+  `not_installer`, …) or `signed_out`; to
+  `<PUBLIC_URL>/?github=choose&choice=<a signed choice>#/settings/connections`
+  when the person signed in and has installations to choose from; or on to the
+  app's install page, with a fresh state, when they have none. The web app's
+  Settings, on its Connections page, reads `github` and `choice` once and
+  clears them. That address is the web app's (`CONNECTIONS_PAGE` in
+  `gitHub.ts`), so the two change together.
+- `GET /api/connections/github/choice?choice=<the signed choice>`: the
+  installations the choice offers (`{ candidates }`, each its id and account).
+- `POST /api/connections/github/choice` `{ choice, installationId }`: connects
+  one of them, 200 `{ result: 'connected' }` (or `already_connected`).
 - `DELETE /api/connections/github/installations/{installationId}`: removes the
   workspace's record. The app stays installed on GitHub until someone
   uninstalls it there. One the workspace does not hold, another's included,
   is 404 `installation_not_found`.
 
-What makes a callback connect, in the order `finishGitHubInstall` checks it,
-each before anything trusts the redirect:
+What a callback checks, in the order `finishGitHubInstall` checks it, each
+before anything trusts the redirect:
 
 1. **The state is this session's own.** `startGitHubInstall` signs the
    workspace, the person and the session with HMAC-SHA256 under a key derived
@@ -662,6 +694,10 @@ each before anything trusts the redirect:
 2. **The person is still an owner or admin** of the workspace the Connect was
    for, read through the `MembershipReader`. That workspace is the one
    recorded, whatever the session has active by then.
+
+Back from installing the app, the redirect names the installation
+(`installation_id`), and the callback records it:
+
 3. **GitHub says this person administers the installation's account.** The
    `installation_id` in the redirect can be forged, so the one-time `code` is
    exchanged for the person's GitHub token, which is revoked once read and
@@ -676,6 +712,42 @@ each before anything trusts the redirect:
 4. **No other workspace holds it.** `github_installation` is keyed by the
    installation id, so a second workspace's claim is `taken`, even at the
    same moment.
+
+Back from signing in, the redirect names no installation, and the callback
+offers the ones the person may connect (`chooseOrInstall`):
+
+3. **GitHub lists what the person administers.** The code is exchanged and the
+   token revoked as above, and `installationsOf` lists every installation of
+   the app the person reaches (`GET /user/installations`), with their
+   membership of each organisation. `administeredInstallations` keeps those
+   `checkInstaller` lets them connect, by the very rule a fresh install has.
+4. **No workspace holds them.** Those any workspace holds, this one included,
+   are left out (`InstallationStore.holderOf`).
+5. **Some: a choice. None: the install page.** With some, the callback signs a
+   choice (`InstallChoice`, `newInstallChoice`): the workspace, the person,
+   the session, until when (`INSTALL_CHOICE_LIFETIME_SECONDS`, five minutes),
+   and each candidate's installation id and account (id, login and type), at
+   most `MAX_INSTALL_CANDIDATES` (20, in GitHub's order), never a GitHub token.
+   It is signed with HMAC-SHA256 under a key of its own, derived from
+   `BETTER_AUTH_SECRET` for another HKDF purpose than the state's
+   (`installChoiceSigner.ts`; both on `createSignedTokens`, `signedTokens.ts`),
+   so a state is never read as a choice, nor a choice as a state. With none,
+   the person goes on to the app's install page with a fresh state, and a
+   fresh install comes back as above.
+
+The page reads the choice's candidates (`readGitHubChoice`) and sends back the
+one the person picks (`connectChosenInstallation`), which checks, in order,
+everything that can change since it was signed: the choice is this session's
+own (400 `bad_choice` for one Consola did not sign, another session's or
+another person's), in time (410 `choice_expired`) and for the workspace the
+session has active now (409 `choice_for_another_workspace`,
+`checkInstallChoice`); the installation is one of its candidates (400
+`not_a_candidate`, `candidateOf`); the person is still an owner or admin, by
+`caller.role` at this request (403 `not_allowed`); and no other workspace
+holds it (409 `installation_taken`). It writes the same `github_installation`
+row a fresh install writes. The read checks the choice and the role too. The
+choice is kept nowhere: each call checks it whole, so choosing again is
+`already_connected`, and nothing but the row is stored.
 
 A connected installation is a row of `github_installation`: its
 `workspace_id`, the installation, the GitHub account it is on, who connected
@@ -1338,7 +1410,8 @@ The ring's tests check the whole app: `src/rules.test.ts` (the two rules),
 against the contract:
 
 - `src/accountsApp.test.ts`: accounts' routes and the front door;
-- `src/gitHubApp.test.ts`: Connections, the callback, webhooks, and tokens
+- `src/gitHubApp.test.ts`: Connections, the callback (from installing and
+  from signing in), the choice of an installation, webhooks, and tokens
   through the use case;
 - `src/companyApp.test.ts`: teams, factories, runs, approvals and cloud
   sessions. Its "every route" test asks every route the app has without a
