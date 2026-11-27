@@ -1,7 +1,7 @@
 import { automationLines } from '@consola/factory-spec';
 import type { Automation, AutomationMode } from '@consola/factory-spec';
 import type { FactoryFile } from './factory.js';
-import type { ItemKind, LineRange, RunTrigger } from './run.js';
+import type { AppliesToKind, LineRange, RunTrigger } from './run.js';
 
 /**
  * The file behind an automation run: where its automation is written in the factory version the
@@ -23,7 +23,7 @@ export type RunSource = {
   readonly range: LineRange;
   readonly trigger: { readonly kind: RunTrigger; readonly detail: string | null };
   readonly mode: AutomationMode;
-  readonly appliesTo: ItemKind[];
+  readonly appliesTo: AppliesToKind[];
 };
 
 /** How many lines `text` holds: a last line break ends a line, it starts none. */

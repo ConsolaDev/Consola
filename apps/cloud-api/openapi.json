@@ -977,7 +977,7 @@
               "string",
               "null"
             ],
-            "description": "What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check."
+            "description": "What the trigger was: the event's name (`pull_request.opened`; for a request from Slack, `slack_mention` or `slack_dm`), the cron schedule, or the poll's check."
           },
           "startedBy": {
             "type": [
@@ -1177,11 +1177,11 @@
         "properties": {
           "url": {
             "type": "string",
-            "description": "Its page, an https address."
+            "description": "Its page, an https address: for a Slack message, its permalink."
           },
           "title": {
             "type": "string",
-            "description": "Written by its author: text, never markup."
+            "description": "Written by its author: text, never markup. For a Slack message, its first line."
           },
           "kind": {
             "type": [
@@ -1191,8 +1191,10 @@
             "enum": [
               "pr",
               "issue",
+              "slack",
               null
-            ]
+            ],
+            "description": "`pr`, `issue`, or `slack`: the Slack message a request came from, with no `repo` or `number`."
           },
           "repo": {
             "type": [
@@ -1216,7 +1218,7 @@
           "number"
         ],
         "additionalProperties": false,
-        "description": "The pull request or issue a run is about."
+        "description": "The pull request or issue a run is about, or the Slack message a request came from."
       },
       "PhaseCounts": {
         "type": "object",
@@ -2245,10 +2247,13 @@
                 "$ref": "#/components/schemas/CloudSessionOrigin"
               },
               {
+                "$ref": "#/components/schemas/SlackSessionOrigin"
+              },
+              {
                 "type": "null"
               }
             ],
-            "description": "What started an agent run; null for a person's session."
+            "description": "What started an agent run: an automation (`CloudSessionOrigin`) or a request from Slack (`SlackSessionOrigin`); null for a person's session."
           },
           "agentRun": {
             "anyOf": [
@@ -2354,6 +2359,84 @@
         ],
         "additionalProperties": false,
         "description": "What started an agent run: an automation of a factory's agent team, on an item."
+      },
+      "SlackSessionOrigin": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "slack"
+            ]
+          },
+          "factoryId": {
+            "type": "string"
+          },
+          "factoryName": {
+            "type": "string"
+          },
+          "agent": {
+            "type": "string",
+            "description": "The agent that takes the first turn: the orchestrator."
+          },
+          "via": {
+            "type": "string",
+            "enum": [
+              "mention",
+              "dm"
+            ],
+            "description": "`mention`: the bot was mentioned in a channel; `dm`: sent a direct message."
+          },
+          "message": {
+            "type": "object",
+            "properties": {
+              "teamId": {
+                "type": "string",
+                "description": "The Slack workspace (`T…`)."
+              },
+              "channelId": {
+                "type": "string",
+                "description": "The channel, or the direct message."
+              },
+              "threadTs": {
+                "type": "string",
+                "description": "The thread Consola answers in."
+              },
+              "messageTs": {
+                "type": "string",
+                "description": "The message itself."
+              },
+              "permalink": {
+                "type": "string",
+                "description": "The message's permalink, from Slack."
+              },
+              "title": {
+                "type": "string",
+                "description": "The message's first line, cut: written by a person, shown as text."
+              }
+            },
+            "required": [
+              "teamId",
+              "channelId",
+              "threadTs",
+              "messageTs",
+              "permalink",
+              "title"
+            ],
+            "additionalProperties": false,
+            "description": "The Slack message the request came from."
+          }
+        },
+        "required": [
+          "kind",
+          "factoryId",
+          "factoryName",
+          "agent",
+          "via",
+          "message"
+        ],
+        "additionalProperties": false,
+        "description": "What started a request from Slack: a person mentioned a factory's bot, or sent it a direct message, and its orchestrator takes it."
       },
       "AgentRunReport": {
         "type": "object",
@@ -3186,6 +3269,39 @@
           "links"
         ],
         "additionalProperties": false
+      },
+      "SlackChallenge": {
+        "type": "object",
+        "properties": {
+          "challenge": {
+            "type": "string",
+            "description": "The `challenge` Slack sent, as it sent it."
+          }
+        },
+        "required": [
+          "challenge"
+        ],
+        "additionalProperties": false,
+        "description": "Slack’s check of the request URL (`url_verification`), answered with its challenge."
+      },
+      "SlackEventReceived": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "duplicate",
+              "ignored"
+            ],
+            "description": "`accepted`: the event is recorded now, and handled after this answer. `duplicate`: the factory had this event already (Slack sent it again): nothing changed. `ignored`: a kind of request Consola does not take."
+          }
+        },
+        "required": [
+          "result"
+        ],
+        "additionalProperties": false,
+        "description": "What became of one of Slack’s events."
       }
     },
     "parameters": {}
@@ -10438,6 +10554,233 @@
                     "error"
                   ],
                   "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/slack/events/{factoryId}": {
+      "post": {
+        "summary": "Receive one of Slack’s events for a factory’s app",
+        "description": "A factory’s Events API request URL. Slack calls it, with no session and no Origin, so it is outside the origin check. The body is Slack’s JSON, read as raw bytes and checked against `X-Slack-Signature` (`v0=` and the HMAC-SHA256 of `v0:<X-Slack-Request-Timestamp>:<body>` under the factory’s signing secret, compared in constant time), with a timestamp within five minutes, before anything else is read. Before the factory has a signing secret, only Slack’s check of the URL (`url_verification`) is answered, unchecked, and it changes nothing. An event (`event_callback`) must name the factory’s app and Slack workspace, is recorded once by its `event_id`, and is answered at once; a mention of the bot or a direct message to it then starts a request for the factory’s orchestrator.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "name": "factoryId",
+            "in": "path"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Slack’s check of the URL, answered; or an event, received.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/SlackChallenge"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SlackEventReceived"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed, but the body is not what Slack sends.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "invalid_event"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No signature, a timestamp more than five minutes away, or not Slack’s signature over this body under the factory’s signing secret.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "bad_signature"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Signed, but the event names another Slack app or Slack workspace than the factory’s.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "wrong_app"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No factory has that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "factory_not_found"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The factory’s app has no signing secret in Consola yet, so only Slack’s check of the URL is answered (`slack_not_set_up`); or it is not added to a Slack workspace yet, so no event is taken (`slack_not_installed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_set_up"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_installed"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Over the 1048576 bytes Consola reads.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "error": {
+                      "type": "string",
+                      "enum": [
+                        "too_large"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Slack is off on this server: it has no `CONNECTION_SECRETS_KEY` (`slack_not_configured`). Or the database did not answer, or the factory’s secret does not open with this server’s key (`unavailable`): Slack sends the event again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "slack_not_configured"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "error": {
+                          "type": "string",
+                          "enum": [
+                            "unavailable"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "additionalProperties": false
+                    }
+                  ]
                 }
               }
             }

@@ -59,6 +59,14 @@ describe('the factory store', () => {
     });
   });
 
+  it('says which workspace holds a factory, by its id alone, for the events Slack sends it', async () => {
+    const acme = await made('acme', 'Deploys', (await workspace('acme')).id);
+    const globex = await made('globex', 'Deploys', (await workspace('globex')).id);
+    expect(await factories.workspaceOf(acme.id)).toBe('acme');
+    expect(await factories.workspaceOf(globex.id)).toBe('globex');
+    expect(await factories.workspaceOf('no-such-factory')).toBeNull();
+  });
+
   it("lists a workspace's factories by name whatever its case, and no other workspace's", async () => {
     const general = await workspace('acme');
     const sprocket = await workspace('sprocket');

@@ -432,9 +432,10 @@ header. The workspace is the session's active one, and the role is read from
   (`GET /api/github/callback`, a redirect, which reads the session itself
   through `whoIsAsking`), Slack's callback (`GET /api/slack/oauth/callback`,
   a redirect whose signed state says who started it, below, "Slack"), Slack's
-  events (`POST /api/slack/events/{factoryId}`, signed instead) and the
-  runner's socket (`GET /api/runner`, behind the runner's secret) take no
-  `requireCaller` and no `x-consola-workspace`,
+  events (`POST /api/slack/events/{factoryId}`, signed with the factory's
+  signing secret, below, "Requests from Slack") and the runner's socket
+  (`GET /api/runner`, behind the runner's secret) take no `requireCaller` and
+  no `x-consola-workspace`,
   since no page calls them through the client. A new one needs a reason as
   good, and the company suite's "every route" test has to name it
   (`OPEN_ROUTES`).
@@ -523,9 +524,11 @@ parts. Two kinds of path are exempt (`ORIGIN_EXEMPT` in `compose.ts`, handed
 to the front door as `originExempt`, where an entry ending in `/` names every
 path under it and any other one exact path): everything under `/api/auth/`,
 Better Auth's own routes, which check their own trusted origins
-(`PUBLIC_URL`); and GitHub's webhook deliveries,
+(`PUBLIC_URL`); GitHub's webhook deliveries,
 `POST /api/github/webhooks`, which carry no cookie and no Origin, and whose
-signature is what is checked ("Webhooks"). `src/accountsApp.test.ts` pins
+signature is what is checked ("Webhooks"); and every factory's Slack events,
+under `/api/slack/events/` (`SLACK_EVENTS_PATH_PREFIX`), signed the same way
+("Requests from Slack"). `src/accountsApp.test.ts` pins
 accounts' route list, so a new route is added there on purpose.
 
 ## A workspace is born whole
@@ -1175,7 +1178,8 @@ in `company/domain/agentRun.ts`, the use cases in
   one run per automation `matchPullRequestAutomations` finds. A team with
   issues starts nothing; any other event starts nothing. Whatever fails there
   is logged, ids and names only, never the payload, and the event's answer
-  stays.
+  stays. A mention of a factory's Slack bot, or a direct message to it, starts
+  one too, for its orchestrator (below, "Requests from Slack").
 - **The row** is a `cloud_session` with no `person_id`, its `origin`
   (`{ kind: 'automation', factoryId, factoryName, automation, agent, item:
   { kind: 'pull_request', repository, number, url, title, headSha } }`) and
@@ -1243,6 +1247,104 @@ in `company/domain/agentRun.ts`, the use cases in
   - `--api-url <url>`: where the API is, `http://127.0.0.1:<PORT>` by
     default (3100);
   - `--env <file>`: the env file to read, `apps/cloud-api/.env` by default.
+
+## Requests from Slack
+
+A factory's Slack app (CON-144, "Cloud · Design: Slack as a Connection
+(CON-144)",
+https://linear.app/consola/document/cloud-design-slack-as-a-connection-con-144-b235f62bdf94)
+sends its events to the factory's own address. A mention of its bot, or a
+direct message to it, from someone who may talk to the factory, starts a
+request for the factory's orchestrator: an agent run (above), which Consola
+answers in the same Slack thread. Slack is on only with
+`CONNECTION_SECRETS_KEY`; without it, the route answers 503
+`slack_not_configured`.
+
+- **The route.** `POST /api/slack/events/{factoryId}` (`postSlackEvent` in
+  `company/adapters/http/slackEventsContract.ts`, served by
+  `slackEvents.ts`). It is in the contract, like GitHub's webhooks, with its
+  request in words only, outside the origin check (`ORIGIN_EXEMPT`) and in
+  the company suite's `OPEN_ROUTES`. A body over `SLACK_EVENT_MAX_BYTES`
+  (1 MB) is 413 `too_large` before it is read, and the body is read as bytes.
+- **The checks, in order** (`receiveSlackEvent`, `application/slackEvents.ts`):
+  1. the factory exists (`FactoryStore.workspaceOf`, its one call not scoped
+     by a workspace), else 404 `factory_not_found`;
+  2. with no app for it, so no signing secret yet, only Slack's check of the
+     URL (`url_verification`) is answered with its challenge, unchecked,
+     which changes nothing; anything else is 409 `slack_not_set_up`;
+  3. the signature (`adapters/slack/eventSignatures.ts`): a timestamp within
+     five minutes either way, and `X-Slack-Signature` equal to `v0=` and the
+     HMAC-SHA256 of `v0:<timestamp>:<body>` under the factory's signing
+     secret, compared in constant time; else 401 `bad_signature`. A secret
+     this server's key cannot open is 503 `unavailable`;
+  4. the body, as Slack writes one (`readSlackEnvelope`), else 400
+     `invalid_event`;
+  5. `url_verification`, answered 200 `{ challenge }`; any other type but
+     `event_callback` is 200 `{ result: 'ignored' }`;
+  6. an event needs the app added to Slack (409 `slack_not_installed`), and
+     must name its app and Slack workspace (403 `wrong_app`);
+  7. each `event_id` is recorded once per factory (`slack_event`), so one
+     Slack sends again is 200 `{ result: 'duplicate' }` and changes nothing;
+  8. it is 200 `{ result: 'accepted' }` at once, since Slack wants an answer
+     within three seconds, and handled after the answer (`later`, which
+     `compose.ts` makes with `setImmediate`).
+
+  A database that does not answer is 503 `unavailable`, and Slack sends the
+  event again. One line is logged per request (`slackEventLine`), with ids
+  only: never a challenge, a body, a signature or a secret, and nothing the
+  request names before it is known.
+- **What is taken** (`readSlackEvent`, `domain/slackEvents.ts`): an
+  `app_mention`, its text without the bot's mention, and a `message` with
+  `channel_type: im`. The thread is `thread_ts ?? ts`. Anything with
+  `bot_id` or a `subtype`, the bot's own messages and edits are dropped, and
+  so, in release 1, are channel messages without a mention and reactions.
+- **Who may talk** (`admitSlackMessage`, `application/slackRequests.ts`), in
+  this order, each refusal a reply only the author sees, in their thread if
+  they wrote in one: an author from another Slack workspace than the app's
+  (Slack Connect: `user_team`, `source_team` or `team` names another) is
+  refused with no link; an author with no link gets a one-time link
+  (`requestSlackLink`); a linked person no longer a member, read live through
+  the `MembershipReader`, is refused; and so is a member who cannot see the
+  factory (`factoriesSeenBy`). A message with no text is asked for one.
+- **The start** (`startSlackRequest`). First the checks, each refusal said in
+  the thread, with nothing recorded or sent: the factory's latest files hold
+  a team with no issues and an orchestrator; `factory.yml`'s `repos:` lists a
+  repository, and the first is used; the runner offers it (in any case) and
+  the orchestrator's harness (`claude` when it names none), in the words an
+  automation's run gets (`FAILURE_WORDS`); no request is open in the thread
+  already (release 1 answers with that run's link and starts nothing); and
+  Slack gives the message's permalink (`chat.getPermalink`). The plan is
+  factory-spec's `planSlackRequest`, read back with `readAgentRun` and no
+  `checkout`, so the default branch is used (`slackRequestStart`). Then, in
+  this order: the cloud session (an agent run, `personId` null, title
+  `<factory> · Slack: <first line>` cut to 200 characters, origin
+  `{ kind: 'slack', factoryId, factoryName, agent, via, message: { teamId,
+  channelId, threadTs, messageTs, permalink, title } }`); the thread
+  (`slack_request`, whose foreign key needs the session first); the run
+  (`agentRunRecord`: a request whose item is `{ kind: 'slack', url: the
+  permalink, title: the first line }`, `trigger` `event`, `triggerDetail`
+  `slack_mention` or `slack_dm`, `startedBy` the linked person, kept from the
+  first record by `keepingRunsInStep`); and the start, handed to the runner
+  (`handToRunner`). If it went, Consola reacts 👀 and says "On it. Follow
+  along in Consola: <run link>", the run's page on `PUBLIC_URL`
+  (`#/runs/<id>`).
+- **Answering in the thread** (`answeringInSlack`,
+  `application/slackAnswers.ts`), beside `keepingRunsInStep`: after every
+  change to a session that lands, once the change is done, Consola says
+  where a request from Slack stands, once per state, moved first by
+  `markPosted`'s compare-and-set: the first time it waits on a person, when
+  it is done (the orchestrator's summary in a `markdown` block of at most
+  12,000 characters, with a plain-text fallback of at most 4,000, each cut
+  with "… the rest is in the run"), and when it failed or was cancelled
+  ("The run stopped: <why, in words>"). No Slack token or tool goes into the
+  sandbox.
+- **Slack is never trusted, nor allowed to change a run.** Slack's text
+  reaches only the plan (factory-spec fences it) and Slack replies, never a
+  command line, an environment variable or a log line, and a summary never
+  broadcasts (`withoutBroadcasts`). The bot speaks through `botOf`, which
+  logs every failed call with ids and Slack's code; a dead token
+  (`isDeadTokenError`) marks the factory's app `needs_reinstall`; and no
+  Slack failure changes a session or a run.
 
 ## The runner's socket
 
