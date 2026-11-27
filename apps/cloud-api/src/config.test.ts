@@ -32,6 +32,7 @@ describe('loadConfig', () => {
       githubWebhookSecret: null,
       runner: null,
       connectionSecretsKey: null,
+      slackPublicUrl: 'http://localhost:5175',
     });
   });
 
@@ -311,6 +312,27 @@ describe('the connection secrets key', () => {
     const failure = failureOf({ ...valid, CONNECTION_SECRETS_KEY: key });
     expect(failure.problems).toEqual([expect.stringMatching(/^CONNECTION_SECRETS_KEY: /)]);
     expect(failure.message).not.toContain(key);
+  });
+});
+
+describe("Slack's public address", () => {
+  it('is PUBLIC_URL when SLACK_PUBLIC_URL is unset or empty', () => {
+    expect(loadConfig(valid).slackPublicUrl).toBe('http://localhost:5175');
+    expect(loadConfig({ ...valid, SLACK_PUBLIC_URL: '' }).slackPublicUrl).toBe(
+      'http://localhost:5175',
+    );
+  });
+
+  it('reads SLACK_PUBLIC_URL, a tunnel’s address, without its slash', () => {
+    expect(
+      loadConfig({ ...valid, SLACK_PUBLIC_URL: 'https://sprocket-dev.trycloudflare.com/' })
+        .slackPublicUrl,
+    ).toBe('https://sprocket-dev.trycloudflare.com');
+  });
+
+  it('refuses one with a path', () => {
+    const failure = failureOf({ ...valid, SLACK_PUBLIC_URL: 'https://sprocket.test/api' });
+    expect(failure.problems).toEqual([expect.stringMatching(/^SLACK_PUBLIC_URL: /)]);
   });
 });
 

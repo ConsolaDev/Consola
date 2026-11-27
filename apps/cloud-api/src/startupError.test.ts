@@ -18,6 +18,7 @@ const config: CloudConfig = {
   githubWebhookSecret: 'sprocket-test-webhook-secret-0123456789',
   runner: null,
   connectionSecretsKey: 'c3Byb2NrZXQtY29ubmVjdGlvbi1zZWNyZXRzLWtleSE=',
+  slackPublicUrl: 'http://localhost:5175',
 };
 
 describe('describeStartupFailure', () => {
