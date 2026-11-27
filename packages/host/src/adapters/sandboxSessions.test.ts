@@ -1281,6 +1281,67 @@ describe('makeSandboxSessions, for an agent run', () => {
       }),
     ));
 
+  it('starts an agent run with no repository, on a runner that offers none, with no git token at all', () =>
+    run(
+      Effect.gen(function* () {
+        const seen: Record<string, string | undefined> = {};
+        const h = yield* harness({
+          offer: { repositories: [], harnesses: ['claude'] },
+          fake: {
+            programs: {
+              'consola-session-start': async (child) => {
+                seen.factory = child.files.readText('/workspace/factory/factory.yml');
+                child.stdout(line({ type: 'ready', port: 4100 }));
+                await child.killed;
+              },
+            },
+          },
+        });
+        const { repository: _repository, ...withNone } = startOf('session-run-norepo');
+        const { checkout: _checkout, ...onNoCheckout } = AGENT_RUN;
+        yield* h.sessions.start({ ...withNone, agentRun: onNoCheckout });
+        expect(yield* h.next).toMatchObject({ sessionId: 'session-run-norepo', status: 'running' });
+        // The agent-run files still go under the factory folder.
+        expect(seen.factory).toBe('automations: {}\n');
+        const env = h.fake.sandboxes[0]?.env ?? {};
+        for (const name of [
+          'CONSOLA_REPOSITORY',
+          'GIT_TOKEN',
+          'GH_TOKEN',
+          'CONSOLA_CHECKOUT_REF',
+        ]) {
+          expect(env).not.toHaveProperty(name);
+        }
+        // Its agents can push nowhere: no variable of the sandbox holds the runner's git token.
+        expect(Object.values(env)).not.toContain(GIT_TOKEN);
+        expect(env).toMatchObject({
+          CONSOLA_AGENT_RUN: '/workspace/.consola/agent-run.json',
+          ANTHROPIC_API_KEY: ANTHROPIC_KEY,
+        });
+        expect(h.logged).toContain('session session-run-norepo: starting (claude, no repository)');
+        yield* h.sessions.stopAll;
+        expectNoSecret(h);
+      }),
+    ));
+
+  it('fails a start with no repository for a harness the runner does not offer, with no sandbox', () =>
+    run(
+      Effect.gen(function* () {
+        const h = yield* harness({
+          offer: { repositories: [REPOSITORY], harnesses: ['claude'] },
+          fake: { programs: { 'consola-session-start': readyUntilStopped() } },
+        });
+        const { repository: _repository, ...withNone } = startOf('session-run-norepo-codex', {
+          harness: 'codex',
+        });
+        yield* h.sessions.start(withNone);
+        const failed = yield* h.next;
+        expect(failed).toMatchObject({ sessionId: 'session-run-norepo-codex', status: 'failed' });
+        expect(failed.error).toMatch(/codex/);
+        expect(h.fake.sandboxes).toHaveLength(0);
+      }),
+    ));
+
   it('fails the session and stops its sandbox when a file cannot be written, and starts nothing', () =>
     run(
       Effect.gen(function* () {

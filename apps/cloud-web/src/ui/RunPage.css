@@ -424,6 +424,13 @@
   font-size: var(--font-size-sm);
 }
 
+/* The repository a request from Slack works in, or "No repository". */
+.run-source-repository {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
 .run-messages {
   display: flex;
   flex-direction: column;

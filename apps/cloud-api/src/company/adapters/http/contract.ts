@@ -1149,7 +1149,10 @@ export const CloudSession = z
       description:
         'The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees.',
     }),
-    repository: z.string().openapi({ description: 'The repository, as `owner/name`.' }),
+    repository: z.string().nullable().openapi({
+      description:
+        'The repository it works in, as `owner/name`. Null for an agent run of a factory that names none (a request from Slack), which starts in an empty folder with no git credentials. A person’s session, and an agent run on a pull request, always have one.',
+    }),
     harness: Harness,
     status: z.enum(CLOUD_SESSION_STATUSES).openapi({
       description:

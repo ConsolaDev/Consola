@@ -4,6 +4,8 @@ import {
   AGENT_RUN_PHASE_WORDS,
   failedWords,
   HARNESS_NAMES,
+  NO_REPOSITORY_TITLE,
+  NO_REPOSITORY_WORDS,
   SESSION_STATUS_WORDS,
   STARTING_WORDS,
   STOPPED_WORDS,
@@ -217,6 +219,28 @@ export function isSessionStatus(value: unknown): value is CloudSessionStatus {
 /** Whether a session has ended: it never moves again. */
 export function isEnded(status: CloudSessionStatus): boolean {
   return status === 'stopped' || status === 'failed';
+}
+
+/**
+ * The repository a session works in, as its pages name it: `owner/name`, or "No repository" for
+ * an agent run of a factory that names none, which works in an empty folder with no git token.
+ */
+export function repositoryWords(repository: string | null): string {
+  return repository ?? NO_REPOSITORY_WORDS;
+}
+
+/** What hovering a session's repository says: which it is, or that it has none, and so pushes nowhere. */
+export function repositoryTitle(repository: string | null): string {
+  return repository === null ? NO_REPOSITORY_TITLE : `Repository ${repository}`;
+}
+
+/**
+ * Whether a session's pages name its repository beside what started it: a person's session and a
+ * request from Slack do, whether it has one or not; an automation's run on a pull request names
+ * it in the pull request already (`pullRequestLabel`).
+ */
+export function showsRepository(session: Pick<CloudSession, 'origin'>): boolean {
+  return session.origin === null || session.origin.kind === 'slack';
 }
 
 /** What a session is called: its title, or "Session" and its id's first eight characters. */

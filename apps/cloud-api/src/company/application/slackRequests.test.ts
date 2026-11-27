@@ -511,16 +511,57 @@ describe('starting a request from Slack', () => {
     expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toBeNull();
   });
 
-  it('says in the thread that a factory listing no repository takes no request', async () => {
+  it('starts a request for a factory listing no repository, with none, and checks only the harness', async () => {
     await saveFiles(CODE_REVIEW_TEAM_FILES);
-    expect(await handle(mention())).toEqual({ kind: 'no-repository' });
+    // The runner offers no repository this factory could name: none is asked for.
+    const noRepositoryOffered = { ...offer, repositories: ['sprocket/catalog-api'] };
+    const outcome = await handle(mention(), noRepositoryOffered);
+    expect(outcome).toMatchObject({
+      kind: 'started',
+      session: { id: 'session-1', repository: null, status: 'starting', personId: null },
+    });
+    expect(await createDrizzleStores(db).cloudSessions.find('session-1')).toMatchObject({
+      repository: null,
+      origin: { kind: 'slack', factoryId: factory.id },
+    });
+
+    const [[, start] = []] = starts;
+    expect(start).toMatchObject({ sessionId: 'session-1', repository: null, harness: 'claude' });
+    expect(start?.agentRun).not.toHaveProperty('checkout');
+    expect(start?.agentRun?.prompt).toContain(
+      'No repository is checked out: your working folder, `/workspace/repo`, is empty.',
+    );
+    expect(start?.agentRun?.prompt).toContain('there are no git credentials');
+    expect(start?.agentRun?.prompt).not.toContain('checked out on its default branch');
+
+    // Its run is a request on the Slack message, which names no repository.
+    const { teams, factories, runs } = createDrizzleStores(db);
+    const read = await readRun(
+      teams,
+      factories,
+      runs,
+      callerAs('person-fay', 'member', 'sprocket'),
+      'session-1',
+    );
+    if (read.kind !== 'found') throw new Error(read.kind);
+    expect(read.run).toMatchObject({
+      kind: 'request',
+      triggerDetail: 'slack_mention',
+      item: { kind: 'slack', repo: null, number: null },
+    });
     expect(postedInThreads()).toEqual([
       [
         'C0CATALOG',
         '1795000000.000100',
-        `This factory lists no repository to work in. Add one to \`repos:\` in its factory.yml: ${PUBLIC_URL}/#/factories/${factory.id}/definition`,
+        `On it. Follow along in Consola: ${PUBLIC_URL}/#/runs/session-1`,
       ],
     ]);
+
+    // The harness is still checked.
+    expect(
+      await handle(mention({ ts: '1795000070.000100' }), { ...offer, harnesses: ['codex'] }),
+    ).toEqual({ kind: 'harness_not_offered' });
+    expect(starts).toHaveLength(1);
   });
 
   it("says in the thread why the runner cannot take it, in the words an automation's run gets", async () => {

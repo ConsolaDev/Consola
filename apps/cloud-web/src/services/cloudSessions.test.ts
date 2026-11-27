@@ -281,6 +281,39 @@ describe('an agent run, as the API lists it', () => {
     }
   });
 
+  it('reads a request from Slack of a factory that names no repository, with none', async () => {
+    const noRepository = {
+      ...run,
+      id: 'cs-norepo',
+      repository: null,
+      origin: {
+        kind: 'slack',
+        factoryId: 'f-2',
+        factoryName: 'Weekly report',
+        agent: 'orchestrator',
+        via: 'mention',
+        message: {
+          teamId: 'T024BE7LD',
+          channelId: 'C024BE91L',
+          threadTs: '1732700000.000200',
+          messageTs: '1732700000.000200',
+          permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000200',
+          title: 'Write up last week',
+        },
+      },
+    } satisfies CloudSession;
+    const { service } = harness({ [LIST]: { status: 200, body: [noRepository] } });
+    expect(await service.loadSessions(ACME)).toEqual({ kind: 'listed', sessions: [noRepository] });
+
+    // A repository is a name or null: anything else is not a session.
+    for (const repository of [undefined, 7, {}]) {
+      const refused = harness({
+        [LIST]: { status: 200, body: [{ ...noRepository, repository }] },
+      });
+      expect(await refused.service.loadSessions(ACME)).toEqual({ kind: 'unavailable' });
+    }
+  });
+
   it('reads a session from an API that does not say what started it as a person’s', async () => {
     const { origin: _origin, agentRun: _agentRun, ...older } = session;
     const { service } = harness({ [ONE]: { status: 200, body: older } });

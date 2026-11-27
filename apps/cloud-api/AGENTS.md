@@ -1103,6 +1103,12 @@ workspace's runner runs for a person, or an agent run an automation started
 offers the repository and the harness, and hands the start or stop to the
 runner through the `RunnerChannel` port.
 
+- **The repository** (`repository`, `owner/name`) is the one the session
+  works in. A person's session always names one, chosen from the runner's
+  offer, and so does an agent run on a pull request. It is null only for an
+  agent run of a factory that names none (a request from Slack, below), which
+  the runner starts in an empty folder with no git credentials; the column is
+  nullable since `0002_session_without_repository`.
 - **Routes** (declared in `company/adapters/http/contract.ts`, registered by
   `cloudSessionRoutes` in `adapters/http/cloudSessions.ts`, behind
   `requireCaller`): `GET /api/cloud-sessions/options`
@@ -1367,14 +1373,19 @@ answers in the same Slack thread. Slack is on only with
   factory (`factoriesSeenBy`). A message with no text is asked for one.
 - **The start** (`startSlackRequest`). First the checks, each refusal said in
   the thread, with nothing recorded or sent: the factory's latest files hold
-  a team with no issues and an orchestrator; `factory.yml`'s `repos:` lists a
-  repository, and the first is used; the runner offers it (in any case) and
-  the orchestrator's harness (`claude` when it names none), in the words an
+  a team with no issues and an orchestrator; the runner offers the first
+  repository `factory.yml`'s `repos:` lists (in any case), when it lists one,
+  and the orchestrator's harness (`claude` when it names none), in the words an
   automation's run gets (`FAILURE_WORDS`); no request is open in the thread
   already (release 1 answers with that run's link and starts nothing); and
   Slack gives the message's permalink (`chat.getPermalink`). The plan is
   factory-spec's `planSlackRequest`, read back with `readAgentRun` and no
-  `checkout`, so the default branch is used (`slackRequestStart`). Then, in
+  `checkout`, so the default branch is used (`slackRequestStart`). A factory
+  that lists no repository (CON-166) starts its request with none: the
+  session's `repository` is null, the runner's offer of repositories is not
+  asked, the `session.start` leaves `repository` out, and the runner starts
+  the sandbox in an empty folder with no git token (`packages/host/AGENTS.md`,
+  "The `runner` command"); the prompt says so. Then, in
   this order: the cloud session (an agent run, `personId` null, title
   `<factory> · Slack: <first line>` cut to 200 characters, origin
   `{ kind: 'slack', factoryId, factoryName, agent, via, message: { teamId,

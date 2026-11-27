@@ -294,7 +294,7 @@ export const runApprovals = pgTable(
 
 /**
  * A cloud session: a person's, or an agent run an automation started, which has no `person_id`
- * and has its `origin`. `error` is a message a runner reported and `error_code` a code the
+ * and has its `origin`. `repository` is null for an agent run of a factory that names none. `error` is a message a runner reported and `error_code` a code the
  * cell decided (`CELL_FAILURE_CODES`); a failure has one of them. `runner_id` is null for an agent
  * run no runner took. `origin` and `agent_run` (the runner's last report) are JSON as text, not
  * `json` or `jsonb`, which refuse a `\u0000` escape that a pull request's title or an agent's
@@ -306,7 +306,7 @@ export const cloudSessions = pgTable(
     id: text('id').primaryKey(),
     workspaceId: text('workspace_id').notNull(),
     personId: text('person_id'),
-    repository: text('repository').notNull(),
+    repository: text('repository'),
     harness: text('harness').notNull(),
     status: text('status').$type<CloudSessionStatus>().notNull(),
     title: text('title'),

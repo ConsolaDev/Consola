@@ -376,6 +376,64 @@ describe('planSlackRequest on the code-review template', () => {
   });
 });
 
+describe('planSlackRequest for a factory that names no repository', () => {
+  const { team: noRepoTeam } = parseAgentTeam(CODE_REVIEW_TEAM_FILES);
+  const request: SlackRequest = {
+    kind: 'mention',
+    text: 'Summarise last week in the report.',
+    slackUserId: 'U0123ABCD',
+    channelId: 'C0456EFGH',
+    permalink: 'https://sprocket.slack.com/archives/C0456EFGH/p1700000000000100',
+    repository: null,
+  };
+  const plan = planSlackRequest(noRepoTeam, request, places);
+  const empty =
+    'No repository is checked out: your working folder, `/work/app`, is empty. `git` and `gh` are installed, but there are no git credentials: `gh` is not signed in, and nothing can be pushed.';
+
+  it('plans for a team whose factory lists no repository', () => {
+    expect(noRepoTeam.repositories).toEqual([]);
+    expect(plan.agent).toBe('orchestrator');
+    expect(sectionsOf(plan.prompt)).toEqual([
+      '# Your role',
+      '# Orchestrator',
+      '# How this factory runs in Consola',
+      '# Request from Slack',
+    ]);
+  });
+
+  it('says no repository is checked out, the folder is empty, and there are no git credentials', () => {
+    expect(plan.prompt).toContain(`You are running unattended in a sandbox. ${empty}`);
+    expect(plan.prompt).not.toContain('checked out on its default branch');
+    expect(plan.prompt).not.toContain('is checked out at');
+    expect(plan.prompt).not.toContain('`gh` is signed in');
+    expect(plan.prompt).not.toContain('- Repository:');
+  });
+
+  it('tells each dispatched agent the same', () => {
+    const review = plan.agents[0];
+    expect(review.instructions).toContain(`You are running unattended in a sandbox. ${empty}`);
+    expect(review.instructions).not.toContain('`gh` is signed in');
+  });
+
+  it('keeps the request itself as it is with a repository', () => {
+    const section = plan.prompt.slice(plan.prompt.indexOf('# Request from Slack'));
+    expect(section).toContain(
+      [
+        '- Asked by: <@U0123ABCD>, their Slack user id written as Slack mentions them.',
+        '- Channel: C0456EFGH',
+        '- Message: https://sprocket.slack.com/archives/C0456EFGH/p1700000000000100',
+        '',
+        'Their message follows, as they wrote it.',
+      ].join('\n'),
+    );
+    expect(plan.prompt.endsWith('```text\nSummarise last week in the report.\n```\n')).toBe(true);
+    expect(plan.files).toEqual(
+      planSlackRequest(noRepoTeam, { ...request, repository: 'sprocket/catalog-portal' }, places)
+        .files,
+    );
+  });
+});
+
 describe('planSlackRequest on a team with no orchestrator', () => {
   const request: SlackRequest = {
     kind: 'dm',

@@ -8,6 +8,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -750,6 +751,81 @@ describe('consola-session-start', () => {
       expect(ask('get', GIT_TOKEN)).toBe(`username=x-access-token\npassword=${GIT_TOKEN}\n`);
       expect(ask('store', GIT_TOKEN)).toBe('');
       expect(ask('get', undefined)).toBe('');
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it.each([
+    ['unset', undefined],
+    ['empty', ''],
+  ])(
+    'with CONSOLA_REPOSITORY %s, clones nothing, makes the folder empty, and runs the host there',
+    (_case, repository) => {
+      const scripted = scriptMachine();
+      writeCloningGit(scripted);
+      writeRecordingNode(scripted);
+      writeScript(scripted.bin, 'codex', [scripted.record('codex'), 'exit 0']);
+
+      // A session with no repository has no git token either (`sandboxEnvFor`).
+      const ran = runScript(scripted, { CONSOLA_REPOSITORY: repository, GIT_TOKEN: undefined });
+      expect(ran.status, ran.stderr).toBe(0);
+      expect(ran.stdout).toBe('');
+      // git never ran: nothing was cloned, and no repository was configured.
+      expect(scripted.argsOf('git')).toBeNull();
+      const repo = join(scripted.workspace, 'repo');
+      expect(readdirSync(repo)).toEqual([]);
+      expect(scripted.argsOf('node')).toEqual(hostArgs(scripted, 'claude'));
+      expect(
+        readFileSync(join(scripted.workspace, '.consola', 'pass-public-key.pem'), 'utf8'),
+      ).toBe(`${PASS_PUBLIC_KEY.trimEnd()}\n`);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'with no repository, still passes an agent run to the host',
+    () => {
+      const scripted = scriptMachine();
+      writeCloningGit(scripted);
+      writeRecordingNode(scripted);
+      const runFile = join(scripted.workspace, '.consola', 'agent-run.json');
+      mkdirSync(join(scripted.workspace, '.consola'));
+      writeFileSync(runFile, '{}\n');
+
+      const ran = runScript(scripted, {
+        CONSOLA_REPOSITORY: undefined,
+        GIT_TOKEN: undefined,
+        CONSOLA_AGENT_RUN: runFile,
+      });
+      expect(ran.status, ran.stderr).toBe(0);
+      expect(scripted.argsOf('git')).toBeNull();
+      expect(scripted.argsOf('node')).toEqual([
+        ...hostArgs(scripted, 'claude'),
+        '--agent-run',
+        runFile,
+      ]);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'with no repository, refuses a commit to check out and starts no host',
+    () => {
+      const scripted = scriptMachine();
+      writeCloningGit(scripted);
+      writeRecordingNode(scripted);
+
+      const ran = runScript(scripted, {
+        CONSOLA_REPOSITORY: undefined,
+        GIT_TOKEN: undefined,
+        CONSOLA_CHECKOUT_REF: 'refs/pull/12/head',
+        CONSOLA_CHECKOUT_SHA: 'a'.repeat(40),
+      });
+      expect(ran.status).toBe(1);
+      expect(ran.stdout).toBe('');
+      expect(ran.stderr).toMatch(/consola-session-start: CONSOLA_CHECKOUT_REF needs a repository/);
+      expect(scripted.argsOf('git')).toBeNull();
+      expect(scripted.argsOf('node')).toBeNull();
     },
     TEST_TIMEOUT_MS,
   );

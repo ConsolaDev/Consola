@@ -107,7 +107,12 @@ export type CloudSession = {
    * run, which no person started.
    */
   personId: string | null;
-  repository: Repository;
+  /**
+   * The repository it works in, as `owner/name`. Null for an agent run of a factory that names
+   * none (a request from Slack): its sandbox starts in an empty folder, with no git credentials.
+   * A person's session, and an agent run on a pull request, always have one.
+   */
+  repository: Repository | null;
   harness: Harness;
   status: CloudSessionStatus;
   title: string | null;

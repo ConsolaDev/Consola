@@ -506,6 +506,12 @@ describe('offerRefusal', () => {
       offerRefusal(offer, { repository: 'sprocket/catalog-portal', harness: 'codex' }),
     ).toMatch(/codex/);
   });
+
+  it('takes a start with no repository, checking its harness alone', () => {
+    expect(offerRefusal(offer, { harness: 'claude' })).toBeNull();
+    expect(offerRefusal({ ...offer, repositories: [] }, { harness: 'claude' })).toBeNull();
+    expect(offerRefusal(offer, { harness: 'codex' })).toMatch(/codex/);
+  });
 });
 
 describe('sandboxEnvFor', () => {
@@ -601,6 +607,29 @@ describe('sandboxEnvFor', () => {
       { path: '/workspace/factory/agents/reviewer.md', content: '# Reviewer\n' },
       { path: AGENT_RUN_FILE, content: `${JSON.stringify(run)}\n` },
     ]);
+  });
+
+  it('gives a session with no repository no repository and no git token, so it can push nowhere', () => {
+    const { repository: _repository, ...withNone } = start('claude');
+    const { checkout: _checkout, ...onNoCheckout } = run;
+    for (const session of [withNone, { ...withNone, agentRun: onNoCheckout }]) {
+      const env = sandboxEnvFor(session, secrets, 10);
+      for (const name of ['CONSOLA_REPOSITORY', 'GIT_TOKEN', 'GH_TOKEN']) {
+        expect(env).not.toHaveProperty(name);
+      }
+      // Nothing the sandbox is given holds the token, under any name.
+      expect(Object.values(env)).not.toContain(secrets.gitToken);
+      expect(env.CONSOLA_HARNESS).toBe('claude');
+      expect(env.ANTHROPIC_API_KEY).toBe('sk-ant-sprocket');
+    }
+    expect(sandboxEnvFor({ ...withNone, agentRun: onNoCheckout }, secrets, 10)).toEqual({
+      CONSOLA_SESSION_ID: ID,
+      CONSOLA_HARNESS: 'claude',
+      CONSOLA_PASS_PUBLIC_KEY: withNone.passPublicKeyPem,
+      CONSOLA_SESSION_IDLE_MINUTES: '10',
+      ANTHROPIC_API_KEY: 'sk-ant-sprocket',
+      CONSOLA_AGENT_RUN: AGENT_RUN_FILE,
+    });
   });
 
   it('lists GH_TOKEN among the secrets, so its value is scrubbed like the git token', () => {

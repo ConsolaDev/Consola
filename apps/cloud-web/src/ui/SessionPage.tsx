@@ -3,7 +3,10 @@ import {
   agentRunPhase,
   isAgentRun,
   isEnded,
+  repositoryTitle,
+  repositoryWords,
   sessionLabel,
+  showsRepository,
   startedAt,
 } from '../domain/cloudSession';
 import {
@@ -161,10 +164,15 @@ export function SessionPage({
       {session && started && (
         <>
           <div className="session-facts">
-            {run ? (
-              <AgentRunFacts run={run} />
-            ) : (
-              <span className="session-repository">{session.repository}</span>
+            {run && <AgentRunFacts run={run} />}
+            {showsRepository(session) && (
+              <span
+                // A repository's name is monospaced; "No repository" is words.
+                className={session.repository === null ? undefined : 'session-repository'}
+                title={repositoryTitle(session.repository)}
+              >
+                {repositoryWords(session.repository)}
+              </span>
             )}
             <span>{HARNESS_NAMES[session.harness]}</span>
             <span>

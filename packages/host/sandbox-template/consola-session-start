@@ -3,15 +3,20 @@
 # (packages/host/AGENTS.md, "The `runner` command"). It clones the session's
 # repository into /workspace/repo, signs Codex in when the session runs on it,
 # then becomes the session's host, `consola-host session`, from its bundle.
+# A session with no repository (CONSOLA_REPOSITORY unset or empty) clones
+# nothing: /workspace/repo is made empty, and the host works there.
 #
 # Its variables are the ones the runner gives a sandbox (sandboxEnvFor):
-# CONSOLA_SESSION_ID, CONSOLA_HARNESS, CONSOLA_REPOSITORY,
-# CONSOLA_PASS_PUBLIC_KEY, CONSOLA_SESSION_IDLE_MINUTES, GIT_TOKEN (for a
-# repository that needs one) and the harness's API key. An agent run's sandbox
-# also has CONSOLA_AGENT_RUN (the run's file, which the runner wrote, handed to
-# the host as --agent-run), GH_TOKEN (gh reads it as it is: nothing to set up),
-# and, for a run on a commit, CONSOLA_CHECKOUT_REF and CONSOLA_CHECKOUT_SHA:
-# that ref is fetched after the clone and the commit checked out, detached.
+# CONSOLA_SESSION_ID, CONSOLA_HARNESS, CONSOLA_REPOSITORY (absent for a session
+# with no repository), CONSOLA_PASS_PUBLIC_KEY, CONSOLA_SESSION_IDLE_MINUTES,
+# GIT_TOKEN (for a repository that needs one; never without a repository) and
+# the harness's API key. An agent run's sandbox also has CONSOLA_AGENT_RUN (the
+# run's file, which the runner wrote, handed to the host as --agent-run),
+# GH_TOKEN (gh reads it as it is: nothing to set up; never without a
+# repository), and, for a run on a commit, CONSOLA_CHECKOUT_REF and
+# CONSOLA_CHECKOUT_SHA: that ref is fetched after the clone and the commit
+# checked out, detached. A commit needs a repository: with none, the script
+# stops.
 # CONSOLA_WORKSPACE moves /workspace, for this script's tests
 # (src/bundle.test.ts); the runner never sets it.
 #
@@ -42,7 +47,7 @@ say_failed() {
   exit 1
 }
 
-for name in CONSOLA_SESSION_ID CONSOLA_HARNESS CONSOLA_REPOSITORY CONSOLA_PASS_PUBLIC_KEY; do
+for name in CONSOLA_SESSION_ID CONSOLA_HARNESS CONSOLA_PASS_PUBLIC_KEY; do
   eval "value=\${$name-}"
   [ -n "$value" ] || fail "$name is not set."
 done
@@ -55,19 +60,26 @@ key_file="$workspace/.consola/pass-public-key.pem"
 # $GIT_TOKEN as the environment holds it then: the token is written nowhere.
 helper='!f() { test "$1" = get && test -n "${GIT_TOKEN-}" || return 0; printf "%s\n" username=x-access-token "password=$GIT_TOKEN"; }; f'
 
-# The whole URL, so a repository whose owner starts with "-" is never an option.
-if ! output=$(GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
-  -c "credential.https://github.com.helper=$helper" \
-  clone --quiet -- "https://github.com/$CONSOLA_REPOSITORY.git" "$repo" 2>&1); then
-  say_failed "Could not clone $CONSOLA_REPOSITORY" "$output"
-fi
+if [ -z "${CONSOLA_REPOSITORY-}" ]; then
+  # No repository: nothing to clone, and no commit to check out. The host works
+  # in the folder the repository would be in, made empty.
+  [ -z "${CONSOLA_CHECKOUT_REF-}" ] || fail 'CONSOLA_CHECKOUT_REF needs a repository, and CONSOLA_REPOSITORY is not set.'
+  mkdir -p "$repo"
+else
+  # The whole URL, so a repository whose owner starts with "-" is never an option.
+  if ! output=$(GIT_TERMINAL_PROMPT=0 git -c credential.helper= \
+    -c "credential.https://github.com.helper=$helper" \
+    clone --quiet -- "https://github.com/$CONSOLA_REPOSITORY.git" "$repo" 2>&1); then
+    say_failed "Could not clone $CONSOLA_REPOSITORY" "$output"
+  fi
 
-# The repository keeps the helper, for the session's own fetches and pushes; an
-# empty helper first, so no helper of the machine's is asked, or stores the token.
-git -C "$repo" config credential.helper ''
-git -C "$repo" config credential.https://github.com.helper "$helper"
-git -C "$repo" config user.name 'Consola session'
-git -C "$repo" config user.email session@consola.invalid
+  # The repository keeps the helper, for the session's own fetches and pushes; an
+  # empty helper first, so no helper of the machine's is asked, or stores the token.
+  git -C "$repo" config credential.helper ''
+  git -C "$repo" config credential.https://github.com.helper "$helper"
+  git -C "$repo" config user.name 'Consola session'
+  git -C "$repo" config user.email session@consola.invalid
+fi
 
 # An agent run on a commit (a pull request's head, say): its ref is fetched
 # through the same helper, and the commit checked out, detached. HEAD must be

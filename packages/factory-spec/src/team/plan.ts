@@ -68,10 +68,10 @@ function withoutTrailingSlash(dir: string): string {
   return dir.slice(0, end);
 }
 
-/** What tells one start of a run from another: the repository's checkout, who reads what, and why it runs. */
+/** What tells one start of a run from another: the working folder, who reads what, and why it runs. */
 type RunStart = {
-  /** The sentence that says where the repository is checked out, and at what. */
-  checkedOut: string;
+  /** What the run works in: where the repository is checked out and at what, and what git may do. */
+  workspace: string;
   /** What the target agent is told about who reads its words. */
   audience: string;
   /** What a dispatched agent is told about its output. */
@@ -80,15 +80,29 @@ type RunStart = {
   started: string[];
 };
 
+/** What a run with a repository is told of git: both tools are there, and `gh` is signed in. */
+const SIGNED_IN = '`git` and `gh` are installed, and `gh` is signed in (`GH_TOKEN`).';
+
 /**
- * The sandbox, the repository and the skills catalog: what every agent of the run is told.
+ * What a run with no repository is told of its working folder: nothing is checked out, the
+ * folder is empty, and the sandbox holds no git credentials, so nothing can be pushed.
+ */
+function emptyWorkspace(places: AgentRunPlaces): string {
+  return [
+    `No repository is checked out: your working folder, \`${places.repositoryDir}\`, is empty.`,
+    '`git` and `gh` are installed, but there are no git credentials: `gh` is not signed in, and nothing can be pushed.',
+  ].join(' ');
+}
+
+/**
+ * The sandbox, its working folder and the skills catalog: what every agent of the run is told.
  * With `withRunId`, the run's id too (the target agent completes the run by it).
  */
 function sandboxFacts(
   team: AgentTeam,
   places: AgentRunPlaces,
   withRunId: boolean,
-  checkedOut: string,
+  workspace: string,
 ): string[] {
   const factoryDir = withoutTrailingSlash(places.factoryDir);
   const catalog =
@@ -103,7 +117,7 @@ function sandboxFacts(
           ),
         ].join('\n');
   return [
-    `You are running unattended in a sandbox. ${checkedOut} \`git\` and \`gh\` are installed, and \`gh\` is signed in (\`GH_TOKEN\`).`,
+    `You are running unattended in a sandbox. ${workspace}`,
     ...(withRunId ? [`Your run id is \`${places.runId}\`.`] : []),
     `The factory's files are at \`${places.factoryDir}\`. ${catalog}`,
     'A skill your instructions name that is not in this catalog is not installed in this factory: proceed without it.',
@@ -149,7 +163,7 @@ function preambleOf(
     '# Your role',
     agent.instructions,
     '# How this factory runs in Consola',
-    ...sandboxFacts(team, places, false, start.checkedOut),
+    ...sandboxFacts(team, places, false, start.workspace),
     start.dispatchedOutput,
     ...dispatching(team, agent.name, false),
   ].join('\n\n');
@@ -166,7 +180,7 @@ function planFor(
     '# Your role',
     target.instructions,
     '# How this factory runs in Consola',
-    ...sandboxFacts(team, places, true, start.checkedOut),
+    ...sandboxFacts(team, places, true, start.workspace),
     start.audience,
     ...dispatching(team, target.name, true),
     ...start.started,
@@ -233,7 +247,7 @@ export function planAgentRun(
   }
 
   return planFor(team, target, places, {
-    checkedOut: `The repository is checked out at \`${places.repositoryDir}\`, at the pull request's head commit.`,
+    workspace: `The repository is checked out at \`${places.repositoryDir}\`, at the pull request's head commit. ${SIGNED_IN}`,
     audience:
       'No issue tracker and no chat surface are configured for this factory. The person reads your final message in Consola and what you post on the pull request; send no acknowledgement or status message anywhere else.',
     dispatchedOutput:
@@ -253,8 +267,10 @@ export function planAgentRun(
  * standing instructions as `planAgentRun` composes them, and a last section, "Request from Slack",
  * that holds the message, fenced as text a person wrote, and who wrote it, where, and the
  * repository the run works in, on its default branch (the plan names no commit to check out).
- * Consola posts the orchestrator's final summary in the request's thread, and the prompt says so.
- * Throws when the team has no orchestrator: the caller checks the team before it plans.
+ * A factory that names no repository (`repository: null`) has its run start in an empty folder
+ * with no git credentials, and every agent of the run is told so. Consola posts the
+ * orchestrator's final summary in the request's thread, and the prompt says so. Throws when the
+ * team has no orchestrator: the caller checks the team before it plans.
  */
 export function planSlackRequest(
   team: AgentTeam,
@@ -269,14 +285,17 @@ export function planSlackRequest(
     );
   }
 
-  const repository = oneLine(request.repository);
+  const repository = request.repository === null ? null : oneLine(request.repository);
   const text = keptLines(request.text);
   const how =
     request.kind === 'dm'
       ? "by sending the factory's bot a direct message in Slack"
       : "by mentioning the factory's bot in Slack";
   return planFor(team, target, places, {
-    checkedOut: `The repository \`${repository}\` is checked out at \`${places.repositoryDir}\`, on its default branch.`,
+    workspace:
+      repository === null
+        ? emptyWorkspace(places)
+        : `The repository \`${repository}\` is checked out at \`${places.repositoryDir}\`, on its default branch. ${SIGNED_IN}`,
     audience: [
       'This run answers a request a person made in Slack.',
       'When the run ends, Consola posts your final summary in the Slack thread the request came from: the summary you give `complete_task`, or your last message if you say more after it.',
@@ -292,7 +311,9 @@ export function planSlackRequest(
         `- Asked by: <@${oneLine(request.slackUserId)}>, their Slack user id written as Slack mentions them.`,
         `- Channel: ${oneLine(request.channelId)}`,
         `- Message: ${oneLine(request.permalink)}`,
-        `- Repository: \`${repository}\`, checked out on its default branch.`,
+        ...(repository === null
+          ? []
+          : [`- Repository: \`${repository}\`, checked out on its default branch.`]),
       ].join('\n'),
       ...(text === ''
         ? ['Their message has no text.']

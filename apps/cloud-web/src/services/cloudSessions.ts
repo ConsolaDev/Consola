@@ -140,7 +140,8 @@ function sessionOf(body: unknown): CloudSession | null {
     !isObject(body) ||
     !isText(body.id) ||
     body.id === '' ||
-    !isText(body.repository) ||
+    // Null for an agent run of a factory that names no repository.
+    !isTextOrNull(body.repository) ||
     !isHarness(body.harness) ||
     !isSessionStatus(body.status) ||
     !isTextOrNull(body.title) ||

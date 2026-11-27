@@ -57,6 +57,7 @@ The app is built in layers, and imports point inward only.
   `yamlTokens.ts`), approving one (`runApproval.ts`) and the pages'
   sentences (`runMessages.ts`; see "Runs"); cloud sessions
   (`cloudSession.ts`: the contract's session types, `sessionLabel`,
+  `repositoryWords`, `repositoryTitle`, `showsRepository`,
   `pollIntervalMs`, `listPollIntervalMs`, `chatMounted`, `shouldRenewPass`,
   `keepsShownOn`, `sessionScreen`, an agent run's reading, `isAgentRun`,
   `agentRunPhase`, `pullRequestLabel`, `pullRequestUrl`, `shortSha`, and the
@@ -578,7 +579,10 @@ the factory's orchestrator; the automations it starts are its children.
   row "Mentioned in Slack" or "Direct message in Slack" with Open in Slack,
   and the header's link opens the message. Its Conversation tab opens with the
   same line (`conversationSlackSource`: the session's origin once read, else
-  the run's record).
+  the run's record), which names the repository it works in once the session
+  is read, or "No repository" for a factory that names none (CON-166). The
+  run's record holds no repository for a Slack request (its item is the
+  message), so the list's row and the info panel name none.
 - **A session's origin is read by its kind, never assumed.** An agent run is
   started by an automation on a pull request (`kind: 'automation'`, with an
   `item`) or by a request from Slack (`kind: 'slack'`: its factory, its
@@ -624,7 +628,8 @@ id, and every status is the API's.
   its status (a dot, hollow while it starts, the accent while it runs, quiet
   once stopped, red once failed, and its word), its name (`sessionLabel`: the
   title, or "Session" and the id's first eight characters), its repository and
-  harness as tags, and when it started. It reads again as often as its
+  harness as tags ("No repository" for a session with none, `repositoryWords`),
+  and when it started. It reads again as often as its
   liveliest session asks (`listPollIntervalMs`), every 30 s once none can
   change, never while the tab is hidden; a refresh that fails while the API
   is out keeps the rows.
@@ -637,7 +642,11 @@ id, and every status is the API's.
   offer, or a body the API could not read, is said under the form.
 - **A session** (`SessionPage`): the run page's header (Sessions / name, a
   status chip, and Stop while it starts or runs, which asks first, in place),
-  a line of its facts, then what `sessionScreen` says. Starting: its words,
+  a line of its facts, then what `sessionScreen` says. The facts name its
+  repository for a person's session and a request from Slack
+  (`showsRepository`), "No repository" for one with none, which works in an
+  empty folder with no git credentials (the API's `repository: null`); an
+  automation's run names it in its pull request. Starting: its words,
   read again every 2 s. Running: the chat under the warning that changes not
   pushed to a branch are lost, read again every 10 s. Stopped or failed: the
   words, with no chat and so no composer, and no more reads. A failure says

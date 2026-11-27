@@ -358,7 +358,11 @@ full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). A
 mention of a factory's Slack bot, or a direct message to it, from a linked member
 who can see the factory, starts its orchestrator the same way, as a request that
 Consola answers in the Slack thread (`apps/cloud-api/AGENTS.md`, "Requests from
-Slack"). Nothing
+Slack"). A factory needs no repository: one whose `factory.yml` lists none (or
+that has no `factory.yml`) has its request from Slack start in a sandbox whose
+working folder is empty and that holds no git token, so its agents can push
+nowhere (`session.start` leaves `repository` out; `packages/host/AGENTS.md`,
+"The `runner` command"). Nothing
 in the steps design depends on it. Known gap: the sandbox holds the runner's own
 git token and loads the pull request's own `.claude` settings, whoever opened it,
 so a runner serves agent runs only on repositories whose contributors are

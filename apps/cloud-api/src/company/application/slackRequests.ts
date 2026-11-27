@@ -62,14 +62,7 @@ export type SlackMessageOutcome =
   /** The author may talk to the factory, and asked for something. */
   | { kind: 'admitted'; personId: string; factory: Factory }
   /** Not started, with a reply in the thread that says why. */
-  | {
-      kind:
-        | 'no-orchestrator'
-        | 'no-repository'
-        | CellFailureCode
-        | 'already-running'
-        | 'no-permalink';
-    }
+  | { kind: 'no-orchestrator' | CellFailureCode | 'already-running' | 'no-permalink' }
   /**
    * Started: the session, its thread, its run, and the start handed to the runner. When the
    * runner could not be told, the session ended `failed`, and the thread hears so from the
@@ -172,9 +165,10 @@ const ISO = (seconds: number) => new Date(seconds * 1000).toISOString();
  * checks come first, each refusal said in the thread in words, and nothing is recorded or sent:
  *
  * 1. the factory's latest files hold an agent team with no issues and an orchestrator;
- * 2. it lists a repository (`factory.yml`'s `repos:`), and the request works in the first;
- * 3. the workspace's runner offers that repository (in any case) and the orchestrator's harness
- *    (`claude` when it names none), in the words `startAgentRun` records;
+ * 2. the request works in the first repository the factory lists (`factory.yml`'s `repos:`), or
+ *    in none when it lists none: its sandbox then starts in an empty folder, with no git token;
+ * 3. the workspace's runner offers that repository, if there is one (in any case), and the
+ *    orchestrator's harness (`claude` when it names none), in the words `startAgentRun` records;
  * 4. no request is open in the thread already (release 1 starts nothing more there);
  * 5. Slack gives the message's permalink, which the run names;
  * 6. the plan reads (`slackRequestStart`).
@@ -198,12 +192,7 @@ export async function startSlackRequest(
   const say = (text: string) =>
     bot.post({ channel: message.channelId, threadTs: message.threadTs, text });
   const decline = async (
-    kind:
-      | 'no-orchestrator'
-      | 'no-repository'
-      | CellFailureCode
-      | 'already-running'
-      | 'no-permalink',
+    kind: 'no-orchestrator' | CellFailureCode | 'already-running' | 'no-permalink',
     text: string,
   ) => {
     await say(text);
@@ -220,17 +209,19 @@ export async function startSlackRequest(
     return decline('no-orchestrator', START_WORDS.noOrchestrator(factoryUrl));
   }
   const { team } = parsed;
-  const [wanted] = team.repositories;
-  if (wanted === undefined) return decline('no-repository', START_WORDS.noRepository(factoryUrl));
+  // A factory that lists no repository works in none: nothing to clone, and no git token.
+  const wanted = team.repositories.at(0) ?? null;
 
   const harness = orchestrator.harness ?? 'claude';
   const refusedFor = (code: CellFailureCode) => decline(code, FAILURE_WORDS[code]);
   const offer = ports.runners.connected(workspaceId);
   if (!offer) return refusedFor(CELL_FAILURE_CODES.runnerUnavailable);
-  const repository = offer.repositories.find(
-    (offered) => offered.toLowerCase() === wanted.toLowerCase(),
-  );
-  if (repository === undefined) return refusedFor(CELL_FAILURE_CODES.repositoryNotOffered);
+  let repository: string | null = null;
+  if (wanted !== null) {
+    const offered = offer.repositories.find((each) => each.toLowerCase() === wanted.toLowerCase());
+    if (offered === undefined) return refusedFor(CELL_FAILURE_CODES.repositoryNotOffered);
+    repository = offered;
+  }
   if (!offer.harnesses.includes(harness)) return refusedFor(CELL_FAILURE_CODES.harnessNotOffered);
 
   for (const thread of await ports.requests.inThread({

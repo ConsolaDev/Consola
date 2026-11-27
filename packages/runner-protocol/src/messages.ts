@@ -97,7 +97,12 @@ export type SessionStart = {
   type: 'session.start';
   sessionId: string;
   workspaceId: string;
-  repository: Repository;
+  /**
+   * The repository the session works in, cloned into `SESSION_REPOSITORY_DIR`. Absent for a
+   * session with none (an agent run of a factory that names no repository): that folder is left
+   * empty, and the sandbox gets no git credentials.
+   */
+  repository?: Repository;
   harness: Harness;
   /** The key the session's host checks passes with. A public key: never a secret. */
   passPublicKeyPem: string;
@@ -226,36 +231,41 @@ export function readRunnerMessage(json: unknown): ReadResult<RunnerMessage> {
   return refused('`type` is not a runner message');
 }
 
-const START = [
-  'type',
-  'sessionId',
-  'workspaceId',
-  'repository',
-  'harness',
-  'passPublicKeyPem',
-] as const;
+const START = ['type', 'sessionId', 'workspaceId', 'harness', 'passPublicKeyPem'] as const;
 
 function readStart(message: Record<string, unknown>): ReadResult<SessionStart> {
   const asAgentRun = Object.hasOwn(message, 'agentRun');
-  const fields = fieldProblem(message, asAgentRun ? [...START, 'agentRun'] : START, 'the start');
+  // A start with no repository leaves `repository` out; one that names it names a repository.
+  const withRepository = Object.hasOwn(message, 'repository');
+  const fields = fieldProblem(
+    message,
+    [...START, ...(withRepository ? ['repository'] : []), ...(asAgentRun ? ['agentRun'] : [])],
+    'the start',
+  );
   if (fields !== null) return refused(fields);
   const { sessionId, workspaceId, repository, harness, passPublicKeyPem } = message;
   if (!isId(sessionId)) return refused("`sessionId` is not a session's id");
   if (!isId(workspaceId)) return refused("`workspaceId` is not a workspace's id");
-  if (!isRepository(repository)) return refused('`repository` is not `owner/name`');
+  if (withRepository && !isRepository(repository)) {
+    return refused('`repository` is not `owner/name`');
+  }
   if (!isHarness(harness)) return refused('`harness` is not a harness');
   if (!isId(passPublicKeyPem)) return refused('`passPublicKeyPem` is not a key');
   const start: SessionStart = {
     type: 'session.start',
     sessionId,
     workspaceId,
-    repository,
+    ...(isRepository(repository) ? { repository } : {}),
     harness,
     passPublicKeyPem,
   };
   if (asAgentRun) {
     const run = readAgentRun(message.agentRun);
     if (!run.ok) return refused(`\`agentRun\` is not an agent run: ${run.reason}`);
+    // A commit to check out is a commit of the repository: with none, there is nothing to fetch.
+    if (run.value.checkout !== undefined && start.repository === undefined) {
+      return refused('`agentRun` names a `checkout`, but the start names no `repository`');
+    }
     start.agentRun = run.value;
   }
   return read(start);
