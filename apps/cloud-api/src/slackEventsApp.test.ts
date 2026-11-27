@@ -2,9 +2,13 @@ import { createHmac, randomBytes } from 'node:crypto';
 import { CODE_REVIEW_TEAM_FILES } from '@consola/factory-spec';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ZodType } from 'zod';
+import { getCloudSession, getRun } from './company/adapters/http/contract.js';
 import { postSlackEvent } from './company/adapters/http/slackEventsContract.js';
 import { createSlackStores } from './company/adapters/persistence/slackStores.js';
 import { createDrizzleStores } from './company/adapters/persistence/stores.js';
+import { recordRun } from './company/application/runs.js';
+import { agentRunRecord } from './company/domain/agentRun.js';
+import type { CloudSession } from './company/domain/cloudSession.js';
 import { createSecretSealer } from './company/adapters/sealing/secretSealer.js';
 import { startApi } from './testing/harness.js';
 import type { Harness, Member } from './testing/harness.js';
@@ -76,10 +80,14 @@ async function installSlackApp() {
 }
 
 type DeclaredAnswer = { content?: Record<string, { schema: ZodType }> };
+type Declaring = { responses: unknown };
 
-/** Status and body, the body read with the schema the contract declares for the status. */
-async function answered(response: Response): Promise<[number, unknown]> {
-  const declared = (postSlackEvent.responses as Record<number, DeclaredAnswer>)[response.status];
+/** Status and body, the body read with the schema `route` declares for the status. */
+async function answered(
+  response: Response,
+  route: Declaring = postSlackEvent,
+): Promise<[number, unknown]> {
+  const declared = (route.responses as Record<number, DeclaredAnswer>)[response.status];
   expect(declared, `the contract declares ${response.status}`).toBeDefined();
   const schema = declared?.content?.['application/json']?.schema;
   if (!schema) throw new Error(`${response.status} declares no body`);
@@ -250,5 +258,75 @@ describe('a mention of the bot, through the whole API', () => {
         },
       },
     ]);
+  });
+});
+
+describe('a request from Slack, as the web app reads it', () => {
+  it('reads its session and its run through the contract, with their Slack kinds', async () => {
+    const permalink = 'https://sprocket.slack.com/archives/C0CATALOG/p1795000000000100';
+    const session: CloudSession = {
+      id: 'slack-request-1',
+      workspaceId: owner.workspaceId,
+      personId: null,
+      repository: 'sprocket/catalog-portal',
+      harness: 'claude',
+      status: 'running',
+      title: 'Code review · Slack: price the catalog in euros',
+      hostUrl: null,
+      error: null,
+      errorCode: null,
+      runnerId: 'runner-1',
+      createdAt: Math.floor(Date.now() / 1000),
+      endedAt: null,
+      origin: {
+        kind: 'slack',
+        factoryId,
+        factoryName: 'Code review',
+        agent: 'orchestrator',
+        via: 'dm',
+        message: {
+          teamId: 'T0SPROCKET',
+          channelId: 'D0ALICE',
+          threadTs: '1795000000.000100',
+          messageTs: '1795000000.000100',
+          permalink,
+          title: 'price the catalog in euros',
+        },
+      },
+      agentRun: { state: 'working' },
+    };
+    const { cloudSessions, runs } = createDrizzleStores(harness.db.company);
+    await cloudSessions.insert(session);
+    const record = agentRunRecord(
+      session,
+      {
+        factoryVersion: 1,
+        text: 'A request from Slack.',
+        createdAt: new Date().toISOString(),
+        startedBy: owner.personId,
+      },
+      new Date().toISOString(),
+    );
+    if (record === null) throw new Error('no record');
+    expect(await recordRun(runs, owner.workspaceId, record)).toMatchObject({ kind: 'recorded' });
+
+    const read = await harness.app.request(`/api/cloud-sessions/${session.id}`, {
+      headers: owner.headers,
+    });
+    expect(await answered(read, getCloudSession)).toEqual([200, session]);
+
+    const run = await harness.app.request(`/api/runs/${session.id}`, { headers: owner.headers });
+    const [status, body] = await answered(run, getRun);
+    expect(status).toBe(200);
+    expect(body).toMatchObject({
+      run: {
+        kind: 'request',
+        trigger: 'event',
+        triggerDetail: 'slack_dm',
+        startedBy: owner.personId,
+        item: { url: permalink, title: 'price the catalog in euros', kind: 'slack' },
+      },
+      conversation: { sessionId: session.id },
+    });
   });
 });
