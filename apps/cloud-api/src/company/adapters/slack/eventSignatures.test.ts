@@ -31,7 +31,7 @@ describe('slackSignatures', () => {
           timestamp: '1531420618',
           signature: 'v0=a2114d57b48eac39b9ad189dd8316235a7b4a8d21a10bd27519666489c69b503',
         },
-        1531420618,
+        1_531_420_618,
       ),
     ).toBe('valid');
   });

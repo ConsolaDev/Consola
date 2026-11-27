@@ -343,7 +343,11 @@ orchestrator, which dispatches the others and posts the result itself. The cloud
 each as an agent run, a cloud session no person started, and records it as a
 request in Runs whose conversation is that session
 (`apps/cloud-api/AGENTS.md`, "Agent runs"); the host runs every agent of it in
-full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). Nothing
+full access inside its sandbox (`packages/host/AGENTS.md`, "Agent runs"). A
+mention of a factory's Slack bot, or a direct message to it, from a linked member
+who can see the factory, starts its orchestrator the same way, as a request that
+Consola answers in the Slack thread (`apps/cloud-api/AGENTS.md`, "Requests from
+Slack"). Nothing
 in the steps design depends on it. Known gap: the sandbox holds the runner's own
 git token and loads the pull request's own `.claude` settings, whoever opened it,
 so a runner serves agent runs only on repositories whose contributors are

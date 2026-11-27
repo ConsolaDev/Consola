@@ -162,7 +162,7 @@ export type SlackAnswer = {
 export const SLACK_MARKDOWN_MAX = 12_000;
 
 /** The longest `text` Consola sends: Slack splits a longer one into several messages. */
-export const SLACK_TEXT_MAX = 4_000;
+export const SLACK_TEXT_MAX = 4000;
 
 /** How a cut summary ends. */
 export const SUMMARY_CUT = '… the rest is in the run';
@@ -214,7 +214,8 @@ export function withoutBroadcasts(text: string): string {
 function cutSummary(text: string, max: number): string {
   const characters = [...text];
   if (characters.length <= max) return text;
-  const kept = characters.slice(0, Math.max(0, max - [...SUMMARY_CUT].length)).join('');
+  // `SUMMARY_CUT` is one UTF-16 unit per character, so its length counts its characters.
+  const kept = characters.slice(0, Math.max(0, max - SUMMARY_CUT.length)).join('');
   return `${kept.trimEnd()}${SUMMARY_CUT}`;
 }
 
