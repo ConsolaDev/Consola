@@ -258,6 +258,16 @@ admits one runner for one workspace and no person. The app signs each
 session's pass with a key of its own (`PASS_PRIVATE_KEY`), and only
 `company/adapters/token` imports `jose`; the runner's socket
 (`company/adapters/runner`) may use `hono` and `@hono/node-ws`.
+Slack is a third (CON-144): each factory has a Slack app of its own. Slack's
+redirect after "Add to Slack" (`GET /api/slack/oauth/callback`) needs no
+cookie, since its state is signed for the workspace, the factory and the
+person, and Slack's events (`POST /api/slack/events/{factoryId}`) are signed
+with the app's signing secret and sit outside the origin check. The secrets
+the app keeps for a connection (a Slack app's client and signing secrets and
+bot token) are sealed with AES-256-GCM under `CONNECTION_SECRETS_KEY`, by
+`company/adapters/sealing` alone; without the key Slack is off.
+`SLACK_PUBLIC_URL` (a tunnel in development) is where Slack reaches the API,
+else `PUBLIC_URL`.
 
 Nothing in `apps/desktop` depends on the cloud apps, and neither imports from
 the desktop, the website, the other app or `packages/*`, with four
