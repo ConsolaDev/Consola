@@ -862,6 +862,7 @@ describe('routes', () => {
       'POST /api/slack/link-requests/:token',
       'GET /api/slack/links',
       'DELETE /api/slack/links/:linkId',
+      'POST /api/slack/events/:factoryId',
       'GET /api/health',
       'GET /api/runner',
     ]);
