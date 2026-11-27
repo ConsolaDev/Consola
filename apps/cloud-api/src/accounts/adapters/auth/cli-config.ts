@@ -2,7 +2,7 @@
 // which needs an auth configuration to know which tables to describe. It builds the service's
 // own `createAuth`, so the schema follows what runs. Nothing here runs in the service, and none
 // of these values is real.
-import { openDatabase } from '../persistence/database.js';
+import { openMemoryDatabase } from '../persistence/database.js';
 import { createDrizzleStores } from '../persistence/stores.js';
 import { createAuth } from './betterAuth.js';
 import type { AuthSettings } from './betterAuth.js';
@@ -13,7 +13,7 @@ const placeholder: AuthSettings = {
   google: { clientId: 'placeholder', clientSecret: 'placeholder' },
 };
 
-const { db } = openDatabase('pglite:memory');
+const { db } = openMemoryDatabase();
 const stores = createDrizzleStores(db);
 
 export const auth = createAuth({

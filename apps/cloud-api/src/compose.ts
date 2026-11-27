@@ -1,38 +1,98 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { createAuth, currentSessionOf } from './adapters/auth/betterAuth.js';
-import type { CloudAuth } from './adapters/auth/betterAuth.js';
-import { createCellRequestVerifier } from './adapters/cellToken/cellRequestVerifier.js';
-import { createCellTokenSigner } from './adapters/cellToken/cellTokenSigner.js';
-import { createGitHubApp, loadGitHubAppKey } from './adapters/github/gitHubApp.js';
-import { createInstallStateSigner } from './adapters/github/installStateSigner.js';
-import { createWebhookSignatures } from './adapters/github/webhookSignatures.js';
-import { createApp } from './adapters/http/app.js';
-import { createCellDelivery } from './adapters/outbox/cellDelivery.js';
-import { createCellEventDelivery } from './adapters/outbox/eventDelivery.js';
-import { createOutboxWorker } from './adapters/outbox/outboxWorker.js';
-import type { OutboxWorker } from './adapters/outbox/outboxWorker.js';
-import type { Database } from './adapters/persistence/database.js';
-import { createDrizzleStores } from './adapters/persistence/stores.js';
+import { createAuth, currentSessionOf, whoIsAskingOf } from './accounts/adapters/auth/betterAuth.js';
+import type { CloudAuth } from './accounts/adapters/auth/betterAuth.js';
+import { ACCOUNT_ROUTES, registerAccountRoutes } from './accounts/adapters/http/app.js';
+import { createMembershipReader } from './accounts/adapters/persistence/membershipReader.js';
+import { createDrizzleStores as createAccountStores } from './accounts/adapters/persistence/stores.js';
+import { checkHealth as checkAccountsHealth } from './accounts/application/health.js';
+import { systemClock } from './company/adapters/clock/systemClock.js';
+import { createGitHubApp, loadGitHubAppKey } from './company/adapters/github/gitHubApp.js';
+import { createInstallStateSigner } from './company/adapters/github/installStateSigner.js';
+import { createWebhookSignatures } from './company/adapters/github/webhookSignatures.js';
+import { COMPANY_ROUTES, registerCompanyRoutes } from './company/adapters/http/app.js';
+import { GITHUB_ROUTES, registerGitHubRoutes } from './company/adapters/http/gitHub.js';
+import { GITHUB_WEBHOOK_PATH } from './company/adapters/http/gitHubContract.js';
+import { randomIds } from './company/adapters/persistence/cloudSessions.js';
+import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
+import { createDrizzleStores as createCompanyStores } from './company/adapters/persistence/stores.js';
+import { createRunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import type { RunnerSocket } from './company/adapters/runner/runnerSocket.js';
+import { createPassSigner } from './company/adapters/token/passSigner.js';
+import { keepingRunsInStep } from './company/application/agentRuns.js';
+import { checkHealth as checkCompanyHealth } from './company/application/health.js';
+import type { CloudSessionPorts } from './company/application/ports.js';
 import type { CloudConfig } from './config.js';
+import { createFrontDoor } from './http/frontDoor.js';
+import { RING_ROUTES, registerHealthRoute } from './http/health.js';
+import { workspaceOpening } from './persistence/database.js';
+import type { AppDatabase } from './persistence/database.js';
 
 /**
- * The service, assembled: the one place adapters are built and handed the ports they need.
- * `main.ts` serves what this returns once the database is migrated, then starts the outbox's
- * worker, and the HTTP tests build through it too, so they test the wiring that runs. Nothing
- * here starts the worker: building the service sends nothing to any cell. A cell token key that
- * is not a key pair, and a GitHub App key that cannot be read or is not an RSA private key, fail
- * here, as a `ConfigError`.
+ * Every route the app serves through its contract, in the order `composeApi` registers them:
+ * accounts', company's, GitHub's and the ring's health check. `openapi.test.ts` checks that the
+ * composed app serves these and nothing else but `OUTSIDE_THE_CONTRACT`.
+ */
+export const ROUTES = [...ACCOUNT_ROUTES, ...COMPANY_ROUTES, ...GITHUB_ROUTES, ...RING_ROUTES];
+
+/**
+ * The paths Consola's origin check does not guard (`createFrontDoor`): GitHub's webhook
+ * deliveries, which carry no cookie and no Origin, and are signed instead.
+ */
+export const ORIGIN_EXEMPT = [GITHUB_WEBHOOK_PATH] as const;
+
+/** The app, assembled. */
+export type Api = {
+  app: OpenAPIHono;
+  /** Better Auth, for a test that signs people in through its `testUtils`. */
+  auth: CloudAuth;
+  /** Hands the server's WebSocket upgrades to the runner's socket. `main.ts` calls it once. */
+  injectWebSocket: RunnerSocket['injectWebSocket'];
+  /** Closes every runner's socket, so a server that is closing is not held open by one. */
+  closeRunnerSockets: () => void;
+};
+
+/**
+ * The app, assembled: the one place adapters are built and handed the ports they need, on the
+ * one database `main.ts` opened and migrated. The HTTP suites build through it too, so they test
+ * the wiring that runs.
+ *
+ * The one HTTP app is the front door's (`createFrontDoor`); then accounts' routes, company's,
+ * GitHub's and the health check over both parts, then the runner's socket. Each part's stores are
+ * built on its own view of the database; company's routes and GitHub's learn who is asking from
+ * accounts' sessions (`whoIsAskingOf`) and their role from accounts' `member`
+ * (`createMembershipReader`). A workspace is made with its first team in the same transaction
+ * (`workspaceOpening`).
+ *
+ * A GitHub App key that cannot be read or is not an RSA private key, and a pass key that is not
+ * an Ed25519 private key, fail here, as a `ConfigError`. With a runner configured, the pass key's
+ * public half goes to the runner's socket, which sends it in every `session.start`; with none, the
+ * socket refuses every runner and no session starts.
  */
 export async function composeApi(
-  deps: { db: Database; config: CloudConfig },
-  extraPlugins: BetterAuthPlugin[] = [],
-): Promise<{ app: OpenAPIHono; auth: CloudAuth; outbox: OutboxWorker }> {
+  deps: { db: AppDatabase; config: CloudConfig },
+  extraAuthPlugins: BetterAuthPlugin[] = [],
+): Promise<Api> {
   const { db, config } = deps;
-  // A change that writes a message wakes the worker, which is built below, once the stores are.
-  let messageWritten = () => {};
-  const stores = createDrizzleStores(db, { messageWritten: () => messageWritten() });
-  const signer = await createCellTokenSigner(config.cellTokenPrivateKey);
+  const report = (line: string) => console.error(line);
+
+  const accounts = createAccountStores(db.accounts, workspaceOpening);
+  const membership = createMembershipReader(db.accounts);
+  const company = createCompanyStores(db.company);
+  const gitHubStores = createGitHubStores(db.company);
+
+  const auth = createAuth(
+    {
+      db: db.accounts,
+      config,
+      people: accounts.people,
+      memberships: accounts.memberships,
+      sessions: accounts.sessions,
+    },
+    extraAuthPlugins,
+  );
+  const whoIsAsking = whoIsAskingOf(auth);
+
   const github = config.github
     ? createGitHubApp({
         config: config.github,
@@ -40,46 +100,83 @@ export async function composeApi(
       })
     : null;
 
-  const outbox = createOutboxWorker({
-    outbox: stores.outbox,
-    signer,
-    cells: createCellDelivery({ cellUrls: config.cellUrls }),
+  // Every writer of a cloud session moves an agent run's run with it (`keepingRunsInStep`).
+  const sessions = keepingRunsInStep(company.cloudSessions, {
+    runs: company.runs,
+    clock: systemClock,
+    report,
   });
-  messageWritten = outbox.wake;
+  const passKey = config.runner ? await createPassSigner(config.runner.passPrivateKey) : null;
+  const runner = createRunnerSocket({
+    settings:
+      config.runner && passKey
+        ? {
+            secret: config.runner.secret,
+            workspaceId: config.runner.workspaceId,
+            passPublicKeyPem: passKey.publicKeyPem,
+          }
+        : null,
+    ports: { sessions, clock: systemClock },
+  });
+  const cloudSessions: CloudSessionPorts = {
+    sessions,
+    runners: runner.channel,
+    ids: randomIds,
+    clock: systemClock,
+    passes: passKey?.signer ?? null,
+  };
 
-  const auth = createAuth(
-    {
-      db,
-      config,
-      people: stores.people,
-      memberships: stores.memberships,
-      sessions: stores.sessions,
-    },
-    extraPlugins,
-  );
+  const app = createFrontDoor({ publicUrl: config.publicUrl, originExempt: ORIGIN_EXEMPT });
 
-  const app = createApp({
+  registerAccountRoutes(app, {
     handleAuth: (request) => auth.handler(request),
     currentSession: currentSessionOf(auth),
-    webOrigin: config.publicUrl,
-    workspaces: stores.workspaces,
-    memberships: stores.memberships,
-    sessions: stores.sessions,
-    cellTokens: signer,
-    installations: stores.installations,
+    workspaces: accounts.workspaces,
+    memberships: accounts.memberships,
+    sessions: accounts.sessions,
+    region: config.region,
+  });
+
+  registerCompanyRoutes(app, {
+    whoIsAsking,
+    membership,
+    teams: company.teams,
+    factories: company.factories,
+    runs: company.runs,
+    cloudSessions,
+  });
+
+  registerGitHubRoutes(app, {
+    whoIsAsking,
+    membership,
+    publicUrl: config.publicUrl,
+    installations: gitHubStores.installations,
     github,
     installStates: createInstallStateSigner(config.authSecret),
-    health: stores.health,
-    cellRequests: await createCellRequestVerifier(config.cellPublicKeys),
-    tokenMints: stores.tokenMints,
+    clock: systemClock,
     webhooks: {
       signatures: config.githubWebhookSecret
         ? createWebhookSignatures(config.githubWebhookSecret)
         : null,
-      signer,
-      cells: createCellEventDelivery({ cellUrls: config.cellUrls }),
+      events: gitHubStores.events,
+      // An event recorded for the first time starts the agent runs it fires, on the cloud
+      // sessions' ports and the workspace's factories.
+      agentRuns: { ...cloudSessions, factories: company.factories, runs: company.runs, report },
     },
   });
 
-  return { app, auth, outbox };
+  registerHealthRoute(app, [
+    () => checkAccountsHealth(accounts.health),
+    () => checkCompanyHealth(company.health),
+  ]);
+
+  // No session: a runner is no person, and presents its secret instead.
+  app.route('/', runner.routes);
+
+  return {
+    app,
+    auth,
+    injectWebSocket: runner.injectWebSocket,
+    closeRunnerSockets: runner.closeAll,
+  };
 }

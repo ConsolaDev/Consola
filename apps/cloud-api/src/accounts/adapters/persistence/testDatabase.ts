@@ -1,6 +1,6 @@
 import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { sql } from 'drizzle-orm';
-import { openDatabase } from './database.js';
+import { openMemoryDatabase } from './database.js';
 import type { Database, OpenDatabase } from './database.js';
 import { schema } from './schema.js';
 
@@ -20,7 +20,7 @@ export async function createAccountTables(db: Database): Promise<void> {
 
 /** A fresh in-memory database holding accounts' tables, and nothing else. */
 export async function openTestDatabase(): Promise<OpenDatabase> {
-  const opened = openDatabase('pglite:memory');
+  const opened = openMemoryDatabase();
   await createAccountTables(opened.db);
   return opened;
 }
