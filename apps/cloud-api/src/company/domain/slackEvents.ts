@@ -40,6 +40,11 @@ export type SlackEventCallback = {
   readonly eventType: string;
   /** The inner event as Slack sent it, for `readSlackEvent`. Text from outside the factory. */
   readonly event: Readonly<Record<string, unknown>>;
+  /**
+   * Whether it happened in a channel shared with another organisation (Slack Connect): the
+   * envelope's `is_ext_shared_channel`, which Slack has been seen to write as `true` or `"true"`.
+   */
+  readonly sharedChannel: boolean;
 };
 
 /** What Slack sent, by its outer `type`. */
@@ -93,7 +98,15 @@ export function readSlackEnvelope(
     ok: true,
     envelope: {
       kind: 'event_callback',
-      callback: { apiAppId, teamId, eventId, eventType: event.type, event },
+      callback: {
+        apiAppId,
+        teamId,
+        eventId,
+        eventType: event.type,
+        event,
+        sharedChannel:
+          value.is_ext_shared_channel === true || value.is_ext_shared_channel === 'true',
+      },
     },
   };
 }
@@ -201,12 +214,23 @@ export function readSlackEvent(
 }
 
 /**
- * Whether the message's author belongs to another Slack workspace than the app's: one the event
- * names (`user_team`, `source_team`, `team`) is not the app's. That is Slack Connect, a channel
- * shared with another organisation, whose people Consola does not take requests from.
+ * Whether the message's author may belong to another Slack workspace than the app's, Slack
+ * Connect, whose people Consola does not take requests from: a workspace the event names for its
+ * author or itself (`user_team`, `source_team`, `team`) is not the app's; or the channel is shared
+ * with another organisation (`sharedChannel`) and the event names none, so nothing says the author
+ * is the app's own.
+ *
+ * Being in a shared channel alone refuses nobody: the app's own people talk there too, and only
+ * where the author belongs counts. `is_ext_shared_channel` says the channel is shared, not where
+ * its author belongs, so it is no flag to refuse every message on.
  */
-export function fromAnotherWorkspace(message: SlackMessage, appTeamId: string): boolean {
-  return message.teams.some((team) => team !== appTeamId);
+export function fromAnotherWorkspace(
+  message: SlackMessage,
+  appTeamId: string,
+  sharedChannel = false,
+): boolean {
+  if (message.teams.some((team) => team !== appTeamId)) return true;
+  return sharedChannel && message.teams.length === 0;
 }
 
 /** Whether the message was written in a thread, rather than starting one. */

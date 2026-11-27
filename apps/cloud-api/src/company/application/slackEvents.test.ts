@@ -262,6 +262,7 @@ describe('receiveSlackEvent, once the app is added to a Slack workspace', () => 
       eventId: 'Ev0MENTION',
       eventType: 'app_mention',
       event: mentionEvent,
+      sharedChannel: false,
     });
   });
 

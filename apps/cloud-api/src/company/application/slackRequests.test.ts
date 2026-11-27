@@ -105,6 +105,7 @@ const callbackOf = (event: Record<string, unknown>): SlackEventCallback => ({
   eventId: `Ev0${++events}`,
   eventType: String(event.type),
   event,
+  sharedChannel: false,
 });
 
 const mention = (over: Record<string, unknown> = {}) =>
@@ -143,6 +144,15 @@ describe('who may talk to a factory', () => {
       },
     });
     expect(await createSlackStores(db).links.findRequest('hash:token-1')).toBeNull();
+  });
+
+  it('refuses an author the event places nowhere in a channel shared with another organisation', async () => {
+    await linkSlackUser(db, 'U0FAY', 'person-fay');
+    const shared = { ...mention(), sharedChannel: true };
+    expect(await handle(shared)).toEqual({ kind: 'slack-connect' });
+    // Placed in the app's own Slack workspace, they are taken there too.
+    const placed = { ...mention({ user_team: 'T0SPROCKET' }), sharedChannel: true };
+    expect(await handle(placed)).toEqual({ kind: 'no-orchestrator' });
   });
 
   it('sends an unlinked author a one-time link, for them alone', async () => {

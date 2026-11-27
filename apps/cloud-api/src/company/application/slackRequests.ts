@@ -96,7 +96,9 @@ function replyToAuthor(bot: Bot, message: SlackMessage, text: string): Promise<b
 /**
  * Whether the message's author may talk to the factory, in the design's order:
  *
- * 1. Slack Connect: an author of another Slack workspace than the app's is refused, with no link;
+ * 1. Slack Connect: an author of another Slack workspace than the app's is refused, with no link,
+ *    and so is one in a channel shared with another organisation whom the event names no
+ *    workspace for (`fromAnotherWorkspace`);
  * 2. no link: they get a one-time link to their Consola account (`requestSlackLink`), for them
  *    alone, unless one sent them for the factory and channel is still open, which they are
  *    pointed to instead, so writing again makes no new link;
@@ -111,6 +113,7 @@ export async function admitSlackMessage(
   app: InstalledSlackApp,
   bot: Bot,
   message: SlackMessage,
+  where: { sharedChannel: boolean } = { sharedChannel: false },
 ): Promise<SlackMessageOutcome> {
   const { workspaceId, factoryId } = app;
   const about = `Slack user ${message.userId} of factory ${factoryId}`;
@@ -123,7 +126,7 @@ export async function admitSlackMessage(
     return { kind };
   };
 
-  if (fromAnotherWorkspace(message, app.install.teamId)) {
+  if (fromAnotherWorkspace(message, app.install.teamId, where.sharedChannel)) {
     return refuse('slack-connect', WHO_MAY_TALK_WORDS.slackConnect);
   }
   const personId = await linkedPersonOf(ports.links, {
@@ -383,7 +386,9 @@ export async function handleSlackEvent(
   if (bot === null) return { kind: 'no-bot' };
   const { message } = read;
   try {
-    const admitted = await admitSlackMessage(ports, app, bot, message);
+    const admitted = await admitSlackMessage(ports, app, bot, message, {
+      sharedChannel: callback.sharedChannel,
+    });
     if (admitted.kind !== 'admitted') return admitted;
     return await startSlackRequest(ports, app, bot, message, admitted);
   } catch (error) {

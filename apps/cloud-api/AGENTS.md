@@ -1356,8 +1356,10 @@ answers in the same Slack thread. Slack is on only with
   this order, each refusal a reply only the author sees (ephemeral in a
   channel, a plain message in a direct message, which is theirs and the bot's
   alone), in their thread if they wrote in one: an author from another Slack workspace than the app's
-  (Slack Connect: `user_team`, `source_team` or `team` names another) is
-  refused with no link; an author with no link gets a one-time link
+  (Slack Connect: `user_team`, `source_team` or `team` names another, or the
+  channel is shared with another organisation, `is_ext_shared_channel`, and
+  the event names none) is refused with no link. A shared channel alone
+  refuses nobody, since the app's own people talk there too; an author with no link gets a one-time link
   (`requestSlackLink`), unless one sent them for the factory and channel is
   still open (`SlackLinkStore.openRequestOf`), which they are pointed to,
   since only its hash is kept; a linked person no longer a member, read live through

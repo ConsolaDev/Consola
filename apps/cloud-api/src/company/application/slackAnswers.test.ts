@@ -114,6 +114,7 @@ beforeEach(async () => {
       teamId: SPROCKET_SLACK.teamId,
       eventId: 'Ev0MENTION',
       eventType: 'app_mention',
+      sharedChannel: false,
       event: {
         type: 'app_mention',
         user: 'U0FAY',

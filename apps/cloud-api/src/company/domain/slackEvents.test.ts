@@ -45,9 +45,23 @@ describe('readSlackEnvelope', () => {
           eventId: 'Ev0MENTION',
           eventType: 'app_mention',
           event: mention,
+          sharedChannel: false,
         },
       },
     });
+  });
+
+  it('says when the event happened in a channel shared with another organisation', () => {
+    for (const flag of [true, 'true']) {
+      expect(readSlackEnvelope(callback({ is_ext_shared_channel: flag }))).toMatchObject({
+        envelope: { callback: { sharedChannel: true } },
+      });
+    }
+    for (const flag of [false, 'false', 1, undefined]) {
+      expect(readSlackEnvelope(callback({ is_ext_shared_channel: flag }))).toMatchObject({
+        envelope: { callback: { sharedChannel: false } },
+      });
+    }
   });
 
   it('takes any other type Slack sends as one to acknowledge', () => {
@@ -217,6 +231,11 @@ describe('readSlackEvent', () => {
     const unnamed = readSlackEvent(dm, BOT);
     if (unnamed.kind !== 'message') throw new Error('not read');
     expect(fromAnotherWorkspace(unnamed.message, 'T0SPROCKET')).toBe(false);
+
+    // In a channel shared with another organisation, only an author the event places is taken.
+    expect(fromAnotherWorkspace(unnamed.message, 'T0SPROCKET', true)).toBe(true);
+    expect(fromAnotherWorkspace(own.message, 'T0SPROCKET', true)).toBe(false);
+    expect(fromAnotherWorkspace(shared.message, 'T0SPROCKET', true)).toBe(true);
   });
 });
 
