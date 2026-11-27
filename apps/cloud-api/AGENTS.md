@@ -76,8 +76,10 @@ src/
 
 Two rules keep the data splittable, and each is a test in `src/rules.test.ts`.
 It reads the one Drizzle schema and every migration (`drizzle/*.sql`), so a
-table or column that only a migration makes is checked too. It also proves,
-on a fixture schema, that each of its checks fails when the rule is broken.
+table or column that only a migration makes is checked too, and company's
+code, for the second rule (below, "No reaching across"). It also proves, on
+a fixture schema, a fixture migration and fixture sources, that each of its
+checks fails when the rule is broken.
 
 ### Every company table carries its workspace id
 
@@ -109,7 +111,17 @@ a company table, and carries `workspace_id`, or an accounts table, added to
   `display_name` fail.
 - **No reaching across.** Company code never imports accounts' files or Better
   Auth (`src/boundary.test.ts`), and the accounts tables live only in
-  `accounts/adapters/persistence`.
+  `accounts/adapters/persistence`. Company shares the one database client, so
+  it could still read an accounts table without an import, and
+  `src/rules.test.ts` reads every file in `company/`, tests included, for
+  that too: no Drizzle builder there declares a table or a view named after an
+  accounts table (`pgTable`, `pgView`, `pgMaterializedView`, any case; a name
+  it cannot read fails, and so do `pgTableCreator` and `pgSchema`, which it
+  cannot judge), and no string or template literal names one as SQL does:
+  quoted (`"user"`, exactly, since a quoted name keeps its case) or bare after
+  `from`, `join`, `into`, `update`, `references` or `table` (any case), or
+  through `sql.identifier`. Company's own tables (`team_member`,
+  `cloud_session`) and comments do not count.
 - **Names come from accounts.** A person's name or email reaches a page only
   through accounts' own use case, `GET /api/me/workspace/members`, as the web
   app's Teams page does.
