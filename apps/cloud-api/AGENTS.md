@@ -579,8 +579,11 @@ app through that file, and CI checks the web app with every change to this app
 - **The caller check's answers** (401 `signed_out`, 400 `invalid_request`,
   409 `no_active_workspace` and `workspace_switched`, 403 `not_a_member`) are
   declared once (`callerFailures`) and spread into every route behind
-  `requireCaller`. A route that answers one of those statuses itself (a 409
-  `name_taken`, a 403 `not_allowed`) declares it after the spread, as one
+  `requireCaller`. A route of company's that changes something (POST, PUT,
+  PATCH, DELETE) spreads `changeFailures` instead: the same, with the front
+  door's 403 `bad_origin` in one union with `not_a_member`; a read never
+  declares `bad_origin`. A route that answers one of those statuses itself (a
+  409 `name_taken`, a 403 `not_allowed`) declares it after the spread, as one
   union with the caller's, since a status holds one answer.
 - **A schema used both alone and nullable is a union at the nullable use**
   (`z.union([Named, z.null()])`): `.nullable()` on a named schema makes every

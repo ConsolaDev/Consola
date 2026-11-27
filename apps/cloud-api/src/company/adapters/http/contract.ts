@@ -22,7 +22,7 @@ import {
 } from '../../domain/run.js';
 import { APPROVAL_DECISIONS } from '../../domain/runApproval.js';
 import { TEAM_NAME_MAX, TEAM_PROBLEMS } from '../../domain/team.js';
-import { callerFailures } from './caller.js';
+import { callerFailures, changeFailures } from './caller.js';
 
 /**
  * Company's contract: every route it serves, what each takes and every answer it gives. `app.ts`
@@ -31,8 +31,10 @@ import { callerFailures } from './caller.js';
  * app's client is generated from that.
  *
  * Every route is behind `requireCaller`, so each spreads its answers (`callerFailures`) into its
- * own. A status a route answers itself as well is one answer holding both its codes and the
- * check's (`forbidden`, `conflict`), since a status holds one answer.
+ * own, and a route that changes something (POST, PUT, PATCH, DELETE) the front door's 403
+ * `bad_origin` with them (`changeFailures`). A status a route answers itself as well is one answer
+ * holding both its codes and the check's (`forbidden`, `conflict`), since a status holds one
+ * answer.
  *
  * Answers are strict objects: the HTTP suite checks every body it gets against them, so a field
  * the contract does not name fails a test. Request bodies are checked for their shape only, never
@@ -56,8 +58,11 @@ const unsupportedMediaType = json(
   'The body is not JSON (`Content-Type: application/json`).',
 );
 
-/** `requireCaller`'s 403: the person is not a member of the workspace, or no longer. */
-const NOT_A_MEMBER = callerFailures[403].content['application/json'].schema;
+/**
+ * A change's 403s before it runs: the person is not a member of the workspace, or no longer
+ * (`requireCaller`), or the change did not come from the web app (the front door).
+ */
+const CHANGE_REFUSED = changeFailures[403].content['application/json'].schema.options;
 /** `requireCaller`'s 409s: no workspace active, or another than the page shows. */
 const SWITCHED = callerFailures[409].content['application/json'].schema.options;
 
@@ -65,15 +70,22 @@ const SWITCHED = callerFailures[409].content['application/json'].schema.options;
 const badRequest = <Schema extends z.ZodType>(schema: Schema, description: string) =>
   json(schema, `${description} Or (\`invalid_request\`): ${callerFailures[400].description}`);
 
-/** A route's own 403, as one answer with `requireCaller`'s. */
+/**
+ * A change's own 403, as one answer with those every change can get before it runs
+ * (`changeFailures`). Only changes answer a 403 of their own: a read that did would need one
+ * without `bad_origin`, which the front door never answers a read.
+ */
 const forbidden = <Own extends z.ZodType>(own: Own, description: string) =>
-  json(z.union([own, NOT_A_MEMBER]), `${description} Or: ${callerFailures[403].description}`);
+  json(z.union([own, ...CHANGE_REFUSED]), `${description} Or: ${changeFailures[403].description}`);
 
 /** A route's own 409s, as one answer with `requireCaller`'s. */
 const conflict = <const Own extends readonly z.ZodType[]>(description: string, ...own: Own) =>
   json(z.union([...own, ...SWITCHED]), `${description} Or: ${callerFailures[409].description}`);
 
-const notAllowed = forbidden(failure('not_allowed'), 'The caller’s role does not manage teams.');
+const notAllowed = forbidden(
+  failure('not_allowed'),
+  'The caller’s role does not manage teams (`not_allowed`).',
+);
 const teamNotFound = json(
   failure('team_not_found'),
   'The workspace has no team with that id, whether or not another workspace does.',
@@ -143,7 +155,7 @@ export const postTeam = createRoute({
   summary: 'Make a team, with nobody in it',
   request: body(TeamName),
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     201: json(Team, 'The team made.'),
     400: refusedName,
     403: notAllowed,
@@ -164,7 +176,7 @@ export const patchTeam = createRoute({
   summary: 'Rename a team, the first one included',
   request: { params: teamParams, ...body(TeamName) },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     200: json(Team, 'The team, renamed.'),
     400: refusedName,
     404: teamNotFound,
@@ -183,7 +195,7 @@ export const deleteTeam = createRoute({
   summary: 'Delete a team, and every place in it',
   request: { params: teamParams },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     204: { description: 'The team is gone.' },
     404: teamNotFound,
     403: notAllowed,
@@ -202,7 +214,7 @@ export const putTeamMember = createRoute({
   description: 'Someone already in the team stays as they are.',
   request: { params: memberParams },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     200: json(Team, 'The team, with the person in it.'),
     404: teamNotFound,
     403: notAllowed,
@@ -220,7 +232,7 @@ export const deleteTeamMember = createRoute({
   description: 'Someone not in the team changes nothing.',
   request: { params: memberParams },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     200: json(Team, 'The team, without the person.'),
     403: notAllowed,
     404: teamNotFound,
@@ -404,7 +416,7 @@ export const postFactory = createRoute({
     'Its files are stored in Consola, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.',
   request: body(NewFactory),
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     201: json(Factory, 'The factory made.'),
     400: badRequest(
       z.union([InvalidFactory, failure('invalid_request')]),
@@ -444,7 +456,7 @@ export const patchFactory = createRoute({
     'Whoever sees the factory may rename it. Moving it needs the caller to see the team it moves to as well: owners and admins any team, a member a team they are in. Its versions stay as they are.',
   request: { params: factoryParams, ...body(FactoryChange) },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     200: json(Factory, 'The factory, changed.'),
     400: badRequest(
       z.union([InvalidFactory, failure('invalid_request')]),
@@ -496,7 +508,7 @@ export const postFactoryVersion = createRoute({
     'The files must keep the factory schema (`packages/factory-spec`), and `baseVersion` must still be the latest version. Whoever sees the factory may save it.',
   request: { params: factoryParams, ...body(NewFactoryVersion) },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     201: json(SavedFactoryVersion, 'The version saved.'),
     400: badRequest(
       z.union([InvalidFiles, failure('invalid_request')]),
@@ -1003,12 +1015,12 @@ export const postRunApproval = createRoute({
     "Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. Consola records it and does not change the run: its runner acts on it.",
   request: { params: z.object({ runId: RunId }), ...body(ApprovalAnswer) },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     201: json(RunApproval, 'The answer is recorded.'),
     400: badRequest(failure('invalid_request'), 'The body is not what the route takes.'),
     403: forbidden(
       failure('not_allowed'),
-      "The caller sees the run, but is not on its factory's owning team.",
+      "The caller sees the run, but is not on its factory's owning team (`not_allowed`).",
     ),
     404: json(
       failure('run_not_found'),
@@ -1202,7 +1214,7 @@ export const postCloudSession = createRoute({
     'Nothing is recorded or sent unless the connected runner offers both the repository and the harness. The session starts as `starting`; the runner moves it on.',
   request: body(NewCloudSession),
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     201: json(CloudSession, 'The session, recorded and handed to the runner.'),
     400: badRequest(
       z.union([
@@ -1251,7 +1263,7 @@ export const postCloudSessionStop = createRoute({
     'The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.',
   request: { params: sessionParams },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     202: json(CloudSession, 'The session, ended: `stopped`, or the end it had already.'),
     404: sessionNotFound,
   },
@@ -1263,10 +1275,10 @@ export const postCloudSessionPass = createRoute({
   summary:
     'A pass to a running session the caller sees: their own, or an agent run of the workspace',
   description:
-    "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but `requireCaller`'s refusals.",
+    "The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the refusals before it runs: `requireCaller`'s and the origin check's.",
   request: { params: sessionParams },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     200: { ...json(CloudSessionPass, 'The pass, and the host it opens.'), headers: noStore },
     404: {
       ...json(
