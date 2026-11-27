@@ -2,7 +2,7 @@
   "name": "@consola/cloud-session-e2e",
   "version": "0.0.0",
   "private": true,
-  "description": "A Consola cloud session end to end: the built cell, a runner whose sandboxes are local processes, and t3's client talking to the session's host through a pass.",
+  "description": "A Consola cloud session end to end: the built cloud app, a runner whose sandboxes are local processes, and t3's client talking to the session's host through a pass.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
@@ -14,10 +14,10 @@
     "@consola/host": "workspace:*",
     "@consola/runner-protocol": "workspace:*",
     "@consola/sandbox": "workspace:*",
+    "@electric-sql/pglite": "^0.5.17",
     "@t3tools/contracts": "workspace:*",
     "@types/node": "catalog:",
     "effect": "catalog:",
-    "jose": "6.2.10",
     "typescript": "^5.9.3",
     "vite-plus": "catalog:"
   }
