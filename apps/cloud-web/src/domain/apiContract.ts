@@ -602,7 +602,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The caller’s role does not manage teams (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -614,6 +614,9 @@ export interface paths {
                         } | {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -708,7 +711,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The caller’s role does not manage teams (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -720,6 +723,9 @@ export interface paths {
                         } | {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -809,7 +815,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The caller’s role does not manage teams (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -821,6 +827,9 @@ export interface paths {
                         } | {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -928,7 +937,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The caller’s role does not manage teams (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -940,6 +949,9 @@ export interface paths {
                         } | {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -1026,7 +1038,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The caller’s role does not manage teams (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1038,6 +1050,9 @@ export interface paths {
                         } | {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -1205,7 +1220,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1214,6 +1229,9 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -1417,7 +1435,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1426,6 +1444,9 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -1645,7 +1666,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1654,6 +1675,9 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -1975,7 +1999,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The caller sees the run, but is not on its factory's owning team. Or: The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The caller sees the run, but is not on its factory's owning team (`not_allowed`). Or: The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -1987,6 +2011,9 @@ export interface paths {
                         } | {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -2385,7 +2412,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2394,6 +2421,9 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -2602,7 +2632,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2611,6 +2641,9 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };
@@ -2660,7 +2693,7 @@ export interface paths {
         put?: never;
         /**
          * A pass to a running session the caller sees: their own, or an agent run of the workspace
-         * @description The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but `requireCaller`'s refusals.
+         * @description The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the refusals before it runs: `requireCaller`'s and the origin check's.
          */
         post: {
             parameters: {
@@ -2708,7 +2741,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                /** @description The person is not a member of the workspace their session has active, or no longer (`not_a_member`), or the change did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -2717,6 +2750,9 @@ export interface paths {
                         "application/json": {
                             /** @enum {string} */
                             error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
                         };
                     };
                 };

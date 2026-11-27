@@ -749,10 +749,10 @@ describe('the front door', () => {
           headers,
           body: JSON.stringify({ name: 'Design' }),
         });
-        // Read as it is, not against the route's schema: the company part's contract does not
-        // declare this 403 on its changes yet.
-        expect(response.status, `POST ${path} from ${origin}`).toBe(403);
-        expect(await response.json()).toEqual({ error: 'bad_origin' });
+        expect(await answerOf('POST', path, response), `POST ${path} from ${origin}`).toEqual({
+          status: 403,
+          body: { error: 'bad_origin' },
+        });
       }
     }
     // Nothing was made: the workspace still has its first team alone.

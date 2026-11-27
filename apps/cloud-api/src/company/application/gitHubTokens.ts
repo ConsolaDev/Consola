@@ -18,6 +18,12 @@ export type GitHubTokenRequest = {
   repositoryIds: readonly number[];
 };
 
+/**
+ * Where minting logs what went wrong that no outcome tells anyone: ids alone (the workspace, the
+ * installation, the purpose), never a token or a repository's name.
+ */
+export type TokenMintLog = Pick<Console, 'error'>;
+
 /** How a request for a GitHub token ended. */
 export type TokenRequestOutcome =
   /**
@@ -58,14 +64,16 @@ export type TokenRequestOutcome =
  * 3. the installation covers every repository, as GitHub lists it now.
  *
  * Then GitHub mints, and what it granted is checked against what was asked: anything else is
- * revoked and never handed out. Every token handed out is recorded first; one that cannot be
- * recorded is revoked, and the error goes on.
+ * revoked, logged (`log`, by its ids) and never handed out. Every token handed out is recorded
+ * first; one that cannot be recorded is revoked, and the error goes on.
  */
 export async function mintGitHubToken(
   ports: {
     mints: TokenMintStore;
     github: (Pick<GitHubApp, 'repositoriesOf'> & GitHubTokenMinter) | null;
     clock: Clock;
+    /** Where a mint GitHub granted other than asked is logged; left out, it is not. */
+    log?: TokenMintLog;
   },
   request: GitHubTokenRequest,
 ): Promise<TokenRequestOutcome> {
@@ -100,6 +108,10 @@ export async function mintGitHubToken(
   };
   if (!grantedAsAsked(scope, granted)) {
     await github.revokeToken(minted.token);
+    ports.log?.error(
+      `GitHub minted a token other than the one asked for workspace ${request.workspaceId} ` +
+        `(installation ${scope.installationId}, purpose ${request.purpose}); it was revoked.`,
+    );
     return { kind: 'not-as-asked' };
   }
   // As asked, so exactly the purpose's permissions, and metadata read when GitHub names it.

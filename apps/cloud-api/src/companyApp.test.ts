@@ -62,7 +62,7 @@ import { recordRun } from './company/application/runs.js';
 import { NO_STEP_DETAIL } from './company/domain/run.js';
 import type { RunWrite, StepRecord } from './company/domain/run.js';
 import { FIRST_TEAM_NAME } from './company/domain/team.js';
-import type { ROUTES } from './compose.js';
+import { ROUTES } from './compose.js';
 import { getHealth } from './http/health.js';
 import { WORKSPACE_ROLES } from './shared/workspaceRole.js';
 import { startApi } from './testing/harness.js';
@@ -398,6 +398,17 @@ const companyRoutes = (app: OpenAPIHono) =>
 /** A route's path with every parameter filled in. */
 const filled = (path: string) => path.replaceAll(/:[^/]+/g, 'x');
 
+/** The contract's route that Hono lists as `method` at `path` (`{param}` as `:param`). */
+function contractRouteOf(method: string, path: string): ContractRoute {
+  const declared = ROUTES.find(
+    (route) =>
+      route.method.toUpperCase() === method &&
+      route.path.replaceAll(/\{([^}]+)\}/g, ':$1') === path,
+  );
+  if (declared === undefined) throw new Error(`${method} ${path} is in no part's contract`);
+  return declared;
+}
+
 describe('every route', () => {
   it('but the open ones refuses a request without a session', async () => {
     for (const level of ['error', 'warn', 'info'] as const) {
@@ -434,7 +445,8 @@ describe('every route', () => {
         });
         const route = `${method} ${path}`;
         expect([route, origin, response.status]).toEqual([route, origin, 403]);
-        expect(await response.json()).toEqual({ error: 'bad_origin' });
+        const answer = await answerOf(contractRouteOf(method, path), response);
+        expect([route, origin, answer]).toEqual([route, origin, { error: 'bad_origin' }]);
       }
     }
     expect((await teamsSeenBy(owner)).teams.map((team) => team.name)).toEqual([FIRST_TEAM_NAME]);

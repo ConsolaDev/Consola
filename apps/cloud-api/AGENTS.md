@@ -579,8 +579,11 @@ app through that file, and CI checks the web app with every change to this app
 - **The caller check's answers** (401 `signed_out`, 400 `invalid_request`,
   409 `no_active_workspace` and `workspace_switched`, 403 `not_a_member`) are
   declared once (`callerFailures`) and spread into every route behind
-  `requireCaller`. A route that answers one of those statuses itself (a 409
-  `name_taken`, a 403 `not_allowed`) declares it after the spread, as one
+  `requireCaller`. A route of company's that changes something (POST, PUT,
+  PATCH, DELETE) spreads `changeFailures` instead: the same, with the front
+  door's 403 `bad_origin` in one union with `not_a_member`; a read never
+  declares `bad_origin`. A route that answers one of those statuses itself (a
+  409 `name_taken`, a 403 `not_allowed`) declares it after the spread, as one
   union with the caller's, since a status holds one answer.
 - **A schema used both alone and nullable is a union at the nullable use**
   (`z.union([Named, z.null()])`): `.nullable()` on a named schema makes every
@@ -724,7 +727,7 @@ from a repository (9.4) or saved to one (37.2), or a run (epic 21)) asks
 through an in-app use case, `mintGitHubToken(ports, { workspaceId,
 installationId, purpose, repositoryIds })`, where `installationId` is the
 installation the workspace holds, by its id on GitHub, and `ports` the
-token-mint store, the GitHub App and the clock. No route mints a token, and
+token-mint store, the GitHub App, the clock and, optionally, a log. No route mints a token, and
 nothing calls the use case yet.
 
 **Proposed** (14.3, CON-71), not yet confirmed:
@@ -747,7 +750,9 @@ nothing calls the use case yet.
   `permissions` (`mintToken`), and a token is handed out only when GitHub
   says it carries exactly those repositories and permissions, plus metadata
   read (`grantedAsAsked`). Anything else is revoked (`DELETE
-  /installation/token`) and refused (`not-as-asked`). GitHub refusing the
+  /installation/token`), logged in one line by its ids alone (the workspace,
+  the installation and the purpose; never the token or a repository's name),
+  and refused (`not-as-asked`). GitHub refusing the
   scope (422: a permission the app lacks, or a repository it stopped
   covering) is `refused`. Each token is a new one: never kept, never reused,
   never the one the repositories are listed with.

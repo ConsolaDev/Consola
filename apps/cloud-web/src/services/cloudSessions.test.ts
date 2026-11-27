@@ -100,6 +100,16 @@ describe('the workspace', () => {
     }
   });
 
+  it('is unavailable when the API refuses a change as not from the web app (`bad_origin`)', async () => {
+    const refused = { status: 403, body: { error: 'bad_origin' } };
+    const { service } = harness({ [START]: refused, [STOP]: refused, [PASS]: refused });
+    expect(
+      await service.startSession(ACME, { repository: 'sprocket/catalog-portal', harness: 'codex' }),
+    ).toEqual({ kind: 'unavailable' });
+    expect(await service.stopSession(ACME, 'cs-1')).toEqual({ kind: 'unavailable' });
+    expect(await service.issuePass(ACME, 'cs-1')).toEqual({ kind: 'unavailable' });
+  });
+
   it('is signed out only on a 401, and unavailable when the API does not answer', async () => {
     const out = harness({ [LIST]: { status: 401, body: { error: 'signed_out' } } });
     expect(await out.service.loadSessions(ACME)).toEqual({ kind: 'signed-out' });

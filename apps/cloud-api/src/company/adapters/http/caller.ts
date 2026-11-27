@@ -104,3 +104,19 @@ export const callerFailures = {
       'shows (`workspace_switched`): another tab switched it. Loading the page again is the fix.',
   ),
 } as const;
+
+/**
+ * What every route behind `requireCaller` that changes something (POST, PUT, PATCH, DELETE) can
+ * answer before it runs: `callerFailures`, and the front door's 403 `bad_origin` to a change that
+ * did not come from the web app, refused before the session is asked. A status holds one answer,
+ * so the 403 is one union with the check's `not_a_member`. Spread into each such route's
+ * responses in place of `callerFailures`; a read never answers `bad_origin`, so never takes it.
+ */
+export const changeFailures = {
+  ...callerFailures,
+  403: json(
+    z.union([failure('not_a_member'), failure('bad_origin')]),
+    'The person is not a member of the workspace their session has active, or no longer ' +
+      '(`not_a_member`), or the change did not come from the web app (`bad_origin`).',
+  ),
+} as const;

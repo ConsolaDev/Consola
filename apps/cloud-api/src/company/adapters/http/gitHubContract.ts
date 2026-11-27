@@ -1,6 +1,6 @@
 import { createRoute, z } from '@hono/zod-openapi';
 import { GITHUB_PAYLOAD_MAX_BYTES } from '../../domain/webhooks.js';
-import { callerFailures, WORKSPACE_HEADER } from './caller.js';
+import { callerFailures, changeFailures, WORKSPACE_HEADER } from './caller.js';
 
 /**
  * GitHub's part of the API's contract: Connections (what a workspace is connected to, connecting
@@ -9,8 +9,9 @@ import { callerFailures, WORKSPACE_HEADER } from './caller.js';
  *
  * Answers are strict objects: the HTTP suite checks every body it gets against them, so a field
  * the contract does not name fails a test. The routes a page calls are behind `requireCaller`, so
- * each spreads `callerFailures` into its answers; a status one of them answers itself as well is
- * one union with the code there, since a status holds one answer. The callback and the webhook
+ * each spreads `callerFailures` into its answers, or `changeFailures` for a change, which the
+ * front door refuses from anywhere but the web app (`bad_origin`); a status one of them answers
+ * itself as well is one union with the code there, since a status holds one answer. The callback and the webhook
  * have no caller: a browser redirect and GitHub reach them.
  */
 
@@ -107,7 +108,7 @@ export const postGitHubInstall = createRoute({
     'The address on GitHub that installs the app, carrying a state signed for this person. ' +
     'Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).',
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     200: json(
       z.strictObject({ url: z.string() }).openapi('GitHubInstallAddress'),
       'Where to send the person.',
@@ -239,7 +240,7 @@ export const deleteGitHubInstallation = createRoute({
     }),
   },
   responses: {
-    ...callerFailures,
+    ...changeFailures,
     204: { description: 'Disconnected.' },
     400: json(
       failure('invalid_request'),

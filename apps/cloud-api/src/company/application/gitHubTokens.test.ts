@@ -320,6 +320,39 @@ describe('minting a GitHub token', () => {
     },
   );
 
+  it('logs a token it revoked as not asked by its ids alone, never the token or a repository', async () => {
+    const lines: string[] = [];
+    const log = {
+      error: (...args: unknown[]) => {
+        lines.push(args.map(String).join(' '));
+      },
+    };
+    const github = fakeGitHub(() => ({
+      kind: 'minted',
+      token: 'ghs_too_wide',
+      expiresAt: new Date((now + 3600) * 1000),
+      repositories: [{ id: 411, fullName: 'acme/api' }],
+      permissions: { contents: 'read' },
+    }));
+    expect(await mintGitHubToken({ mints, github: github.github, clock, log }, ask())).toEqual({
+      kind: 'not-as-asked',
+    });
+    expect(lines).toEqual([
+      'GitHub minted a token other than the one asked for workspace acme (installation 41, ' +
+        'purpose factory-pull); it was revoked.',
+    ]);
+    expect(lines.join('\n')).not.toContain('ghs_too_wide');
+    expect(lines.join('\n')).not.toContain('acme/');
+
+    // A token as asked is handed out, and nothing is logged.
+    const asAsked = await mintGitHubToken(
+      { mints, github: fakeGitHub().github, clock, log },
+      ask(),
+    );
+    expect(asAsked.kind).toBe('minted');
+    expect(lines).toHaveLength(1);
+  });
+
   it('revokes the token and hands out nothing when the mint cannot be recorded', async () => {
     const github = fakeGitHub();
     const failing: TokenMintStore = {
