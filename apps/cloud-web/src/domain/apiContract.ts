@@ -4988,8 +4988,8 @@ export interface components {
             workspaceId: string;
             /** @description The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees. */
             personId: string | null;
-            /** @description The repository, as `owner/name`. */
-            repository: string;
+            /** @description The repository it works in, as `owner/name`. Null for an agent run of a factory that names none (a request from Slack), which starts in an empty folder with no git credentials. A person’s session, and an agent run on a pull request, always have one. */
+            repository: string | null;
             /**
              * @description The agent CLI the session runs.
              * @enum {string}

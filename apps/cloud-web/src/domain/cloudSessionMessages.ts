@@ -32,6 +32,16 @@ export const SESSION_STATUS_WORDS: Readonly<Record<CloudSessionStatus, string>> 
 /** The API's `no_runner`: no runner is configured or connected for the workspace. */
 export const NO_RUNNER_WORDS = 'No runner is connected for this workspace.';
 
+/**
+ * What a session with no repository says where its repository would be: an agent run of a factory
+ * that names none (a request from Slack), which works in an empty folder.
+ */
+export const NO_REPOSITORY_WORDS = 'No repository';
+
+/** What hovering that says: the folder is empty, and nothing can be pushed from it. */
+export const NO_REPOSITORY_TITLE =
+  'No repository: it works in an empty folder, with no git credentials, so it pushes nowhere.';
+
 /** A runner connected, with no repository or no harness to offer. */
 export const NOTHING_OFFERED_WORDS =
   'This workspace’s runner offers no repository or harness to start a session with.';
@@ -68,7 +78,7 @@ const FAILURE_CODE_WORDS: Readonly<Record<CellFailureCode, (session: Failed) => 
   runner_unavailable: () =>
     'No runner was connected when the pull request’s event arrived, so this run never started.',
   repository_not_offered: ({ repository }) =>
-    `The connected runner doesn’t offer ${repository}, so this run never started.`,
+    `The connected runner doesn’t offer ${repository ?? 'its repository'}, so this run never started.`,
   harness_not_offered: ({ harness }) =>
     `The connected runner has no API key for ${HARNESS_NAMES[harness] ?? harness}, so this run never started.`,
   agent_run_invalid: () =>
