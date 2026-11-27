@@ -2,10 +2,13 @@ import createClient from 'openapi-fetch';
 import type { Client } from 'openapi-fetch';
 import type { paths } from '../domain/apiContract';
 import type {
+  ChoiceState,
+  ChooseAnswer,
   ConnectAnswer,
   Connections,
   ConnectionsState,
   DisconnectAnswer,
+  GitHubCandidate,
 } from '../domain/connections';
 import type { MeState } from '../domain/me';
 import type { SetIconAnswer, WorkspaceIcon } from '../domain/workspaceIcons';
@@ -212,8 +215,9 @@ function isConnections(body: unknown): body is Connections {
 }
 
 /**
- * Starts connecting GitHub to `workspace`: the address on GitHub to send the person to. A
- * workspace the session no longer has open is `unavailable`, as the page cannot act for it.
+ * Starts connecting GitHub to `workspace`: the addresses on GitHub to send the person to, its
+ * sign-in for the app first, and its install page for another account. A workspace the session
+ * no longer has open is `unavailable`, as the page cannot act for it.
  */
 export async function startGitHubConnect(
   workspace: { id: string },
@@ -228,10 +232,109 @@ export async function startGitHubConnect(
       return { kind: 'not-configured' };
     }
     const url = data?.url;
-    if (response.status !== 200 || typeof url !== 'string' || !isGitHubAddress(url)) {
+    const installUrl = data?.installUrl;
+    if (
+      response.status !== 200 ||
+      typeof url !== 'string' ||
+      typeof installUrl !== 'string' ||
+      !isGitHubAddress(url) ||
+      !isGitHubAddress(installUrl)
+    ) {
       return UNAVAILABLE;
     }
-    return { kind: 'started', url };
+    return { kind: 'started', url, installUrl };
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/** A choice the API refused, for the reason it named. */
+const refused = <Reason extends string>(reason: Reason) => ({ kind: 'refused', reason }) as const;
+
+/**
+ * The installations a signed choice offers (`choice`, as the API's callback sent the page back
+ * with it), read for `workspace`, the session's active one. The API reads it only for the session
+ * that signed in, in time, for that workspace, and for an owner or admin; each refusal is named.
+ */
+export async function loadGitHubChoice(
+  workspace: { id: string },
+  choice: string,
+  options: ApiOptions = {},
+): Promise<ChoiceState> {
+  try {
+    const client = createApi({ ...options, workspaceId: workspace.id });
+    const { data, error, response } = await client.GET('/api/connections/github/choice', {
+      params: { query: { choice } },
+    });
+    if (response.status === 401) return { kind: 'signed-out' };
+    const code = error?.error;
+    if (response.status === 400 && code === 'bad_choice') return refused('bad-choice');
+    if (response.status === 403 && code === 'not_allowed') return refused('not-allowed');
+    if (response.status === 409 && code === 'choice_for_another_workspace') {
+      return refused('other-workspace');
+    }
+    if (response.status === 410 && code === 'choice_expired') return refused('expired');
+    if (
+      (response.status === 409 &&
+        (code === 'no_active_workspace' || code === 'workspace_switched')) ||
+      (response.status === 403 && code === 'not_a_member')
+    ) {
+      return { kind: 'switched' };
+    }
+    const candidates = data?.candidates;
+    if (response.status !== 200 || !Array.isArray(candidates) || !candidates.every(isCandidate)) {
+      return UNAVAILABLE;
+    }
+    return { kind: 'loaded', candidates };
+  } catch {
+    return UNAVAILABLE;
+  }
+}
+
+/** Whether an entry has the shape of a candidate, as far as the page reads it. */
+function isCandidate(entry: unknown): entry is GitHubCandidate {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const { id, account } = entry as { id?: unknown; account?: unknown };
+  if (typeof id !== 'number' || typeof account !== 'object' || account === null) return false;
+  const { login, type } = account as { login?: unknown; type?: unknown };
+  const { heldElsewhere } = entry as { heldElsewhere?: unknown };
+  return (
+    typeof login === 'string' &&
+    (type === 'Organization' || type === 'User') &&
+    typeof heldElsewhere === 'boolean'
+  );
+}
+
+/**
+ * Connects the installation the person chose (`installationId`) of a signed choice to
+ * `workspace`, the session's active one. The API checks everything again; a workspace the session
+ * no longer has open is `unavailable`, as for any change the page cannot vouch for.
+ */
+export async function connectChosenGitHub(
+  workspace: { id: string },
+  chosen: { choice: string; installationId: number },
+  options: ApiOptions = {},
+): Promise<ChooseAnswer> {
+  try {
+    const client = createApi({ ...options, workspaceId: workspace.id });
+    const { data, error, response } = await client.POST('/api/connections/github/choice', {
+      body: { choice: chosen.choice, installationId: chosen.installationId },
+    });
+    if (response.status === 401) return { kind: 'signed-out' };
+    if (response.status === 200 && data?.result === 'connected') return { kind: 'connected' };
+    if (response.status === 200 && data?.result === 'already_connected') {
+      return { kind: 'already-connected' };
+    }
+    const code = error?.error;
+    if (response.status === 400 && code === 'bad_choice') return refused('bad-choice');
+    if (response.status === 400 && code === 'not_a_candidate') return refused('not-a-candidate');
+    if (response.status === 403 && code === 'not_allowed') return refused('not-allowed');
+    if (response.status === 409 && code === 'choice_for_another_workspace') {
+      return refused('other-workspace');
+    }
+    if (response.status === 409 && code === 'installation_taken') return refused('taken');
+    if (response.status === 410 && code === 'choice_expired') return refused('expired');
+    return UNAVAILABLE;
   } catch {
     return UNAVAILABLE;
   }

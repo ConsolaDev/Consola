@@ -1,13 +1,28 @@
 import type { Caller, SignedInPerson } from '../domain/caller.js';
 import {
+  administeredInstallations,
+  candidateOf,
+  checkInstallChoice,
+  choiceOutcome,
   checkInstaller,
   checkInstallState,
   mayManageConnections,
+  newInstallChoice,
   newInstallState,
   readGitHubId,
 } from '../domain/connections.js';
-import type { ConnectedInstallation, GitHubRepository } from '../domain/connections.js';
-import type { GitHubApp, InstallationStore, InstallStateSigner } from './gitHubPorts.js';
+import type {
+  AskingSession,
+  ConnectedInstallation,
+  GitHubRepository,
+  InstallCandidate,
+} from '../domain/connections.js';
+import type {
+  GitHubApp,
+  InstallationStore,
+  InstallChoiceSigner,
+  InstallStateSigner,
+} from './gitHubPorts.js';
 import type { MembershipReader } from './ports.js';
 
 /** What GitHub says an installation covers, or why it could not say. */
@@ -58,21 +73,30 @@ export async function listConnections(
 }
 
 /**
- * Starts connecting the caller's workspace to GitHub: the address that installs Consola's GitHub
- * App, carrying a signed state that only this person, in this session, can finish with, until
- * `INSTALL_STATE_LIFETIME_SECONDS` after `now` (whole seconds since the epoch). Only an owner or
- * an admin may (`not-allowed` otherwise).
+ * Starts connecting the caller's workspace to GitHub, with a signed state that only this person,
+ * in this session, can finish with, until `INSTALL_STATE_LIFETIME_SECONDS` after `now` (whole
+ * seconds since the epoch): `url`, GitHub's sign-in authorization for the app, which a Connect
+ * starts with, since GitHub always sends the person back from it; and `installUrl`, the app's
+ * install page, for installing it on another account. Only an owner or an admin may
+ * (`not-allowed` otherwise).
  */
 export function startGitHubInstall(
   ports: { github: GitHubApp | null; states: InstallStateSigner },
   caller: Caller,
   now: number,
-): { kind: 'started'; url: string } | { kind: 'not-allowed' } | { kind: 'not-configured' } {
+):
+  | { kind: 'started'; url: string; installUrl: string }
+  | { kind: 'not-allowed' }
+  | { kind: 'not-configured' } {
   if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
   if (!ports.github) return { kind: 'not-configured' };
 
   const state = ports.states.sign(newInstallState(caller, caller.workspaceId, now));
-  return { kind: 'started', url: ports.github.installUrl(state) };
+  return {
+    kind: 'started',
+    url: ports.github.signInUrl(state),
+    installUrl: ports.github.installUrl(state),
+  };
 }
 
 /** What GitHub's redirect back to Consola carries, each as the query string has it. */
@@ -110,22 +134,45 @@ export type InstallOutcome =
   | { kind: 'taken' }
   | { kind: 'invalid' }
   | { kind: 'unavailable' }
-  | { kind: 'not-configured' };
+  | { kind: 'not-configured' }
+  /**
+   * The person signed in, and administers no installation of the app that is free: on to the
+   * app's install page, with a fresh state, to install it on an account.
+   */
+  | { kind: 'install'; url: string }
+  /**
+   * The person signed in, and administers installations of the app no workspace holds: theirs to
+   * choose from, as a signed choice (`InstallChoice`) the page reads and sends back.
+   */
+  | { kind: 'choose'; choice: string }
+  /**
+   * The person signed in, and every installation of the app they administer is held by another
+   * workspace: the signed choice names them, each marked held, so the page says which, and
+   * offers to install the app on another account.
+   */
+  | { kind: 'taken-elsewhere'; choice: string };
 
 /**
- * Finishes a Connect when GitHub sends the person back, and records the installation for the
- * workspace the Connect was started for, whatever their session has active by then. The person
- * is the signed-in one (`signedIn`), and each check comes before anything that trusts what the
- * redirect says:
+ * Finishes a Connect when GitHub sends the person back, for the workspace the Connect was started
+ * for, whatever their session has active by then. The person is the signed-in one (`signedIn`),
+ * and each check comes before anything that trusts what the redirect says:
  *
  * 1. the state is this session's own (this person's, in the browser they started in), signed by
  *    Consola and in time;
- * 2. the person is still an owner or admin of that workspace, read from `member` now;
+ * 2. the person is still an owner or admin of that workspace, read from `member` now.
+ *
+ * A redirect from installing the app names the installation (`installation_id`), which is then
+ * recorded once:
+ *
  * 3. GitHub, asked with the redirect's one-time code, lists the installation among those this
  *    person can reach, since the `installation_id` in the address can be forged, and says they
  *    administer its account (`checkInstaller`): reaching it is not enough, since every member
  *    of an organisation reaches its installation;
  * 4. no other workspace holds it.
+ *
+ * A redirect from signing in names none (`chooseOrInstall`): GitHub, asked with the code, lists
+ * the installations the person administers, and those no workspace holds are theirs to choose
+ * from, or, with none, the person goes on to install the app.
  */
 export async function finishGitHubInstall(
   ports: {
@@ -133,6 +180,7 @@ export async function finishGitHubInstall(
     installations: InstallationStore;
     github: GitHubApp | null;
     states: InstallStateSigner;
+    choices: InstallChoiceSigner;
   },
   signedIn: SignedInPerson,
   returned: InstallReturn,
@@ -153,6 +201,11 @@ export async function finishGitHubInstall(
   const role = await ports.membership.roleOf(signedIn.personId, workspaceId);
   if (role === null || !mayManageConnections(role)) return { kind: 'not-allowed' };
 
+  if (returned.installationId === undefined) {
+    if (!returned.code) return { kind: 'invalid' };
+    return chooseOrInstall({ ...ports, github }, signedIn, workspaceId, returned.code, now);
+  }
+
   const installationId = readGitHubId(returned.installationId);
   if (installationId === null || !returned.code) return { kind: 'invalid' };
 
@@ -170,6 +223,129 @@ export async function finishGitHubInstall(
   });
   if (recorded === 'taken') return { kind: 'taken' };
   return { kind: recorded, workspaceId };
+}
+
+/**
+ * What a Connect that GitHub sent back from signing in goes on to: GitHub, asked with the one-time
+ * `code`, lists the installations of the app the person can reach, of which they administer
+ * some (`administeredInstallations`). Those this workspace holds already are left out; those no
+ * workspace holds are theirs to choose from (`choose`, at most `MAX_INSTALL_CANDIDATES`), shown
+ * beside those another workspace holds, marked so and never offered. With only held ones, the
+ * page says so (`taken-elsewhere`, with the same signed choice to name them). With none at all,
+ * the person goes on to the app's install page, with a fresh state (`install`), from where
+ * GitHub sends them back with the installation they make (`choiceOutcome`).
+ */
+async function chooseOrInstall(
+  ports: {
+    installations: InstallationStore;
+    github: GitHubApp;
+    states: InstallStateSigner;
+    choices: InstallChoiceSigner;
+  },
+  asking: AskingSession,
+  workspaceId: string,
+  code: string,
+  now: number,
+): Promise<InstallOutcome> {
+  const { github } = ports;
+  const asked = await github.installationsOf(code);
+  if (asked.kind !== 'read') return asked;
+
+  const candidates: InstallCandidate[] = [];
+  for (const { id, account } of administeredInstallations(asked.installations)) {
+    const holder = await ports.installations.holderOf(id);
+    // Held here already: Connections shows it connected, so it is nothing to choose.
+    if (holder !== workspaceId) candidates.push({ id, account, heldElsewhere: holder !== null });
+  }
+  const outcome = choiceOutcome(candidates);
+  if (outcome === 'install') {
+    const state = ports.states.sign(newInstallState(asking, workspaceId, now));
+    return { kind: 'install', url: github.installUrl(state) };
+  }
+  const choice = ports.choices.sign(newInstallChoice(asking, workspaceId, candidates, now));
+  return { kind: outcome, choice };
+}
+
+/** Why a choice of installation the page sent back cannot be made. */
+export type ChoiceRefusal =
+  /** Not one Consola signed, or another session's (another person's above all). */
+  | { kind: 'bad-choice' }
+  | { kind: 'expired' }
+  /** Made for another workspace than the session has active now. */
+  | { kind: 'other-workspace' }
+  /** The person is no longer an owner or admin of the workspace. */
+  | { kind: 'not-allowed' };
+
+/** The choice the page sent back, once checked as this session's own, in time, for here. */
+function readChoice(
+  choices: InstallChoiceSigner,
+  caller: Caller,
+  token: string,
+  now: number,
+):
+  | { kind: 'read'; candidates: InstallCandidate[] }
+  | Exclude<ChoiceRefusal, { kind: 'not-allowed' }> {
+  const choice = choices.read(token);
+  const checked = checkInstallChoice(choice, caller, now);
+  if (checked === 'expired') return { kind: 'expired' };
+  if (checked === 'other-workspace') return { kind: 'other-workspace' };
+  if (checked !== 'ok' || choice === null) return { kind: 'bad-choice' };
+  return { kind: 'read', candidates: choice.candidates };
+}
+
+/**
+ * The installations a choice offers the caller (`InstallChoice`), as the page shows them once
+ * GitHub sent the person back from signing in. Only for the session that signed in, in time, in
+ * the workspace it was for, and only for an owner or an admin, read at this request.
+ */
+export function readGitHubChoice(
+  ports: { choices: InstallChoiceSigner },
+  caller: Caller,
+  token: string,
+  now: number,
+): { kind: 'read'; candidates: InstallCandidate[] } | ChoiceRefusal {
+  const read = readChoice(ports.choices, caller, token, now);
+  if (read.kind !== 'read') return read;
+  if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
+  return read;
+}
+
+/**
+ * Connects the installation the caller chose of a choice's candidates to the caller's workspace,
+ * and records it as a fresh install records one. Everything that can change since the choice was
+ * signed is checked again first, in this order: the choice is this session's own, in time, for
+ * this workspace; the installation is one of its candidates (`not-a-candidate`); the caller is
+ * still an owner or admin, by their role at this request; and no other workspace holds it
+ * (`taken`, even at the same moment). That last is asked of the store, never of the choice: one
+ * the choice marked held elsewhere is `taken` while it still is, and connects once that workspace
+ * let it go, since the person administers it all the same. The choice itself is kept nowhere:
+ * each call checks it whole.
+ */
+export async function connectChosenInstallation(
+  ports: { choices: InstallChoiceSigner; installations: InstallationStore },
+  caller: Caller,
+  chosen: { choice: string; installationId: number },
+  now: number,
+): Promise<
+  | { kind: 'connected' }
+  | { kind: 'already-connected' }
+  | ChoiceRefusal
+  | { kind: 'not-a-candidate' }
+  | { kind: 'taken' }
+> {
+  const read = readChoice(ports.choices, caller, chosen.choice, now);
+  if (read.kind !== 'read') return read;
+  const candidate = candidateOf(read, chosen.installationId);
+  if (candidate === null) return { kind: 'not-a-candidate' };
+  if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
+
+  const recorded = await ports.installations.connect({
+    installation: { id: candidate.id, account: candidate.account },
+    workspaceId: caller.workspaceId,
+    connectedBy: caller.personId,
+    at: new Date(now * 1000),
+  });
+  return { kind: recorded };
 }
 
 /**

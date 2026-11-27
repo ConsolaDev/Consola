@@ -1,5 +1,12 @@
 import { whenConnected } from './connections';
-import type { ConnectAnswer, DisconnectAnswer, GitHubResult } from './connections';
+import type {
+  ChoiceRefusal,
+  ChoiceState,
+  ChooseAnswer,
+  ConnectAnswer,
+  DisconnectAnswer,
+  GitHubResult,
+} from './connections';
 
 const ON_DATE = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
 const AT_TIME = new Intl.DateTimeFormat(undefined, { dateStyle: 'full', timeStyle: 'short' });
@@ -61,7 +68,75 @@ export function repositoryCount(count: number): string {
 
 /** What the GitHub card says before anything is connected, to someone who may connect it. */
 export const GITHUB_CONNECT_HINT =
-  'Connecting installs Consola’s GitHub App on an account or organization you own, for the repositories you choose there.';
+  'Connecting signs you in to GitHub, then connects an account or organization you own: one that has Consola’s GitHub App already, or one you install it on.';
+
+/** The heading over the accounts a person who signed in to GitHub may choose from. */
+export const GITHUB_CHOICE_LABEL = 'Choose an account';
+
+/** What the choice says over its accounts. */
+export const GITHUB_CHOICE_HINT =
+  'Consola’s GitHub App is already installed on these accounts, which you own. Connect the one this workspace works with.';
+
+/** The last row of the choice, which installs the app on an account it is not on yet. */
+export const INSTALL_ELSEWHERE = 'Install on another account';
+
+/** What a candidate's button says. */
+export function connectAccountLabel(login: string): string {
+  return `Connect ${login}`;
+}
+
+/** What an account another Consola workspace has connected says, in place of its Connect. */
+export const HELD_ELSEWHERE = 'Connected to another workspace';
+
+/** The heading over the accounts when every one is connected to another workspace. */
+export const GITHUB_HELD_ELSEWHERE_LABEL = 'Connected elsewhere';
+
+/** What the group says when every account the person owns is connected to another workspace. */
+export const GITHUB_HELD_ELSEWHERE_HINT =
+  'Consola’s GitHub App is installed on these accounts, which you own, and another Consola workspace has connected each of them. Install the app on another account, or disconnect one from that workspace first.';
+
+/** What `taken_elsewhere` says when the address carried no choice to name the accounts. */
+const TAKEN_ELSEWHERE =
+  'The GitHub accounts you own that have Consola’s GitHub App are connected to another Consola workspace. Install the app on another account from here.';
+
+const CHOICE_FOR_ANOTHER_WORKSPACE =
+  'That choice was for another workspace. Connect again from the workspace you want GitHub in.';
+
+/** The sentence for why a choice cannot be shown or made. */
+function messageForChoiceRefusal(reason: ChoiceRefusal | 'not-a-candidate' | 'taken'): string {
+  switch (reason) {
+    case 'bad-choice':
+      return `That choice was made in another session. ${CONNECT_AGAIN}`;
+    case 'expired':
+      return `That choice took too long. ${CONNECT_AGAIN}`;
+    case 'other-workspace':
+      return CHOICE_FOR_ANOTHER_WORKSPACE;
+    case 'not-allowed':
+      return ONLY_MANAGERS;
+    case 'not-a-candidate':
+      return `GitHub didn’t offer that account just now. ${CONNECT_AGAIN}`;
+    case 'taken':
+      return 'Another Consola workspace connected that account a moment ago.';
+  }
+}
+
+/** The sentence for a choice the page could not show, or the server did not connect. */
+export function messageForChoiceFailure(
+  answer:
+    | Exclude<ChoiceState, { kind: 'loaded' }>
+    | Exclude<ChooseAnswer, { kind: 'connected' | 'already-connected' }>,
+): string {
+  switch (answer.kind) {
+    case 'refused':
+      return messageForChoiceRefusal(answer.reason);
+    case 'switched':
+      return CHOICE_FOR_ANOTHER_WORKSPACE;
+    case 'signed-out':
+      return 'Your session ended. Sign in, then connect again.';
+    case 'unavailable':
+      return NOT_ANSWERING;
+  }
+}
 
 /** What the GitHub card says before anything is connected, to a member who may not. */
 export const GITHUB_ASK_HINT = 'Ask an owner or admin of this workspace to connect GitHub.';
@@ -104,6 +179,8 @@ export function messageForGitHubResult(result: GitHubResult | 'unknown'): string
       return 'Only an owner of the GitHub organization can connect it. Ask one of them to connect it from this page.';
     case 'taken':
       return 'Another Consola workspace has already connected that GitHub account.';
+    case 'taken_elsewhere':
+      return TAKEN_ELSEWHERE;
     case 'invalid':
       return `GitHub sent back something Consola couldn’t read. ${CONNECT_AGAIN}`;
     case 'unavailable':
@@ -112,6 +189,8 @@ export function messageForGitHubResult(result: GitHubResult | 'unknown'): string
       return GITHUB_NOT_CONFIGURED;
     case 'signed_out':
       return 'Your session ended before GitHub sent you back. Sign in, then connect again.';
+    // A choice the address did not carry (`readGitHubReturn`): nothing to choose from.
+    case 'choose':
     case 'unknown':
       return `GitHub didn’t finish connecting. ${CONNECT_AGAIN}`;
   }

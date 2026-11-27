@@ -1589,7 +1589,6 @@ async function connectsGitHub(owner: Member) {
     installation: {
       id: INSTALLATION_ID,
       account: { id: 9001, login: 'sprocket', type: 'Organization' },
-      repositorySelection: 'selected',
     },
     workspaceId: owner.workspaceId,
     connectedBy: owner.personId,

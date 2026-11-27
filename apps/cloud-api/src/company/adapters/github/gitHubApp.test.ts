@@ -101,6 +101,19 @@ describe('the install address', () => {
   });
 });
 
+describe('the sign-in address', () => {
+  it("is GitHub's authorization for the app's client, carrying the state, and nothing secret", () => {
+    const { app } = appFor(fakeGitHub({}));
+    const url = new URL(app.signInUrl('abc.def+/='));
+    expect(`${url.origin}${url.pathname}`).toBe('https://github.com/login/oauth/authorize');
+    expect([...url.searchParams]).toEqual([
+      ['client_id', 'Iv23liSprocketTest'],
+      ['state', 'abc.def+/='],
+    ]);
+    expect(url.toString()).not.toContain(config.clientSecret);
+  });
+});
+
 describe('what GitHub says of the person who came back', () => {
   const REVOKE = 'DELETE https://api.github.com/applications/Iv23liSprocketTest/token';
   const MEMBERSHIP = 'GET https://api.github.com/user/memberships/orgs/sprocket';
@@ -298,6 +311,118 @@ describe('what GitHub says of the person who came back', () => {
       kind: 'unavailable',
     });
   });
+
+  describe('once they signed in, with no installation named', () => {
+    const ACME_MEMBERSHIP = 'GET https://api.github.com/user/memberships/orgs/acme';
+
+    it('lists every installation they reach, with their membership of each organisation, then revokes the token', async () => {
+      const github = personGitHub(
+        { [ACME_MEMBERSHIP]: () => Response.json({ state: 'active', role: 'member' }) },
+        [installation(41, 'sprocket'), installation(6, 'dana', 'User'), installation(52, 'acme')],
+      );
+      const { app, logged } = appFor(github);
+
+      expect(await app.installationsOf('good-code')).toEqual({
+        kind: 'read',
+        installations: [
+          {
+            installation: {
+              id: 41,
+              account: { id: 42, login: 'sprocket', type: 'Organization' },
+              repositorySelection: 'selected',
+            },
+            gitHubUserId: 7,
+            organizationRole: 'admin',
+          },
+          {
+            installation: {
+              id: 6,
+              account: { id: 7, login: 'dana', type: 'User' },
+              repositorySelection: 'selected',
+            },
+            gitHubUserId: 7,
+            organizationRole: null,
+          },
+          {
+            installation: {
+              id: 52,
+              account: { id: 53, login: 'acme', type: 'Organization' },
+              repositorySelection: 'selected',
+            },
+            gitHubUserId: 7,
+            organizationRole: 'member',
+          },
+        ],
+      });
+      expect(
+        github.calls.map((call) => `${call.method} ${call.url.origin}${call.url.pathname}`),
+      ).toEqual([
+        'POST https://github.com/login/oauth/access_token',
+        'GET https://api.github.com/user',
+        'GET https://api.github.com/user/installations',
+        MEMBERSHIP,
+        ACME_MEMBERSHIP,
+        REVOKE,
+      ]);
+      expect(github.calls.at(-1)?.body).toEqual({ access_token: 'ghu_person' });
+      expect(logged).toEqual([]);
+    });
+
+    it('is an empty list when they reach none, and still revokes the token', async () => {
+      const github = personGitHub({}, []);
+      expect(await appFor(github).app.installationsOf('good-code')).toEqual({
+        kind: 'read',
+        installations: [],
+      });
+      expect(github.calls.at(-1)?.method).toBe('DELETE');
+    });
+
+    it('leaves out an installation on an account that is neither an organisation nor a person', async () => {
+      const github = personGitHub({}, [
+        { ...installation(43, 'big-co'), account: { id: 7, slug: 'big-co', name: 'Big Co' } },
+        installation(6, 'dana', 'User'),
+      ]);
+      const answer = await appFor(github).app.installationsOf('good-code');
+      expect(
+        answer.kind === 'read' && answer.installations.map((each) => each.installation?.id),
+      ).toEqual([6]);
+    });
+
+    it('is code-refused for a code GitHub does not take, and asks nothing else', async () => {
+      const github = personGitHub();
+      expect(await appFor(github).app.installationsOf('used-code')).toEqual({
+        kind: 'code-refused',
+      });
+      expect(github.calls).toHaveLength(1);
+    });
+
+    it('is unavailable, naming the missing permission, when GitHub will not say who owns an organisation, and still revokes the token', async () => {
+      const github = personGitHub({}, undefined, () =>
+        Response.json({ message: 'no' }, { status: 403 }),
+      );
+      const { app, logged } = appFor(github);
+      expect(await app.installationsOf('good-code')).toEqual({ kind: 'unavailable' });
+      expect(github.calls.at(-1)?.method).toBe('DELETE');
+      expect(logged).toEqual([
+        "GitHub refused reading the person's membership of sprocket (HTTP 403). The app needs the Members organization permission (read) to tell an organisation's owners from its members.",
+      ]);
+    });
+
+    it('is unavailable when GitHub does not answer, and logs no code or token', async () => {
+      const github = personGitHub({
+        'GET https://api.github.com/user/installations': () => {
+          throw new TypeError('fetch failed');
+        },
+      });
+      const { app, logged } = appFor(github);
+      expect(await app.installationsOf('good-code')).toEqual({ kind: 'unavailable' });
+      expect(github.calls.map((call) => call.method)).toEqual(['POST', 'GET', 'GET', 'DELETE']);
+      expect(logged).toEqual([
+        "GitHub did not answer listing a person's installations (TypeError).",
+      ]);
+      expect(logged.join('\n')).not.toMatch(/good-code|ghu_person|sprocket-test-client-secret/);
+    });
+  });
 });
 
 describe("an installation's repositories", () => {
@@ -386,6 +511,58 @@ describe("an installation's repositories", () => {
     now += 1;
     await app.repositoriesOf(41);
     expect(listed).toBe(2);
+  });
+
+  it('lists again with a new token once told the installation changed, inside the minute', async () => {
+    let listed = 0;
+    let covered = [repository(1, 'sprocket/catalog-portal'), repository(2, 'sprocket/api')];
+    const { github, minted } = gitHubWith(() => {
+      listed += 1;
+      return Response.json({ total_count: covered.length, repositories: covered });
+    });
+    let now = NOW;
+    const { app } = appFor(github, () => now);
+
+    const before = await app.repositoriesOf(41);
+    expect(before.kind === 'listed' && before.repositories).toHaveLength(2);
+
+    // GitHub reports the installation now covers one repository: within the minute, and with a
+    // token that has an hour left, the list is read again, with a new token.
+    covered = [repository(2, 'sprocket/api')];
+    now += 10_000;
+    app.forgetInstallation(41);
+    const after = await app.repositoriesOf(41);
+    expect(after).toEqual({
+      kind: 'listed',
+      repositories: [
+        { id: 2, fullName: 'sprocket/api', private: true, url: 'https://github.com/sprocket/api' },
+      ],
+    });
+    expect(listed).toBe(2);
+    expect(minted()).toBe(2);
+    const lists = github.calls.filter((call) => call.url.pathname === '/installation/repositories');
+    expect(lists.map((call) => call.headers.get('authorization'))).toEqual([
+      'Bearer ghs_installation_1',
+      'Bearer ghs_installation_2',
+    ]);
+
+    // Then the new list is reused for its minute, as any is.
+    await app.repositoriesOf(41);
+    expect(listed).toBe(2);
+  });
+
+  it('forgets only the installation it is told of', async () => {
+    let listed = 0;
+    const { github, minted } = gitHubWith(() => {
+      listed += 1;
+      return Response.json({ total_count: 0, repositories: [] });
+    });
+    const { app } = appFor(github);
+    await app.repositoriesOf(41);
+    app.forgetInstallation(52);
+    await app.repositoriesOf(41);
+    expect(listed).toBe(1);
+    expect(minted()).toBe(1);
   });
 
   it('drops a token GitHub stops taking', async () => {

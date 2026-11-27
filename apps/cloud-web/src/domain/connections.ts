@@ -33,9 +33,40 @@ export type ConnectionsState =
   | { kind: 'switched' }
   | { kind: 'unavailable' };
 
-/** The answer to starting a Connect: the address on GitHub to send the person to. */
+/**
+ * How soon after its last read the page may read the connections again by itself, as it comes
+ * back into view: so flicking between tabs does not ask the API (and the API GitHub) each time.
+ */
+export const CONNECTIONS_REFRESH_MIN_MS = 5000;
+
+/**
+ * Whether the page, shown again at `now`, reads its connections again: yes, unless it read them
+ * less than `CONNECTIONS_REFRESH_MIN_MS` ago. The person may have changed an installation on
+ * GitHub's own pages meanwhile.
+ */
+export function refreshesOnShow(lastReadAt: number | null, now: number): boolean {
+  return lastReadAt === null || now - lastReadAt >= CONNECTIONS_REFRESH_MIN_MS;
+}
+
+/**
+ * What the page shows after a read it made by itself, rather than for the person: the answer,
+ * except that a read that did not answer keeps the connections already shown, so a moment's
+ * outage never replaces the list with an error the person did not ask for.
+ */
+export function afterQuietRead(
+  shown: ConnectionsState | null,
+  read: ConnectionsState,
+): ConnectionsState {
+  return read.kind === 'unavailable' && shown?.kind === 'loaded' ? shown : read;
+}
+
+/**
+ * The answer to starting a Connect: the addresses on GitHub to send the person to. `url` is
+ * GitHub's sign-in for the app, where a Connect starts, since GitHub always sends the person back
+ * from it; `installUrl` is the app's install page, for installing it on another account.
+ */
 export type ConnectAnswer =
-  | { kind: 'started'; url: string }
+  | { kind: 'started'; url: string; installUrl: string }
   | { kind: 'not-allowed' }
   | { kind: 'not-configured' }
   | { kind: 'signed-out' }
@@ -50,9 +81,14 @@ export type DisconnectAnswer =
 
 /**
  * How a Connect ended, as the API's GitHub callback names it in `?github=` when it sends the
- * person back to Settings' Connections page.
+ * person back to Settings' Connections page. `choose` has not ended: the person signed in to
+ * GitHub, owns accounts the app is installed on already, and chooses which to connect.
+ * `taken_elsewhere`: every such account is connected to another Consola workspace already, and
+ * the choice names them.
  */
 export const GITHUB_RESULTS = [
+  'choose',
+  'taken_elsewhere',
   'connected',
   'already_connected',
   'requested',
@@ -83,6 +119,100 @@ export function readGitHubResult(value: string | null): GitHubResult | 'unknown'
 /** Whether a Connect's result is good news. */
 export function isSuccess(result: GitHubResult | 'unknown'): boolean {
   return result === 'connected' || result === 'already_connected';
+}
+
+/** Longer than any choice the API signs: a longer one is not one of its, and is not read. */
+export const MAX_CHOICE_LENGTH = 8192;
+
+/** What the API's GitHub callback sent the page back with, in its address. */
+export type GitHubReturn =
+  /** A Connect that ended, as `?github=` names it. */
+  | { kind: 'ended'; result: GitHubResult | 'unknown' }
+  /**
+   * A Connect that waits for the person to choose an installation to connect (`choose`), or that
+   * found every one they own held by another workspace (`taken_elsewhere`): the choice the API
+   * signed (`&choice=`), whose installations the page reads from the API.
+   */
+  | { kind: 'choose'; choice: string };
+
+/**
+ * What `?github=` and `&choice=` say, null when the address carries no result. A `choose` or a
+ * `taken_elsewhere` comes with a choice to read; with none, or one too long to be the API's, a
+ * `choose` is a Connect that did not finish (`unknown`), and a `taken_elsewhere` is said without
+ * the accounts it names.
+ */
+export function readGitHubReturn(
+  github: string | null,
+  choice: string | null,
+): GitHubReturn | null {
+  const result = readGitHubResult(github);
+  if (result === null) return null;
+  if (result !== 'choose' && result !== 'taken_elsewhere') return { kind: 'ended', result };
+  if (choice === null || choice === '' || choice.length > MAX_CHOICE_LENGTH) {
+    return { kind: 'ended', result: result === 'choose' ? 'unknown' : result };
+  }
+  return { kind: 'choose', choice };
+}
+
+/**
+ * An installation the person who signed in administers: its id, the account it is on, and
+ * whether another Consola workspace holds it (`heldElsewhere`, never which), in which case it is
+ * shown and not offered.
+ */
+export type GitHubCandidate = Schemas['GitHubInstallCandidate'];
+
+/** A choice's installations, as the page shows them: those to connect, and those held elsewhere. */
+export function splitCandidates(candidates: readonly GitHubCandidate[]): {
+  available: GitHubCandidate[];
+  heldElsewhere: GitHubCandidate[];
+} {
+  return {
+    available: candidates.filter((each) => !each.heldElsewhere),
+    heldElsewhere: candidates.filter((each) => each.heldElsewhere),
+  };
+}
+
+/** Why a choice the API signed cannot be shown or made by this person, here, now. */
+export type ChoiceRefusal =
+  /** Not one the API signed, or another session's: another person's, or this one's elsewhere. */
+  | 'bad-choice'
+  /** Its few minutes are over. */
+  | 'expired'
+  /** Made for another workspace than the session has open now. */
+  | 'other-workspace'
+  /** The person is no longer an owner or admin of the workspace. */
+  | 'not-allowed';
+
+/** The installations a choice offers, as the API reads them. */
+export type ChoiceState =
+  | { kind: 'loaded'; candidates: GitHubCandidate[] }
+  | { kind: 'refused'; reason: ChoiceRefusal }
+  | { kind: 'signed-out' }
+  /** The session has no workspace open, or another than the page shows, or the person left it. */
+  | { kind: 'switched' }
+  | { kind: 'unavailable' };
+
+/** The answer to connecting the installation the person chose. */
+export type ChooseAnswer =
+  | { kind: 'connected' }
+  | { kind: 'already-connected' }
+  | {
+      kind: 'refused';
+      reason:
+        | ChoiceRefusal
+        /** Not one the choice offers. */
+        | 'not-a-candidate'
+        /** Another workspace connected it since the choice was made. */
+        | 'taken';
+    }
+  | { kind: 'signed-out' }
+  | { kind: 'unavailable' };
+
+/** How a choice made says it ended, as the Connect's result the page then shows. */
+export function resultOfChoice(
+  answer: Extract<ChooseAnswer, { kind: 'connected' | 'already-connected' }>,
+): GitHubResult {
+  return answer.kind === 'connected' ? 'connected' : 'already_connected';
 }
 
 /** Another service, listed beside GitHub, that a workspace cannot connect yet. */

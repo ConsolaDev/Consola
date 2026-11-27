@@ -10,6 +10,7 @@ import type { GitHubApp, InstallationStore } from '../../application/gitHubPorts
 import type { MembershipReader } from '../../application/ports.js';
 import type { SignedInPerson } from '../../domain/caller.js';
 import type { GitHubInstallation } from '../../domain/connections.js';
+import { createInstallChoiceSigner } from '../github/installChoiceSigner.js';
 import { createInstallStateSigner } from '../github/installStateSigner.js';
 import { createWebhookSignatures } from '../github/webhookSignatures.js';
 import { createGitHubStores } from '../persistence/gitHubStores.js';
@@ -19,6 +20,8 @@ import { GITHUB_ROUTES, registerGitHubRoutes } from './gitHub.js';
 import {
   deleteGitHubInstallation,
   getConnections,
+  getGitHubChoice,
+  postGitHubChoice,
   postGitHubInstall,
   postGitHubWebhook,
 } from './gitHubContract.js';
@@ -50,7 +53,11 @@ const sprocketOrg: GitHubInstallation = {
   repositorySelection: 'selected',
 };
 
+/** The installations the person who signs in with `good-code` reaches, and owns. */
+let reachable: GitHubInstallation[] = [];
+
 const github: GitHubApp = {
+  signInUrl: (state) => `https://github.test/sign-in?state=${state}`,
   installUrl: (state) => `https://github.test/install?state=${state}`,
   installerFacts: async (code, installationId) =>
     code === 'good-code'
@@ -63,8 +70,27 @@ const github: GitHubApp = {
           },
         }
       : { kind: 'code-refused' },
+  installationsOf: async (code) =>
+    code === 'good-code'
+      ? {
+          kind: 'read',
+          installations: reachable.map((installation) => ({
+            installation,
+            gitHubUserId: 7,
+            organizationRole: 'admin',
+          })),
+        }
+      : { kind: 'code-refused' },
+  forgetInstallation: (installationId) => {
+    forgotten.push(installationId);
+  },
   repositoriesOf: async () => ({ kind: 'listed', repositories: [] }),
 };
+
+/** The installations the GitHub App was told to forget, in order. */
+const forgotten: number[] = [];
+
+const SIGNING_SECRET = 'sprocket-test-secret-that-is-long-enough-to-sign-with';
 
 /** GitHub's routes on an app of their own, with the GitHub App and the webhook secret or not. */
 function build(
@@ -87,9 +113,8 @@ function build(
     publicUrl: PUBLIC_URL,
     installations,
     github: configured.github ? github : null,
-    installStates: createInstallStateSigner(
-      'sprocket-test-secret-that-is-long-enough-to-sign-with',
-    ),
+    installStates: createInstallStateSigner(SIGNING_SECRET),
+    installChoices: createInstallChoiceSigner(SIGNING_SECRET),
     clock: { nowSeconds: () => now },
     webhooks: {
       signatures: configured.webhooks ? createWebhookSignatures(SECRET) : null,
@@ -113,7 +138,9 @@ beforeEach(async () => {
     ['sprocket/dana', 'owner'],
     ['sprocket/lee', 'member'],
   ]);
+  reachable = [];
   lines.length = 0;
+  forgotten.length = 0;
   app = build();
 });
 
@@ -237,6 +264,131 @@ describe("GitHub's routes", () => {
     expect(await installations.ofWorkspace('sprocket')).toHaveLength(1);
   });
 
+  describe('a Connect that starts by signing in', () => {
+    /** Dana's Connect: the state its addresses carry, and where both go. */
+    async function startedByDana() {
+      const owner = await app.request('/api/connections/github/install', {
+        method: 'POST',
+        headers: as('dana'),
+      });
+      expect(owner.status).toBe(200);
+      const answer = (await declared(postGitHubInstall, owner)) as {
+        url: string;
+        installUrl: string;
+      };
+      return { ...answer, state: new URL(answer.url).searchParams.get('state') ?? '' };
+    }
+
+    /** GitHub sending Dana back from signing in: a code and the state, no installation. */
+    const signedInBack = (state: string) =>
+      app.request(`/api/github/callback?${new URLSearchParams({ state, code: 'good-code' })}`, {
+        headers: { 'x-test-person': 'dana' },
+      });
+
+    it('starts at GitHub sign-in, with the install page beside it, both with one state', async () => {
+      const { url, installUrl, state } = await startedByDana();
+      expect(url).toBe(`https://github.test/sign-in?state=${state}`);
+      expect(installUrl).toBe(`https://github.test/install?state=${state}`);
+    });
+
+    it('sends the person to choose, then connects the installation they choose', async () => {
+      reachable = [sprocketOrg];
+      const back = await signedInBack((await startedByDana()).state);
+      expect(back.status).toBe(302);
+      expect(back.headers.get('referrer-policy')).toBe('no-referrer');
+      const location = new URL(back.headers.get('location') ?? '');
+      expect(`${location.origin}${location.pathname}${location.hash}`).toBe(
+        `${PUBLIC_URL}/#/settings/connections`,
+      );
+      expect(location.searchParams.get('github')).toBe('choose');
+      const choice = location.searchParams.get('choice') ?? '';
+      expect(choice).not.toBe('');
+      expect(await installations.ofWorkspace('sprocket')).toEqual([]);
+
+      const read = await app.request(
+        `/api/connections/github/choice?${new URLSearchParams({ choice })}`,
+        { headers: as('dana') },
+      );
+      expect(read.status).toBe(200);
+      expect(read.headers.get('cache-control')).toBe('no-store');
+      expect(await declared(getGitHubChoice, read)).toEqual({
+        candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
+      });
+
+      const chose = (installationId: number, personId = 'dana') =>
+        app.request('/api/connections/github/choice', {
+          method: 'POST',
+          headers: { ...as(personId), 'content-type': 'application/json' },
+          body: JSON.stringify({ choice, installationId }),
+        });
+      expect(await declared(postGitHubChoice, await chose(52))).toEqual({
+        error: 'not_a_candidate',
+      });
+      expect(await declared(postGitHubChoice, await chose(41, 'lee'))).toEqual({
+        error: 'bad_choice',
+      });
+      const connected = await chose(41);
+      expect(connected.status).toBe(200);
+      expect(await declared(postGitHubChoice, connected)).toEqual({ result: 'connected' });
+      expect(await declared(postGitHubChoice, await chose(41))).toEqual({
+        result: 'already_connected',
+      });
+      expect(await installations.ofWorkspace('sprocket')).toEqual([
+        { id: 41, account: sprocketOrg.account, connectedAt: new Date(now * 1000) },
+      ]);
+    });
+
+    it('refuses to show the choice to a member, or to another person', async () => {
+      reachable = [sprocketOrg];
+      const back = await signedInBack((await startedByDana()).state);
+      const choice = new URL(back.headers.get('location') ?? '').searchParams.get('choice') ?? '';
+      const readAs = (personId: string) =>
+        app.request(`/api/connections/github/choice?${new URLSearchParams({ choice })}`, {
+          headers: as(personId),
+        });
+      expect(await declared(getGitHubChoice, await readAs('lee'))).toEqual({
+        error: 'bad_choice',
+      });
+      roles.set('sprocket/dana', 'member');
+      expect(await declared(getGitHubChoice, await readAs('dana'))).toEqual({
+        error: 'not_allowed',
+      });
+    });
+
+    it('says so, with the choice naming them, when another workspace holds every one', async () => {
+      reachable = [sprocketOrg];
+      await installations.connect({
+        installation: sprocketOrg,
+        workspaceId: 'acme',
+        connectedBy: 'ana',
+        at: new Date(now * 1000),
+      });
+      const back = await signedInBack((await startedByDana()).state);
+      expect(back.status).toBe(302);
+      const location = new URL(back.headers.get('location') ?? '');
+      expect(`${location.origin}${location.pathname}${location.hash}`).toBe(
+        `${PUBLIC_URL}/#/settings/connections`,
+      );
+      expect(location.searchParams.get('github')).toBe('taken_elsewhere');
+      const choice = location.searchParams.get('choice') ?? '';
+
+      const read = await app.request(
+        `/api/connections/github/choice?${new URLSearchParams({ choice })}`,
+        { headers: as('dana') },
+      );
+      expect(await declared(getGitHubChoice, read)).toEqual({
+        candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: true }],
+      });
+    });
+
+    it('goes on to the install page when the person administers no free installation', async () => {
+      const back = await signedInBack((await startedByDana()).state);
+      expect(back.status).toBe(302);
+      expect(back.headers.get('location')).toMatch(/^https:\/\/github\.test\/install\?state=./);
+      expect(back.headers.get('cache-control')).toBe('no-store');
+    });
+  });
+
   it('sends the same person back as bad_state from another of their sessions', async () => {
     const owner = await app.request('/api/connections/github/install', {
       method: 'POST',
@@ -334,6 +486,21 @@ describe("GitHub's routes", () => {
         'Recorded GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 (pull_request) for workspace sprocket (installation 41).',
         'Refused GitHub delivery 72d3162e-cc78-11e3-81ab-4c9367dc0958 (pull_request): workspace sprocket (installation 41) had it already.',
       ]);
+    });
+
+    it('has the GitHub App forget an installation GitHub says changed, and no other', async () => {
+      await post(signed(pullRequest));
+      expect(forgotten).toEqual([]);
+
+      const removed = JSON.stringify({ action: 'removed', installation: { id: 41 } });
+      const answer = await post(
+        signed(removed, {
+          'x-github-event': 'installation_repositories',
+          'x-github-delivery': '72d3162e-cc78-11e3-81ab-4c9367dc0959',
+        }),
+      );
+      expect(await declared(postGitHubWebhook, answer)).toEqual({ result: 'recorded' });
+      expect(forgotten).toEqual([41]);
     });
 
     it("answers GitHub's ping with 200", async () => {

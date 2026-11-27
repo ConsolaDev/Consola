@@ -4,8 +4,9 @@
 
 import type {
   ConnectedInstallation,
-  GitHubInstallation,
+  GitHubAccount,
   GitHubRepository,
+  InstallChoice,
   InstallerFacts,
   InstallState,
 } from '../domain/connections.js';
@@ -24,7 +25,8 @@ export type InstallationStore = {
    * `already-connected`, and its account is written again, since an organisation can be renamed.
    */
   connect(entry: {
-    installation: GitHubInstallation;
+    /** The installation, by its id, and the account GitHub says it is on. */
+    installation: { id: number; account: GitHubAccount };
     workspaceId: string;
     /** The id of the person who connected it. */
     connectedBy: string;
@@ -52,10 +54,32 @@ export type InstallStateSigner = {
 };
 
 /**
+ * Signs the choice of installations a person who signed in may connect, under a key of its own,
+ * never the state's, and reads one back only when this signer signed it.
+ */
+export type InstallChoiceSigner = {
+  sign(choice: InstallChoice): string;
+  /** The choice, or null when it is not one this signer signed, or not a choice at all. */
+  read(token: string): InstallChoice | null;
+};
+
+/** What GitHub answered about the person it sent back with a one-time code. */
+type PersonAnswer<Facts> =
+  | ({ kind: 'read' } & Facts)
+  | { kind: 'code-refused' }
+  | { kind: 'unavailable' };
+
+/**
  * Consola's GitHub App, as GitHub answers for it. A call GitHub cannot answer (down, slow, or an
  * answer of a shape it never gives) is `unavailable`, never thrown.
  */
 export type GitHubApp = {
+  /**
+   * GitHub's sign-in authorization for the app, carrying `state` back to Consola's callback with a
+   * one-time code and no installation. Unlike the install page, GitHub always sends the person
+   * back from it, whether the app is installed on their accounts or not.
+   */
+  signInUrl(state: string): string;
   /** The address that installs the app, carrying `state` back to Consola's callback. */
   installUrl(state: string): string;
   /**
@@ -69,12 +93,25 @@ export type GitHubApp = {
   installerFacts(
     code: string,
     installationId: number,
-  ): Promise<
-    { kind: 'read'; facts: InstallerFacts } | { kind: 'code-refused' } | { kind: 'unavailable' }
-  >;
+  ): Promise<PersonAnswer<{ facts: InstallerFacts }>>;
   /**
-   * The repositories an installation covers, as GitHub says now. An installation GitHub no
-   * longer has (uninstalled, or suspended) is `gone`.
+   * What GitHub says of the person it sent back with `code` from signing in, about every
+   * installation of the app they can reach: for each, the installation, their own account and
+   * their membership of its organisation (`InstallerFacts`, never with a null installation).
+   * The code is used once, and the token it is exchanged for is revoked once read, never kept. A
+   * code GitHub refuses is `code-refused`.
+   */
+  installationsOf(code: string): Promise<PersonAnswer<{ installations: InstallerFacts[] }>>;
+  /**
+   * Forgets what is kept of one installation: its repositories as last listed, and the
+   * installation token they were listed with. The next `repositoriesOf` asks GitHub again, with
+   * a new token. Called when GitHub reports that the installation changed. It never throws.
+   */
+  forgetInstallation(installationId: number): void;
+  /**
+   * The repositories an installation covers, as GitHub says now, or as it said less than a
+   * minute ago, unless the installation was forgotten since (`forgetInstallation`). An
+   * installation GitHub no longer has (uninstalled, or suspended) is `gone`.
    */
   repositoriesOf(
     installationId: number,

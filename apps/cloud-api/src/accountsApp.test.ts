@@ -851,6 +851,8 @@ describe('routes', () => {
       'GET /api/connections',
       'POST /api/connections/github/install',
       'GET /api/github/callback',
+      'GET /api/connections/github/choice',
+      'POST /api/connections/github/choice',
       'DELETE /api/connections/github/installations/:installationId',
       'POST /api/github/webhooks',
       'GET /api/factories/:factoryId/slack',

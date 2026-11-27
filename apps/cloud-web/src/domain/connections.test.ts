@@ -2,23 +2,40 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { components } from './apiContract';
 import {
   accountCount,
+  connectAccountLabel,
   connectedAtLong,
   connectedSentence,
+  HELD_ELSEWHERE,
+  messageForChoiceFailure,
   messageForGitHubResult,
   repositoryCount,
 } from './connectionMessages';
 import {
   accountKind,
+  afterQuietRead,
   avatarUrl,
+  CONNECTIONS_REFRESH_MIN_MS,
   DAYS_AGO_SHOWN,
   GITHUB_RESULTS,
   isSuccess,
   JUST_CONNECTED_MS,
   justConnectedId,
+  MAX_CHOICE_LENGTH,
   readGitHubResult,
+  readGitHubReturn,
+  refreshesOnShow,
+  resultOfChoice,
+  splitCandidates,
   whenConnected,
 } from './connections';
-import type { GitHubConnection, GitHubResult } from './connections';
+import type {
+  ChoiceState,
+  ChooseAnswer,
+  ConnectionsState,
+  GitHubCandidate,
+  GitHubConnection,
+  GitHubResult,
+} from './connections';
 
 describe("a Connect's result", () => {
   it('is read when the page knows it', () => {
@@ -51,6 +68,162 @@ describe("a Connect's result", () => {
     // A result the API gains fails the typecheck here until the page names it.
     expectTypeOf<GitHubResult>().toEqualTypeOf<components['schemas']['GitHubCallbackResult']>();
     expect(new Set(GITHUB_RESULTS).size).toBe(GITHUB_RESULTS.length);
+  });
+});
+
+describe('reading the connections again as the page comes back into view', () => {
+  const loaded: ConnectionsState = {
+    kind: 'loaded',
+    connections: { canManage: true, github: { configured: true, installations: [] } },
+  };
+
+  it('reads again once a few seconds have passed since the last read, and on the first show', () => {
+    const at = 1_800_000_000_000;
+    expect(refreshesOnShow(null, at)).toBe(true);
+    expect(refreshesOnShow(at, at)).toBe(false);
+    expect(refreshesOnShow(at, at + CONNECTIONS_REFRESH_MIN_MS - 1)).toBe(false);
+    expect(refreshesOnShow(at, at + CONNECTIONS_REFRESH_MIN_MS)).toBe(true);
+    expect(CONNECTIONS_REFRESH_MIN_MS).toBe(5000);
+  });
+
+  it('shows what the read answered', () => {
+    const fresher: ConnectionsState = {
+      kind: 'loaded',
+      connections: { canManage: false, github: { configured: true, installations: [] } },
+    };
+    expect(afterQuietRead(loaded, fresher)).toBe(fresher);
+    expect(afterQuietRead(null, fresher)).toBe(fresher);
+    expect(afterQuietRead(loaded, { kind: 'switched' })).toEqual({ kind: 'switched' });
+    expect(afterQuietRead(loaded, { kind: 'signed-out' })).toEqual({ kind: 'signed-out' });
+  });
+
+  it('keeps the connections shown when the read did not answer, rather than an error', () => {
+    expect(afterQuietRead(loaded, { kind: 'unavailable' })).toBe(loaded);
+    // With nothing shown to keep, the page says it could not load them.
+    expect(afterQuietRead(null, { kind: 'unavailable' })).toEqual({ kind: 'unavailable' });
+    expect(afterQuietRead({ kind: 'unavailable' }, { kind: 'unavailable' })).toEqual({
+      kind: 'unavailable',
+    });
+  });
+});
+
+describe('what the callback sent the page back with', () => {
+  it('is a Connect that ended, as `?github=` names it', () => {
+    expect(readGitHubReturn('connected', null)).toEqual({ kind: 'ended', result: 'connected' });
+    expect(readGitHubReturn('taken', 'ignored')).toEqual({ kind: 'ended', result: 'taken' });
+    expect(readGitHubReturn('something_new', null)).toEqual({ kind: 'ended', result: 'unknown' });
+  });
+
+  it('is a choice to make, with the choice the API signed', () => {
+    expect(readGitHubReturn('choose', 'eyJ3.c2ln')).toEqual({
+      kind: 'choose',
+      choice: 'eyJ3.c2ln',
+    });
+  });
+
+  it('is a Connect that did not finish for a choose with no choice, or one too long', () => {
+    for (const choice of [null, '', 'x'.repeat(MAX_CHOICE_LENGTH + 1)]) {
+      expect(readGitHubReturn('choose', choice)).toEqual({ kind: 'ended', result: 'unknown' });
+    }
+    expect(readGitHubReturn('choose', 'x'.repeat(MAX_CHOICE_LENGTH))).toMatchObject({
+      kind: 'choose',
+    });
+  });
+
+  it('is nothing without a result', () => {
+    expect(readGitHubReturn(null, null)).toBeNull();
+    expect(readGitHubReturn(null, 'eyJ3.c2ln')).toBeNull();
+  });
+
+  it('is the accounts to name when another workspace holds every one, with the choice', () => {
+    expect(readGitHubReturn('taken_elsewhere', 'eyJ3.c2ln')).toEqual({
+      kind: 'choose',
+      choice: 'eyJ3.c2ln',
+    });
+  });
+
+  it('is still said when another workspace holds every one but no choice names them', () => {
+    for (const choice of [null, '', 'x'.repeat(MAX_CHOICE_LENGTH + 1)]) {
+      expect(readGitHubReturn('taken_elsewhere', choice)).toEqual({
+        kind: 'ended',
+        result: 'taken_elsewhere',
+      });
+    }
+    expect(messageForGitHubResult('taken_elsewhere')).toMatch(/another Consola workspace/);
+    expect(messageForGitHubResult('taken_elsewhere')).not.toBe(messageForGitHubResult('taken'));
+    expect(isSuccess('taken_elsewhere')).toBe(false);
+  });
+});
+
+describe('a choice of account', () => {
+  const sprocket: GitHubCandidate = {
+    id: 41,
+    account: { id: 9001, login: 'sprocket', type: 'Organization' },
+    heldElsewhere: false,
+  };
+  const acme: GitHubCandidate = {
+    id: 52,
+    account: { id: 9002, login: 'acme', type: 'Organization' },
+    heldElsewhere: true,
+  };
+
+  it('names each account on its button', () => {
+    expect(connectAccountLabel(sprocket.account.login)).toBe('Connect sprocket');
+  });
+
+  it('offers the accounts no workspace holds, and shows apart those another holds', () => {
+    expect(splitCandidates([acme, sprocket])).toEqual({
+      available: [sprocket],
+      heldElsewhere: [acme],
+    });
+    expect(splitCandidates([acme])).toEqual({ available: [], heldElsewhere: [acme] });
+    expect(splitCandidates([])).toEqual({ available: [], heldElsewhere: [] });
+    expect(HELD_ELSEWHERE).toBe('Connected to another workspace');
+  });
+
+  it('ends as the Connect results the page already says', () => {
+    expect(resultOfChoice({ kind: 'connected' })).toBe('connected');
+    expect(resultOfChoice({ kind: 'already-connected' })).toBe('already_connected');
+    expect(isSuccess(resultOfChoice({ kind: 'connected' }))).toBe(true);
+  });
+
+  it('has a sentence for every way it cannot be shown', () => {
+    const states: Array<Exclude<ChoiceState, { kind: 'loaded' }>> = [
+      { kind: 'refused', reason: 'bad-choice' },
+      { kind: 'refused', reason: 'expired' },
+      { kind: 'refused', reason: 'other-workspace' },
+      { kind: 'refused', reason: 'not-allowed' },
+      { kind: 'signed-out' },
+      { kind: 'switched' },
+      { kind: 'unavailable' },
+    ];
+    const sentences = states.map(messageForChoiceFailure);
+    for (const sentence of sentences) expect(sentence).toMatch(/\.$/);
+    // Each refusal says its own reason.
+    expect(new Set(sentences.slice(0, 4)).size).toBe(4);
+    expect(messageForChoiceFailure({ kind: 'refused', reason: 'expired' })).toMatch(/too long/);
+    expect(messageForChoiceFailure({ kind: 'refused', reason: 'bad-choice' })).toMatch(
+      /another session/,
+    );
+  });
+
+  it('has a sentence for every way choosing can fail', () => {
+    const answers: Array<Exclude<ChooseAnswer, { kind: 'connected' | 'already-connected' }>> = [
+      { kind: 'refused', reason: 'not-a-candidate' },
+      { kind: 'refused', reason: 'taken' },
+      { kind: 'refused', reason: 'expired' },
+      { kind: 'signed-out' },
+      { kind: 'unavailable' },
+    ];
+    for (const answer of answers) expect(messageForChoiceFailure(answer)).toMatch(/\.$/);
+    expect(messageForChoiceFailure({ kind: 'refused', reason: 'taken' })).toMatch(
+      /Another Consola workspace/,
+    );
+  });
+
+  it('says a choose that carried no choice as a Connect that did not finish', () => {
+    expect(messageForGitHubResult('choose')).toBe(messageForGitHubResult('unknown'));
+    expect(isSuccess('choose')).toBe(false);
   });
 });
 

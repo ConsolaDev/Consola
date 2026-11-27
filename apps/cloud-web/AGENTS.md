@@ -25,7 +25,9 @@ The app is built in layers, and imports point inward only.
   failed sign-in or sign-out, for each problem with a new workspace, a taken
   slug, a failed switch, an icon not set and the create form's hints;
   connections (`connections.ts`: the answers of `/api/connections`, a
-  Connect's results, the services that come after GitHub and Slack) and their sentences
+  Connect's results and what the callback sent the page back with,
+  `readGitHubReturn`, the choice of an installation and its answers, the
+  services that come after GitHub and Slack) and their sentences
   (`connectionMessages.ts`); why what a workspace holds could not be read,
   and its sentence (`refusal.ts`: `Refusal`, `messageForRefusal`); teams (`teams.ts`:
   `Team`, `WorkspaceMember`, `checkTeamName`, `memberOf`, `addableTo`,
@@ -77,7 +79,8 @@ The app is built in layers, and imports point inward only.
 - `src/services/` is everything that talks to something outside the page: the
   API (`api.ts`: `loadMe`, `loadWorkspaces`, `createWorkspace`,
   `switchWorkspace`, `setWorkspaceIcon`, `loadConnections`,
-  `startGitHubConnect`, `disconnectGitHub`, through `createApi`, an
+  `startGitHubConnect`, `loadGitHubChoice`, `connectChosenGitHub`,
+  `disconnectGitHub`, through `createApi`, an
   `openapi-fetch` client typed by the contract), what a workspace holds
   (`workspaceCalls.ts`: `workspaceCalls`, the way every service of a
   workspace's calls the API, naming the workspace and reading the caller's
@@ -89,7 +92,7 @@ The app is built in layers, and imports point inward only.
   (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
   `openHash`, `replaceHash`, `onHashChange`; `settingsAddress.ts`:
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
-  `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`; `runsAddress.ts`:
+  `gitHubRedirect.ts`: `takeGitHubReturn`, `goToGitHub`; `runsAddress.ts`:
   `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`,
   `showRunPlace`; `slackAddress.ts`: `currentSlackLinkToken`,
   `onSlackLinkChange`, `leaveSlackLink`, `takeSlackResult`, `goToSlack`), whether the
@@ -774,7 +777,7 @@ under a topbar of their own.
   first section (`chooseSection`).
 - **The query string is not the dashboard's.** `address.ts` reads and writes
   the hash only. A page sent back with a result before the hash (sign-in's
-  `?error=`, GitHub's `?github=`, Slack's `?slack=`) reads and clears it in its own service, with
+  `?error=`, GitHub's `?github=` and `&choice=`, Slack's `?slack=`) reads and clears it in its own service, with
   `history.replaceState` of `pathname + search + hash`, which keeps the
   section.
 - **Every member sees every section.** What a person may do on a page is the
@@ -920,18 +923,43 @@ and Disconnect only when the server says `canManage`, and the server refuses
 anyone else whatever the page shows.
 
 - **Every call names the workspace the page shows** (`loadConnections`,
-  `startGitHubConnect` and `disconnectGitHub` take it), as every call about
-  what a workspace holds does (see "What a workspace holds"). A load refused
-  for another workspace, none, or one the person left is `switched`; a
-  Connect or Disconnect refused so is `unavailable`, and changes nothing.
-- **Connect** asks the server for the install address and sends the person
-  there (`goToGitHub`), only if it is on `https://github.com`. GitHub sends
-  them back through the API's callback to
-  `/?github=<result>#/settings/connections`, an address the two keep in step
-  (`CONNECTIONS_PAGE` in `cloud-api`). The page reads the result once as it
-  mounts (`takeGitHubResult`), clears it from the address and says it
-  (`messageForGitHubResult`). A result it does not know is `unknown`, never
-  shown raw.
+  `startGitHubConnect`, `loadGitHubChoice`, `connectChosenGitHub` and
+  `disconnectGitHub` take it), as every call about what a workspace holds
+  does (see "What a workspace holds"). A load refused for another workspace,
+  none, or one the person left is `switched`; a Connect, a choice made or a
+  Disconnect refused so is `unavailable`, and changes nothing.
+- **Connect** asks the server where to go and sends the person to GitHub's
+  sign-in for the app (`url`, through `goToGitHub`), only if it is on
+  `https://github.com`; the answer's install page (`installUrl`) is checked
+  the same way. It starts with the sign-in, not the install page, because
+  GitHub sends no one back from an existing installation's settings
+  (`apps/cloud-api/AGENTS.md`, "Connections"). GitHub sends them back through
+  the API's callback to `/?github=<result>#/settings/connections`, an address
+  the two keep in step (`CONNECTIONS_PAGE` in `cloud-api`). The page reads it
+  once as it mounts (`takeGitHubReturn`), clears `github` and `choice` from
+  the address and says the result (`messageForGitHubResult`). A result it
+  does not know is `unknown`, never shown raw.
+- **A choice of account** (`?github=choose&choice=<signed choice>`): the
+  person signed in and owns accounts with the app installed already, which no
+  workspace holds. The page reads them from the API (`loadGitHubChoice`) and
+  shows them as a group above GitHub's, drawn as Connected is (GitHub, then
+  each account under it with **Connect <account>**, `connectAccountLabel`),
+  with **Install on another account** last, which goes to the install page
+  (`installUrl`), and Not now, which drops the choice. Choosing one sends it
+  back (`connectChosenGitHub`); connected, the choice goes and the page's
+  notice says `connected` (or `already_connected`) and marks the account, as
+  a fresh install's does. Every refusal (`messageForChoiceFailure`: another
+  session's, too late, for another workspace, no longer an owner or admin,
+  not offered, taken meanwhile) is said in the page's voice; one that comes
+  as the choice is read stands in the group's place, as a notice. A
+  `choose` with no choice is a Connect that did not finish.
+- **Accounts another workspace holds** (`heldElsewhere`, which never says
+  which workspace): in a choice, they follow the accounts to connect, marked
+  "Connected to another workspace" (`HELD_ELSEWHERE`) with no Connect
+  (`splitCandidates`). When every one is (`?github=taken_elsewhere&choice=…`,
+  read as the same choice), the group is "Connected elsewhere" and says so
+  (`GITHUB_HELD_ELSEWHERE_HINT`), with Install on another account. A
+  `taken_elsewhere` with no choice is said in its own sentence.
 - **Disconnect** asks first, in place, never with a browser dialog, and says
   that the app stays installed on GitHub. Each installation links to its
   settings there (`settingsUrl`).
@@ -940,6 +968,15 @@ anyone else whatever the page shows.
   `unavailable`. Both still show, so they can be disconnected. The page
   counts an installation's repositories and never lists them: their names
   are GitHub's to show, behind "Choose repositories".
+- **The page reads its connections again as it comes back into view**
+  (`onPageVisibilityChange`), most often after the person changed an
+  installation's repositories in GitHub's tab, but not within
+  `CONNECTIONS_REFRESH_MIN_MS` (5 s) of its last read (`refreshesOnShow`).
+  That read is quiet: the list stays on screen with no loading state, and a
+  read that does not answer keeps it (`afterQuietRead`). The API drops its
+  own copy of an installation's repositories when GitHub's webhook reports
+  the change (`apps/cloud-api/AGENTS.md`, "Connections"), so the read shows
+  GitHub's list once that delivery has arrived.
 - **Its look is Notion's and the like.** A connected service sits in the
   Connected group, a rounded list with each account indented under it; GitHub
   before anything is connected sits in Available with Connect, and Slack with

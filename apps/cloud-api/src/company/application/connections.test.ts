@@ -3,16 +3,20 @@ import { generateDrizzleJson, generateMigration } from 'drizzle-kit/api';
 import { drizzle } from 'drizzle-orm/pglite';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { WorkspaceRole } from '../../shared/workspaceRole.js';
+import { createInstallChoiceSigner } from '../adapters/github/installChoiceSigner.js';
 import { createInstallStateSigner } from '../adapters/github/installStateSigner.js';
 import { createGitHubStores } from '../adapters/persistence/gitHubStores.js';
 import * as gitHubTables from '../adapters/persistence/gitHubTables.js';
 import { admitCaller } from '../domain/caller.js';
 import type { Caller, SignedInPerson } from '../domain/caller.js';
-import type { GitHubInstallation, InstallState } from '../domain/connections.js';
+import { INSTALL_CHOICE_LIFETIME_SECONDS, MAX_INSTALL_CANDIDATES } from '../domain/connections.js';
+import type { GitHubInstallation, InstallChoice, InstallState } from '../domain/connections.js';
 import {
+  connectChosenInstallation,
   disconnectGitHub,
   finishGitHubInstall,
   listConnections,
+  readGitHubChoice,
   startGitHubInstall,
 } from './connections.js';
 import type { InstallReturn } from './connections.js';
@@ -22,7 +26,9 @@ import type { MembershipReader } from './ports.js';
 let client: PGlite;
 let installations: InstallationStore;
 
-const states = createInstallStateSigner('sprocket-test-secret-that-is-long-enough-to-sign-with');
+const SECRET = 'sprocket-test-secret-that-is-long-enough-to-sign-with';
+const states = createInstallStateSigner(SECRET);
+const choices = createInstallChoiceSigner(SECRET);
 const now = 1_795_000_000;
 
 /** Who is a member of which workspace, by `<workspace>/<person>`, as `member` would hold it. */
@@ -77,23 +83,29 @@ function fakeGitHub(
 ) {
   const asked: string[] = [];
   const used = new Set<string>();
+  const factsOf = (installation: GitHubInstallation | null) => ({
+    installation,
+    gitHubUserId: person.gitHubUserId,
+    organizationRole:
+      installation?.account.type === 'Organization' ? person.organizationRole : null,
+  });
   const github: GitHubApp = {
+    signInUrl: (state) => `https://github.test/sign-in?state=${state}`,
     installUrl: (state) => `https://github.test/install?state=${state}`,
     async installerFacts(code, installationId) {
       asked.push(code);
       if (code !== 'good-code' || used.has(code)) return { kind: 'code-refused' };
       used.add(code);
       const installation = reachable.find((each) => each.id === installationId) ?? null;
-      return {
-        kind: 'read',
-        facts: {
-          installation,
-          gitHubUserId: person.gitHubUserId,
-          organizationRole:
-            installation?.account.type === 'Organization' ? person.organizationRole : null,
-        },
-      };
+      return { kind: 'read', facts: factsOf(installation) };
     },
+    async installationsOf(code) {
+      asked.push(code);
+      if (code !== 'good-code' || used.has(code)) return { kind: 'code-refused' };
+      used.add(code);
+      return { kind: 'read', installations: reachable.map(factsOf) };
+    },
+    forgetInstallation: () => {},
     async repositoriesOf(installationId) {
       if (installationId === acmeOrg.id) return { kind: 'gone' };
       return {
@@ -129,7 +141,7 @@ function finish(
   at = now + 30,
 ) {
   return finishGitHubInstall(
-    { membership, installations, github, states },
+    { membership, installations, github, states, choices },
     signedIn(personId),
     returned,
     at,
@@ -201,7 +213,7 @@ describe('connecting GitHub', () => {
     roles.set('acme/dana', 'owner');
     const state = started();
     const outcome = await finishGitHubInstall(
-      { membership, installations, github: fakeGitHub().github, states },
+      { membership, installations, github: fakeGitHub().github, states, choices },
       signedIn('dana', 'acme'),
       returned(state),
       now + 30,
@@ -287,7 +299,7 @@ describe('connecting GitHub', () => {
     const github = fakeGitHub();
     const elsewhere = { ...signedIn('dana'), sessionId: 'session-of-dana-elsewhere' };
     const outcome = await finishGitHubInstall(
-      { membership, installations, github: github.github, states },
+      { membership, installations, github: github.github, states, choices },
       elsewhere,
       returned(state),
       now + 30,
@@ -343,7 +355,11 @@ describe('connecting GitHub', () => {
     expect(await finish('dana', returned(state, { code: undefined }))).toEqual({
       kind: 'invalid',
     });
-    for (const installationId of [undefined, '', '0', '041', '4.1', '-41', '9'.repeat(17)]) {
+    // From signing in, with no installation named, a code is needed all the same.
+    expect(
+      await finish('dana', returned(state, { code: undefined, installationId: undefined })),
+    ).toEqual({ kind: 'invalid' });
+    for (const installationId of ['', '0', '041', '4.1', '-41', '9'.repeat(17)]) {
       expect(await finish('dana', returned(state, { installationId }))).toEqual({
         kind: 'invalid',
       });
@@ -373,12 +389,389 @@ describe('connecting GitHub', () => {
     const state = started();
     expect(
       await finishGitHubInstall(
-        { membership, installations, github: null, states },
+        { membership, installations, github: null, states, choices },
         signedIn('dana'),
         returned(state),
         now + 30,
       ),
     ).toEqual({ kind: 'not-configured' });
+  });
+});
+
+describe('connecting an installation the person already has, by signing in first', () => {
+  const danaOwn: GitHubInstallation = {
+    id: 63,
+    account: { id: 7, login: 'dana', type: 'User' },
+    repositorySelection: 'all',
+  };
+  const leeOwn: GitHubInstallation = {
+    id: 64,
+    account: { id: 8, login: 'lee', type: 'User' },
+    repositorySelection: 'all',
+  };
+
+  /** GitHub sending Dana back from signing in: a code, the state, and no installation. */
+  const signedInReturn = (state: string, extra: Partial<InstallReturn> = {}): InstallReturn => ({
+    state,
+    code: 'good-code',
+    ...extra,
+  });
+
+  /** The choice a sign-in ended in, read back as the signer reads it. */
+  async function choiceAfterSignIn(
+    github: GitHubApp,
+    personId = 'dana',
+  ): Promise<{ token: string; choice: InstallChoice }> {
+    const outcome = await finish(personId, signedInReturn(started(personId, github)), github);
+    if (outcome.kind !== 'choose') throw new Error(`no choice: ${outcome.kind}`);
+    const choice = choices.read(outcome.choice);
+    if (choice === null) throw new Error('the choice does not read');
+    return { token: outcome.choice, choice };
+  }
+
+  it('starts at GitHub sign-in, with the install page beside it, both carrying one state', () => {
+    const answer = startGitHubInstall(
+      { github: fakeGitHub().github, states },
+      callerOf('dana'),
+      now,
+    );
+    if (answer.kind !== 'started') throw new Error(answer.kind);
+    expect(answer.url).toMatch(/^https:\/\/github\.test\/sign-in\?state=/);
+    expect(answer.installUrl).toMatch(/^https:\/\/github\.test\/install\?state=/);
+    const state = states.read(stateOf(answer.url));
+    expect(state).toEqual({
+      workspaceId: 'sprocket',
+      personId: 'dana',
+      sessionId: 'session-of-dana',
+      expiresAt: now + 600,
+    });
+    expect(states.read(stateOf(answer.installUrl))).toEqual(state);
+  });
+
+  it('offers the one installation the person administers, and records nothing yet', async () => {
+    const { choice } = await choiceAfterSignIn(fakeGitHub([sprocketOrg]).github);
+    expect(choice).toEqual({
+      workspaceId: 'sprocket',
+      personId: 'dana',
+      sessionId: 'session-of-dana',
+      expiresAt: now + 30 + INSTALL_CHOICE_LIFETIME_SECONDS,
+      candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
+    });
+    expect(await installations.ofWorkspace('sprocket')).toEqual([]);
+  });
+
+  it('offers what the person administers and no workspace holds, shows what another holds, and connects the one chosen', async () => {
+    await installations.connect({
+      installation: acmeOrg,
+      workspaceId: 'acme',
+      connectedBy: 'ana',
+      at: new Date(),
+    });
+    // Dana reaches sprocket (an owner), acme (held by Ana's workspace), her own account and Lee's.
+    const github = fakeGitHub([sprocketOrg, acmeOrg, danaOwn, leeOwn]);
+    const { token, choice } = await choiceAfterSignIn(github.github);
+    expect(choice.candidates).toEqual([
+      { id: 41, account: sprocketOrg.account, heldElsewhere: false },
+      { id: 63, account: danaOwn.account, heldElsewhere: false },
+      { id: 52, account: acmeOrg.account, heldElsewhere: true },
+    ]);
+
+    expect(
+      await connectChosenInstallation(
+        { choices, installations },
+        callerOf('dana'),
+        { choice: token, installationId: 63 },
+        now + 60,
+      ),
+    ).toEqual({ kind: 'connected' });
+    expect(await installations.ofWorkspace('sprocket')).toEqual([
+      { id: 63, account: danaOwn.account, connectedAt: new Date((now + 60) * 1000) },
+    ]);
+    expect(await installations.holderOf(41)).toBeNull();
+  });
+
+  it('offers at most twenty, in the order GitHub lists them', async () => {
+    const many: GitHubInstallation[] = Array.from({ length: 25 }, (_, n) => ({
+      id: 1000 + n,
+      account: { id: 5000 + n, login: `org-${n}`, type: 'Organization' },
+      repositorySelection: 'all',
+    }));
+    const { choice } = await choiceAfterSignIn(fakeGitHub(many).github);
+    expect(choice.candidates.map((each) => each.id)).toEqual(
+      many.slice(0, MAX_INSTALL_CANDIDATES).map((each) => each.id),
+    );
+  });
+
+  it('goes on to install the app, with a fresh state, when the person administers none', async () => {
+    const member = fakeGitHub([sprocketOrg, leeOwn], {
+      gitHubUserId: 7,
+      organizationRole: 'member',
+    });
+    const outcome = await finish(
+      'dana',
+      signedInReturn(started('dana', member.github)),
+      member.github,
+    );
+    if (outcome.kind !== 'install') throw new Error(outcome.kind);
+    expect(outcome.url).toMatch(/^https:\/\/github\.test\/install\?state=/);
+    expect(states.read(stateOf(outcome.url))).toEqual({
+      workspaceId: 'sprocket',
+      personId: 'dana',
+      sessionId: 'session-of-dana',
+      expiresAt: now + 30 + 600,
+    });
+
+    const none = fakeGitHub([]);
+    expect(
+      (await finish('dana', signedInReturn(started('dana', none.github)), none.github)).kind,
+    ).toBe('install');
+  });
+
+  it('says another workspace holds every one the person administers, naming them, and leaves out those held here', async () => {
+    await installations.connect({
+      installation: sprocketOrg,
+      workspaceId: 'acme',
+      connectedBy: 'ana',
+      at: new Date(),
+    });
+    await installations.connect({
+      installation: danaOwn,
+      workspaceId: 'sprocket',
+      connectedBy: 'dana',
+      at: new Date(),
+    });
+    const github = fakeGitHub([sprocketOrg, danaOwn]);
+    const outcome = await finish(
+      'dana',
+      signedInReturn(started('dana', github.github)),
+      github.github,
+    );
+    if (outcome.kind !== 'taken-elsewhere') throw new Error(outcome.kind);
+    expect(choices.read(outcome.choice)?.candidates).toEqual([
+      { id: 41, account: sprocketOrg.account, heldElsewhere: true },
+    ]);
+    expect(await installations.holderOf(41)).toBe('acme');
+  });
+
+  it('goes on to install the app when this workspace holds every one the person administers', async () => {
+    await installations.connect({
+      installation: danaOwn,
+      workspaceId: 'sprocket',
+      connectedBy: 'dana',
+      at: new Date(),
+    });
+    const github = fakeGitHub([danaOwn]);
+    const outcome = await finish(
+      'dana',
+      signedInReturn(started('dana', github.github)),
+      github.github,
+    );
+    expect(outcome.kind).toBe('install');
+  });
+
+  it('connects a held one only once its workspace lets it go', async () => {
+    await installations.connect({
+      installation: sprocketOrg,
+      workspaceId: 'acme',
+      connectedBy: 'ana',
+      at: new Date(),
+    });
+    const github = fakeGitHub([sprocketOrg]);
+    const outcome = await finish(
+      'dana',
+      signedInReturn(started('dana', github.github)),
+      github.github,
+    );
+    if (outcome.kind !== 'taken-elsewhere') throw new Error(outcome.kind);
+    const choose = () =>
+      connectChosenInstallation(
+        { choices, installations },
+        callerOf('dana'),
+        { choice: outcome.choice, installationId: 41 },
+        now + 60,
+      );
+    expect(await choose()).toEqual({ kind: 'taken' });
+    expect(await installations.holderOf(41)).toBe('acme');
+
+    await installations.disconnect({ workspaceId: 'acme', installationId: 41 });
+    expect(await choose()).toEqual({ kind: 'connected' });
+    expect(await installations.holderOf(41)).toBe('sprocket');
+  });
+
+  it("refuses another person's state, and never spends the code", async () => {
+    const github = fakeGitHub();
+    const state = started('dana', github.github);
+    expect(await finish('lee', signedInReturn(state), github.github)).toEqual({
+      kind: 'bad-state',
+    });
+    expect(github.asked).toEqual([]);
+  });
+
+  it("refuses the person's own state from another of their sessions, and never spends the code", async () => {
+    const github = fakeGitHub();
+    const state = started('dana', github.github);
+    const elsewhere = { ...signedIn('dana'), sessionId: 'session-of-dana-elsewhere' };
+    const outcome = await finishGitHubInstall(
+      { membership, installations, github: github.github, states, choices },
+      elsewhere,
+      signedInReturn(state),
+      now + 30,
+    );
+    expect(outcome).toEqual({ kind: 'bad-state' });
+    expect(github.asked).toEqual([]);
+  });
+
+  it('refuses someone no longer an owner or admin before GitHub is asked', async () => {
+    const github = fakeGitHub();
+    const state = started('dana', github.github);
+    roles.set('sprocket/dana', 'member');
+    expect(await finish('dana', signedInReturn(state), github.github)).toEqual({
+      kind: 'not-allowed',
+    });
+    expect(github.asked).toEqual([]);
+  });
+
+  it('says so when GitHub refuses the code, or does not answer', async () => {
+    const state = started();
+    expect(await finish('dana', signedInReturn(state, { code: 'used-code' }))).toEqual({
+      kind: 'code-refused',
+    });
+    const down: GitHubApp = {
+      ...fakeGitHub().github,
+      installationsOf: async () => ({ kind: 'unavailable' }),
+    };
+    expect(await finish('dana', signedInReturn(state), down)).toEqual({ kind: 'unavailable' });
+  });
+
+  it('says so when the person said no to signing in', async () => {
+    const github = fakeGitHub();
+    const state = started('dana', github.github);
+    expect(await finish('dana', { state, error: 'access_denied' }, github.github)).toEqual({
+      kind: 'cancelled',
+    });
+    expect(github.asked).toEqual([]);
+  });
+
+  describe('the choice', () => {
+    const sprocketChoice = (overrides: Partial<InstallChoice> = {}): InstallChoice => ({
+      workspaceId: 'sprocket',
+      personId: 'dana',
+      sessionId: 'session-of-dana',
+      expiresAt: now + 300,
+      candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
+      ...overrides,
+    });
+    const token = (overrides: Partial<InstallChoice> = {}) =>
+      choices.sign(sprocketChoice(overrides));
+    const connectAs = (caller: Caller, choice: string, installationId = 41, at = now) =>
+      connectChosenInstallation({ choices, installations }, caller, { choice, installationId }, at);
+
+    it('reads its candidates back for the session that signed in', () => {
+      expect(readGitHubChoice({ choices }, callerOf('dana'), token(), now)).toEqual({
+        kind: 'read',
+        candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
+      });
+    });
+
+    it('is refused to another session or another person, or one Consola did not sign', () => {
+      const elsewhere = admitCaller({
+        signedIn: { ...signedIn('dana'), sessionId: 'session-of-dana-elsewhere' },
+        shownWorkspaceId: 'sprocket',
+        role: 'owner',
+      });
+      if (!elsewhere.ok) throw new Error(elsewhere.error);
+      roles.set('sprocket/lee', 'owner');
+      const forged = createInstallChoiceSigner('another-secret-that-is-also-long-enough-to-sign');
+      // A Connect's state, signed with the state's own key, is no choice either.
+      const aState = states.sign({
+        workspaceId: 'sprocket',
+        personId: 'dana',
+        sessionId: 'session-of-dana',
+        expiresAt: now + 300,
+      });
+      for (const [caller, choice] of [
+        [elsewhere.caller, token()],
+        [callerOf('lee'), token()],
+        [callerOf('dana'), forged.sign(sprocketChoice())],
+        [callerOf('dana'), aState],
+        [callerOf('dana'), 'not-a-choice'],
+      ] as const) {
+        expect(readGitHubChoice({ choices }, caller, choice, now)).toEqual({ kind: 'bad-choice' });
+      }
+    });
+
+    it('is expired from the second its five minutes end', () => {
+      expect(readGitHubChoice({ choices }, callerOf('dana'), token(), now + 299).kind).toBe('read');
+      expect(readGitHubChoice({ choices }, callerOf('dana'), token(), now + 300)).toEqual({
+        kind: 'expired',
+      });
+    });
+
+    it('is refused once the session has another workspace active', () => {
+      roles.set('acme/dana', 'owner');
+      expect(readGitHubChoice({ choices }, callerOf('dana', 'acme'), token(), now)).toEqual({
+        kind: 'other-workspace',
+      });
+    });
+
+    it('is shown only to an owner or admin, by their role now', () => {
+      roles.set('sprocket/dana', 'member');
+      expect(readGitHubChoice({ choices }, callerOf('dana'), token(), now)).toEqual({
+        kind: 'not-allowed',
+      });
+    });
+
+    it('connects only one of its candidates', async () => {
+      expect(await connectAs(callerOf('dana'), token(), 52)).toEqual({ kind: 'not-a-candidate' });
+      expect(await installations.ofWorkspace('sprocket')).toEqual([]);
+    });
+
+    it('connects nothing for someone no longer an owner or admin', async () => {
+      const choice = token();
+      roles.set('sprocket/dana', 'member');
+      expect(await connectAs(callerOf('dana'), choice)).toEqual({ kind: 'not-allowed' });
+      expect(await installations.ofWorkspace('sprocket')).toEqual([]);
+    });
+
+    it('connects nothing another workspace connected since the choice was made', async () => {
+      const choice = token();
+      await installations.connect({
+        installation: sprocketOrg,
+        workspaceId: 'acme',
+        connectedBy: 'ana',
+        at: new Date(),
+      });
+      expect(await connectAs(callerOf('dana'), choice)).toEqual({ kind: 'taken' });
+      expect(await installations.ofWorkspace('sprocket')).toEqual([]);
+    });
+
+    it('is already-connected the second time, and checks the whole choice each time', async () => {
+      const choice = token();
+      expect(await connectAs(callerOf('dana'), choice)).toEqual({ kind: 'connected' });
+      expect(await connectAs(callerOf('dana'), choice)).toEqual({ kind: 'already-connected' });
+      expect(await connectAs(callerOf('dana'), choice, 41, now + 300)).toEqual({
+        kind: 'expired',
+      });
+      expect(await installations.ofWorkspace('sprocket')).toHaveLength(1);
+    });
+
+    it('connects nothing for an expired, forged or foreign choice', async () => {
+      const forged = createInstallChoiceSigner('another-secret-that-is-also-long-enough-to-sign');
+      roles.set('acme/dana', 'owner');
+      expect(await connectAs(callerOf('dana'), token(), 41, now + 300)).toEqual({
+        kind: 'expired',
+      });
+      expect(await connectAs(callerOf('dana'), forged.sign(sprocketChoice()))).toEqual({
+        kind: 'bad-choice',
+      });
+      expect(await connectAs(callerOf('dana'), token({ sessionId: 'session-of-lee' }))).toEqual({
+        kind: 'bad-choice',
+      });
+      expect(await connectAs(callerOf('dana', 'acme'), token())).toEqual({
+        kind: 'other-workspace',
+      });
+      expect(await installations.holderOf(41)).toBeNull();
+    });
   });
 });
 

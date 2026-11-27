@@ -105,12 +105,27 @@ export const postGitHubInstall = createRoute({
   path: '/api/connections/github/install',
   summary: 'Start connecting GitHub to my active workspace',
   description:
-    'The address on GitHub that installs the app, carrying a state signed for this person. ' +
-    'Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).',
+    'The addresses on GitHub a Connect goes to, each carrying one state signed for this ' +
+    'person in this session. Only an owner or admin may. No cache keeps the answer ' +
+    '(`Cache-Control: no-store`).',
   responses: {
     ...changeFailures,
     200: json(
-      z.strictObject({ url: z.string() }).openapi('GitHubInstallAddress'),
+      z
+        .strictObject({
+          url: z.string().openapi({
+            description:
+              'Where a Connect starts: GitHub’s sign-in authorization for the app, from which ' +
+              'GitHub always sends the person back, so an installation they already have can ' +
+              'be connected.',
+          }),
+          installUrl: z.string().openapi({
+            description:
+              'The app’s install page on GitHub, to install it on another account. GitHub sends ' +
+              'the person back from it only after a new installation.',
+          }),
+        })
+        .openapi('GitHubInstallAddress'),
       'Where to send the person.',
     ),
     403: managersOnly,
@@ -120,6 +135,8 @@ export const postGitHubInstall = createRoute({
 
 /** How a Connect ended, as the callback names it in the web app's `?github=`. */
 export const GITHUB_CALLBACK_RESULTS = [
+  'choose',
+  'taken_elsewhere',
   'connected',
   'already_connected',
   'requested',
@@ -150,17 +167,156 @@ export const GitHubCallbackResult = z
 export const getGitHubCallback = createRoute({
   method: 'get',
   path: '/api/github/callback',
-  summary: 'Where GitHub sends a person back after installing the app',
+  summary: 'Where GitHub sends a person back after signing in or installing the app',
   description:
     'The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, ' +
-    '`code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always ' +
-    'redirects to the web app’s Settings, on its Connections page, with how the Connect ended ' +
-    `in \`?github=\`: one of ${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
+    '`code`, `installation_id`, `setup_action` or `error`. It never answers JSON. Back from ' +
+    'installing the app (an `installation_id`), it records the installation. Back from signing ' +
+    'in (no `installation_id`), it asks GitHub for the installations the person administers ' +
+    'that this workspace does not hold: with one no workspace holds, the page offers them ' +
+    '(`choose`, with a signed `choice`); with only ones other workspaces hold, the page says ' +
+    'so (`taken_elsewhere`, with a signed `choice` naming them); with none, the person goes on ' +
+    'to install the app. Otherwise it redirects to the web app’s Settings, on its Connections ' +
+    'page, with how the Connect ended in `?github=`: one of ' +
+    `${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
   responses: {
     302: {
-      description: 'To `<PUBLIC_URL>/?github=<result>#/settings/connections`.',
+      description:
+        'To `<PUBLIC_URL>/?github=<result>#/settings/connections`, with `&choice=<a signed ' +
+        'choice>` when the result is `choose` or `taken_elsewhere`; or on to the app’s install ' +
+        'page on GitHub, with a fresh state, when the person signed in and administers no ' +
+        'installation this workspace does not hold already.',
       headers: z.object({ location: z.string() }),
     },
+  },
+});
+
+/** An installation the person who signed in administers: its id, its account, and whether held. */
+export const GitHubInstallCandidate = z
+  .strictObject({
+    id: z.number().int(),
+    account: GitHubAccount,
+    heldElsewhere: z.boolean().openapi({
+      description:
+        'Whether another Consola workspace holds it (never which), so it is shown and not ' +
+        'offered.',
+    }),
+  })
+  .openapi('GitHubInstallCandidate', {
+    description:
+      'An installation of the app on an account the person administers, which this workspace ' +
+      'does not hold.',
+  });
+
+const ChoiceQuery = z.object({
+  choice: z.string().openapi({
+    description: 'The signed choice the callback sent the page back with (`&choice=`).',
+  }),
+});
+
+const ChoiceMade = z.object({
+  choice: z.string().openapi({ description: 'The signed choice, as the page read it.' }),
+  installationId: z
+    .number()
+    .int()
+    .openapi({ description: 'The installation chosen, by its id on GitHub: one of the choice’s.' }),
+});
+
+/**
+ * A choice that is not this session's to make: not one Consola signed, or another session's
+ * (another person's, or this person's in another browser).
+ */
+const badChoice = failure('bad_choice');
+
+const choiceExpired = json(
+  failure('choice_expired'),
+  'The choice’s few minutes are over: connecting again makes a new one.',
+);
+
+const otherWorkspace = failure('choice_for_another_workspace');
+
+export const getGitHubChoice = createRoute({
+  method: 'get',
+  path: '/api/connections/github/choice',
+  summary: 'The installations I may choose to connect, once GitHub sent me back from signing in',
+  description:
+    'Reads a signed choice: the installations of the app on accounts the person administers, ' +
+    'which no workspace held when GitHub sent them back. Only for the session that signed in, ' +
+    'within a few minutes, in the workspace the Connect was for, and for an owner or admin. ' +
+    `Takes \`${WORKSPACE_HEADER}\`.`,
+  request: { query: ChoiceQuery },
+  responses: {
+    ...callerFailures,
+    200: json(
+      z
+        .strictObject({ candidates: z.array(GitHubInstallCandidate) })
+        .openapi('GitHubChoice', { description: 'What the person may choose to connect.' }),
+      'The candidates, in the order GitHub listed them.',
+    ),
+    400: json(
+      z.union([failure('invalid_request'), badChoice]),
+      'No choice (`invalid_request`), or one that is not this session’s: not one Consola ' +
+        'signed, or another session’s, another person’s above all (`bad_choice`). Or: ' +
+        callerFailures[400].description,
+    ),
+    403: json(
+      z.union([failure('not_a_member'), failure('not_allowed')]),
+      'The person is not a member of the workspace their session has active (`not_a_member`), ' +
+        'or not an owner or admin of it (`not_allowed`).',
+    ),
+    409: json(
+      z.union([otherWorkspace, ...callerFailures[409].content['application/json'].schema.options]),
+      'The choice was made for another workspace than the session has active now ' +
+        `(\`choice_for_another_workspace\`). Or: ${callerFailures[409].description}`,
+    ),
+    410: choiceExpired,
+  },
+});
+
+export const postGitHubChoice = createRoute({
+  method: 'post',
+  path: '/api/connections/github/choice',
+  summary: 'Connect the installation I chose to my active workspace',
+  description:
+    'Connects one of a signed choice’s candidates, as a fresh install connects one. Everything ' +
+    'that can change is checked again, in order: the choice (this session’s, in time, for this ' +
+    'workspace), that the installation is one of its candidates, that the person is still an ' +
+    'owner or admin, and that no other workspace holds it.',
+  request: {
+    body: { content: { 'application/json': { schema: ChoiceMade } }, required: true },
+  },
+  responses: {
+    ...changeFailures,
+    200: json(
+      z
+        .strictObject({ result: z.enum(['connected', 'already_connected']) })
+        .openapi('GitHubChoiceConnected', {
+          description: 'Connected now, or the workspace held it already.',
+        }),
+      'The installation is the workspace’s.',
+    ),
+    400: json(
+      z.union([failure('invalid_request'), badChoice, failure('not_a_candidate')]),
+      'No choice or installation id (`invalid_request`), a choice that is not this session’s ' +
+        '(`bad_choice`), or an installation it does not offer (`not_a_candidate`). Or: ' +
+        callerFailures[400].description,
+    ),
+    403: managersOnly,
+    409: json(
+      z.union([
+        otherWorkspace,
+        failure('installation_taken'),
+        ...callerFailures[409].content['application/json'].schema.options,
+      ]),
+      'The choice was made for another workspace than the session has active now ' +
+        '(`choice_for_another_workspace`), or another workspace holds the installation ' +
+        `(\`installation_taken\`). Or: ${callerFailures[409].description}`,
+    ),
+    410: choiceExpired,
+    415: json(
+      failure('unsupported_media_type'),
+      'The body is not JSON (`Content-Type: application/json`).',
+    ),
   },
 });
 

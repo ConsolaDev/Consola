@@ -5,6 +5,19 @@
 export const PING_EVENT = 'ping';
 
 /**
+ * The events GitHub sends when an installation itself changes, whatever their action: its
+ * repositories added or removed (`installation_repositories`), or the installation made,
+ * deleted, suspended, unsuspended or given new permissions (`installation`). What the app keeps
+ * of an installation (its repositories, its token) is stale from then on.
+ */
+export const INSTALLATION_CHANGE_EVENTS = ['installation', 'installation_repositories'] as const;
+
+/** Whether an event says its installation changed (`INSTALLATION_CHANGE_EVENTS`). */
+export function changesInstallation(event: string): boolean {
+  return (INSTALLATION_CHANGE_EVENTS as readonly string[]).includes(event);
+}
+
+/**
  * The most GitHub puts in one webhook delivery's body: it delivers no event whose payload would
  * be larger (25 MB).
  */

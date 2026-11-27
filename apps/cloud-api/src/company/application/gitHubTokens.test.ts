@@ -32,7 +32,6 @@ beforeEach(async () => {
       installation: {
         id,
         account: { id: id + 9000, login: workspaceId, type: 'Organization' },
-        repositorySelection: 'selected',
       },
       workspaceId,
       connectedBy: 'dana',

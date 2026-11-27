@@ -36,7 +36,6 @@ beforeEach(async () => {
     installation: {
       id: 41,
       account: { id: 9001, login: 'sprocket', type: 'Organization' },
-      repositorySelection: 'selected',
     },
     workspaceId: 'sprocket',
     connectedBy: 'lee',
@@ -250,6 +249,119 @@ describe('receiveGitHubWebhook', () => {
       kind: 'unavailable',
       delivery: named,
     });
+  });
+});
+
+describe('an installation GitHub says changed is forgotten', () => {
+  /** The GitHub App, as far as the webhook asks it: the installations it was told to forget. */
+  function forgetting() {
+    const forgotten: number[] = [];
+    return {
+      forgotten,
+      github: {
+        forgetInstallation: (installationId: number) => {
+          forgotten.push(installationId);
+        },
+      },
+    };
+  }
+
+  const receiveWith = (github: { forgetInstallation(id: number): void }, sent: WebhookDelivery) =>
+    receiveGitHubWebhook({ signatures, installations, events, github }, sent);
+
+  it('for installation_repositories and installation, whatever the action', async () => {
+    const cases = [
+      ['installation_repositories', 'added'],
+      ['installation_repositories', 'removed'],
+      ['installation', 'created'],
+      ['installation', 'deleted'],
+      ['installation', 'suspend'],
+      ['installation', 'unsuspend'],
+      ['installation', 'new_permissions_accepted'],
+    ] as const;
+    for (const [n, [event, action]] of cases.entries()) {
+      const { forgotten, github } = forgetting();
+      const outcome = await receiveWith(
+        github,
+        delivery(
+          { action, installation: { id: 41 } },
+          { event, deliveryId: `72d3162e-cc78-11e3-81ab-4c9367dc09${n}0` },
+        ),
+      );
+      expect(outcome.kind).toBe('recorded');
+      expect(forgotten).toEqual([41]);
+    }
+  });
+
+  it('whether or not a workspace holds it, and before anything is recorded', async () => {
+    const unheld = forgetting();
+    expect(
+      await receiveWith(
+        unheld.github,
+        delivery(
+          { action: 'removed', installation: { id: 99 } },
+          { event: 'installation_repositories' },
+        ),
+      ),
+    ).toMatchObject({ kind: 'unknown-installation', installationId: 99 });
+    expect(unheld.forgotten).toEqual([99]);
+
+    // With the database gone, nothing is recorded, and the installation is forgotten all the same.
+    const down = forgetting();
+    await client.close();
+    expect(
+      await receiveWith(
+        down.github,
+        delivery(
+          { action: 'added', installation: { id: 41 } },
+          { event: 'installation_repositories' },
+        ),
+      ),
+    ).toMatchObject({ kind: 'unavailable' });
+    expect(down.forgotten).toEqual([41]);
+  });
+
+  it('for no other event, and never for a delivery that does not check', async () => {
+    const { forgotten, github } = forgetting();
+    await receiveWith(github, delivery(pullRequestOpened));
+    await receiveWith(
+      github,
+      delivery(
+        { ref: 'refs/heads/main', installation: { id: 41 } },
+        {
+          event: 'push',
+          deliveryId: '72d3162e-cc78-11e3-81ab-4c9367dc0901',
+        },
+      ),
+    );
+    await receiveWith(github, delivery({ zen: 'Keep it logically awesome.' }, { event: 'ping' }));
+    // Unsigned, mis-signed, or naming no installation.
+    const changed = { action: 'removed', installation: { id: 41 } };
+    await receiveWith(
+      github,
+      delivery(changed, { event: 'installation_repositories', signature: undefined }),
+    );
+    await receiveWith(
+      github,
+      delivery(changed, { event: 'installation_repositories' }, 'another-secret-0123456789abcdef'),
+    );
+    await receiveWith(
+      github,
+      delivery({ action: 'revoked' }, { event: 'installation_repositories' }),
+    );
+    expect(forgotten).toEqual([]);
+  });
+
+  it('is skipped when the GitHub App is not configured here', async () => {
+    expect(
+      await receiveGitHubWebhook(
+        { signatures, installations, events, github: null },
+        delivery(
+          { action: 'added', installation: { id: 41 } },
+          { event: 'installation_repositories' },
+        ),
+      ),
+    ).toMatchObject({ kind: 'recorded' });
   });
 });
 

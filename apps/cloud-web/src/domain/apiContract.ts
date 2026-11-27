@@ -2906,7 +2906,7 @@ export interface paths {
         put?: never;
         /**
          * Start connecting GitHub to my active workspace
-         * @description The address on GitHub that installs the app, carrying a state signed for this person. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).
+         * @description The addresses on GitHub a Connect goes to, each carrying one state signed for this person in this session. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).
          */
         post: {
             parameters: {
@@ -3011,8 +3011,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Where GitHub sends a person back after installing the app
-         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON: it always redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
+         * Where GitHub sends a person back after signing in or installing the app
+         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON. Back from installing the app (an `installation_id`), it records the installation. Back from signing in (no `installation_id`), it asks GitHub for the installations the person administers that this workspace does not hold: with one no workspace holds, the page offers them (`choose`, with a signed `choice`); with only ones other workspaces hold, the page says so (`taken_elsewhere`, with a signed `choice` naming them); with none, the person goes on to install the app. Otherwise it redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `choose`, `taken_elsewhere`, `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
          */
         get: {
             parameters: {
@@ -3023,7 +3023,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description To `<PUBLIC_URL>/?github=<result>#/settings/connections`. */
+                /** @description To `<PUBLIC_URL>/?github=<result>#/settings/connections`, with `&choice=<a signed choice>` when the result is `choose` or `taken_elsewhere`; or on to the app’s install page on GitHub, with a fresh state, when the person signed in and administers no installation this workspace does not hold already. */
                 302: {
                     headers: {
                         location: string;
@@ -3035,6 +3035,245 @@ export interface paths {
         };
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/connections/github/choice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The installations I may choose to connect, once GitHub sent me back from signing in
+         * @description Reads a signed choice: the installations of the app on accounts the person administers, which no workspace held when GitHub sent them back. Only for the session that signed in, within a few minutes, in the workspace the Connect was for, and for an owner or admin. Takes `x-consola-workspace`.
+         */
+        get: {
+            parameters: {
+                query: {
+                    /** @description The signed choice the callback sent the page back with (`&choice=`). */
+                    choice: string;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The candidates, in the order GitHub listed them. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubChoice"];
+                    };
+                };
+                /** @description No choice (`invalid_request`), or one that is not this session’s: not one Consola signed, or another session’s, another person’s above all (`bad_choice`). Or: No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_choice";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active (`not_a_member`), or not an owner or admin of it (`not_allowed`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        };
+                    };
+                };
+                /** @description The choice was made for another workspace than the session has active now (`choice_for_another_workspace`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "choice_for_another_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The choice’s few minutes are over: connecting again makes a new one. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "choice_expired";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Connect the installation I chose to my active workspace
+         * @description Connects one of a signed choice’s candidates, as a fresh install connects one. Everything that can change is checked again, in order: the choice (this session’s, in time, for this workspace), that the installation is one of its candidates, that the person is still an owner or admin, and that no other workspace holds it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": {
+                        /** @description The signed choice, as the page read it. */
+                        choice: string;
+                        /** @description The installation chosen, by its id on GitHub: one of the choice’s. */
+                        installationId: number;
+                    };
+                };
+            };
+            responses: {
+                /** @description The installation is the workspace’s. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubChoiceConnected"];
+                    };
+                };
+                /** @description No choice or installation id (`invalid_request`), a choice that is not this session’s (`bad_choice`), or an installation it does not offer (`not_a_candidate`). Or: No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_choice";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_candidate";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active (`not_a_member`), is not an owner or admin of it (`not_allowed`), or the request did not come from the web app (`bad_origin`). */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "bad_origin";
+                        };
+                    };
+                };
+                /** @description The choice was made for another workspace than the session has active now (`choice_for_another_workspace`), or another workspace holds the installation (`installation_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "choice_for_another_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "installation_taken";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The choice’s few minutes are over: connecting again makes a new one. */
+                410: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "choice_expired";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
         delete?: never;
         options?: never;
         head?: never;
@@ -4442,7 +4681,7 @@ export interface components {
          * @description How a Connect ended, as the callback names it in the web app’s `?github=`.
          * @enum {string}
          */
-        GitHubCallbackResult: "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
+        GitHubCallbackResult: "choose" | "taken_elsewhere" | "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
         /**
          * @description How an “Add to Slack” ended, as the callback names it in the web app’s `?slack=`.
          * @enum {string}
@@ -5155,7 +5394,26 @@ export interface components {
             url: string;
         };
         GitHubInstallAddress: {
+            /** @description Where a Connect starts: GitHub’s sign-in authorization for the app, from which GitHub always sends the person back, so an installation they already have can be connected. */
             url: string;
+            /** @description The app’s install page on GitHub, to install it on another account. GitHub sends the person back from it only after a new installation. */
+            installUrl: string;
+        };
+        /** @description What the person may choose to connect. */
+        GitHubChoice: {
+            candidates: components["schemas"]["GitHubInstallCandidate"][];
+        };
+        /** @description An installation of the app on an account the person administers, which this workspace does not hold. */
+        GitHubInstallCandidate: {
+            id: number;
+            account: components["schemas"]["GitHubAccount"];
+            /** @description Whether another Consola workspace holds it (never which), so it is shown and not offered. */
+            heldElsewhere: boolean;
+        };
+        /** @description Connected now, or the workspace held it already. */
+        GitHubChoiceConnected: {
+            /** @enum {string} */
+            result: "connected" | "already_connected";
         };
         /** @description GitHub’s ping, as a webhook is set up: recorded for no workspace. */
         GitHubWebhookPong: {
