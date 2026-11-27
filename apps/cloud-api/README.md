@@ -122,9 +122,16 @@ finish with. Connect starts with GitHub's sign-in for the app
 - If you own accounts (your own, or organisations you are an owner of) that
   have the app installed already, and no workspace holds those installations,
   the Connections page lists them: press **Connect** beside the one to connect,
-  or **Install on another account**.
-- If you own none, you go on to the app's install page, and GitHub sends you
-  back connected once you install it on an account.
+  or **Install on another account**. Accounts another Consola workspace has
+  connected are listed under them as "Connected to another workspace" (never
+  which one), and not offered.
+- If another Consola workspace has connected every such account, the page
+  says so, names them, and offers **Install on another account**. An
+  installation belongs to one workspace: to move it here, disconnect it from
+  the other workspace first.
+- If you own none (or this workspace holds every one already), you go on to
+  the app's install page, and GitHub sends you back connected once you install
+  it on an account.
 
 Connect never sends you to an existing installation's settings on GitHub to
 save: GitHub would not send you back. It redirects after an installation is

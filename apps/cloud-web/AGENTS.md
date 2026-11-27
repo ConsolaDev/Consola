@@ -910,6 +910,13 @@ anyone else whatever the page shows.
   not offered, taken meanwhile) is said in the page's voice; one that comes
   as the choice is read stands in the group's place, as a notice. A
   `choose` with no choice is a Connect that did not finish.
+- **Accounts another workspace holds** (`heldElsewhere`, which never says
+  which workspace): in a choice, they follow the accounts to connect, marked
+  "Connected to another workspace" (`HELD_ELSEWHERE`) with no Connect
+  (`splitCandidates`). When every one is (`?github=taken_elsewhere&choice=…`,
+  read as the same choice), the group is "Connected elsewhere" and says so
+  (`GITHUB_HELD_ELSEWHERE_HINT`), with Install on another account. A
+  `taken_elsewhere` with no choice is said in its own sentence.
 - **Disconnect** asks first, in place, never with a browser dialog, and says
   that the app stays installed on GitHub. Each installation links to its
   settings there (`settingsUrl`).

@@ -181,7 +181,7 @@ Each part is built in rings, and imports point inward only.
   administers and whether a choice of them is this session's to make
   (`connections.ts`: `mayManageConnections`, `checkInstallState`,
   `checkInstaller`, `administeredInstallations`, `newInstallChoice`,
-  `checkInstallChoice`, `candidateOf`), what a webhook delivery's
+  `choiceOutcome`, `checkInstallChoice`, `candidateOf`), what a webhook delivery's
   headers name and the installation its payload came through (`webhooks.ts`:
   `readDeliveryHeaders`, `installationOfEvent`), and what each GitHub token's
   purpose may have and whether GitHub granted it (`gitHubTokens.ts`:
@@ -668,13 +668,16 @@ is where it goes next when the person has no installation to connect.
   `finishGitHubInstall`'s outcome in snake case (`connected`, `taken`,
   `not_installer`, …) or `signed_out`; to
   `<PUBLIC_URL>/?github=choose&choice=<a signed choice>#/settings/connections`
-  when the person signed in and has installations to choose from; or on to the
-  app's install page, with a fresh state, when they have none. The web app's
+  when the person signed in and has installations to choose from; to
+  `?github=taken_elsewhere&choice=<a signed choice>` when every installation
+  they administer is held by another workspace; or on to the app's install
+  page, with a fresh state, when they have none. The web app's
   Settings, on its Connections page, reads `github` and `choice` once and
   clears them. That address is the web app's (`CONNECTIONS_PAGE` in
   `gitHub.ts`), so the two change together.
 - `GET /api/connections/github/choice?choice=<the signed choice>`: the
-  installations the choice offers (`{ candidates }`, each its id and account).
+  installations the choice names (`{ candidates }`, each its id, its account
+  and `heldElsewhere`).
 - `POST /api/connections/github/choice` `{ choice, installationId }`: connects
   one of them, 200 `{ result: 'connected' }` (or `already_connected`).
 - `DELETE /api/connections/github/installations/{installationId}`: removes the
@@ -721,19 +724,27 @@ offers the ones the person may connect (`chooseOrInstall`):
    the app the person reaches (`GET /user/installations`), with their
    membership of each organisation. `administeredInstallations` keeps those
    `checkInstaller` lets them connect, by the very rule a fresh install has.
-4. **No workspace holds them.** Those any workspace holds, this one included,
-   are left out (`InstallationStore.holderOf`).
-5. **Some: a choice. None: the install page.** With some, the callback signs a
-   choice (`InstallChoice`, `newInstallChoice`): the workspace, the person,
-   the session, until when (`INSTALL_CHOICE_LIFETIME_SECONDS`, five minutes),
-   and each candidate's installation id and account (id, login and type), at
-   most `MAX_INSTALL_CANDIDATES` (20, in GitHub's order), never a GitHub token.
-   It is signed with HMAC-SHA256 under a key of its own, derived from
-   `BETTER_AUTH_SECRET` for another HKDF purpose than the state's
-   (`installChoiceSigner.ts`; both on `createSignedTokens`, `signedTokens.ts`),
-   so a state is never read as a choice, nor a choice as a state. With none,
-   the person goes on to the app's install page with a fresh state, and a
-   fresh install comes back as above.
+4. **Who holds them** (`InstallationStore.holderOf`). Those this workspace
+   holds already are left out: Connections shows them connected. Those
+   another workspace holds stay, marked `heldElsewhere`, a boolean that never
+   says which workspace.
+5. **Where it goes** (`choiceOutcome`). With one no workspace holds: a choice
+   (`choose`). With only ones another workspace holds: `taken_elsewhere`, with
+   a choice naming them, so the page says which accounts are connected
+   elsewhere and offers to install the app on another account, rather than
+   sending the person to an install page that would show those installations'
+   Configure pages and never send them back. With none at all: the app's
+   install page with a fresh state, and a fresh install comes back as above.
+   The choice (`InstallChoice`, `newInstallChoice`) holds the workspace, the
+   person, the session, until when (`INSTALL_CHOICE_LIFETIME_SECONDS`, five
+   minutes), and each candidate's installation id, account (id, login and
+   type) and `heldElsewhere`, the free ones first, at most
+   `MAX_INSTALL_CANDIDATES` (20, each group in GitHub's order), never a GitHub
+   token and never another workspace's id. It is signed with HMAC-SHA256
+   under a key of its own, derived from `BETTER_AUTH_SECRET` for another HKDF
+   purpose than the state's (`installChoiceSigner.ts`; both on
+   `createSignedTokens`, `signedTokens.ts`), so a state is never read as a
+   choice, nor a choice as a state.
 
 The page reads the choice's candidates (`readGitHubChoice`) and sends back the
 one the person picks (`connectChosenInstallation`), which checks, in order,
@@ -744,7 +755,9 @@ session has active now (409 `choice_for_another_workspace`,
 `checkInstallChoice`); the installation is one of its candidates (400
 `not_a_candidate`, `candidateOf`); the person is still an owner or admin, by
 `caller.role` at this request (403 `not_allowed`); and no other workspace
-holds it (409 `installation_taken`). It writes the same `github_installation`
+holds it (409 `installation_taken`), asked of the store, never of the choice:
+one the choice marked held elsewhere is refused while it still is, and
+connects once that workspace lets it go. It writes the same `github_installation`
 row a fresh install writes. The read checks the choice and the role too. The
 choice is kept nowhere: each call checks it whole, so choosing again is
 `already_connected`, and nothing but the row is stored.
