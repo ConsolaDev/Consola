@@ -4,132 +4,6 @@
  */
 
 export interface paths {
-    "/api/github/webhooks": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Receive one of the GitHub App’s webhook deliveries
-         * @description The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is passed on, signed, to the cell of the workspace that holds its installation, which records each delivery once. Nothing of it is kept here.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description A ping, received. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["GitHubWebhookReceived"];
-                    };
-                };
-                /** @description Recorded. */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["GitHubWebhookReceived"];
-                    };
-                };
-                /** @description Signed, but a header or the body is not what GitHub sends. */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_delivery";
-                        };
-                    };
-                };
-                /** @description No `X-Hub-Signature-256`, or not GitHub’s signature over this body. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "bad_signature";
-                        };
-                    };
-                };
-                /** @description This delivery was recorded already: sent again, or replayed. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "duplicate_delivery";
-                        };
-                    };
-                };
-                /** @description Over the 25 MB GitHub puts in a delivery at most. */
-                413: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "too_large";
-                        };
-                    };
-                };
-                /** @description Dropped: the event came through an installation no workspace holds, or through none. */
-                422: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unknown_installation";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_installation";
-                        };
-                    };
-                };
-                /** @description This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`). The database does not answer (`unavailable`). */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "webhooks_not_configured";
-                        } | {
-                            /** @enum {string} */
-                            error: "unavailable";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/me": {
         parameters: {
             query?: never;
@@ -399,7 +273,7 @@ export interface paths {
         };
         /**
          * My active workspace's members, in the order they joined
-         * @description Every member of the workspace may list them. A person is named by the global id a cell knows them by (`id`), so the web app can put a name to the ids a cell answers with.
+         * @description Every member of the workspace may list them. A person is named by the id the rest of the API knows them by (`id`), so the web app can put a name to the ids other answers hold.
          */
         get: {
             parameters: {
@@ -569,7 +443,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description A workspace in some region has that slug. */
+                /** @description A workspace has that slug. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -601,6 +475,2300 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/teams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's workspace's teams, as the caller sees them */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The teams. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["TeamList"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /** Make a team, with nobody in it */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TeamName"];
+                };
+            };
+            responses: {
+                /** @description The team made. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Team"];
+                    };
+                };
+                /** @description The rules refuse the name, or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidTeam"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description Another team of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "name_taken";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/teams/{teamId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Delete a team, and every place in it */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    teamId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The team is gone. */
+                204: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content?: never;
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no team with that id, whether or not another workspace does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description The workspace's first team, which is never deleted (`first_team`), or a team that owns a factory, which is not deleted while it does (`owns_factories`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "first_team";
+                        } | {
+                            /** @enum {string} */
+                            error: "owns_factories";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        /** Rename a team, the first one included */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    teamId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["TeamName"];
+                };
+            };
+            responses: {
+                /** @description The team, renamed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Team"];
+                    };
+                };
+                /** @description The rules refuse the name, or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidTeam"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no team with that id, whether or not another workspace does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description Another team of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "name_taken";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/teams/{teamId}/members/{personId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Make a member of the workspace a member of a team
+         * @description Someone already in the team stays as they are.
+         */
+        put: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    teamId: string;
+                    /** @description The person's id. */
+                    personId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The team, with the person in it. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Team"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no team with that id, whether or not another workspace does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace (`not_a_workspace_member`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_workspace_member";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        post?: never;
+        /**
+         * Take a person out of a team
+         * @description Someone not in the team changes nothing.
+         */
+        delete: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    teamId: string;
+                    /** @description The person's id. */
+                    personId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The team, without the person. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Team"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The caller’s role does not manage teams. Or: The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no team with that id, whether or not another workspace does. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factories": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** The caller's workspace's factories, as the caller sees them */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The factories. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FactoryList"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Make a blank factory, owned by a team
+         * @description Its files are stored in Consola, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NewFactory"];
+                };
+            };
+            responses: {
+                /** @description The factory made. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Factory"];
+                    };
+                };
+                /** @description The rules refuse the name, or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidFactory"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no team with that id that the caller sees: none, or one a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description Another factory of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "name_taken";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factories/{factoryId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** A factory, with its latest version’s files */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The factory and its latest version. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FactoryWithFiles"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Rename a factory, or move it to another team
+         * @description Whoever sees the factory may rename it. Moving it needs the caller to see the team it moves to as well: owners and admins any team, a member a team they are in. Its versions stay as they are.
+         */
+        patch: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["FactoryChange"];
+                };
+            };
+            responses: {
+                /** @description The factory, changed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Factory"];
+                    };
+                };
+                /** @description The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidFactory"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The caller sees no such factory (`factory_not_found`), or no such team to move it to (`team_not_found`): none, or one a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        } | {
+                            /** @enum {string} */
+                            error: "team_not_found";
+                        };
+                    };
+                };
+                /** @description Another factory of the workspace has the name, in any case (`name_taken`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "name_taken";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        trace?: never;
+    };
+    "/api/factories/{factoryId}/versions/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One version of a factory's files, an earlier one or the latest */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                    /** @description A version's number: 1 for the blank version a factory is made with. */
+                    version: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The version. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FactoryVersion"];
+                    };
+                };
+                /** @description The version is not a number from 1. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The caller sees no such factory (`factory_not_found`), or it has no version with that number (`version_not_found`). */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        } | {
+                            /** @enum {string} */
+                            error: "version_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factories/{factoryId}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Save a factory's files as its next version
+         * @description The files must keep the factory schema (`packages/factory-spec`), and `baseVersion` must still be the latest version. Whoever sees the factory may save it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    factoryId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NewFactoryVersion"];
+                };
+            };
+            responses: {
+                /** @description The version saved. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SavedFactoryVersion"];
+                    };
+                };
+                /** @description The files fail the factory schema (`invalid_files`), or the body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["InvalidFiles"] | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "factory_not_found";
+                        };
+                    };
+                };
+                /** @description The factory has a newer version than the one the files were edited from (`version_moved`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["VersionMoved"] | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is larger than any factory’s files can be. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "too_large";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/factory-templates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The ready-made factory files a person can start from
+         * @description The same for every workspace. A template’s files reach a factory only through `POST /api/factories/{factoryId}/versions`, which checks them as any other files.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The templates. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["FactoryTemplate"][];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The top-level runs the caller sees, newest first
+         * @description A request is one run; the automation runs it started are not listed here but in its own answer. Filters combine; the values of one filter are alternatives.
+         */
+        get: {
+            parameters: {
+                query?: {
+                    /** @description Only runs in one of these phases. Repeat it for several. */
+                    phase?: components["schemas"]["Phase"][];
+                    /** @description Only runs started one of these ways; "background runs" are `cron`, `event` and `poll`. */
+                    trigger?: components["schemas"]["RunTrigger"][];
+                    /** @description Only this factory's runs; one the caller does not see gives an empty page. */
+                    factoryId?: string;
+                    /** @description Only runs of the factories this team owns now. */
+                    teamId?: string;
+                    /** @description Only runs of this automation, and requests that started one, in every factory unless `factoryId` narrows it. */
+                    automation?: string;
+                    /** @description `true`: only runs the caller started. */
+                    mine?: "true" | "false";
+                    /** @description Text the title or the automation's name holds, in any case. */
+                    q?: string;
+                    /** @description The page before's `nextCursor`. */
+                    cursor?: string;
+                    limit?: number;
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of runs, the counts and what the filters offer. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunList"];
+                    };
+                };
+                /** @description A phase or trigger Consola does not know, a cursor it did not give, a `limit` out of range or a `q` too long. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{runId}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve or dismiss a run that waits for approval
+         * @description Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. Consola records it and does not change the run: its runner acts on it.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApprovalAnswer"];
+                };
+            };
+            responses: {
+                /** @description The answer is recorded. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunApproval"];
+                    };
+                };
+                /** @description The body is not what the route takes. Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The caller sees the run, but is not on its factory's owning team. Or: The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_allowed";
+                        } | {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no run with that id that the caller sees. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "run_not_found";
+                        };
+                    };
+                };
+                /** @description The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), or the version is not the run's (`version_moved`). Or: The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_waiting";
+                        } | {
+                            /** @enum {string} */
+                            error: "already_answered";
+                        } | {
+                            /** @enum {string} */
+                            error: "version_moved";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/runs/{runId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One run: its steps, and a request’s facts and the runs it started */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    runId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The run. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RunDetail"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The workspace has no run with that id that the caller sees: none, or one of a factory of a team a member is not in. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "run_not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/options": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** What the workspace's runner offers a new session */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description What the connected runner offers. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSessionOptions"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description No runner is configured or connected for the workspace (`no_runner`). */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_runner";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The caller's own cloud sessions, newest first (an agent run is listed with the runs)
+         * @description A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.
+         */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The sessions. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"][];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        /**
+         * Start a cloud session on the workspace’s runner
+         * @description Nothing is recorded or sent unless the connected runner offers both the repository and the harness. The session starts as `starting`; the runner moves it on.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["NewCloudSession"];
+                };
+            };
+            responses: {
+                /** @description The session, recorded and handed to the runner. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"];
+                    };
+                };
+                /** @description The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`). Or (`invalid_request`): No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "repository_not_offered";
+                        } | {
+                            /** @enum {string} */
+                            error: "harness_not_offered";
+                        } | {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description The body is not JSON (`Content-Type: application/json`). */
+                415: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unsupported_media_type";
+                        };
+                    };
+                };
+                /** @description No runner is configured or connected for the workspace (`no_runner`): nothing was recorded. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_runner";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/{sessionId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One of the caller’s own cloud sessions, or one of the workspace’s agent runs */
+        get: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The session. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The caller sees no such session: none, another person's or another workspace's, as if it did not exist. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/{sessionId}/stop": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Stop one of the caller’s own cloud sessions, or one of the workspace’s agent runs
+         * @description The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The session, ended: `stopped`, or the end it had already. */
+                202: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSession"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The caller sees no such session: none, another person's or another workspace's, as if it did not exist. */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/cloud-sessions/{sessionId}/pass": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A pass to a running session the caller sees: their own, or an agent run of the workspace
+         * @description The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but `requireCaller`'s refusals.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    sessionId: string;
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The pass, and the host it opens. */
+                200: {
+                    headers: {
+                        /** @description Never kept by a cache. */
+                        "Cache-Control"?: "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CloudSessionPass"];
+                    };
+                };
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_request";
+                        };
+                    };
+                };
+                /** @description No session: the person is signed out. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "signed_out";
+                        };
+                    };
+                };
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_a_member";
+                        };
+                    };
+                };
+                /** @description The caller sees no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's. */
+                404: {
+                    headers: {
+                        /** @description Never kept by a cache. */
+                        "Cache-Control"?: "no-store";
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "not_found";
+                        };
+                    };
+                };
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_active_workspace";
+                        } | {
+                            /** @enum {string} */
+                            error: "workspace_switched";
+                        };
+                    };
+                };
+                /** @description Consola has no pass key here, and so no runner (`no_runner`). */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "no_runner";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/connections": {
         parameters: {
             query?: never;
@@ -610,7 +2778,7 @@ export interface paths {
         };
         /**
          * What my session's active workspace is connected to
-         * @description Any member may read it; `canManage` says whether they may change it.
+         * @description Any member may read it; `canManage` says whether they may change it. Takes `x-consola-workspace`.
          */
         get: {
             parameters: {
@@ -630,7 +2798,7 @@ export interface paths {
                         "application/json": components["schemas"]["Connections"];
                     };
                 };
-                /** @description The request names no workspace (`x-consola-workspace`). */
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -642,7 +2810,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Nobody is signed in. */
+                /** @description No session: the person is signed out. */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -654,7 +2822,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not in the workspace their session names. */
+                /** @description The person is not a member of the workspace their session has active, or no longer. */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -666,7 +2834,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The session has no active workspace. The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -702,7 +2870,7 @@ export interface paths {
         put?: never;
         /**
          * Start connecting GitHub to my active workspace
-         * @description The address on GitHub that installs the app, carrying a state signed for this session. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).
+         * @description The address on GitHub that installs the app, carrying a state signed for this person. Only an owner or admin may. No cache keeps the answer (`Cache-Control: no-store`).
          */
         post: {
             parameters: {
@@ -722,7 +2890,7 @@ export interface paths {
                         "application/json": components["schemas"]["GitHubInstallAddress"];
                     };
                 };
-                /** @description The request names no workspace (`x-consola-workspace`). */
+                /** @description No `x-consola-workspace` header: the request does not say which workspace its page shows. */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -734,7 +2902,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Nobody is signed in. */
+                /** @description No session: the person is signed out. */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -746,7 +2914,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app. */
+                /** @description The person is not a member of the workspace their session has active (`not_a_member`), is not an owner or admin of it (`not_allowed`), or the request did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -764,7 +2932,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The session has no active workspace. The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -870,7 +3038,7 @@ export interface paths {
                     };
                     content?: never;
                 };
-                /** @description The id is not a GitHub id. Or the request names no workspace (`x-consola-workspace`). */
+                /** @description No `x-consola-workspace` header, or the id is not a GitHub id. */
                 400: {
                     headers: {
                         [name: string]: unknown;
@@ -882,7 +3050,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description Nobody is signed in. */
+                /** @description No session: the person is signed out. */
                 401: {
                     headers: {
                         [name: string]: unknown;
@@ -894,7 +3062,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The person is not in the workspace, is not an owner or admin of it, or the request did not come from the web app. */
+                /** @description The person is not a member of the workspace their session has active (`not_a_member`), is not an owner or admin of it (`not_allowed`), or the request did not come from the web app (`bad_origin`). */
                 403: {
                     headers: {
                         [name: string]: unknown;
@@ -924,7 +3092,7 @@ export interface paths {
                         };
                     };
                 };
-                /** @description The session has no active workspace. The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
+                /** @description The session has no workspace active (`no_active_workspace`), or another than the page shows (`workspace_switched`): another tab switched it. Loading the page again is the fix. */
                 409: {
                     headers: {
                         [name: string]: unknown;
@@ -946,6 +3114,132 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/github/webhooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Receive one of the GitHub App’s webhook deliveries
+         * @description The GitHub App’s webhook URL. GitHub calls it, with no session and no Origin, so it is outside the origin check. The body is GitHub’s event payload as JSON, read as raw bytes and checked against `X-Hub-Signature-256` (HMAC-SHA256 under the app’s webhook secret, compared in constant time) before anything else is read; `X-GitHub-Event` names the event and `X-GitHub-Delivery` is GitHub’s id of the delivery, which it keeps when it sends a delivery again. The event is recorded for the workspace that holds its installation, once per delivery id, and an event recorded now starts the agent runs its factories’ teams fire.
+         */
+        post: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description Answered. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubWebhookPong"];
+                    };
+                };
+                /** @description Recorded. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["GitHubWebhookRecorded"];
+                    };
+                };
+                /** @description Signed, but a header or the body is not what GitHub sends. */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "invalid_delivery";
+                        };
+                    };
+                };
+                /** @description No `X-Hub-Signature-256`, or not GitHub’s signature over this body. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "bad_signature";
+                        };
+                    };
+                };
+                /** @description The workspace had this delivery already: sent again, or replayed. Nothing changed. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "duplicate_delivery";
+                        };
+                    };
+                };
+                /** @description Over the 26214400 bytes (25 MB) GitHub puts in a delivery at most. */
+                413: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "too_large";
+                        };
+                    };
+                };
+                /** @description Dropped: the event came through an installation no workspace holds, or through none. */
+                422: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "unknown_installation";
+                        } | {
+                            /** @enum {string} */
+                            error: "no_installation";
+                        };
+                    };
+                };
+                /** @description This server has no webhook secret (`GITHUB_WEBHOOK_SECRET`, `webhooks_not_configured`), or its database did not answer (`unavailable`): GitHub’s Redeliver sends it again. */
+                503: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": {
+                            /** @enum {string} */
+                            error: "webhooks_not_configured";
+                        } | {
+                            /** @enum {string} */
+                            error: "unavailable";
+                        };
+                    };
+                };
+            };
+        };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -953,7 +3247,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Whether the service can reach its database */
+        /**
+         * Whether the service can reach its database
+         * @description Needs no session: it says nothing a person or a workspace holds.
+         */
         get: {
             parameters: {
                 query?: never;
@@ -997,2336 +3294,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/teams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The caller's workspace's teams, as the caller sees them */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The teams. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["TeamList"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        /** Make a team, with nobody in it */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["TeamName"];
-                };
-            };
-            responses: {
-                /** @description The team made. */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Team"];
-                    };
-                };
-                /** @description The rules refuse the name, or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["InvalidTeam"] | {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_allowed";
-                        } | {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description Another team of the workspace has the name, in any case (`name_taken`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "name_taken";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/teams/{teamId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        /** Delete a team, and every place in it */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    teamId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The team is gone. */
-                204: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content?: never;
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_allowed";
-                        } | {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no team with that id, whether or not another workspace does. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "team_not_found";
-                        };
-                    };
-                };
-                /** @description The workspace's first team, which is never deleted (`first_team`), a team that owns a factory, which is not deleted while it does (`owns_factories`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "first_team";
-                        } | {
-                            /** @enum {string} */
-                            error: "owns_factories";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        options?: never;
-        head?: never;
-        /** Rename a team, the first one included */
-        patch: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    teamId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["TeamName"];
-                };
-            };
-            responses: {
-                /** @description The team, renamed. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Team"];
-                    };
-                };
-                /** @description The rules refuse the name, or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["InvalidTeam"] | {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_allowed";
-                        } | {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no team with that id, whether or not another workspace does. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "team_not_found";
-                        };
-                    };
-                };
-                /** @description Another team of the workspace has the name, in any case. The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "name_taken";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-            };
-        };
-        trace?: never;
-    };
-    "/api/teams/{teamId}/members/{personId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /**
-         * Make a member of the workspace a member of a team
-         * @description Someone already in the team stays as they are.
-         */
-        put: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    teamId: string;
-                    /** @description The person's global id. */
-                    personId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The team, with the person in it. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Team"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_allowed";
-                        } | {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no team with that id, whether or not another workspace does. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "team_not_found";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_workspace_member`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_workspace_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        post?: never;
-        /**
-         * Take a person out of a team
-         * @description Someone not in the team changes nothing.
-         */
-        delete: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    teamId: string;
-                    /** @description The person's global id. */
-                    personId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The team, without the person. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Team"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The caller’s role does not manage teams. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_allowed";
-                        } | {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no team with that id, whether or not another workspace does. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "team_not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/factories": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** The caller's workspace's factories, as the caller sees them */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The factories. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["FactoryList"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        /**
-         * Make a blank factory, owned by a team
-         * @description Its files are stored in the cell, and its first version holds none. Owners and admins may make one for any team, a member for a team they are in.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["NewFactory"];
-                };
-            };
-            responses: {
-                /** @description The factory made. */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Factory"];
-                    };
-                };
-                /** @description The rules refuse the name, or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["InvalidFactory"] | {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no team with that id that the caller sees: none, or one a member is not in. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "team_not_found";
-                        };
-                    };
-                };
-                /** @description Another factory of the workspace has the name, in any case (`name_taken`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "name_taken";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/factories/{factoryId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** A factory, with its latest version’s files */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    factoryId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The factory and its latest version. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["FactoryWithFiles"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "factory_not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Rename a factory, or move it to another team
-         * @description Whoever sees the factory may rename it. Moving it needs the caller to see the team it moves to as well: owners and admins any team, a member a team they are in. Its versions stay as they are.
-         */
-        patch: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    factoryId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["FactoryChange"];
-                };
-            };
-            responses: {
-                /** @description The factory, changed. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["Factory"];
-                    };
-                };
-                /** @description The rules refuse the name, or the body is not what the route takes: neither a name nor a team is one. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["InvalidFactory"] | {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The caller sees no such factory (`factory_not_found`), or no such team to move it to (`team_not_found`): none, or one a member is not in. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "factory_not_found";
-                        } | {
-                            /** @enum {string} */
-                            error: "team_not_found";
-                        };
-                    };
-                };
-                /** @description Another factory of the workspace has the name, in any case (`name_taken`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "name_taken";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-            };
-        };
-        trace?: never;
-    };
-    "/api/factories/{factoryId}/versions/{version}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** One version of a factory's files, an earlier one or the latest */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    factoryId: string;
-                    /** @description A version's number: 1 for the blank version a factory is made with. */
-                    version: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The version. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["FactoryVersion"];
-                    };
-                };
-                /** @description The version is not a number from 1. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The caller sees no such factory (`factory_not_found`), or it has no version with that number (`version_not_found`). */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "factory_not_found";
-                        } | {
-                            /** @enum {string} */
-                            error: "version_not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/factories/{factoryId}/versions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Save a factory's files as its next version
-         * @description The files must keep the factory schema (`packages/factory-spec`), and `baseVersion` must still be the latest version. Whoever sees the factory may save it.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    factoryId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["NewFactoryVersion"];
-                };
-            };
-            responses: {
-                /** @description The version saved. */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["SavedFactoryVersion"];
-                    };
-                };
-                /** @description The files fail the factory schema (`invalid_files`), or the body is not what the route takes. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["InvalidFiles"] | {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no factory with that id that the caller sees: none, or one of a team a member is not in. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "factory_not_found";
-                        };
-                    };
-                };
-                /** @description The factory has a newer version than the one the files were edited from (`version_moved`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["VersionMoved"] | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is larger than any factory’s files can be. */
-                413: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "too_large";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/factory-templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The ready-made factory files a person can start from
-         * @description The same for every workspace. A template’s files reach a factory only through `POST /api/factories/{factoryId}/versions`, which checks them as any other files.
-         */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The templates. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["FactoryTemplate"][];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/runs": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The top-level runs the caller sees, newest first
-         * @description A request is one run; the automation runs it started are not listed here but in its own answer. Filters combine; the values of one filter are alternatives.
-         */
-        get: {
-            parameters: {
-                query?: {
-                    /** @description Only runs in one of these phases. Repeat it for several. */
-                    phase?: components["schemas"]["Phase"][];
-                    /** @description Only runs started one of these ways; "background runs" are `cron`, `event` and `poll`. */
-                    trigger?: components["schemas"]["RunTrigger"][];
-                    /** @description Only this factory's runs; one the caller does not see gives an empty page. */
-                    factoryId?: string;
-                    /** @description Only runs of the factories this team owns now. */
-                    teamId?: string;
-                    /** @description Only runs of this automation, and requests that started one, in every factory unless `factoryId` narrows it. */
-                    automation?: string;
-                    /** @description `true`: only runs the caller started. */
-                    mine?: "true" | "false";
-                    /** @description Text the title or the automation's name holds, in any case. */
-                    q?: string;
-                    /** @description The page before's `nextCursor`. */
-                    cursor?: string;
-                    limit?: number;
-                };
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description A page of runs, the counts and what the filters offer. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["RunList"];
-                    };
-                };
-                /** @description A phase or trigger the cell does not know, a cursor it did not give, a `limit` out of range or a `q` too long. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/runs/{runId}/approval": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve or dismiss a run that waits for approval
-         * @description Anyone on the run's factory's owning team may answer, whatever their workspace role, and the first answer for a version is the one kept. The cell records it and does not change the run: its runner acts on it.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    runId: string;
-                };
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["ApprovalAnswer"];
-                };
-            };
-            responses: {
-                /** @description The answer is recorded. */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["RunApproval"];
-                    };
-                };
-                /** @description The body is not what the route takes. Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The caller sees the run, but is not on its factory's owning team. The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_allowed";
-                        } | {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The workspace has no run with that id that the caller sees. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "run_not_found";
-                        };
-                    };
-                };
-                /** @description The run is not waiting for approval (`not_waiting`), this version was answered already (`already_answered`: the first answer stands), the version is not the run's (`version_moved`). The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_waiting";
-                        } | {
-                            /** @enum {string} */
-                            error: "already_answered";
-                        } | {
-                            /** @enum {string} */
-                            error: "version_moved";
-                        } | {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/runs/{runId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** One run: its steps, and a request’s facts and the runs it started */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    runId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The run. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["RunDetail"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The workspace has no run with that id that the caller sees: none, or one of a factory of a team a member is not in. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "run_not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud-sessions/options": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** What the workspace's runner offers a new session */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description What the connected runner offers. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CloudSessionOptions"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description No runner is configured or connected for the workspace (`no_runner`). */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_runner";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud-sessions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * The caller's own cloud sessions, newest first (an agent run is listed with the runs)
-         * @description A person's session is theirs alone; an agent run, which an automation started, is seen by every member of the workspace.
-         */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The sessions. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CloudSession"][];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        /**
-         * Start a cloud session on the workspace’s runner
-         * @description Nothing is recorded or sent unless the connected runner offers both the repository and the harness. The session starts as `starting`; the runner moves it on.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path?: never;
-                cookie?: never;
-            };
-            requestBody: {
-                content: {
-                    "application/json": components["schemas"]["NewCloudSession"];
-                };
-            };
-            responses: {
-                /** @description The session, recorded and handed to the runner. */
-                201: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CloudSession"];
-                    };
-                };
-                /** @description The runner does not offer the repository (`repository_not_offered`) or the harness (`harness_not_offered`), or the body is not exactly `{ repository, harness }`, each valid (`invalid_request`). Or the request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "repository_not_offered";
-                        } | {
-                            /** @enum {string} */
-                            error: "harness_not_offered";
-                        } | {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The body is not JSON (`Content-Type: application/json`). */
-                415: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "unsupported_media_type";
-                        };
-                    };
-                };
-                /** @description No runner is configured or connected for the workspace (`no_runner`): nothing was recorded. */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_runner";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud-sessions/{sessionId}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** One of the caller’s own cloud sessions, or one of the workspace’s agent runs */
-        get: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    sessionId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The session. */
-                200: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CloudSession"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        };
-                    };
-                };
-                /** @description The caller sees no such session: none, another person's or another workspace's, as if it did not exist. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud-sessions/{sessionId}/stop": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Stop one of the caller’s own cloud sessions, or one of the workspace’s agent runs
-         * @description The session ends at once, whether or not its runner is connected; the runner is told when it is. Stopping an ended session changes nothing.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    sessionId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The session, ended: `stopped`, or the end it had already. */
-                202: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CloudSession"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The caller sees no such session: none, another person's or another workspace's, as if it did not exist. */
-                404: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/cloud-sessions/{sessionId}/pass": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * A pass to a running session the caller sees: their own, or an agent run of the workspace
-         * @description The pass lasts five minutes (the runner protocol's cap); ask for another when it runs out. No answer of the route is kept by a cache (`Cache-Control: no-store`) but the token check's.
-         */
-        post: {
-            parameters: {
-                query?: never;
-                header?: never;
-                path: {
-                    sessionId: string;
-                };
-                cookie?: never;
-            };
-            requestBody?: never;
-            responses: {
-                /** @description The pass, and the host it opens. */
-                200: {
-                    headers: {
-                        /** @description Never kept by a cache. */
-                        "Cache-Control"?: "no-store";
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": components["schemas"]["CloudSessionPass"];
-                    };
-                };
-                /** @description The request names no workspace (`x-consola-workspace`). */
-                400: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "invalid_request";
-                        };
-                    };
-                };
-                /** @description Nobody is signed in. */
-                401: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "signed_out";
-                        };
-                    };
-                };
-                /** @description The person is not a member of the workspace (`not_a_member`). The change did not come from the web app (`bad_origin`). */
-                403: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_a_member";
-                        } | {
-                            /** @enum {string} */
-                            error: "bad_origin";
-                        };
-                    };
-                };
-                /** @description The caller sees no such running session whose host has an address: none, one still starting or ended, another person's or another workspace's. */
-                404: {
-                    headers: {
-                        /** @description Never kept by a cache. */
-                        "Cache-Control"?: "no-store";
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "not_found";
-                        };
-                    };
-                };
-                /** @description The session has no active workspace (`no_active_workspace`). The session’s active workspace is not the one the request names (`workspace_switched`): another tab switched it. Nothing changed. */
-                409: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_active_workspace";
-                        } | {
-                            /** @enum {string} */
-                            error: "workspace_switched";
-                        };
-                    };
-                };
-                /** @description The cell has no pass key, and so no runner (`no_runner`). */
-                503: {
-                    headers: {
-                        [name: string]: unknown;
-                    };
-                    content: {
-                        "application/json": {
-                            /** @enum {string} */
-                            error: "no_runner";
-                        };
-                    };
-                };
-            };
-        };
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -3336,11 +3303,6 @@ export interface components {
          * @enum {string}
          */
         GitHubCallbackResult: "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
-        /** @description `delivered`: the workspace’s cell recorded the event. `pong`: GitHub’s ping, passed on to no cell. */
-        GitHubWebhookReceived: {
-            /** @enum {string} */
-            result: "delivered" | "pong";
-        };
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {
             user: components["schemas"]["Person"];
@@ -3388,58 +3350,10 @@ export interface components {
             error: "invalid_workspace";
             problems: ("name_missing" | "name_too_long" | "slug_invalid")[];
         };
-        /** @description A name (trimmed, at most 64 characters), a slug of lowercase letters and digits with single dashes between (at most 48). Its region is the deployment’s. */
+        /** @description A name (trimmed, at most 64 characters) and a slug of lowercase letters and digits with single dashes between (at most 48). The workspace is made in the deployment’s region, which no request names. */
         NewWorkspace: {
             name: string;
             slug: string;
-        };
-        /** @description What the workspace is connected to. */
-        Connections: {
-            /** @description Whether the person may connect and disconnect: an owner or admin. */
-            canManage: boolean;
-            github: {
-                /** @description Whether this server has the GitHub App’s settings. */
-                configured: boolean;
-                installations: components["schemas"]["GitHubConnection"][];
-            };
-        };
-        /** @description A GitHub App installation the workspace holds. */
-        GitHubConnection: {
-            id: number;
-            account: components["schemas"]["GitHubAccount"];
-            /** Format: date-time */
-            connectedAt: string;
-            /** @description Where on GitHub its repositories are chosen, and it is uninstalled. */
-            settingsUrl: string;
-            repositories: components["schemas"]["GitHubRepositories"];
-        };
-        /** @description The GitHub account, an organisation or a person, the app is installed on. */
-        GitHubAccount: {
-            id: number;
-            login: string;
-            /** @enum {string} */
-            type: "Organization" | "User";
-        };
-        /** @description What GitHub says the installation covers now: its repositories, `gone` when GitHub no longer has the installation (uninstalled or suspended there), or `unavailable` when GitHub did not say. Asked of GitHub each time, never stored. */
-        GitHubRepositories: {
-            /** @enum {string} */
-            kind: "listed";
-            repositories: components["schemas"]["GitHubRepository"][];
-        } | {
-            /** @enum {string} */
-            kind: "gone";
-        } | {
-            /** @enum {string} */
-            kind: "unavailable";
-        };
-        GitHubRepository: {
-            id: number;
-            fullName: string;
-            private: boolean;
-            url: string;
-        };
-        GitHubInstallAddress: {
-            url: string;
         };
         /** @description The teams the caller sees: every team for owners and admins, the ones they are in for a member. */
         TeamList: {
@@ -3452,7 +3366,7 @@ export interface components {
             name: string;
             /** @description Whether it is the workspace's first team, which every new member joins and which is never deleted. */
             first: boolean;
-            /** @description Its members’ global ids, in the order they joined it. */
+            /** @description Its members’ ids, in the order they joined it: only people who are members of the workspace now. */
             memberIds: string[];
         };
         /** @description Every problem with the name, at once. */
@@ -3480,7 +3394,7 @@ export interface components {
             /** @description When its latest version was saved, as an ISO 8601 time. */
             updatedAt: string;
         };
-        /** @description Where the factory's files come from: `stored`, saved in the cell. A GitHub repository comes later. */
+        /** @description Where the factory's files come from: `stored`, saved in Consola. A GitHub repository comes later. */
         FactorySource: {
             /** @enum {string} */
             kind: "stored";
@@ -3507,7 +3421,7 @@ export interface components {
             version: number;
             /** @description When it was saved, as an ISO 8601 time. */
             savedAt: string;
-            /** @description The global id of the person who saved it. */
+            /** @description The id of the person who saved it. */
             savedBy: string;
             /** @description Its files, by path. */
             files: components["schemas"]["FactoryFile"][];
@@ -3631,7 +3545,7 @@ export interface components {
             trigger: components["schemas"]["RunTrigger"];
             /** @description What the trigger was: the event's name (`pull_request.opened`), the cron schedule, or the poll's check. */
             triggerDetail: string | null;
-            /** @description The global id of the person who started it, who may no longer be a member; null for a run no person started. */
+            /** @description The id of the person who started it, who may no longer be a member; null for a run no person started. */
             startedBy: string | null;
             item: components["schemas"]["RunItem"] | null;
             /** @description Which runner ran it: `cloud` for now. */
@@ -3676,7 +3590,7 @@ export interface components {
          */
         RunStatus: "queued" | "running" | "needs-approval" | "completed" | "failed" | "rejected" | "waiting" | "expired" | "cancelled";
         /**
-         * @description The cell's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected).
+         * @description Consola's grouping of a run's status, which the list filters and counts by: `active` (queued, running, waiting on a run), `needs-you` (needs approval, waiting on a person, or a request at work one of whose runs needs someone), `completed`, `failed` (failed, expired) and `stopped` (cancelled, rejected).
          * @enum {string}
          */
         Phase: "active" | "needs-you" | "completed" | "failed" | "stopped";
@@ -3705,7 +3619,7 @@ export interface components {
             failed: number;
             stopped: number;
         };
-        /** @description A run's request to be approved: present while the run needs approval, and once answered. The cell records the answer; the run's runner acts on it. */
+        /** @description A run's request to be approved: present while the run needs approval, and once answered. Consola records the answer; the run's runner acts on it. */
         RunApproval: {
             /** @description The version an answer applies to: the run's factory version. */
             version: number;
@@ -3734,7 +3648,7 @@ export interface components {
             answer: {
                 /** @enum {string} */
                 decision: "approved" | "dismissed";
-                /** @description The global id of the person who answered. */
+                /** @description The id of the person who answered. */
                 by: string;
                 /** @description When, as an ISO 8601 time. */
                 at: string;
@@ -3768,7 +3682,7 @@ export interface components {
                     usd: number;
                     runs: number;
                 };
-                /** @description The orchestrator's open question: when it was asked, and its deadline. Its text is not in the cell. */
+                /** @description The orchestrator's open question: when it was asked, and its deadline. Its text is not in Consola. */
                 question: {
                     at: string;
                     until: string;
@@ -3893,7 +3807,7 @@ export interface components {
             start: number;
             end: number;
         };
-        /** @description The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in the cell yet), and when that version does not define the automation. */
+        /** @description The file behind an automation run, at the factory version it executed, and the automation's own lines in it (`range`: the whole file for `automations/<name>.yaml`). Null for a request (its orchestrator has no file in Consola yet), and when that version does not define the automation. */
         RunSource: {
             /** @description The file the automation is written in: `automations/<name>.yaml`, or `factory.yml`. */
             path: string;
@@ -3924,7 +3838,7 @@ export interface components {
         CloudSession: {
             id: string;
             workspaceId: string;
-            /** @description The global id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees. */
+            /** @description The id of the person who started it, the only one who sees it; null for an agent run, which every member of the workspace sees. */
             personId: string | null;
             /** @description The repository, as `owner/name`. */
             repository: string;
@@ -3938,14 +3852,14 @@ export interface components {
              * @enum {string}
              */
             status: "starting" | "running" | "stopped" | "failed";
-            /** @description What the runner named it; for an agent run, the cell's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces. */
+            /** @description What the runner named it; for an agent run, Consola's own title (`<automation> · <owner/name>#<number> <title>`), which the runner never replaces. */
             title: string | null;
             /** @description The origin the session's host listens on, once the runner reported it. */
             hostUrl: string | null;
             /** @description The message the runner reported for a failure (its provider’s or its start script’s), shown as it came. A failed session has this or `errorCode`, never both. */
             error: string | null;
             /**
-             * @description A failure the cell decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start the cell could not compose (`agent_run_invalid`).
+             * @description A failure Consola decided itself, which the web app words: the runner restarted, could not be reached, or failed without a message; for an agent run, also no runner connected (`runner_unavailable`), its repository or harness not offered, or a start Consola could not compose (`agent_run_invalid`).
              * @enum {string|null}
              */
             errorCode: "runner_restarted" | "runner_unreachable" | "runner_failed" | "runner_unavailable" | "repository_not_offered" | "harness_not_offered" | "agent_run_invalid" | null;
@@ -4011,12 +3925,70 @@ export interface components {
             harness: "claude" | "codex";
         };
         CloudSessionPass: {
-            /** @description The session pass, a compact JWS signed with the cell's own key, which the session's host checks. */
+            /** @description The session pass, a compact JWS signed with Consola's own pass key, which the session's host checks. */
             pass: string;
             /** @description The origin the session's host listens on. */
             hostUrl: string;
             /** @description When the pass expires, in epoch seconds: its `exp`. */
             expiresAt: number;
+        };
+        /** @description What the workspace is connected to. */
+        Connections: {
+            /** @description Whether the person may connect and disconnect: an owner or admin. */
+            canManage: boolean;
+            github: {
+                /** @description Whether this server has the GitHub App’s settings. */
+                configured: boolean;
+                installations: components["schemas"]["GitHubConnection"][];
+            };
+        };
+        /** @description A GitHub App installation the workspace holds. */
+        GitHubConnection: {
+            id: number;
+            account: components["schemas"]["GitHubAccount"];
+            /** Format: date-time */
+            connectedAt: string;
+            /** @description Where on GitHub its repositories are chosen, and it is uninstalled. */
+            settingsUrl: string;
+            repositories: components["schemas"]["GitHubRepositories"];
+        };
+        /** @description The GitHub account, an organisation or a person, the app is installed on. */
+        GitHubAccount: {
+            id: number;
+            login: string;
+            /** @enum {string} */
+            type: "Organization" | "User";
+        };
+        /** @description What GitHub says the installation covers now: its repositories, `gone` when GitHub no longer has the installation (uninstalled or suspended there), or `unavailable` when GitHub did not say. Asked of GitHub each time, never stored. */
+        GitHubRepositories: {
+            /** @enum {string} */
+            kind: "listed";
+            repositories: components["schemas"]["GitHubRepository"][];
+        } | {
+            /** @enum {string} */
+            kind: "gone";
+        } | {
+            /** @enum {string} */
+            kind: "unavailable";
+        };
+        GitHubRepository: {
+            id: number;
+            fullName: string;
+            private: boolean;
+            url: string;
+        };
+        GitHubInstallAddress: {
+            url: string;
+        };
+        /** @description GitHub’s ping, as a webhook is set up: recorded for no workspace. */
+        GitHubWebhookPong: {
+            /** @enum {string} */
+            result: "pong";
+        };
+        /** @description The event is recorded for the workspace that holds its installation. */
+        GitHubWebhookRecorded: {
+            /** @enum {string} */
+            result: "recorded";
         };
     };
     responses: never;
