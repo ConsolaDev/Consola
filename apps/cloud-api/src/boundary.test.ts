@@ -81,6 +81,8 @@ const COMPANY_ADAPTERS = [
   'company/adapters/token',
   'company/adapters/clock',
   'company/adapters/runner',
+  'company/adapters/slack',
+  'company/adapters/sealing',
 ];
 const ACCOUNTS = ['accounts/domain', 'accounts/application', ...ACCOUNTS_ADAPTERS];
 const COMPANY = ['company/domain', 'company/application', ...COMPANY_ADAPTERS];
@@ -193,6 +195,22 @@ const LAYERS: Layer[] = [
   ]),
   // The machine's clock needs no library at all.
   adapter('company', 'company/adapters/clock', [ANY_PACKAGE]),
+  // Slack's Web API, with `fetch`, and an "Add to Slack" state signed with `node:crypto`. No HTTP
+  // framework, no database, and not `jose`.
+  adapter('company', 'company/adapters/slack', [
+    ...HTTP_LIBRARIES,
+    ...DATABASE_LIBRARIES,
+    ...AUTH_LIBRARIES,
+    ...TOKEN_LIBRARIES,
+  ]),
+  // Seals and opens the secrets kept for connections, with `node:crypto`: the one place that does
+  // (`SEALING`, below).
+  adapter('company', 'company/adapters/sealing', [
+    ...HTTP_LIBRARIES,
+    ...DATABASE_LIBRARIES,
+    ...AUTH_LIBRARIES,
+    ...TOKEN_LIBRARIES,
+  ]),
   // The runners' channel and their socket, a route of its own (`hono`, `@hono/node-ws`): no
   // database, and no token library, since the pass is signed in `adapters/token`.
   adapter('company', 'company/adapters/runner', [
@@ -501,6 +519,35 @@ function sourceFiles(dir = ''): string[] {
   });
 }
 
+/**
+ * The one adapter that seals and opens the secrets Consola keeps for its connections (Slack's
+ * client and signing secrets and bot tokens), with `CONNECTION_SECRETS_KEY`. No other code names a
+ * cipher, so a secret is never sealed, or opened, two ways.
+ */
+const SEALING = 'company/adapters/sealing';
+const CIPHERS = new Set(['createCipheriv', 'createDecipheriv', 'createCipher', 'createDecipher']);
+
+/** Every identifier a source file holds, property names included: `crypto.createCipheriv` too. */
+function identifiersOf(source: string, fileName = 'x.ts'): string[] {
+  const tree = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) found.push(node.text);
+    else if (ts.isStringLiteralLike(node) && ts.isElementAccessExpression(node.parent)) {
+      found.push(node.text); // crypto['createCipheriv']
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return found;
+}
+
+/** Whether a file that is not test code names a cipher outside `SEALING`. */
+function sealsOutsideSealing(file: string, source: string): boolean {
+  if (isTestFile(file) || file.startsWith(`${SEALING}/`)) return false;
+  return identifiersOf(source, file).some((name) => CIPHERS.has(name));
+}
+
 describe('the dependency rule', () => {
   it('every source file keeps the dependency rule and the boundary', () => {
     const violations = sourceFiles().flatMap((file) =>
@@ -524,6 +571,28 @@ describe('the dependency rule', () => {
       ]),
     );
     expect(helpers.filter((file) => !isTestFile(file))).toEqual([]);
+  });
+
+  it('only the sealing adapter seals or opens a secret', () => {
+    const sealers = sourceFiles().filter((file) =>
+      identifiersOf(readFileSync(join(SRC, file), 'utf8'), file).some((name) => CIPHERS.has(name)),
+    );
+    expect(sealers.filter((file) => !isTestFile(file))).toEqual([`${SEALING}/secretSealer.ts`]);
+    expect(
+      sourceFiles().filter((file) =>
+        sealsOutsideSealing(file, readFileSync(join(SRC, file), 'utf8')),
+      ),
+    ).toEqual([]);
+  });
+
+  it.each([
+    ['a named import', "import { createCipheriv } from 'node:crypto';"],
+    ['a member', "import * as crypto from 'node:crypto'; crypto.createDecipheriv('x');"],
+    ['an element', "import * as crypto from 'node:crypto'; crypto['createCipheriv'];"],
+  ])('the sealing check finds a cipher named through %s', (_spelling, source) => {
+    expect(sealsOutsideSealing('company/adapters/slack/x.ts', source)).toBe(true);
+    expect(sealsOutsideSealing(`${SEALING}/x.ts`, source)).toBe(false);
+    expect(sealsOutsideSealing('company/adapters/slack/x.test.ts', source)).toBe(false);
   });
 
   it('names only layers that exist as what a part may reach outside itself', () => {

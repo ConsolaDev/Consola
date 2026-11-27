@@ -15,6 +15,7 @@
     "db:generate": "drizzle-kit generate",
     "db:seed": "tsx src/seed.ts",
     "pass-key:generate": "node scripts/generate-pass-key.mjs",
+    "secrets-key:generate": "node scripts/generate-secrets-key.mjs",
     "webhooks:tunnel": "node scripts/webhook-tunnel.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
