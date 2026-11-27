@@ -16,12 +16,13 @@ const user = {
 };
 
 describe('whoIsAskingOf', () => {
-  it("is the session's person by id, and its active workspace", async () => {
+  it("is the session's person by id, the session's own id, and its active workspace", async () => {
     const whoIsAsking = whoIsAskingOf(
       authAnswering({ user, session: { id: 's-1', activeOrganizationId: 'acme' } }),
     );
     expect(await whoIsAsking(new Headers())).toEqual({
       personId: 'dana',
+      sessionId: 's-1',
       activeWorkspaceId: 'acme',
     });
   });
@@ -33,6 +34,7 @@ describe('whoIsAskingOf', () => {
       );
       expect(await whoIsAsking(new Headers())).toEqual({
         personId: 'dana',
+        sessionId: 's-1',
         activeWorkspaceId: null,
       });
     }

@@ -6,9 +6,9 @@ declare const admitted: unique symbol;
 type CallerBrand = { readonly [admitted]: true };
 
 /**
- * Who is asking, on a company route: the person their session names, the workspace the session
- * has active, and their role there as `member` holds it at this request. A person is their id
- * and no more: company code never reads an account.
+ * Who is asking, on a company route: the person their session names, the session itself, the
+ * workspace the session has active, and their role there as `member` holds it at this request.
+ * A person and a session are their ids and no more: company code never reads an account.
  *
  * Only `admitCaller` makes one (the brand), so a use case that takes a `Caller` gets the person
  * and the workspace from the session, never from the request.
@@ -16,14 +16,23 @@ type CallerBrand = { readonly [admitted]: true };
 export type Caller = {
   /** The person's id, the one accounts gives them. */
   readonly personId: string;
+  /** The id of the session that asked: what binds a GitHub Connect to the browser it began in. */
+  readonly sessionId: string;
   /** The workspace the session has active, which the page showed too. */
   readonly workspaceId: string;
   /** The person's role in that workspace, read for this request. */
   readonly role: WorkspaceRole;
 } & CallerBrand;
 
-/** A signed-in person as their session says: who they are and which workspace is active. */
-export type SignedInPerson = { personId: string; activeWorkspaceId: string | null };
+/**
+ * A signed-in person as their session says: who they are, which session it is, and which
+ * workspace it has active.
+ */
+export type SignedInPerson = {
+  personId: string;
+  sessionId: string;
+  activeWorkspaceId: string | null;
+};
 
 /** Why a request is not let onto a company route, with the status it is answered with. */
 export type CallerRefusal =
@@ -57,6 +66,11 @@ export function admitCaller(asking: {
   if (active === null) return { ok: false, status: 409, error: 'no_active_workspace' };
   if (shownWorkspaceId !== active) return { ok: false, status: 409, error: 'workspace_switched' };
   if (role === null) return { ok: false, status: 403, error: 'not_a_member' };
-  const caller = { personId: signedIn.personId, workspaceId: active, role } as Caller;
+  const caller = {
+    personId: signedIn.personId,
+    sessionId: signedIn.sessionId,
+    workspaceId: active,
+    role,
+  } as Caller;
   return { ok: true, caller };
 }

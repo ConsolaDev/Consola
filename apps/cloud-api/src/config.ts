@@ -135,7 +135,10 @@ const rawEnv = z.object({
     .transform((value) => originOf(value) as string),
   GOOGLE_CLIENT_ID: required('a Google client ID'),
   GOOGLE_CLIENT_SECRET: required('a Google client secret'),
-  REGION: z.string().refine(isRegion, `must be one of ${REGIONS.join(', ')}`).optional(),
+  REGION: z
+    .string()
+    .refine(isRegion, `must be one of ${REGIONS.join(', ')}`)
+    .optional(),
   PORT: z.coerce
     .number({ error: 'must be a whole number' })
     .int('must be a whole number')

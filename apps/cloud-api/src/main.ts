@@ -45,24 +45,23 @@ try {
   cannotStart(error.problems);
 }
 
-const server = serve(
-  { fetch: api.app.fetch, hostname: '127.0.0.1', port: config.port },
-  (info) => {
+const server = serve({ fetch: api.app.fetch, hostname: '127.0.0.1', port: config.port }, (info) => {
+  console.log(
+    `Consola Cloud API on http://127.0.0.1:${info.port}, in ${config.region} (web origin ${config.publicUrl})`,
+  );
+  // How GitHub's webhooks get here in development: through a tunnel this process does not start.
+  console.log(
+    config.githubWebhookSecret === null
+      ? 'GitHub webhooks are off: GITHUB_WEBHOOK_SECRET is not set (README, "Receive GitHub\'s webhooks").'
+      : `GitHub webhooks on ${GITHUB_WEBHOOK_PATH}. Bring them here through a tunnel with ` +
+          '`pnpm --filter @consola/cloud-api webhooks:tunnel`.',
+  );
+  if (config.runner === null) {
     console.log(
-      `Consola Cloud API on http://127.0.0.1:${info.port}, in ${config.region} (web origin ${config.publicUrl})`,
+      'No runner is configured: RUNNER_SECRET, RUNNER_WORKSPACE_ID and PASS_PRIVATE_KEY are unset.',
     );
-    // How GitHub's webhooks get here in development: through a tunnel this process does not start.
-    console.log(
-      config.githubWebhookSecret === null
-        ? 'GitHub webhooks are off: GITHUB_WEBHOOK_SECRET is not set (README, "Receive GitHub\'s webhooks").'
-        : `GitHub webhooks on ${GITHUB_WEBHOOK_PATH}. Bring them here through a tunnel with ` +
-            '`pnpm --filter @consola/cloud-api webhooks:tunnel`.',
-    );
-    if (config.runner === null) {
-      console.log('No runner is configured: RUNNER_SECRET, RUNNER_WORKSPACE_ID and PASS_PRIVATE_KEY are unset.');
-    }
-  },
-);
+  }
+});
 // The runner's socket (`GET /api/runner`) is a WebSocket upgrade, which never reaches `fetch`.
 api.injectWebSocket(server);
 

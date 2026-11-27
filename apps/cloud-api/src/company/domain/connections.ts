@@ -98,33 +98,49 @@ export const INSTALL_STATE_LIFETIME_SECONDS = 10 * 60;
 
 /**
  * What Consola sends GitHub as the install link's `state`, signed, and reads back when GitHub
- * sends the person back: the workspace being connected, the person who asked and until when
- * (whole seconds since the epoch).
+ * sends the person back: the workspace being connected, the person and the session that asked,
+ * and until when (whole seconds since the epoch).
  */
 export type InstallState = {
   workspaceId: string;
   personId: string;
+  sessionId: string;
   expiresAt: number;
 };
 
-/** The state for a Connect the person starts now, for the workspace their session has active. */
-export function newInstallState(personId: string, workspaceId: string, now: number): InstallState {
-  return { workspaceId, personId, expiresAt: now + INSTALL_STATE_LIFETIME_SECONDS };
+/** Who asks: a person, by their id, in one of their sessions, by its id. */
+export type AskingSession = { personId: string; sessionId: string };
+
+/** The state for a Connect the session starts now, for the workspace it has active. */
+export function newInstallState(
+  asking: AskingSession,
+  workspaceId: string,
+  now: number,
+): InstallState {
+  return {
+    workspaceId,
+    personId: asking.personId,
+    sessionId: asking.sessionId,
+    expiresAt: now + INSTALL_STATE_LIFETIME_SECONDS,
+  };
 }
 
 /**
- * Whether a state GitHub brought back finishes a Connect this person started: one that could
- * not be read is `unreadable`, one past its time `expired`, and one another person started
- * `not-this-person`. Only the person's own state lets an installation be recorded, so a link
- * someone else made cannot connect a workspace through you.
+ * Whether a state GitHub brought back finishes a Connect this session started: one that could
+ * not be read is `unreadable`, one past its time `expired`, and one another session started
+ * (another person's, or this person's in another browser) `not-this-session`. Only this
+ * session's own state lets an installation be recorded, so a link someone else made cannot
+ * connect a workspace through you.
  */
 export function checkInstallState(
   state: InstallState | null,
-  personId: string,
+  asking: AskingSession,
   now: number,
-): 'ok' | 'unreadable' | 'expired' | 'not-this-person' {
+): 'ok' | 'unreadable' | 'expired' | 'not-this-session' {
   if (state === null) return 'unreadable';
-  if (state.personId !== personId) return 'not-this-person';
+  if (state.sessionId !== asking.sessionId || state.personId !== asking.personId) {
+    return 'not-this-session';
+  }
   if (now >= state.expiresAt) return 'expired';
   return 'ok';
 }

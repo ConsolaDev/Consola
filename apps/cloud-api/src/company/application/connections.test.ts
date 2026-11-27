@@ -37,9 +37,9 @@ const membership: MembershipReader = {
   workspaceIds: async () => [...new Set([...roles.keys()].map((key) => key.split('/')[0] ?? ''))],
 };
 
-/** The person signed in, with `activeWorkspaceId` active in their session. */
+/** The person signed in, in their one session, with `activeWorkspaceId` active in it. */
 const signedIn = (personId: string, activeWorkspaceId: string | null = 'sprocket') =>
-  ({ personId, activeWorkspaceId }) satisfies SignedInPerson;
+  ({ personId, sessionId: `session-of-${personId}`, activeWorkspaceId }) satisfies SignedInPerson;
 
 /** The caller a company route would admit: the person, in their session's active workspace. */
 function callerOf(personId: string, workspaceId = 'sprocket'): Caller {
@@ -281,10 +281,27 @@ describe('connecting GitHub', () => {
     expect(github.asked).toEqual([]);
   });
 
+  it("refuses the person's own state from another of their sessions, and never spends the code", async () => {
+    // Dana started the Connect in one browser; the redirect comes back to another, signed in too.
+    const state = started();
+    const github = fakeGitHub();
+    const elsewhere = { ...signedIn('dana'), sessionId: 'session-of-dana-elsewhere' };
+    const outcome = await finishGitHubInstall(
+      { membership, installations, github: github.github, states },
+      elsewhere,
+      returned(state),
+      now + 30,
+    );
+    expect(outcome).toEqual({ kind: 'bad-state' });
+    expect(github.asked).toEqual([]);
+    expect(await installations.ofWorkspace('sprocket')).toEqual([]);
+  });
+
   it('refuses a state Consola did not sign, or none', async () => {
     const forged: InstallState = {
       workspaceId: 'sprocket',
       personId: 'dana',
+      sessionId: 'session-of-dana',
       expiresAt: now + 600,
     };
     const other = createInstallStateSigner('another-secret-that-is-also-long-enough-to-sign');

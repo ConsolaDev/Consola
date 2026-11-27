@@ -5,6 +5,7 @@ import type { Caller, SignedInPerson } from './caller.js';
 
 const signedIn = (activeWorkspaceId: string | null = 'acme'): SignedInPerson => ({
   personId: 'person-1',
+  sessionId: 'session-1',
   activeWorkspaceId,
 });
 
@@ -20,7 +21,7 @@ describe('admitCaller', () => {
   it('admits a member asking about the workspace their session has active', () => {
     expect(admitCaller(asking())).toEqual({
       ok: true,
-      caller: { personId: 'person-1', workspaceId: 'acme', role: 'admin' },
+      caller: { personId: 'person-1', sessionId: 'session-1', workspaceId: 'acme', role: 'admin' },
     });
   });
 

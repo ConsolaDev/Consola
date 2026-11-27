@@ -43,7 +43,7 @@ export function fakeMembership(): FakeMembership {
  */
 export function callerAs(personId: string, role: WorkspaceRole, workspaceId = 'acme'): Caller {
   const admitted = admitCaller({
-    signedIn: { personId, activeWorkspaceId: workspaceId },
+    signedIn: { personId, sessionId: `session-of-${personId}`, activeWorkspaceId: workspaceId },
     shownWorkspaceId: workspaceId,
     role,
   });

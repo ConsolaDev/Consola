@@ -105,31 +105,36 @@ describe('who manages connections', () => {
 
 describe("a Connect's state", () => {
   const now = 1_800_000_000;
-  const state = newInstallState('dana', 'sprocket', now);
+  const dana = { personId: 'dana', sessionId: 'session-1' };
+  const state = newInstallState(dana, 'sprocket', now);
 
-  it('names the workspace and the person, for ten minutes', () => {
+  it('names the workspace, the person and the session, for ten minutes', () => {
     expect(state).toEqual({
       workspaceId: 'sprocket',
       personId: 'dana',
+      sessionId: 'session-1',
       expiresAt: now + INSTALL_STATE_LIFETIME_SECONDS,
     });
     expect(INSTALL_STATE_LIFETIME_SECONDS).toBe(600);
   });
 
-  it('finishes a Connect only for the person who started it, in time', () => {
-    expect(checkInstallState(state, 'dana', now + 1)).toBe('ok');
-    expect(checkInstallState(state, 'dana', state.expiresAt - 1)).toBe('ok');
+  it('finishes a Connect only in the session that started it, in time', () => {
+    expect(checkInstallState(state, dana, now + 1)).toBe('ok');
+    expect(checkInstallState(state, dana, state.expiresAt - 1)).toBe('ok');
   });
 
   it('is expired from the second it ends', () => {
-    expect(checkInstallState(state, 'dana', state.expiresAt)).toBe('expired');
+    expect(checkInstallState(state, dana, state.expiresAt)).toBe('expired');
   });
 
-  it('is refused to anyone else, even in time', () => {
-    expect(checkInstallState(state, 'eli', now)).toBe('not-this-person');
+  it("is refused in another session, the person's own included, even in time", () => {
+    expect(checkInstallState(state, { ...dana, sessionId: 'session-2' }, now)).toBe(
+      'not-this-session',
+    );
+    expect(checkInstallState(state, { ...dana, personId: 'eli' }, now)).toBe('not-this-session');
   });
 
   it('is unreadable when it could not be read', () => {
-    expect(checkInstallState(null, 'dana', now)).toBe('unreadable');
+    expect(checkInstallState(null, dana, now)).toBe('unreadable');
   });
 });

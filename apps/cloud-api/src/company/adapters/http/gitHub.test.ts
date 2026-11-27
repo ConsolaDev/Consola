@@ -75,10 +75,13 @@ function build(
   };
   const built = new OpenAPIHono();
   registerGitHubRoutes(built, {
-    // The session says who is asking, with Sprocket active.
+    // The session says who is asking, with Sprocket active: the person's one session, unless
+    // the request names another of theirs (`x-test-session`).
     whoIsAsking: async (headers): Promise<SignedInPerson | null> => {
       const personId = headers.get('x-test-person');
-      return personId ? { personId, activeWorkspaceId: 'sprocket' } : null;
+      if (!personId) return null;
+      const sessionId = headers.get('x-test-session') ?? `session-of-${personId}`;
+      return { personId, sessionId, activeWorkspaceId: 'sprocket' };
     },
     membership,
     publicUrl: PUBLIC_URL,
@@ -232,6 +235,29 @@ describe("GitHub's routes", () => {
     );
     expect(back.headers.get('referrer-policy')).toBe('no-referrer');
     expect(await installations.ofWorkspace('sprocket')).toHaveLength(1);
+  });
+
+  it('sends the same person back as bad_state from another of their sessions', async () => {
+    const owner = await app.request('/api/connections/github/install', {
+      method: 'POST',
+      headers: as('dana'),
+    });
+    const { url } = (await declared(postGitHubInstall, owner)) as { url: string };
+    const query = new URLSearchParams({
+      state: new URL(url).searchParams.get('state') ?? '',
+      code: 'good-code',
+      installation_id: '41',
+      setup_action: 'install',
+    });
+    // Dana, signed in in another browser too, follows the link there.
+    const back = await app.request(`/api/github/callback?${query}`, {
+      headers: { 'x-test-person': 'dana', 'x-test-session': 'session-of-dana-elsewhere' },
+    });
+    expect(back.status).toBe(302);
+    expect(back.headers.get('location')).toBe(
+      `${PUBLIC_URL}/?github=bad_state#/settings/connections`,
+    );
+    expect(await installations.ofWorkspace('sprocket')).toEqual([]);
   });
 
   it('says the app is not configured, on Connect and on the way back', async () => {

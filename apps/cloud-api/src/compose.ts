@@ -1,6 +1,10 @@
 import type { BetterAuthPlugin } from 'better-auth';
 import type { OpenAPIHono } from '@hono/zod-openapi';
-import { createAuth, currentSessionOf, whoIsAskingOf } from './accounts/adapters/auth/betterAuth.js';
+import {
+  createAuth,
+  currentSessionOf,
+  whoIsAskingOf,
+} from './accounts/adapters/auth/betterAuth.js';
 import type { CloudAuth } from './accounts/adapters/auth/betterAuth.js';
 import { ACCOUNT_ROUTES, registerAccountRoutes } from './accounts/adapters/http/app.js';
 import { createMembershipReader } from './accounts/adapters/persistence/membershipReader.js';

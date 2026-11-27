@@ -7,6 +7,7 @@ const SECRET = 'sprocket-test-secret-that-is-long-enough-to-sign-with';
 const state: InstallState = {
   workspaceId: 'sprocket',
   personId: 'dana',
+  sessionId: 'session-1',
   expiresAt: 1_800_000_600,
 };
 
@@ -61,7 +62,9 @@ describe("a Connect's state signer", () => {
       json({ ...state, expiresAt: '1800000600' }),
       json({ ...state, expiresAt: 1.5 }),
       json({ ...state, workspaceId: '' }),
-      // The shape before the state named a person: a session and a user.
+      json({ ...state, sessionId: '' }),
+      // A state that names the person but no session, or the person as a user.
+      json({ workspaceId: 'sprocket', personId: 'dana', expiresAt: 1 }),
       json({ workspaceId: 'sprocket', userId: 'dana', sessionId: 's-1', expiresAt: 1 }),
       Buffer.from('{not json').toString('base64url'),
     ]) {

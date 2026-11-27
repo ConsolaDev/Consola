@@ -59,7 +59,7 @@ export async function listConnections(
 
 /**
  * Starts connecting the caller's workspace to GitHub: the address that installs Consola's GitHub
- * App, carrying a signed state that only this person can finish with, until
+ * App, carrying a signed state that only this person, in this session, can finish with, until
  * `INSTALL_STATE_LIFETIME_SECONDS` after `now` (whole seconds since the epoch). Only an owner or
  * an admin may (`not-allowed` otherwise).
  */
@@ -71,7 +71,7 @@ export function startGitHubInstall(
   if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
   if (!ports.github) return { kind: 'not-configured' };
 
-  const state = ports.states.sign(newInstallState(caller.personId, caller.workspaceId, now));
+  const state = ports.states.sign(newInstallState(caller, caller.workspaceId, now));
   return { kind: 'started', url: ports.github.installUrl(state) };
 }
 
@@ -92,7 +92,7 @@ export type InstallOutcome =
   | { kind: 'requested' }
   /** The person said no to GitHub's authorisation. */
   | { kind: 'cancelled' }
-  /** No state, one Consola did not sign, or another person's. */
+  /** No state, one Consola did not sign, or another session's (another person's above all). */
   | { kind: 'bad-state' }
   | { kind: 'expired' }
   /** The person is no longer an owner or admin of the workspace the Connect was for. */
@@ -118,7 +118,8 @@ export type InstallOutcome =
  * is the signed-in one (`signedIn`), and each check comes before anything that trusts what the
  * redirect says:
  *
- * 1. the state is this person's own, signed by Consola and in time;
+ * 1. the state is this session's own (this person's, in the browser they started in), signed by
+ *    Consola and in time;
  * 2. the person is still an owner or admin of that workspace, read from `member` now;
  * 3. GitHub, asked with the redirect's one-time code, lists the installation among those this
  *    person can reach, since the `installation_id` in the address can be forged, and says they
@@ -141,7 +142,7 @@ export async function finishGitHubInstall(
   if (!github) return { kind: 'not-configured' };
 
   const state = returned.state === undefined ? null : ports.states.read(returned.state);
-  const checked = checkInstallState(state, signedIn.personId, now);
+  const checked = checkInstallState(state, signedIn, now);
   if (checked === 'expired') return { kind: 'expired' };
   if (checked !== 'ok' || state === null) return { kind: 'bad-state' };
 

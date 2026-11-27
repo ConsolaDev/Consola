@@ -11,6 +11,7 @@ const MAX_LENGTH = 1024;
 const STATE = z.strictObject({
   workspaceId: z.string().min(1),
   personId: z.string().min(1),
+  sessionId: z.string().min(1),
   expiresAt: z.number().int(),
 });
 

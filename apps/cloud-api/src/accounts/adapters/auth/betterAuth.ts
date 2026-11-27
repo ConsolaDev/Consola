@@ -138,8 +138,8 @@ export function currentSessionOf(auth: CloudAuth): (headers: Headers) => Promise
 
 /**
  * Who a request's session says is asking, as the company part takes it (its `WhoIsAsking`): the
- * person's id and the session's active workspace, read from the database like every session,
- * and nothing else of the account. Null when the request has no session.
+ * person's id, the session's id and its active workspace, read from the database like every
+ * session, and nothing else of the account. Null when the request has no session.
  */
 export function whoIsAskingOf(auth: CloudAuth): (headers: Headers) => Promise<PersonAsking | null> {
   const currentSession = currentSessionOf(auth);

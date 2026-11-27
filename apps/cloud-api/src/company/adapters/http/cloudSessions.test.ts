@@ -105,10 +105,14 @@ function build(connected: Offer | null = offer, passSigner: PassSigner | null = 
   // The routes behind the real caller check: who is signed in, with which workspace active, is
   // whoever the test says, a member there, and every request names that workspace as shown.
   const membership = fakeMembership();
-  let who: SignedInPerson | null = { personId: 'person-1', activeWorkspaceId: 'acme' };
+  let who: SignedInPerson | null = {
+    personId: 'person-1',
+    sessionId: 'session-1',
+    activeWorkspaceId: 'acme',
+  };
   const as = (personId: string, workspaceId = 'acme') => {
     membership.put(workspaceId, personId, 'member');
-    who = { personId, activeWorkspaceId: workspaceId };
+    who = { personId, sessionId: `session-of-${personId}`, activeWorkspaceId: workspaceId };
   };
   as('person-1');
   const router = frontDoor();
