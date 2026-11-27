@@ -4,12 +4,14 @@ import { messageForSignInError } from '../domain/messages';
 import type { MyWorkspace, WorkspacesState } from '../domain/workspace';
 import { loadMe, loadWorkspaces } from '../services/api';
 import { takeSignInErrorCode } from '../services/signInRedirect';
+import { currentSlackLinkToken, onSlackLinkChange } from '../services/slackAddress';
 import { CreateWorkspaceCard } from './CreateWorkspaceCard';
 import { Dashboard } from './Dashboard';
 import { Footer } from './Footer';
 import { ProfileCard } from './ProfileCard';
 import { SignInCard } from './SignInCard';
 import { SignOutButton } from './SignOutButton';
+import { SlackLinkPage } from './SlackLinkPage';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 
 /** What the page shows: who is signed in, and the workspaces they are in. */
@@ -19,6 +21,8 @@ export function App() {
   const [error] = useState(() => messageForSignInError(takeSignInErrorCode()));
   const [page, setPage] = useState<Page | null>(null);
   const [creating, setCreating] = useState(false);
+  // A one-time link from Slack (`#/slack/link/<token>`) is its own page, whoever is signed in.
+  const [slackLink, setSlackLink] = useState(() => currentSlackLinkToken());
   // Each load is numbered, so only the latest one's answer is shown.
   const latest = useRef(0);
 
@@ -35,10 +39,32 @@ export function App() {
     };
   }, [load]);
 
+  useEffect(() => onSlackLinkChange(setSlackLink), []);
+
   const afterCreate = useCallback(async () => {
     await load();
     setCreating(false);
   }, [load]);
+
+  // A one-time link from Slack stays narrow, as sign-in does, and signs in back to itself.
+  if (slackLink !== null && !creating) {
+    return (
+      <div className="page">
+        <main className="main">
+          <SlackLinkPage
+            key={slackLink}
+            token={slackLink}
+            me={page?.me ?? null}
+            workspaces={page?.workspaces.kind === 'listed' ? page.workspaces.workspaces : null}
+            signInError={error}
+            onSwitched={load}
+            onCreate={() => setCreating(true)}
+          />
+        </main>
+        <Footer />
+      </div>
+    );
+  }
 
   // The dashboard has the whole window; sign-in, the create form and the notices stay narrow.
   if (page?.me.kind === 'signed-in' && page.me.me.workspace && !creating) {

@@ -6,7 +6,7 @@ import { RUN_POLL_WAITING_MS, runPollDelay, safeItemUrl } from '../domain/runs';
 import type { RunAnswer, RunDetail } from '../domain/runs';
 import { hashOfRun } from '../domain/runsRoute';
 import type { RunPlace } from '../domain/runsRoute';
-import { itemLabel, itemNoun, lookOf, statusWords } from '../domain/runWords';
+import { itemKindOf, itemLabel, itemLinkWords, lookOf, statusWords } from '../domain/runWords';
 import type { WorkspaceMember } from '../domain/teams';
 import type { MyWorkspace } from '../domain/workspace';
 import { readRunPagePrefs, writeRunPagePrefs } from '../services/runPagePrefs';
@@ -158,12 +158,14 @@ export function RunPage({
               href={itemUrl}
               target="_blank"
               rel="noreferrer noopener"
-              title={`Open ${itemLabel(run.item)} on its site`}
+              title={
+                itemKindOf(run.item) === 'slack'
+                  ? 'Open in Slack'
+                  : `Open ${itemLabel(run.item)} on its site`
+              }
             >
               <ExternalLink size={14} aria-hidden="true" />
-              <span className="sr-only">
-                Open the {itemNoun(run.item)} {itemLabel(run.item)} (opens in a new tab)
-              </span>
+              <span className="sr-only">{itemLinkWords(run.item)} (opens in a new tab)</span>
             </a>
           )}
           {detail && (

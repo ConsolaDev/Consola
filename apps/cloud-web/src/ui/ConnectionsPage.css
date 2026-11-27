@@ -446,6 +446,43 @@
   color: var(--red-11);
 }
 
+/* ---- Slack: the factories with an app under it, then the person's own accounts ---- */
+
+.connections-subgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.connections-subhead {
+  margin: 0;
+  padding-inline: 2px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--gray-a10);
+}
+
+/* An account with no service row above it sits at the list's own edge. */
+.connections-account-row {
+  padding-left: 16px;
+}
+
+.connections-account-row + .connections-account-row::before {
+  left: 16px;
+}
+
+/* A factory's app's state: green once installed, yellow while it waits on someone. */
+.settings-chip[data-tone="on"] {
+  border-color: var(--green-a7);
+  color: var(--green-11);
+}
+
+.settings-chip[data-tone="waiting"] {
+  border-color: var(--amber-a7);
+  color: var(--amber-11);
+}
+
 /* ---- Connect another account: the group's last row ---- */
 
 .connections-add {
