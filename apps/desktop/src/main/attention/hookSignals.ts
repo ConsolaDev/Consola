@@ -72,6 +72,8 @@ export interface HookInputs {
 
 interface State {
   needsInput: false | (AttentionSignal & { kind: 'needs-input' });
+  /** Which needs-input this is, so a dismissal ends only the one the person saw. */
+  question: number;
   holdingBackgroundWork: boolean;
   awaitingAgents: boolean;
   turn?: 'open' | 'over';
@@ -89,11 +91,14 @@ interface State {
  * What was said lapses when the person plainly acted on it, so a hook that
  * never gets a follow-up (a user interrupt fires no `Stop`) cannot hold a
  * session at "needs you" forever: the terminal going to `working` after
- * being quiet, the turn ending, the agent idling, or the process exiting.
+ * being quiet, the turn ending, the agent idling, the process exiting, or
+ * the person's keys bringing the empty composer back (`dismissed`).
  */
 export class HookSignals {
   private readonly states = new Map<string, State>();
   private readonly subscribers = new Set<(instanceId: string) => void>();
+  /** Numbers every needs-input taken, across terminals and lives, so no two share a token. */
+  private questions = 0;
 
   public get(instanceId: string): HookInputs | undefined {
     const state = this.states.get(instanceId);
@@ -116,6 +121,7 @@ export class HookSignals {
         // working session with no later edge to clear it.
         if (signal.lagging && state.status === 'working') break;
         state.needsInput = signal;
+        state.question = ++this.questions;
         break;
       case 'resumed': {
         // Only the session's own turn submits prompts and completes its calls.
@@ -187,6 +193,33 @@ export class HookSignals {
     this.notifyIfChanged(instanceId, before);
   }
 
+  /**
+   * The question the hooks hold open for this terminal, as the token
+   * `dismissed` takes back; undefined while none is.
+   */
+  public openQuestion(instanceId: string): number | undefined {
+    const state = this.states.get(instanceId);
+    return state?.needsInput ? state.question : undefined;
+  }
+
+  /**
+   * The person's keys dismissed a question no hook reports the end of. Esc
+   * at a permission menu or an AskUserQuestion fires nothing (observed
+   * against 2.1.332): the call never ran, so no PostToolUse; an interrupt
+   * has no Stop; nothing was submitted. Only the screen shows it, as the
+   * empty composer back, which the CLI never draws while a menu or question
+   * waits (a subagent's included). Ends only the question that was open
+   * when the key was pressed: one raised since is news the person has not
+   * seen.
+   */
+  public dismissed(instanceId: string, question: number): void {
+    const state = this.states.get(instanceId);
+    if (!state?.needsInput || state.question !== question) return;
+    const before = this.get(instanceId);
+    state.needsInput = false;
+    this.notifyIfChanged(instanceId, before);
+  }
+
   /** A destroyed terminal's next life starts from nothing. */
   public forget(instanceId: string): void {
     if (this.states.delete(instanceId)) this.notify(instanceId);
@@ -203,7 +236,12 @@ export class HookSignals {
   private state(instanceId: string): State {
     let state = this.states.get(instanceId);
     if (!state) {
-      state = { needsInput: false, holdingBackgroundWork: false, awaitingAgents: false };
+      state = {
+        needsInput: false,
+        question: 0,
+        holdingBackgroundWork: false,
+        awaitingAgents: false,
+      };
       this.states.set(instanceId, state);
     }
     return state;

@@ -1485,7 +1485,12 @@ as the fast path and `CONFIRMATION_MARKERS` must stay. Claude's
 sixty; no hook fires at all until an interactive session's folder is trusted,
 which is the trust gate's moment. What hooks add is what the screen cannot
 show — a question that is no known menu (`PermissionRequest` fires on
-AskUserQuestion within a model turn), a subagent waiting. Branch on
+AskUserQuestion within a model turn), a subagent waiting. The end of such a
+question is not always a hook: Esc at a menu or an AskUserQuestion fires none
+(no PostToolUse, since the call never ran, and no Stop after an interrupt), so
+a person's key at a question the hooks hold open is followed by a look at the
+screen, and the empty composer back ends that question
+(`showsComposerAfterKeys`, `HookSignals.dismissed`). Branch on
 `notification_type`, never on message text. A `Stop` listing `background_tasks`
 is a paused turn, not a finished one — counting only tasks still `running`, and
 only for `BACKGROUND_HOLD_MS`, since the payload cannot tell awaited work from a

@@ -419,6 +419,11 @@ export class TerminalService extends EventEmitter {
   private idleTimer: NodeJS.Timeout | null = null;
   /** A look at the screen owed to a key typed into a menu. */
   private answerRecheck: NodeJS.Timeout | null = null;
+  /** The look `showsComposerAfterKeys` owes, and everyone waiting on it. */
+  private composerLook: {
+    timer: NodeJS.Timeout;
+    waiters: Array<(shown: boolean) => void>;
+  } | null = null;
   /** When the output now arriving began. */
   private outputStartedAt = 0;
   /** When the view last sent the CLI anything: keys, a paste, a focus or mouse report, a size. */
@@ -576,6 +581,36 @@ export class TerminalService extends EventEmitter {
       });
     }, ANSWER_RECHECK_MS);
     this.answerRecheck.unref?.();
+  }
+
+  /**
+   * Whether, once the person's keys have had time to repaint the screen, it
+   * shows the empty composer and no menu. Claude hides its composer while a
+   * menu or a question waits, so the composer back is the one sign of a
+   * question refused with Esc, which no hook reports (observed against
+   * 2.1.332). A later call pushes the look back, as a later key would; every
+   * caller hears that one look.
+   */
+  public showsComposerAfterKeys(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const pending = this.composerLook;
+      if (pending) clearTimeout(pending.timer);
+      const waiters = [...(pending?.waiters ?? []), resolve];
+      const timer = setTimeout(() => {
+        this.composerLook = null;
+        const screen = this.screen;
+        const answer = (shown: boolean) => {
+          for (const waiter of waiters) waiter(shown);
+        };
+        if (!screen || this.isDestroyed) return answer(false);
+        // The emulator parses asynchronously: read it once it has caught up.
+        screen.write('', () => {
+          answer(!this.isDestroyed && this.screen === screen && this.showsEmptyComposer());
+        });
+      }, ANSWER_RECHECK_MS);
+      timer.unref?.();
+      this.composerLook = { timer, waiters };
+    });
   }
 
   /**
@@ -795,6 +830,11 @@ export class TerminalService extends EventEmitter {
     if (this.answerRecheck) {
       clearTimeout(this.answerRecheck);
       this.answerRecheck = null;
+    }
+    if (this.composerLook) {
+      clearTimeout(this.composerLook.timer);
+      for (const waiter of this.composerLook.waiters) waiter(false);
+      this.composerLook = null;
     }
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
@@ -1434,6 +1474,13 @@ export class TerminalService extends EventEmitter {
       .visibleTextWithoutFaint()
       .split('\n')
       .some((line) => COMPOSER_READY_PATTERN.test(line));
+  }
+
+  /** The empty composer, and no menu the markers know: nothing on screen is asking. */
+  private showsEmptyComposer(): boolean {
+    if (!this.screen) return false;
+    const visible = normalizeScreen(this.screen.visibleText());
+    return !CONFIRMATION_MARKERS.some((marker) => marker.test(visible)) && this.isComposerReady();
   }
 
   private disposeScreen(): void {

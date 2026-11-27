@@ -189,6 +189,60 @@ describe('HookSignals', () => {
     });
   });
 
+  // Observed live (2.1.332): Esc at an AskUserQuestion fires no hook. The
+  // call never ran (no PostToolUse), an interrupt has no Stop, and nothing
+  // was submitted; the session then read "Waiting" at an empty composer
+  // until the person's next prompt.
+  describe('a question the person dismissed', () => {
+    const asked: AttentionSignal = {
+      kind: 'needs-input',
+      origin: 'menu',
+      tool: 'AskUserQuestion:{"questions":[]}',
+    };
+
+    it('has no question to offer while none is open', () => {
+      const hooks = signals('ready');
+      expect(hooks.openQuestion('i')).toBeUndefined();
+      hooks.apply('i', asked);
+      hooks.apply('i', { kind: 'idle' });
+      expect(hooks.openQuestion('i')).toBeUndefined();
+    });
+
+    it('ends the question that was open when the person pressed the key', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', asked);
+      const question = hooks.openQuestion('i');
+      expect(question).toBeDefined();
+      hooks.dismissed('i', question!);
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
+    it('keeps one raised after the key, even the same call asking again', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', asked);
+      const question = hooks.openQuestion('i')!;
+      hooks.apply('i', asked);
+      hooks.dismissed('i', question);
+      expect(hooks.get('i')?.needsInput).toBe(true);
+    });
+
+    it('ends a subagent’s question too: the composer is back, so nothing is asking', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', subagent);
+      hooks.dismissed('i', hooks.openQuestion('i')!);
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
+    it('tells subscribers', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', asked);
+      const cb = vi.fn();
+      hooks.subscribe(cb);
+      hooks.dismissed('i', hooks.openQuestion('i')!);
+      expect(cb).toHaveBeenCalledWith('i');
+    });
+  });
+
   describe('where the turn stands', () => {
     it('says nothing until a hook speaks', () => {
       const hooks = signals('working');

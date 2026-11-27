@@ -928,6 +928,92 @@ describe('TerminalService status event', () => {
 });
 
 /**
+ * Claude hides its composer while a menu or a question waits, so the empty
+ * composer back after the person's keys is how a question refused with Esc
+ * shows: no hook says so (observed against 2.1.332).
+ */
+describe('TerminalService the composer after the person’s keys', () => {
+  /** How Claude 2.1.332 draws an AskUserQuestion: no composer, and none of the menu markers. */
+  const QUESTION =
+    '\x1b[2J\x1b[3J\x1b[H☐ Scope\r\n\r\nRemove the Sessions section?\r\n\r\n' +
+    '❯ 1. Remove it\r\n  2. Keep it\r\n  3. Type something.\r\n\r\n' +
+    'Enter to select · ↑/↓ to navigate · Esc to cancel';
+  /** What it paints once Esc refuses it. */
+  const DISMISSED =
+    '\x1b[2J\x1b[3J\x1b[H  ⎿  Interrupted · What should Claude do instead?\r\n\r\n❯ \r\n';
+  /** Long enough for the look the keys owe the screen. */
+  const LOOK_MS = 301;
+
+  async function asking(): Promise<{ pty: PtyHarness; service: TerminalService }> {
+    const pty = installFakePty();
+    const service = await buildService();
+    pty.feed(QUESTION);
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    return { pty, service };
+  }
+
+  it('sees the empty composer back once Esc dismissed the question', async () => {
+    const { pty, service } = await asking();
+    service.write('\x1b');
+    const look = service.showsComposerAfterKeys();
+    pty.feed(DISMISSED);
+    await vi.advanceTimersByTimeAsync(LOOK_MS);
+    await expect(look).resolves.toBe(true);
+    service.destroy();
+  });
+
+  it('sees no composer while keys only move through the question', async () => {
+    const { pty, service } = await asking();
+    service.write('\x1b[B');
+    const look = service.showsComposerAfterKeys();
+    pty.feed(QUESTION.replace('❯ 1.', '  1.').replace('  2.', '❯ 2.'));
+    await vi.advanceTimersByTimeAsync(LOOK_MS);
+    await expect(look).resolves.toBe(false);
+    service.destroy();
+  });
+
+  it('sees no empty composer once the person has typed into it', async () => {
+    const { pty, service } = await asking();
+    const look = service.showsComposerAfterKeys();
+    pty.feed('\x1b[2J\x1b[3J\x1b[H❯ keep');
+    await vi.advanceTimersByTimeAsync(LOOK_MS);
+    await expect(look).resolves.toBe(false);
+    service.destroy();
+  });
+
+  it('takes a menu on screen for a menu, whatever line beside it looks empty', async () => {
+    const { pty, service } = await asking();
+    const look = service.showsComposerAfterKeys();
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?\r\n❯ \r\n');
+    await vi.advanceTimersByTimeAsync(LOOK_MS);
+    await expect(look).resolves.toBe(false);
+    service.destroy();
+  });
+
+  it('looks once the keys stop, and answers every caller with that one look', async () => {
+    const { pty, service } = await asking();
+    const first = service.showsComposerAfterKeys();
+    await vi.advanceTimersByTimeAsync(200);
+    const second = service.showsComposerAfterKeys();
+    await vi.advanceTimersByTimeAsync(200);
+    // The first key's look would have read the question by now; the second key pushed it back.
+    pty.feed(DISMISSED);
+    await vi.advanceTimersByTimeAsync(LOOK_MS);
+    await expect(first).resolves.toBe(true);
+    await expect(second).resolves.toBe(true);
+    service.destroy();
+  });
+
+  it('answers no once the terminal is destroyed', async () => {
+    const { pty, service } = await asking();
+    const look = service.showsComposerAfterKeys();
+    pty.feed(DISMISSED);
+    service.destroy();
+    await expect(look).resolves.toBe(false);
+  });
+});
+
+/**
  * Opening a session must not read as work. The CLI paints when it launches,
  * repaints when its pane is fitted, and answers a focus report and every key
  * — all while the person has asked it nothing. The bursts below are the
