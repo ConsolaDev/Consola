@@ -3012,7 +3012,7 @@ export interface paths {
         };
         /**
          * Where GitHub sends a person back after signing in or installing the app
-         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON. Back from installing the app (an `installation_id`), it records the installation. Back from signing in (no `installation_id`), it asks GitHub for the installations the person administers that no workspace holds: with some, the page offers them (`choose`, with a signed `choice`); with none, the person goes on to install the app. Otherwise it redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `choose`, `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
+         * @description The GitHub App’s callback URL, reached by a browser redirect from GitHub with `state`, `code`, `installation_id`, `setup_action` or `error`. It never answers JSON. Back from installing the app (an `installation_id`), it records the installation. Back from signing in (no `installation_id`), it asks GitHub for the installations the person administers that this workspace does not hold: with one no workspace holds, the page offers them (`choose`, with a signed `choice`); with only ones other workspaces hold, the page says so (`taken_elsewhere`, with a signed `choice` naming them); with none, the person goes on to install the app. Otherwise it redirects to the web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one of `choose`, `taken_elsewhere`, `connected`, `already_connected`, `requested`, `cancelled`, `bad_state`, `expired`, `not_allowed`, `code_refused`, `not_installer`, `not_account_admin`, `taken`, `invalid`, `unavailable`, `not_configured`, `signed_out`.
          */
         get: {
             parameters: {
@@ -3023,7 +3023,7 @@ export interface paths {
             };
             requestBody?: never;
             responses: {
-                /** @description To `<PUBLIC_URL>/?github=<result>#/settings/connections`, with `&choice=<a signed choice>` when the result is `choose`; or on to the app’s install page on GitHub, with a fresh state, when the person signed in and administers no installation that is free. */
+                /** @description To `<PUBLIC_URL>/?github=<result>#/settings/connections`, with `&choice=<a signed choice>` when the result is `choose` or `taken_elsewhere`; or on to the app’s install page on GitHub, with a fresh state, when the person signed in and administers no installation this workspace does not hold already. */
                 302: {
                     headers: {
                         location: string;
@@ -3577,7 +3577,7 @@ export interface components {
          * @description How a Connect ended, as the callback names it in the web app’s `?github=`.
          * @enum {string}
          */
-        GitHubCallbackResult: "choose" | "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
+        GitHubCallbackResult: "choose" | "taken_elsewhere" | "connected" | "already_connected" | "requested" | "cancelled" | "bad_state" | "expired" | "not_allowed" | "code_refused" | "not_installer" | "not_account_admin" | "taken" | "invalid" | "unavailable" | "not_configured" | "signed_out";
         /** @description Who is signed in, and their session’s active workspace. */
         Me: {
             user: components["schemas"]["Person"];
@@ -4262,10 +4262,12 @@ export interface components {
         GitHubChoice: {
             candidates: components["schemas"]["GitHubInstallCandidate"][];
         };
-        /** @description An installation of the app on an account the person administers, which no workspace holds. */
+        /** @description An installation of the app on an account the person administers, which this workspace does not hold. */
         GitHubInstallCandidate: {
             id: number;
             account: components["schemas"]["GitHubAccount"];
+            /** @description Whether another Consola workspace holds it (never which), so it is shown and not offered. */
+            heldElsewhere: boolean;
         };
         /** @description Connected now, or the workspace held it already. */
         GitHubChoiceConnected: {

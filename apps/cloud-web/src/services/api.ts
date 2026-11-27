@@ -297,7 +297,12 @@ function isCandidate(entry: unknown): entry is GitHubCandidate {
   const { id, account } = entry as { id?: unknown; account?: unknown };
   if (typeof id !== 'number' || typeof account !== 'object' || account === null) return false;
   const { login, type } = account as { login?: unknown; type?: unknown };
-  return typeof login === 'string' && (type === 'Organization' || type === 'User');
+  const { heldElsewhere } = entry as { heldElsewhere?: unknown };
+  return (
+    typeof login === 'string' &&
+    (type === 'Organization' || type === 'User') &&
+    typeof heldElsewhere === 'boolean'
+  );
 }
 
 /**

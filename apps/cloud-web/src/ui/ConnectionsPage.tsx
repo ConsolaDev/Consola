@@ -23,6 +23,9 @@ import {
   GITHUB_CHOICE_HINT,
   GITHUB_CHOICE_LABEL,
   GITHUB_CONNECT_HINT,
+  GITHUB_HELD_ELSEWHERE_HINT,
+  GITHUB_HELD_ELSEWHERE_LABEL,
+  HELD_ELSEWHERE,
   GITHUB_NOT_CONFIGURED,
   GITHUB_PURPOSE,
   INSTALL_ELSEWHERE,
@@ -43,6 +46,7 @@ import {
   justConnectedId,
   LATER_SERVICES,
   resultOfChoice,
+  splitCandidates,
 } from '../domain/connections';
 import type {
   ChoiceState,
@@ -301,10 +305,15 @@ function GitHubChoice({
   }
 
   const { candidates } = state;
+  const { available, heldElsewhere } = splitCandidates(candidates);
+  // With none to connect, every account is another workspace's: the group says so instead.
+  const allHeld = available.length === 0;
   return (
     <div className="connections-group">
       <div className="connections-group-head">
-        <h3 className="connections-group-label">{GITHUB_CHOICE_LABEL}</h3>
+        <h3 className="connections-group-label">
+          {allHeld ? GITHUB_HELD_ELSEWHERE_LABEL : GITHUB_CHOICE_LABEL}
+        </h3>
         <button
           type="button"
           className="connections-ghost"
@@ -319,10 +328,12 @@ function GitHubChoice({
           <ServiceTile service="github" />
           <div className="connections-text">
             <span className="connections-name">GitHub</span>
-            <span className="connections-description">{GITHUB_CHOICE_HINT}</span>
+            <span className="connections-description">
+              {allHeld ? GITHUB_HELD_ELSEWHERE_HINT : GITHUB_CHOICE_HINT}
+            </span>
           </div>
         </li>
-        {candidates.map((candidate, index) => (
+        {[...available, ...heldElsewhere].map((candidate, index) => (
           <li
             key={candidate.id}
             className="connections-account connections-rise"
@@ -336,19 +347,24 @@ function GitHubChoice({
               <span className="connections-meta">{accountKind(candidate.account)}</span>
             </div>
             <div className="connections-actions">
-              <button
-                type="button"
-                className="settings-button accent"
-                disabled={pending !== null}
-                onClick={() => void connect(candidate)}
-              >
-                {pending === candidate.id && (
-                  <LoaderCircle className="connections-spin" size={16} aria-hidden="true" />
-                )}
-                {pending === candidate.id
-                  ? 'Connecting…'
-                  : connectAccountLabel(candidate.account.login)}
-              </button>
+              {candidate.heldElsewhere ? (
+                // Which workspace holds it is never said: only that one does.
+                <span className="settings-chip">{HELD_ELSEWHERE}</span>
+              ) : (
+                <button
+                  type="button"
+                  className="settings-button accent"
+                  disabled={pending !== null}
+                  onClick={() => void connect(candidate)}
+                >
+                  {pending === candidate.id && (
+                    <LoaderCircle className="connections-spin" size={16} aria-hidden="true" />
+                  )}
+                  {pending === candidate.id
+                    ? 'Connecting…'
+                    : connectAccountLabel(candidate.account.login)}
+                </button>
+              )}
             </div>
           </li>
         ))}

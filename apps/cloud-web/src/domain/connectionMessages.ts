@@ -85,6 +85,20 @@ export function connectAccountLabel(login: string): string {
   return `Connect ${login}`;
 }
 
+/** What an account another Consola workspace has connected says, in place of its Connect. */
+export const HELD_ELSEWHERE = 'Connected to another workspace';
+
+/** The heading over the accounts when every one is connected to another workspace. */
+export const GITHUB_HELD_ELSEWHERE_LABEL = 'Connected elsewhere';
+
+/** What the group says when every account the person owns is connected to another workspace. */
+export const GITHUB_HELD_ELSEWHERE_HINT =
+  'Consola’s GitHub App is installed on these accounts, which you own, and another Consola workspace has connected each of them. Install the app on another account, or disconnect one from that workspace first.';
+
+/** What `taken_elsewhere` says when the address carried no choice to name the accounts. */
+const TAKEN_ELSEWHERE =
+  'The GitHub accounts you own that have Consola’s GitHub App are connected to another Consola workspace. Install the app on another account from here.';
+
 const CHOICE_FOR_ANOTHER_WORKSPACE =
   'That choice was for another workspace. Connect again from the workspace you want GitHub in.';
 
@@ -165,6 +179,8 @@ export function messageForGitHubResult(result: GitHubResult | 'unknown'): string
       return 'Only an owner of the GitHub organization can connect it. Ask one of them to connect it from this page.';
     case 'taken':
       return 'Another Consola workspace has already connected that GitHub account.';
+    case 'taken_elsewhere':
+      return TAKEN_ELSEWHERE;
     case 'invalid':
       return `GitHub sent back something Consola couldn’t read. ${CONNECT_AGAIN}`;
     case 'unavailable':

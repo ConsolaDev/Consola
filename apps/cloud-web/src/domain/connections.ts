@@ -56,9 +56,12 @@ export type DisconnectAnswer =
  * How a Connect ended, as the API's GitHub callback names it in `?github=` when it sends the
  * person back to Settings' Connections page. `choose` has not ended: the person signed in to
  * GitHub, owns accounts the app is installed on already, and chooses which to connect.
+ * `taken_elsewhere`: every such account is connected to another Consola workspace already, and
+ * the choice names them.
  */
 export const GITHUB_RESULTS = [
   'choose',
+  'taken_elsewhere',
   'connected',
   'already_connected',
   'requested',
@@ -99,14 +102,17 @@ export type GitHubReturn =
   /** A Connect that ended, as `?github=` names it. */
   | { kind: 'ended'; result: GitHubResult | 'unknown' }
   /**
-   * A Connect that waits for the person to choose an installation to connect: the choice the API
-   * signed (`&choice=`), whose candidates the page reads from the API.
+   * A Connect that waits for the person to choose an installation to connect (`choose`), or that
+   * found every one they own held by another workspace (`taken_elsewhere`): the choice the API
+   * signed (`&choice=`), whose installations the page reads from the API.
    */
   | { kind: 'choose'; choice: string };
 
 /**
- * What `?github=` and `&choice=` say, null when the address carries no result. A `choose` with
- * no choice, or one too long to be the API's, is a Connect that did not finish (`unknown`).
+ * What `?github=` and `&choice=` say, null when the address carries no result. A `choose` or a
+ * `taken_elsewhere` comes with a choice to read; with none, or one too long to be the API's, a
+ * `choose` is a Connect that did not finish (`unknown`), and a `taken_elsewhere` is said without
+ * the accounts it names.
  */
 export function readGitHubReturn(
   github: string | null,
@@ -114,15 +120,30 @@ export function readGitHubReturn(
 ): GitHubReturn | null {
   const result = readGitHubResult(github);
   if (result === null) return null;
-  if (result !== 'choose') return { kind: 'ended', result };
+  if (result !== 'choose' && result !== 'taken_elsewhere') return { kind: 'ended', result };
   if (choice === null || choice === '' || choice.length > MAX_CHOICE_LENGTH) {
-    return { kind: 'ended', result: 'unknown' };
+    return { kind: 'ended', result: result === 'choose' ? 'unknown' : result };
   }
   return { kind: 'choose', choice };
 }
 
-/** An installation the person who signed in may connect: its id, and the account it is on. */
+/**
+ * An installation the person who signed in administers: its id, the account it is on, and
+ * whether another Consola workspace holds it (`heldElsewhere`, never which), in which case it is
+ * shown and not offered.
+ */
 export type GitHubCandidate = Schemas['GitHubInstallCandidate'];
+
+/** A choice's installations, as the page shows them: those to connect, and those held elsewhere. */
+export function splitCandidates(candidates: readonly GitHubCandidate[]): {
+  available: GitHubCandidate[];
+  heldElsewhere: GitHubCandidate[];
+} {
+  return {
+    available: candidates.filter((each) => !each.heldElsewhere),
+    heldElsewhere: candidates.filter((each) => each.heldElsewhere),
+  };
+}
 
 /** Why a choice the API signed cannot be shown or made by this person, here, now. */
 export type ChoiceRefusal =

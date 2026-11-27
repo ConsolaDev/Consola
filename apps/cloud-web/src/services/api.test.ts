@@ -449,8 +449,13 @@ describe('startGitHubConnect', () => {
 
 describe('loadGitHubChoice', () => {
   const candidates = [
-    { id: 41, account: { id: 9001, login: 'sprocket', type: 'Organization' } },
-    { id: 63, account: { id: 7, login: 'dana', type: 'User' } },
+    {
+      id: 41,
+      account: { id: 9001, login: 'sprocket', type: 'Organization' },
+      heldElsewhere: false,
+    },
+    { id: 63, account: { id: 7, login: 'dana', type: 'User' }, heldElsewhere: false },
+    { id: 52, account: { id: 9002, login: 'acme', type: 'Organization' }, heldElsewhere: true },
   ];
 
   it('is loaded with the candidates, asked with the choice for the workspace the page shows', async () => {
@@ -501,7 +506,14 @@ describe('loadGitHubChoice', () => {
       at(500, { error: 'boom' }),
       at(200, {}),
       at(200, { candidates: [{ id: '41', account: candidates[0]?.account }] }),
-      at(200, { candidates: [{ id: 41, account: { login: 'sprocket', type: 'Enterprise' } }] }),
+      at(200, {
+        candidates: [
+          { id: 41, account: { login: 'sprocket', type: 'Enterprise' }, heldElsewhere: false },
+        ],
+      }),
+      // Whether another workspace holds it must be said, as a boolean.
+      at(200, { candidates: [{ id: 41, account: candidates[0]?.account }] }),
+      at(200, { candidates: [{ id: 41, account: candidates[0]?.account, heldElsewhere: 'no' }] }),
       at(200, '<html>ok</html>'),
       unreachable,
     ]) {

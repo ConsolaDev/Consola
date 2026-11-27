@@ -5,6 +5,7 @@ import {
   connectAccountLabel,
   connectedAtLong,
   connectedSentence,
+  HELD_ELSEWHERE,
   messageForChoiceFailure,
   messageForGitHubResult,
   repositoryCount,
@@ -21,6 +22,7 @@ import {
   readGitHubResult,
   readGitHubReturn,
   resultOfChoice,
+  splitCandidates,
   whenConnected,
 } from './connections';
 import type {
@@ -92,16 +94,51 @@ describe('what the callback sent the page back with', () => {
     expect(readGitHubReturn(null, null)).toBeNull();
     expect(readGitHubReturn(null, 'eyJ3.c2ln')).toBeNull();
   });
+
+  it('is the accounts to name when another workspace holds every one, with the choice', () => {
+    expect(readGitHubReturn('taken_elsewhere', 'eyJ3.c2ln')).toEqual({
+      kind: 'choose',
+      choice: 'eyJ3.c2ln',
+    });
+  });
+
+  it('is still said when another workspace holds every one but no choice names them', () => {
+    for (const choice of [null, '', 'x'.repeat(MAX_CHOICE_LENGTH + 1)]) {
+      expect(readGitHubReturn('taken_elsewhere', choice)).toEqual({
+        kind: 'ended',
+        result: 'taken_elsewhere',
+      });
+    }
+    expect(messageForGitHubResult('taken_elsewhere')).toMatch(/another Consola workspace/);
+    expect(messageForGitHubResult('taken_elsewhere')).not.toBe(messageForGitHubResult('taken'));
+    expect(isSuccess('taken_elsewhere')).toBe(false);
+  });
 });
 
 describe('a choice of account', () => {
   const sprocket: GitHubCandidate = {
     id: 41,
     account: { id: 9001, login: 'sprocket', type: 'Organization' },
+    heldElsewhere: false,
+  };
+  const acme: GitHubCandidate = {
+    id: 52,
+    account: { id: 9002, login: 'acme', type: 'Organization' },
+    heldElsewhere: true,
   };
 
   it('names each account on its button', () => {
     expect(connectAccountLabel(sprocket.account.login)).toBe('Connect sprocket');
+  });
+
+  it('offers the accounts no workspace holds, and shows apart those another holds', () => {
+    expect(splitCandidates([acme, sprocket])).toEqual({
+      available: [sprocket],
+      heldElsewhere: [acme],
+    });
+    expect(splitCandidates([acme])).toEqual({ available: [], heldElsewhere: [acme] });
+    expect(splitCandidates([])).toEqual({ available: [], heldElsewhere: [] });
+    expect(HELD_ELSEWHERE).toBe('Connected to another workspace');
   });
 
   it('ends as the Connect results the page already says', () => {

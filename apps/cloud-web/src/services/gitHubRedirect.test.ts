@@ -46,6 +46,14 @@ describe('takeGitHubReturn', () => {
     expect(replaceState).toHaveBeenCalledWith(null, '', '/?tab=1#/settings/connections');
   });
 
+  it('returns the choice that names the accounts another workspace holds, and clears it', () => {
+    const { replaceState } = pageAt(
+      'http://localhost:5175/?github=taken_elsewhere&choice=eyJ3b3Jr.c2ln#/settings/connections',
+    );
+    expect(takeGitHubReturn()).toEqual({ kind: 'choose', choice: 'eyJ3b3Jr.c2ln' });
+    expect(replaceState).toHaveBeenCalledWith(null, '', '/#/settings/connections');
+  });
+
   it('takes a choose with no choice as a Connect that did not finish', () => {
     const { replaceState } = pageAt('http://localhost:5175/?github=choose#/settings/connections');
     expect(takeGitHubReturn()).toEqual({ kind: 'ended', result: 'unknown' });
