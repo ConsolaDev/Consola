@@ -16,6 +16,7 @@ import type { AgentRunFacts } from '../domain/agentRun.js';
 import { CELL_FAILURE_CODES } from '../domain/cloudSession.js';
 import type { CellFailureCode, CloudSession } from '../domain/cloudSession.js';
 import type { Factory } from '../domain/factory.js';
+import type { GitHubEvent } from '../domain/webhooks.js';
 import { handToRunner } from './cloudSessions.js';
 import type { AgentRunPorts, Clock, CloudSessionStore, RunStore } from './ports.js';
 import { recordRun } from './runs.js';
@@ -33,22 +34,8 @@ import { recordRun } from './runs.js';
  * in this experiment the cell, not a runner, decides that a run starts, so it is the run's writer.
  */
 
-/**
- * A GitHub event the webhook recorded for a workspace, as it hands it on: the webhook's own
- * `GitHubEvent` (`domain/webhooks.ts`), field for field, which starting its agent runs reads.
- */
-export type GitHubEvent = {
-  /** The workspace that holds the installation. */
-  workspaceId: string;
-  /** GitHub's id of the delivery (`X-GitHub-Delivery`). */
-  deliveryId: string;
-  /** The event's name (`X-GitHub-Event`): `pull_request`, `push`, … */
-  event: string;
-  /** The installation of Consola's GitHub App the event came through. */
-  installationId: number;
-  /** The event's payload, as GitHub sent it. */
-  payload: Record<string, unknown>;
-};
+/** A GitHub event the webhook recorded for a workspace, as it hands it on to start its runs. */
+export type { GitHubEvent } from '../domain/webhooks.js';
 
 /** The event's name GitHub gives a pull request's webhook. */
 const PULL_REQUEST = 'pull_request';
