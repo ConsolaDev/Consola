@@ -45,7 +45,7 @@ describe('requestSlackLink', () => {
       'http://localhost:5175',
     );
     expect(answer).toEqual({
-      url: 'http://localhost:5175/slack/link/sprocket-token_0123456789abcdefghijklmnopqrstu',
+      url: 'http://localhost:5175/#/slack/link/sprocket-token_0123456789abcdefghijklmnopqrstu',
       expiresAt: new Date((now + 15 * 60) * 1000),
     });
     expect(kept).toEqual([

@@ -23,7 +23,7 @@ export type UnlinkedWriter = {
  * `SLACK_LINK_TOKEN_BYTES` random bytes, kept only as its hash, which works once for
  * `SLACK_LINK_LIFETIME_SECONDS` (15 minutes) and names the workspace, the factory, the Slack
  * workspace, the Slack user and the channel. Answers the link's address in the web app
- * (`<PUBLIC_URL>/slack/link/<token>`), for the bot to send that user alone, and when it expires.
+ * (`<PUBLIC_URL>/#/slack/link/<token>`), for the bot to send that user alone, and when it expires.
  * The token is in nothing else it answers, and nothing here logs it.
  */
 export async function requestSlackLink(
