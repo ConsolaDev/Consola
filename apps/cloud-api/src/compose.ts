@@ -36,6 +36,7 @@ import { slackSignatures } from './company/adapters/slack/eventSignatures.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
 import { checkHealth as checkCompanyHealth } from './company/application/health.js';
+import { answeringInSlack } from './company/application/slackAnswers.js';
 import { handleSlackEvent } from './company/application/slackRequests.js';
 import { SLACK_EVENTS_PATH_PREFIX } from './company/domain/slack.js';
 import type { CloudSessionPorts } from './company/application/ports.js';
@@ -121,6 +122,13 @@ export async function composeApi(
   const membership = createMembershipReader(db.accounts);
   const company = createCompanyStores(db.company);
   const gitHubStores = createGitHubStores(db.company);
+  // Slack is off without the key that seals its secrets.
+  const slackStores = createSlackStores(db.company);
+  const sealer = config.connectionSecretsKey
+    ? createSecretSealer(config.connectionSecretsKey)
+    : null;
+  /** Runs work once the answer or the change that called for it is done. */
+  const later = afterTheAnswer(report);
 
   const auth = createAuth(
     {
@@ -141,12 +149,24 @@ export async function composeApi(
       })
     : null;
 
-  // Every writer of a cloud session moves an agent run's run with it (`keepingRunsInStep`).
-  const sessions = keepingRunsInStep(company.cloudSessions, {
+  // Every writer of a cloud session moves an agent run's run with it (`keepingRunsInStep`), and,
+  // with Slack on, says in a request's Slack thread where its run stands (`answeringInSlack`).
+  const keptInStep = keepingRunsInStep(company.cloudSessions, {
     runs: company.runs,
     clock: systemClock,
     report,
   });
+  const sessions = sealer
+    ? answeringInSlack(keptInStep, {
+        slack: createSlackApi(),
+        apps: slackStores.apps,
+        requests: slackStores.requests,
+        sealer,
+        publicUrl: config.publicUrl,
+        later,
+        report,
+      })
+    : keptInStep;
   const passKey = config.runner ? await createPassSigner(config.runner.passPrivateKey) : null;
   const runner = createRunnerSocket({
     settings:
@@ -206,11 +226,6 @@ export async function composeApi(
     },
   });
 
-  // Slack is off without the key that seals its secrets.
-  const slackStores = createSlackStores(db.company);
-  const sealer = config.connectionSecretsKey
-    ? createSecretSealer(config.connectionSecretsKey)
-    : null;
   registerSlackRoutes(app, {
     whoIsAsking,
     membership,
@@ -240,7 +255,7 @@ export async function composeApi(
           sealer,
           signatures: slackSignatures,
           clock: systemClock,
-          later: afterTheAnswer(report),
+          later,
           // A mention of the bot or a direct message to it, from someone who may talk to the
           // factory, starts a request for its orchestrator.
           handle: async (installed, callback) => {

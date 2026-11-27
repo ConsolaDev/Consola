@@ -12,10 +12,11 @@ import {
   SESSION_REPOSITORY_DIR,
 } from '@consola/runner-protocol';
 import type { AgentRun } from '@consola/runner-protocol';
-import { AGENT_RUN_TITLE_MAX, standingOf } from './agentRun.js';
+import { AGENT_RUN_TITLE_MAX, agentRunError, standingOf } from './agentRun.js';
 import type { CloudSession, SlackOrigin } from './cloudSession.js';
 import { TITLE_MAX } from './run.js';
 import { SLACK_LINK_LIFETIME_SECONDS } from './slack.js';
+import type { SlackPosted } from './slack.js';
 import { firstLineOf } from './slackEvents.js';
 import type { SlackMessage } from './slackEvents.js';
 
@@ -145,4 +146,117 @@ export function slackRequestStart(
 export function isOpenRequest(session: CloudSession): boolean {
   const { status } = standingOf(session);
   return status === 'queued' || status === 'running' || status === 'waiting';
+}
+
+// Answering in the thread: once per state, as the session moves.
+
+/** What Consola says in a request's thread as its run moves. */
+export type SlackAnswer = {
+  /** The message, as plain text: what notifications show, and all that shows without blocks. */
+  readonly text: string;
+  /** Slack's `markdown` block, for the orchestrator's summary. */
+  readonly blocks?: ReadonlyArray<{ readonly type: 'markdown'; readonly text: string }>;
+};
+
+/** The most text Slack takes in its `markdown` blocks, all of them in one message together. */
+export const SLACK_MARKDOWN_MAX = 12_000;
+
+/** The longest `text` Consola sends: Slack splits a longer one into several messages. */
+export const SLACK_TEXT_MAX = 4_000;
+
+/** How a cut summary ends. */
+export const SUMMARY_CUT = '… the rest is in the run';
+
+/** The longest error Consola quotes in a thread, in characters. */
+const ERROR_MAX = 500;
+
+/**
+ * What Consola has to say in a request's thread for where its run stands: the first time it
+ * waits on a person (`waiting`), when it finished (`done`), or when it failed or was cancelled
+ * (`stopped`). Null while it is queued or working.
+ */
+export function slackStateOf(session: CloudSession): SlackPosted | null {
+  switch (standingOf(session).status) {
+    case 'waiting':
+      return 'waiting';
+    case 'completed':
+      return 'done';
+    case 'failed':
+    case 'cancelled':
+      return 'stopped';
+    default:
+      return null;
+  }
+}
+
+/**
+ * Whether Consola posts `state` in a thread where it last posted `posted`: each state once, a
+ * question only before the run has ended, and nothing after an end.
+ */
+export function shouldPost(posted: SlackPosted | null, state: SlackPosted | null): boolean {
+  if (state === null) return false;
+  if (state === 'waiting') return posted === null;
+  return posted === null || posted === 'waiting';
+}
+
+/**
+ * Text from outside Consola (an agent's summary, a runner's message), with Slack's broadcasts
+ * (`<!channel>`, `<!here>`, `<!everyone>`, a user group's `<!subteam^…>`) made plain words, so it
+ * never notifies a whole channel. A mention of one person (`<@U…>`) stays.
+ */
+export function withoutBroadcasts(text: string): string {
+  return text
+    .replaceAll(/<!(channel|here|everyone)(?:\|[^>]*)?>/g, '@$1')
+    .replaceAll(/<!subteam\^[^>]*>/g, '@group');
+}
+
+/** `text` cut to `max` characters, at whole characters, ending `SUMMARY_CUT` when it is cut. */
+function cutSummary(text: string, max: number): string {
+  const characters = [...text];
+  if (characters.length <= max) return text;
+  const kept = characters.slice(0, Math.max(0, max - [...SUMMARY_CUT].length)).join('');
+  return `${kept.trimEnd()}${SUMMARY_CUT}`;
+}
+
+/** A sentence's words to follow a colon: its last full stop dropped, its first letter small. */
+function afterColon(sentence: string): string {
+  const one = sentence.replaceAll(/\s+/g, ' ').trim().replace(/[.]+$/, '');
+  return /^[A-Z][a-z]/.test(one) ? `${one[0]?.toLowerCase()}${one.slice(1)}` : one;
+}
+
+/**
+ * What Consola says in a request's thread for `state`, with the run's page (`runUrl`):
+ *
+ * - the first time it waits: "I need an answer to carry on: <link>";
+ * - done: the orchestrator's summary in Slack's `markdown` block, and in plain text for
+ *   notifications, each cut to Slack's limits and ending "… the rest is in the run", then the link;
+ * - failed or cancelled: "The run stopped: <why, in words>. <link>".
+ */
+export function slackAnswerFor(
+  state: SlackPosted,
+  session: CloudSession,
+  runUrl: string,
+): SlackAnswer {
+  if (state === 'waiting') return { text: `I need an answer to carry on: ${runUrl}` };
+  if (state === 'stopped') {
+    const error = agentRunError(session);
+    const why =
+      error === null
+        ? 'it was stopped before it finished'
+        : afterColon([...withoutBroadcasts(error)].slice(0, ERROR_MAX).join(''));
+    return { text: `The run stopped: ${why}. ${runUrl}` };
+  }
+  const summary = withoutBroadcasts(session.agentRun?.summary?.trim() ?? '');
+  if (summary === '') return { text: `Done. The run left no summary: ${runUrl}` };
+  const link = `\n\n[Open the run in Consola](${runUrl})`;
+  const plainLink = `\n\n${runUrl}`;
+  return {
+    text: `${cutSummary(summary, SLACK_TEXT_MAX - plainLink.length)}${plainLink}`,
+    blocks: [
+      {
+        type: 'markdown',
+        text: `${cutSummary(summary, SLACK_MARKDOWN_MAX - [...link].length)}${link}`,
+      },
+    ],
+  };
 }

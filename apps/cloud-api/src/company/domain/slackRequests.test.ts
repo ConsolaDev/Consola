@@ -5,8 +5,12 @@ import {
   factoryPageUrl,
   isOpenRequest,
   runPageUrl,
+  shouldPost,
+  slackAnswerFor,
   slackRequestStart,
   slackRequestTitle,
+  slackStateOf,
+  withoutBroadcasts,
 } from './slackRequests.js';
 
 const request = {
@@ -62,26 +66,27 @@ describe('slackRequestStart', () => {
   });
 });
 
-describe('isOpenRequest', () => {
-  const session = (over: Partial<CloudSession>): CloudSession => ({
-    id: 'run-1',
-    workspaceId: 'sprocket',
-    personId: null,
-    repository: 'sprocket/catalog-portal',
-    harness: 'claude',
-    status: 'running',
-    title: null,
-    hostUrl: null,
-    error: null,
-    errorCode: null,
-    runnerId: 'runner-1',
-    createdAt: 1,
-    endedAt: null,
-    origin: null,
-    agentRun: null,
-    ...over,
-  });
+/** A session of a request from Slack, as `over` has it. */
+const session = (over: Partial<CloudSession>): CloudSession => ({
+  id: 'run-1',
+  workspaceId: 'sprocket',
+  personId: null,
+  repository: 'sprocket/catalog-portal',
+  harness: 'claude',
+  status: 'running',
+  title: null,
+  hostUrl: null,
+  error: null,
+  errorCode: null,
+  runnerId: 'runner-1',
+  createdAt: 1,
+  endedAt: null,
+  origin: null,
+  agentRun: null,
+  ...over,
+});
 
+describe('isOpenRequest', () => {
   it('is open while it starts, works or waits on a person, and not once it ends', () => {
     expect(isOpenRequest(session({ status: 'starting' }))).toBe(true);
     expect(isOpenRequest(session({}))).toBe(true);
@@ -90,5 +95,58 @@ describe('isOpenRequest', () => {
     expect(isOpenRequest(session({ agentRun: { state: 'failed' } }))).toBe(false);
     expect(isOpenRequest(session({ status: 'stopped', endedAt: 2 }))).toBe(false);
     expect(isOpenRequest(session({ status: 'failed', endedAt: 2 }))).toBe(false);
+  });
+});
+
+describe('what Consola says in the thread', () => {
+  const url = 'http://localhost:5175/#/runs/run-1';
+
+  it('is something only once the run waits, ends or stops', () => {
+    expect(slackStateOf(session({ status: 'starting' }))).toBeNull();
+    expect(slackStateOf(session({}))).toBeNull();
+    expect(slackStateOf(session({ agentRun: { state: 'waiting' } }))).toBe('waiting');
+    expect(slackStateOf(session({ agentRun: { state: 'done' } }))).toBe('done');
+    expect(slackStateOf(session({ agentRun: { state: 'failed' } }))).toBe('stopped');
+    expect(slackStateOf(session({ status: 'stopped', endedAt: 2 }))).toBe('stopped');
+    expect(slackStateOf(session({ status: 'failed', endedAt: 2 }))).toBe('stopped');
+  });
+
+  it('is posted once per state: a question only before the end, nothing after it', () => {
+    expect(shouldPost(null, null)).toBe(false);
+    expect(shouldPost(null, 'waiting')).toBe(true);
+    expect(shouldPost('waiting', 'waiting')).toBe(false);
+    expect(shouldPost('waiting', 'done')).toBe(true);
+    expect(shouldPost(null, 'stopped')).toBe(true);
+    expect(shouldPost('done', 'stopped')).toBe(false);
+    expect(shouldPost('stopped', 'waiting')).toBe(false);
+  });
+
+  it('says why a run stopped in words, on one line, after a colon', () => {
+    const failed = session({ status: 'failed', endedAt: 2, error: 'Sandbox\nlost.  <!here>' });
+    expect(slackAnswerFor('stopped', failed, url)).toEqual({
+      text: `The run stopped: sandbox lost. @here. ${url}`,
+    });
+    const coded = session({ status: 'failed', endedAt: 2, errorCode: 'runner_unavailable' });
+    expect(slackAnswerFor('stopped', coded, url).text).toBe(
+      `The run stopped: no runner was connected for this workspace, so nothing ran. ${url}`,
+    );
+    const named = session({ status: 'failed', endedAt: 2, error: 'E2B refused the sandbox.' });
+    expect(slackAnswerFor('stopped', named, url).text).toBe(
+      `The run stopped: E2B refused the sandbox. ${url}`,
+    );
+  });
+
+  it('says a finished run left no summary when it left none', () => {
+    expect(
+      slackAnswerFor('done', session({ agentRun: { state: 'done', summary: '  ' } }), url),
+    ).toEqual({
+      text: `Done. The run left no summary: ${url}`,
+    });
+  });
+
+  it("makes Slack's broadcasts plain words, and keeps a mention of one person", () => {
+    expect(
+      withoutBroadcasts('<!channel> <!here> <!everyone|everyone> <!subteam^S0X|@sales> <@U0FAY>'),
+    ).toBe('@channel @here @everyone @group <@U0FAY>');
   });
 });
