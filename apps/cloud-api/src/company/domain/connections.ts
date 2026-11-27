@@ -178,15 +178,19 @@ export const INSTALL_CHOICE_LIFETIME_SECONDS = 5 * 60;
  */
 export const MAX_INSTALL_CANDIDATES = 20;
 
-/** An installation the person may connect, as a choice names it: its id and its account. */
-export type InstallCandidate = { id: number; account: GitHubAccount };
+/**
+ * An installation a person administers, as a choice names it: its id, its account, and whether
+ * another workspace holds it (`heldElsewhere`), which says nothing of which one. A held one is
+ * shown, so the person knows why it is not offered, and not offered.
+ */
+export type InstallCandidate = { id: number; account: GitHubAccount; heldElsewhere: boolean };
 
 /**
  * What Consola signs when a person who signed in to GitHub administers installations of the app
- * that no workspace holds, and reads back when they choose one: the workspace being connected, the
- * person and the session that asked, until when (whole seconds since the epoch), and the
- * installations they may choose from. Never a GitHub token: the person's is revoked before the
- * choice is signed.
+ * that this workspace does not hold, and reads back when they choose one: the workspace being
+ * connected, the person and the session that asked, until when (whole seconds since the epoch),
+ * and the installations, those another workspace holds marked so. Never a GitHub token: the
+ * person's is revoked before the choice is signed, and never another workspace's id.
  */
 export type InstallChoice = ForASession & {
   workspaceId: string;
@@ -194,8 +198,9 @@ export type InstallChoice = ForASession & {
 };
 
 /**
- * The choice for the session's Connect into `workspaceId`, of `installations` (at most
- * `MAX_INSTALL_CANDIDATES` of them), for `INSTALL_CHOICE_LIFETIME_SECONDS` from `now`.
+ * The choice for the session's Connect into `workspaceId`, of `installations`, those no workspace
+ * holds first, each in the order given, and at most `MAX_INSTALL_CANDIDATES` of them, so a cut
+ * drops a held one before a free one; for `INSTALL_CHOICE_LIFETIME_SECONDS` from `now`.
  */
 export function newInstallChoice(
   asking: AskingSession,
@@ -203,15 +208,30 @@ export function newInstallChoice(
   installations: readonly InstallCandidate[],
   now: number,
 ): InstallChoice {
+  const free = installations.filter((each) => !each.heldElsewhere);
+  const held = installations.filter((each) => each.heldElsewhere);
   return {
     workspaceId,
     personId: asking.personId,
     sessionId: asking.sessionId,
     expiresAt: now + INSTALL_CHOICE_LIFETIME_SECONDS,
-    candidates: installations
+    candidates: [...free, ...held]
       .slice(0, MAX_INSTALL_CANDIDATES)
-      .map(({ id, account }) => ({ id, account: { ...account } })),
+      .map(({ id, account, heldElsewhere }) => ({ id, account: { ...account }, heldElsewhere })),
   };
+}
+
+/**
+ * Where a Connect back from signing in goes, by the installations the person administers that
+ * this workspace does not hold: with none, on to install the app (`install`); with one no
+ * workspace holds, to choose (`choose`); with every one held by another workspace, to say so
+ * (`taken-elsewhere`), which installing the app on another account answers.
+ */
+export function choiceOutcome(
+  candidates: readonly InstallCandidate[],
+): 'install' | 'choose' | 'taken-elsewhere' {
+  if (candidates.length === 0) return 'install';
+  return candidates.some((each) => !each.heldElsewhere) ? 'choose' : 'taken-elsewhere';
 }
 
 /**

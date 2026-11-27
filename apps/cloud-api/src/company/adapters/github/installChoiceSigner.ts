@@ -31,6 +31,7 @@ const CHOICE = z.strictObject({
           login: z.string().min(1).max(100),
           type: z.enum(['Organization', 'User']),
         }),
+        heldElsewhere: z.boolean(),
       }),
     )
     .min(1)

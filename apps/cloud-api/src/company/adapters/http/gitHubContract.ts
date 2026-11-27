@@ -136,6 +136,7 @@ export const postGitHubInstall = createRoute({
 /** How a Connect ended, as the callback names it in the web app's `?github=`. */
 export const GITHUB_CALLBACK_RESULTS = [
   'choose',
+  'taken_elsewhere',
   'connected',
   'already_connected',
   'requested',
@@ -172,27 +173,39 @@ export const getGitHubCallback = createRoute({
     '`code`, `installation_id`, `setup_action` or `error`. It never answers JSON. Back from ' +
     'installing the app (an `installation_id`), it records the installation. Back from signing ' +
     'in (no `installation_id`), it asks GitHub for the installations the person administers ' +
-    'that no workspace holds: with some, the page offers them (`choose`, with a signed ' +
-    '`choice`); with none, the person goes on to install the app. Otherwise it redirects to the ' +
-    'web app’s Settings, on its Connections page, with how the Connect ended in `?github=`: one ' +
-    `of ${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
+    'that this workspace does not hold: with one no workspace holds, the page offers them ' +
+    '(`choose`, with a signed `choice`); with only ones other workspaces hold, the page says ' +
+    'so (`taken_elsewhere`, with a signed `choice` naming them); with none, the person goes on ' +
+    'to install the app. Otherwise it redirects to the web app’s Settings, on its Connections ' +
+    'page, with how the Connect ended in `?github=`: one of ' +
+    `${GITHUB_CALLBACK_RESULTS.map((result) => `\`${result}\``).join(', ')}.`,
   responses: {
     302: {
       description:
         'To `<PUBLIC_URL>/?github=<result>#/settings/connections`, with `&choice=<a signed ' +
-        'choice>` when the result is `choose`; or on to the app’s install page on GitHub, with ' +
-        'a fresh state, when the person signed in and administers no installation that is free.',
+        'choice>` when the result is `choose` or `taken_elsewhere`; or on to the app’s install ' +
+        'page on GitHub, with a fresh state, when the person signed in and administers no ' +
+        'installation this workspace does not hold already.',
       headers: z.object({ location: z.string() }),
     },
   },
 });
 
-/** An installation the person who signed in may connect: its id, and the account it is on. */
+/** An installation the person who signed in administers: its id, its account, and whether held. */
 export const GitHubInstallCandidate = z
-  .strictObject({ id: z.number().int(), account: GitHubAccount })
+  .strictObject({
+    id: z.number().int(),
+    account: GitHubAccount,
+    heldElsewhere: z.boolean().openapi({
+      description:
+        'Whether another Consola workspace holds it (never which), so it is shown and not ' +
+        'offered.',
+    }),
+  })
   .openapi('GitHubInstallCandidate', {
     description:
-      'An installation of the app on an account the person administers, which no workspace holds.',
+      'An installation of the app on an account the person administers, which this workspace ' +
+      'does not hold.',
   });
 
 const ChoiceQuery = z.object({

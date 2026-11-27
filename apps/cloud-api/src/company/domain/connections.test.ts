@@ -5,6 +5,7 @@ import {
   checkInstallChoice,
   checkInstaller,
   checkInstallState,
+  choiceOutcome,
   INSTALL_CHOICE_LIFETIME_SECONDS,
   INSTALL_STATE_LIFETIME_SECONDS,
   installationSettingsUrl,
@@ -14,7 +15,7 @@ import {
   newInstallState,
   readGitHubId,
 } from './connections.js';
-import type { GitHubInstallation } from './connections.js';
+import type { GitHubInstallation, InstallCandidate } from './connections.js';
 
 describe('a GitHub id in an address', () => {
   it('is digits with no leading zero, as a safe integer', () => {
@@ -191,11 +192,21 @@ describe('a choice of installation', () => {
   const now = 1_800_000_000;
   const dana = { personId: 'dana', sessionId: 'session-1' };
   const here = { ...dana, workspaceId: 'sprocket' };
-  const sprocket = {
+  const sprocket: InstallCandidate = {
     id: 41,
-    account: { id: 9001, login: 'sprocket', type: 'Organization' as const },
+    account: { id: 9001, login: 'sprocket', type: 'Organization' },
+    heldElsewhere: false,
   };
-  const own = { id: 63, account: { id: 7, login: 'dana', type: 'User' as const } };
+  const own: InstallCandidate = {
+    id: 63,
+    account: { id: 7, login: 'dana', type: 'User' },
+    heldElsewhere: false,
+  };
+  const acme: InstallCandidate = {
+    id: 52,
+    account: { id: 9002, login: 'acme', type: 'Organization' },
+    heldElsewhere: true,
+  };
   const choice = newInstallChoice(dana, 'sprocket', [sprocket, own], now);
 
   it('names the workspace, the person, the session and each candidate, for five minutes', () => {
@@ -209,20 +220,40 @@ describe('a choice of installation', () => {
     expect(INSTALL_CHOICE_LIFETIME_SECONDS).toBe(300);
   });
 
-  it('keeps only the id and the account of an installation, and at most twenty', () => {
-    const many: GitHubInstallation[] = Array.from({ length: 30 }, (_, n) => ({
+  it('lists those no workspace holds before those another holds, each in the order given', () => {
+    expect(newInstallChoice(dana, 'sprocket', [acme, sprocket, own], now).candidates).toEqual([
+      sprocket,
+      own,
+      acme,
+    ]);
+  });
+
+  it('keeps only the id, the account and whether held, and at most twenty, free ones first', () => {
+    const many = Array.from({ length: 30 }, (_, n) => ({
       id: 1000 + n,
-      account: { id: n + 1, login: `org-${n}`, type: 'Organization' },
+      account: { id: n + 1, login: `org-${n}`, type: 'Organization' as const },
+      heldElsewhere: n < 15,
       repositorySelection: 'all',
     }));
     const cut = newInstallChoice(dana, 'sprocket', many, now);
     expect(MAX_INSTALL_CANDIDATES).toBe(20);
     expect(cut.candidates).toHaveLength(20);
     expect(cut.candidates[0]).toEqual({
-      id: 1000,
-      account: { id: 1, login: 'org-0', type: 'Organization' },
+      id: 1015,
+      account: { id: 16, login: 'org-15', type: 'Organization' },
+      heldElsewhere: false,
     });
-    expect(cut.candidates.at(-1)?.id).toBe(1019);
+    // All fifteen free ones, then the first five held.
+    expect(cut.candidates.filter((each) => !each.heldElsewhere)).toHaveLength(15);
+    expect(cut.candidates.at(-1)?.id).toBe(1004);
+  });
+
+  it('goes to install with none, to choose with one free, and says taken with only held ones', () => {
+    expect(choiceOutcome([])).toBe('install');
+    expect(choiceOutcome([acme, sprocket])).toBe('choose');
+    expect(choiceOutcome([sprocket])).toBe('choose');
+    expect(choiceOutcome([acme])).toBe('taken-elsewhere');
+    expect(choiceOutcome([acme, { ...acme, id: 53 }])).toBe('taken-elsewhere');
   });
 
   it('is made in the session that signed in, in time, in the workspace it has active', () => {

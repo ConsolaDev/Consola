@@ -389,6 +389,15 @@ describe('GitHub as a connection', () => {
           const state = await stateFor(owner.headers);
           return (await returnFromGitHub(owner.headers, { code: 'owner-code', state })).result;
         },
+        async taken_elsewhere() {
+          // Back from signing in: another workspace holds the one installation the person owns.
+          const first = await harness.member('owner');
+          const second = await harness.member('owner');
+          reachable = { 'first-code': [sprocketOrg], 'second-code': [sprocketOrg] };
+          expect((await connect(first.headers, 41, 'first-code')).result).toBe('connected');
+          const state = await stateFor(second.headers);
+          return (await returnFromGitHub(second.headers, { code: 'second-code', state })).result;
+        },
         async connected() {
           const owner = await harness.member('owner');
           reachable = { 'owner-code': [sprocketOrg] };
@@ -510,7 +519,9 @@ describe('GitHub as a connection', () => {
       expect(await ENDINGS[result]()).toBe(result);
       // Only a Connect that ends connected records an installation.
       const recorded = (await storedInstallations()).length;
-      expect(recorded).toBe(['connected', 'already_connected', 'taken'].includes(result) ? 1 : 0);
+      expect(recorded).toBe(
+        ['connected', 'already_connected', 'taken', 'taken_elsewhere'].includes(result) ? 1 : 0,
+      );
     });
   });
 
@@ -573,7 +584,13 @@ describe('GitHub as a connection', () => {
       expect(read).toMatchObject({
         status: 200,
         body: {
-          candidates: [{ id: 41, account: { id: 1041, login: 'sprocket', type: 'Organization' } }],
+          candidates: [
+            {
+              id: 41,
+              account: { id: 1041, login: 'sprocket', type: 'Organization' },
+              heldElsewhere: false,
+            },
+          ],
         },
       });
       expect(read.headers.get('cache-control')).toBe('no-store');
@@ -608,7 +625,7 @@ describe('GitHub as a connection', () => {
       expect(await storedInstallations()).toHaveLength(1);
     });
 
-    it('offers the installations the person owns that no workspace holds, and connects the one chosen', async () => {
+    it('offers the installations the person owns that no workspace holds, shows those another holds, and connects the one chosen', async () => {
       const lee = await harness.member('owner');
       const dana = await harness.member('owner');
       // Lee's workspace holds acme already; Dana is only a member of catalog.
@@ -620,12 +637,31 @@ describe('GitHub as a connection', () => {
       expect((await connect(lee.headers, 52, 'lee-code')).result).toBe('connected');
 
       const choice = await choiceFor(dana.headers, 'dana-code');
-      expect((await readChoice(choice, dana.headers)).body).toEqual({
+      const read = await readChoice(choice, dana.headers);
+      expect(read.body).toEqual({
         candidates: [
-          { id: 41, account: { id: 1041, login: 'sprocket', type: 'Organization' } },
-          { id: 74, account: { id: 1074, login: 'widgets', type: 'Organization' } },
+          {
+            id: 41,
+            account: { id: 1041, login: 'sprocket', type: 'Organization' },
+            heldElsewhere: false,
+          },
+          {
+            id: 74,
+            account: { id: 1074, login: 'widgets', type: 'Organization' },
+            heldElsewhere: false,
+          },
+          {
+            id: 52,
+            account: { id: 1052, login: 'acme', type: 'Organization' },
+            heldElsewhere: true,
+          },
         ],
       });
+      // Which workspace holds acme is never said, in the answer or in the choice.
+      expect(JSON.stringify(read.body)).not.toContain(lee.workspaceId);
+      expect(Buffer.from(choice.split('.')[0] ?? '', 'base64url').toString()).not.toContain(
+        lee.workspaceId,
+      );
 
       expect(await choose(choice, 74, dana.headers)).toEqual({
         status: 200,
@@ -684,7 +720,7 @@ describe('GitHub as a connection', () => {
       expect(await storedInstallations()).toEqual([]);
     });
 
-    it('never offers an installation another workspace holds, and refuses one taken after the choice', async () => {
+    it('refuses an installation another workspace connected after the choice', async () => {
       const dana = await harness.member('owner');
       const lee = await harness.member('owner');
       reachable = { 'dana-code': [sprocketOrg], 'lee-code': [sprocketOrg] };
@@ -699,13 +735,70 @@ describe('GitHub as a connection', () => {
       expect(await storedInstallations()).toEqual([
         expect.objectContaining({ installationId: 41, workspaceId: lee.workspaceId }),
       ]);
+    });
 
-      // Signing in again offers nothing that is held, so it goes on to the install page.
-      reachable['dana-code-2'] = [sprocketOrg];
+    it('says when another workspace holds every installation the person owns, naming them, and connects none', async () => {
+      const dana = await harness.member('owner');
+      const lee = await harness.member('owner');
+      reachable = { 'lee-code': [sprocketOrg, acmeOrg], 'dana-code': [sprocketOrg, acmeOrg] };
+      expect((await connect(lee.headers, 41, 'lee-code')).result).toBe('connected');
+      reachable['lee-code-2'] = [sprocketOrg, acmeOrg];
+      expect((await connect(lee.headers, 52, 'lee-code-2')).result).toBe('connected');
+
+      const back = await signInBack(dana.headers, 'dana-code');
+      expect(back.status).toBe(302);
+      const location = new URL(back.location);
+      expect(`${location.origin}${location.pathname}${location.hash}`).toBe(
+        `${harness.config.publicUrl}/#/settings/connections`,
+      );
+      expect([...location.searchParams.keys()]).toEqual(['github', 'choice']);
+      expect(back.result).toBe('taken_elsewhere');
+      expect(back.headers.get('referrer-policy')).toBe('no-referrer');
+
+      const choice = choiceIn(back.location);
+      const read = await readChoice(choice, dana.headers);
+      expect(read).toMatchObject({
+        status: 200,
+        body: {
+          candidates: [
+            {
+              id: 41,
+              account: { id: 1041, login: 'sprocket', type: 'Organization' },
+              heldElsewhere: true,
+            },
+            {
+              id: 52,
+              account: { id: 1052, login: 'acme', type: 'Organization' },
+              heldElsewhere: true,
+            },
+          ],
+        },
+      });
+      expect(JSON.stringify(read.body)).not.toContain(lee.workspaceId);
+
+      // Choosing one anyway is refused while Lee's workspace holds it.
+      expect(await choose(choice, 41, dana.headers)).toEqual({
+        status: 409,
+        body: { error: 'installation_taken' },
+      });
+      const held = await storedInstallations();
+      expect(held.every((row) => row.workspaceId === lee.workspaceId)).toBe(true);
+      expect(held).toHaveLength(2);
+
+      // Install on another account is the start's install address, which the page offers.
+      const started = await startConnect(dana.headers);
+      expect(new URL(started.body.installUrl).pathname).toBe('/apps/consola-dev/installations/new');
+    });
+
+    it('with every installation the person owns held here already, goes on to install the app', async () => {
+      const dana = await harness.member('owner');
+      reachable = { 'dana-code': [sprocketOrg], 'dana-code-2': [sprocketOrg] };
+      expect((await connect(dana.headers, 41, 'dana-code')).result).toBe('connected');
+
       const again = await signInBack(dana.headers, 'dana-code-2');
       expect(again.result).toBeNull();
       expect(again.location).toMatch(
-        /^https:\/\/github\.com\/apps\/consola-dev\/installations\/new/,
+        /^https:\/\/github\.com\/apps\/consola-dev\/installations\/new\?state=/,
       );
     });
 
@@ -771,11 +864,15 @@ describe('GitHub as a connection', () => {
         ...claims,
         candidates: [
           ...claims.candidates,
-          { id: 52, account: { id: 1052, login: 'acme', type: 'Organization' } },
+          {
+            id: 52,
+            account: { id: 1052, login: 'acme', type: 'Organization' },
+            heldElsewhere: false,
+          },
         ],
       });
       // The same body, with the real signature of another.
-      const spliced = `${Buffer.from(JSON.stringify({ ...claims, candidates: [{ id: 52, account: { id: 1052, login: 'acme', type: 'Organization' } }] })).toString('base64url')}.${choice.split('.')[1]}`;
+      const spliced = `${Buffer.from(JSON.stringify({ ...claims, candidates: [{ id: 52, account: { id: 1052, login: 'acme', type: 'Organization' }, heldElsewhere: false }] })).toString('base64url')}.${choice.split('.')[1]}`;
       // A Connect's own state is signed with another key, and is no choice either.
       const state = await stateFor(dana.headers);
 

@@ -454,12 +454,12 @@ describe('connecting an installation the person already has, by signing in first
       personId: 'dana',
       sessionId: 'session-of-dana',
       expiresAt: now + 30 + INSTALL_CHOICE_LIFETIME_SECONDS,
-      candidates: [{ id: 41, account: sprocketOrg.account }],
+      candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
     });
     expect(await installations.ofWorkspace('sprocket')).toEqual([]);
   });
 
-  it('offers only what the person administers and no workspace holds, and connects the one chosen', async () => {
+  it('offers what the person administers and no workspace holds, shows what another holds, and connects the one chosen', async () => {
     await installations.connect({
       installation: acmeOrg,
       workspaceId: 'acme',
@@ -470,8 +470,9 @@ describe('connecting an installation the person already has, by signing in first
     const github = fakeGitHub([sprocketOrg, acmeOrg, danaOwn, leeOwn]);
     const { token, choice } = await choiceAfterSignIn(github.github);
     expect(choice.candidates).toEqual([
-      { id: 41, account: sprocketOrg.account },
-      { id: 63, account: danaOwn.account },
+      { id: 41, account: sprocketOrg.account, heldElsewhere: false },
+      { id: 63, account: danaOwn.account, heldElsewhere: false },
+      { id: 52, account: acmeOrg.account, heldElsewhere: true },
     ]);
 
     expect(
@@ -525,7 +526,7 @@ describe('connecting an installation the person already has, by signing in first
     ).toBe('install');
   });
 
-  it('goes on to install the app when every installation the person administers is held already', async () => {
+  it('says another workspace holds every one the person administers, naming them, and leaves out those held here', async () => {
     await installations.connect({
       installation: sprocketOrg,
       workspaceId: 'acme',
@@ -544,7 +545,56 @@ describe('connecting an installation the person already has, by signing in first
       signedInReturn(started('dana', github.github)),
       github.github,
     );
+    if (outcome.kind !== 'taken-elsewhere') throw new Error(outcome.kind);
+    expect(choices.read(outcome.choice)?.candidates).toEqual([
+      { id: 41, account: sprocketOrg.account, heldElsewhere: true },
+    ]);
+    expect(await installations.holderOf(41)).toBe('acme');
+  });
+
+  it('goes on to install the app when this workspace holds every one the person administers', async () => {
+    await installations.connect({
+      installation: danaOwn,
+      workspaceId: 'sprocket',
+      connectedBy: 'dana',
+      at: new Date(),
+    });
+    const github = fakeGitHub([danaOwn]);
+    const outcome = await finish(
+      'dana',
+      signedInReturn(started('dana', github.github)),
+      github.github,
+    );
     expect(outcome.kind).toBe('install');
+  });
+
+  it('connects a held one only once its workspace lets it go', async () => {
+    await installations.connect({
+      installation: sprocketOrg,
+      workspaceId: 'acme',
+      connectedBy: 'ana',
+      at: new Date(),
+    });
+    const github = fakeGitHub([sprocketOrg]);
+    const outcome = await finish(
+      'dana',
+      signedInReturn(started('dana', github.github)),
+      github.github,
+    );
+    if (outcome.kind !== 'taken-elsewhere') throw new Error(outcome.kind);
+    const choose = () =>
+      connectChosenInstallation(
+        { choices, installations },
+        callerOf('dana'),
+        { choice: outcome.choice, installationId: 41 },
+        now + 60,
+      );
+    expect(await choose()).toEqual({ kind: 'taken' });
+    expect(await installations.holderOf(41)).toBe('acme');
+
+    await installations.disconnect({ workspaceId: 'acme', installationId: 41 });
+    expect(await choose()).toEqual({ kind: 'connected' });
+    expect(await installations.holderOf(41)).toBe('sprocket');
   });
 
   it("refuses another person's state, and never spends the code", async () => {
@@ -607,7 +657,7 @@ describe('connecting an installation the person already has, by signing in first
       personId: 'dana',
       sessionId: 'session-of-dana',
       expiresAt: now + 300,
-      candidates: [{ id: 41, account: sprocketOrg.account }],
+      candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
       ...overrides,
     });
     const token = (overrides: Partial<InstallChoice> = {}) =>
@@ -618,7 +668,7 @@ describe('connecting an installation the person already has, by signing in first
     it('reads its candidates back for the session that signed in', () => {
       expect(readGitHubChoice({ choices }, callerOf('dana'), token(), now)).toEqual({
         kind: 'read',
-        candidates: [{ id: 41, account: sprocketOrg.account }],
+        candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
       });
     });
 

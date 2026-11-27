@@ -11,8 +11,13 @@ const choice: InstallChoice = {
   sessionId: 'session-1',
   expiresAt: 1_800_000_300,
   candidates: [
-    { id: 41, account: { id: 9001, login: 'sprocket', type: 'Organization' } },
-    { id: 63, account: { id: 7, login: 'dana', type: 'User' } },
+    {
+      id: 41,
+      account: { id: 9001, login: 'sprocket', type: 'Organization' },
+      heldElsewhere: false,
+    },
+    { id: 63, account: { id: 7, login: 'dana', type: 'User' }, heldElsewhere: false },
+    { id: 52, account: { id: 9002, login: 'acme', type: 'Organization' }, heldElsewhere: true },
   ],
 };
 
@@ -38,7 +43,7 @@ describe("a choice of installation's signer", () => {
     const changed = Buffer.from(
       JSON.stringify({
         ...choice,
-        candidates: [{ id: 52, account: { id: 9002, login: 'acme', type: 'Organization' } }],
+        candidates: choice.candidates.map((each) => ({ ...each, heldElsewhere: false })),
       }),
     ).toString('base64url');
     expect(signer.read(`${changed}.${mac}`)).toBeNull();
@@ -99,8 +104,12 @@ describe("a choice of installation's signer", () => {
       json({ ...choice, candidates: [{ ...first, id: 0 }] }),
       json({ ...choice, candidates: [{ ...first, id: '41' }] }),
       json({ ...choice, candidates: [{ ...first, repositorySelection: 'all' }] }),
-      json({ ...choice, candidates: [{ id: 41, account: { ...first?.account, type: 'Bot' } }] }),
-      json({ ...choice, candidates: [{ id: 41, account: { ...first?.account, login: '' } }] }),
+      json({ ...choice, candidates: [{ ...first, account: { ...first?.account, type: 'Bot' } }] }),
+      json({ ...choice, candidates: [{ ...first, account: { ...first?.account, login: '' } }] }),
+      // Whether another workspace holds it is said, as a boolean, and never as a workspace.
+      json({ ...choice, candidates: [{ id: 41, account: first?.account }] }),
+      json({ ...choice, candidates: [{ ...first, heldElsewhere: 'yes' }] }),
+      json({ ...choice, candidates: [{ ...first, heldBy: 'acme-workspace' }] }),
       json({ ...choice, sessionId: '' }),
       json({ ...choice, expiresAt: 1.5 }),
       // A Connect's state, which names no candidates.

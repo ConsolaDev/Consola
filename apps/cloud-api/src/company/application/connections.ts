@@ -3,6 +3,7 @@ import {
   administeredInstallations,
   candidateOf,
   checkInstallChoice,
+  choiceOutcome,
   checkInstaller,
   checkInstallState,
   mayManageConnections,
@@ -143,7 +144,13 @@ export type InstallOutcome =
    * The person signed in, and administers installations of the app no workspace holds: theirs to
    * choose from, as a signed choice (`InstallChoice`) the page reads and sends back.
    */
-  | { kind: 'choose'; choice: string };
+  | { kind: 'choose'; choice: string }
+  /**
+   * The person signed in, and every installation of the app they administer is held by another
+   * workspace: the signed choice names them, each marked held, so the page says which, and
+   * offers to install the app on another account.
+   */
+  | { kind: 'taken-elsewhere'; choice: string };
 
 /**
  * Finishes a Connect when GitHub sends the person back, for the workspace the Connect was started
@@ -221,10 +228,12 @@ export async function finishGitHubInstall(
 /**
  * What a Connect that GitHub sent back from signing in goes on to: GitHub, asked with the one-time
  * `code`, lists the installations of the app the person can reach, of which they administer
- * some (`administeredInstallations`), and those no workspace holds, this one included, are theirs
- * to choose from (`choose`, at most `MAX_INSTALL_CANDIDATES`). With none, the person goes on to
- * the app's install page, with a fresh state (`install`), from where GitHub sends them back with
- * the installation they make.
+ * some (`administeredInstallations`). Those this workspace holds already are left out; those no
+ * workspace holds are theirs to choose from (`choose`, at most `MAX_INSTALL_CANDIDATES`), shown
+ * beside those another workspace holds, marked so and never offered. With only held ones, the
+ * page says so (`taken-elsewhere`, with the same signed choice to name them). With none at all,
+ * the person goes on to the app's install page, with a fresh state (`install`), from where
+ * GitHub sends them back with the installation they make (`choiceOutcome`).
  */
 async function chooseOrInstall(
   ports: {
@@ -242,16 +251,19 @@ async function chooseOrInstall(
   const asked = await github.installationsOf(code);
   if (asked.kind !== 'read') return asked;
 
-  const free: InstallCandidate[] = [];
-  for (const installation of administeredInstallations(asked.installations)) {
-    if ((await ports.installations.holderOf(installation.id)) === null) free.push(installation);
+  const candidates: InstallCandidate[] = [];
+  for (const { id, account } of administeredInstallations(asked.installations)) {
+    const holder = await ports.installations.holderOf(id);
+    // Held here already: Connections shows it connected, so it is nothing to choose.
+    if (holder !== workspaceId) candidates.push({ id, account, heldElsewhere: holder !== null });
   }
-  if (free.length === 0) {
+  const outcome = choiceOutcome(candidates);
+  if (outcome === 'install') {
     const state = ports.states.sign(newInstallState(asking, workspaceId, now));
     return { kind: 'install', url: github.installUrl(state) };
   }
-  const choice = newInstallChoice(asking, workspaceId, free, now);
-  return { kind: 'choose', choice: ports.choices.sign(choice) };
+  const choice = ports.choices.sign(newInstallChoice(asking, workspaceId, candidates, now));
+  return { kind: outcome, choice };
 }
 
 /** Why a choice of installation the page sent back cannot be made. */
@@ -304,8 +316,10 @@ export function readGitHubChoice(
  * signed is checked again first, in this order: the choice is this session's own, in time, for
  * this workspace; the installation is one of its candidates (`not-a-candidate`); the caller is
  * still an owner or admin, by their role at this request; and no other workspace holds it
- * (`taken`, even at the same moment). The choice itself is kept nowhere: each call checks it
- * whole.
+ * (`taken`, even at the same moment). That last is asked of the store, never of the choice: one
+ * the choice marked held elsewhere is `taken` while it still is, and connects once that workspace
+ * let it go, since the person administers it all the same. The choice itself is kept nowhere:
+ * each call checks it whole.
  */
 export async function connectChosenInstallation(
   ports: { choices: InstallChoiceSigner; installations: InstallationStore },
@@ -326,7 +340,7 @@ export async function connectChosenInstallation(
   if (!mayManageConnections(caller.role)) return { kind: 'not-allowed' };
 
   const recorded = await ports.installations.connect({
-    installation: candidate,
+    installation: { id: candidate.id, account: candidate.account },
     workspaceId: caller.workspaceId,
     connectedBy: caller.personId,
     at: new Date(now * 1000),

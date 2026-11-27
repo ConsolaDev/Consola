@@ -62,6 +62,7 @@ const CALLBACK_RESULT = {
   unavailable: 'unavailable',
   'not-configured': 'not_configured',
   choose: 'choose',
+  'taken-elsewhere': 'taken_elsewhere',
 } as const satisfies Record<Exclude<InstallOutcome['kind'], 'install'>, CallbackResult>;
 
 /** Every route `registerGitHubRoutes` registers, in the order it registers them. */
@@ -187,7 +188,9 @@ export function registerGitHubRoutes(app: OpenAPIHono, deps: GitHubRouteDeps): v
     // The app's own install page on GitHub, from Consola's GitHub App: never an address the
     // redirect carried.
     if (outcome.kind === 'install') return to(outcome.url);
-    if (outcome.kind === 'choose') return back('choose', outcome.choice);
+    if (outcome.kind === 'choose' || outcome.kind === 'taken-elsewhere') {
+      return back(CALLBACK_RESULT[outcome.kind], outcome.choice);
+    }
     return back(CALLBACK_RESULT[outcome.kind]);
   });
   // No body carries the results, so the document names them itself, for clients to check theirs.

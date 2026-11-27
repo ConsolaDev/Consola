@@ -305,7 +305,7 @@ describe("GitHub's routes", () => {
       expect(read.status).toBe(200);
       expect(read.headers.get('cache-control')).toBe('no-store');
       expect(await declared(getGitHubChoice, read)).toEqual({
-        candidates: [{ id: 41, account: sprocketOrg.account }],
+        candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: false }],
       });
 
       const chose = (installationId: number, personId = 'dana') =>
@@ -345,6 +345,32 @@ describe("GitHub's routes", () => {
       roles.set('sprocket/dana', 'member');
       expect(await declared(getGitHubChoice, await readAs('dana'))).toEqual({
         error: 'not_allowed',
+      });
+    });
+
+    it('says so, with the choice naming them, when another workspace holds every one', async () => {
+      reachable = [sprocketOrg];
+      await installations.connect({
+        installation: sprocketOrg,
+        workspaceId: 'acme',
+        connectedBy: 'ana',
+        at: new Date(now * 1000),
+      });
+      const back = await signedInBack((await startedByDana()).state);
+      expect(back.status).toBe(302);
+      const location = new URL(back.headers.get('location') ?? '');
+      expect(`${location.origin}${location.pathname}${location.hash}`).toBe(
+        `${PUBLIC_URL}/#/settings/connections`,
+      );
+      expect(location.searchParams.get('github')).toBe('taken_elsewhere');
+      const choice = location.searchParams.get('choice') ?? '';
+
+      const read = await app.request(
+        `/api/connections/github/choice?${new URLSearchParams({ choice })}`,
+        { headers: as('dana') },
+      );
+      expect(await declared(getGitHubChoice, read)).toEqual({
+        candidates: [{ id: 41, account: sprocketOrg.account, heldElsewhere: true }],
       });
     });
 
