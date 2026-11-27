@@ -31,6 +31,7 @@ describe('loadConfig', () => {
       github: null,
       githubWebhookSecret: null,
       runner: null,
+      connectionSecretsKey: null,
     });
   });
 
@@ -286,6 +287,30 @@ describe('loadConfig, the runner and its passes', () => {
       expect.stringMatching(/^RUNNER_WORKSPACE_ID: /),
       expect.stringMatching(/^PASS_PRIVATE_KEY: /),
     ]);
+  });
+});
+
+describe('the connection secrets key', () => {
+  // 32 bytes in base64: a stand-in, never a real key.
+  const KEY = 'c3Byb2NrZXQtY29ubmVjdGlvbi1zZWNyZXRzLWtleSE=';
+
+  it('is null when unset or empty: then Slack is off', () => {
+    expect(loadConfig(valid).connectionSecretsKey).toBeNull();
+    expect(loadConfig({ ...valid, CONNECTION_SECRETS_KEY: '' }).connectionSecretsKey).toBeNull();
+  });
+
+  it('reads 32 bytes in base64', () => {
+    expect(loadConfig({ ...valid, CONNECTION_SECRETS_KEY: KEY }).connectionSecretsKey).toBe(KEY);
+  });
+
+  it.each([
+    ['too short', 'c3Byb2NrZXQ='],
+    ['too long', `${KEY.slice(0, -1)}AAAA`],
+    ['not base64', `${'!'.repeat(43)}=`],
+  ])('refuses one that is %s, never quoting it', (_what, key) => {
+    const failure = failureOf({ ...valid, CONNECTION_SECRETS_KEY: key });
+    expect(failure.problems).toEqual([expect.stringMatching(/^CONNECTION_SECRETS_KEY: /)]);
+    expect(failure.message).not.toContain(key);
   });
 });
 

@@ -360,3 +360,22 @@ export function createSlackAppUrl(manifest: SlackManifest): string {
 export function slackAppSettingsUrl(appId: string): string {
   return `https://api.slack.com/apps/${encodeURIComponent(appId)}`;
 }
+
+/**
+ * Where the web app shows a one-time link, before its token. The web app routes by the address's
+ * hash, so the token stays in the browser: it never reaches a server's log or a `Referer`.
+ */
+export const SLACK_LINK_PAGE_PATH = '/#/slack/link/';
+
+/** The address of a one-time link's page in the web app: `<PUBLIC_URL>/#/slack/link/<token>`. */
+export function slackLinkUrl(publicUrl: string, token: string): string {
+  return `${publicUrl}${SLACK_LINK_PAGE_PATH}${encodeURIComponent(token)}`;
+}
+
+/** A link's token as its address holds it: 32 bytes in base64url, with no padding. */
+const LINK_TOKEN = /^[A-Za-z0-9_-]{43}$/;
+
+/** Whether `value` has the shape of a link's token, so anything else is not looked up. */
+export function isLinkTokenShape(value: string): boolean {
+  return LINK_TOKEN.test(value);
+}

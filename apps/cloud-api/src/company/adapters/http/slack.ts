@@ -1,5 +1,6 @@
 import type { OpenAPIHono } from '@hono/zod-openapi';
 import type { MembershipReader } from '../../application/ports.js';
+import type { SecretSealer } from '../../application/slackPorts.js';
 import { requireCaller } from './caller.js';
 import type { WhoIsAsking } from './caller.js';
 import {
@@ -42,6 +43,8 @@ export type SlackRouteDeps = {
   membership: MembershipReader;
   /** The web app's origin (`PUBLIC_URL`): where the callback sends the person back. */
   publicUrl: string;
+  /** Seals Slack's secrets: null without `CONNECTION_SECRETS_KEY`, and then Slack is off. */
+  sealer: SecretSealer | null;
 };
 
 /**

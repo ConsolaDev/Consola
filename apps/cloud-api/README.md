@@ -314,6 +314,23 @@ A person asks for a pass to their own running session with
 cached (`Cache-Control: no-store`). The pass lasts five minutes; the page asks
 for another. Any session that is not theirs, or not running, is 404.
 
+## The connection secrets key
+
+The API seals the secrets it keeps for its connections (a factory's Slack
+app's client secret, signing secret and bot token) with AES-256-GCM under
+`CONNECTION_SECRETS_KEY`, 32 random bytes in base64:
+
+```bash
+pnpm --filter @consola/cloud-api secrets-key:generate
+```
+
+Put the line it prints in `.env` as `CONNECTION_SECRETS_KEY=<it>`, and start
+`pnpm dev:cloud` again. With none, Slack is off: every Slack route answers 503
+`slack_not_configured`. A key that is not 32 bytes in base64 stops the API
+from starting. The key is never logged. A sealed secret opens only with the
+key that sealed it, so a new key means setting each factory's Slack app up
+again.
+
 ## The shared packages
 
 The API imports two of the workspace's packages from their builds:

@@ -49,6 +49,12 @@ export type CloudConfig = {
   githubWebhookSecret: string | null;
   /** Null when none of the runner's settings is set: then no runner connects, nor session starts. */
   runner: RunnerConfig | null;
+  /**
+   * `CONNECTION_SECRETS_KEY`: 32 bytes in base64, the AES-256-GCM key that seals the secrets
+   * Consola keeps for its connections (Slack's). Null when unset: then Slack is off. It is never
+   * logged.
+   */
+  connectionSecretsKey: string | null;
 };
 
 /** Where the web app's dev proxy, the runner and the webhook tunnel expect the API. */
@@ -86,6 +92,10 @@ const required = (what: string, hint?: string) => {
   const message = hint ? `${what} is required (${hint})` : `${what} is required`;
   return z.string({ error: message }).min(1, message);
 };
+
+/** 32 bytes in base64, as `openssl rand -base64 32` and `secrets-key:generate` write them. */
+const SECRETS_KEY = /^[A-Za-z0-9+/]{43}=$/;
+const MAKE_A_SECRETS_KEY = '`pnpm --filter @consola/cloud-api secrets-key:generate` makes one';
 
 /** The runner's three settings, which go together: a runner needs the key, and the key a runner. */
 const RUNNER_SETTINGS = ['RUNNER_SECRET', 'RUNNER_WORKSPACE_ID', 'PASS_PRIVATE_KEY'] as const;
@@ -167,13 +177,18 @@ const rawEnv = z.object({
       return z.NEVER;
     })
     .optional(),
+  // No message quotes the value: it is a key.
+  CONNECTION_SECRETS_KEY: z
+    .string()
+    .regex(SECRETS_KEY, `must be 32 random bytes in base64 (${MAKE_A_SECRETS_KEY})`)
+    .optional(),
 });
 
 /** An optional variable set to nothing is unset, as `.env.example` leaves one. */
 const unsetWhenEmpty = (value: string | undefined) => (value === '' ? undefined : value);
 
 /** The variables that are optional one by one, each unset when empty. */
-const OPTIONAL = ['REGION', 'PORT', ...RUNNER_SETTINGS] as const;
+const OPTIONAL = ['REGION', 'PORT', ...RUNNER_SETTINGS, 'CONNECTION_SECRETS_KEY'] as const;
 
 /** The GitHub App's settings: all of them or none, so a half-made app never starts. */
 const GITHUB_SETTINGS = [
@@ -285,6 +300,7 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
       secret !== undefined && workspaceId !== undefined && passPrivateKey !== undefined
         ? { secret, workspaceId, passPrivateKey }
         : null,
+    connectionSecretsKey: parsed.CONNECTION_SECRETS_KEY ?? null,
   };
 }
 
