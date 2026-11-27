@@ -74,7 +74,7 @@ function parse(body: Uint8Array): unknown {
 }
 
 /** The innermost cause's first line: what failed, without the query that failed. */
-function whatFailed(error: unknown): string {
+export function whatFailed(error: unknown): string {
   let current = error;
   for (
     let depth = 0;

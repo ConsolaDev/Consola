@@ -36,6 +36,7 @@ import { slackSignatures } from './company/adapters/slack/eventSignatures.js';
 import { createPassSigner } from './company/adapters/token/passSigner.js';
 import { keepingRunsInStep } from './company/application/agentRuns.js';
 import { checkHealth as checkCompanyHealth } from './company/application/health.js';
+import { handleSlackEvent } from './company/application/slackRequests.js';
 import { SLACK_EVENTS_PATH_PREFIX } from './company/domain/slack.js';
 import type { CloudSessionPorts } from './company/application/ports.js';
 import type { CloudConfig } from './config.js';
@@ -240,8 +241,29 @@ export async function composeApi(
           signatures: slackSignatures,
           clock: systemClock,
           later: afterTheAnswer(report),
-          // The requests a mention or a direct message starts come next.
-          handle: async () => {},
+          // A mention of the bot or a direct message to it, from someone who may talk to the
+          // factory, starts a request for its orchestrator.
+          handle: async (installed, callback) => {
+            await handleSlackEvent(
+              {
+                ...cloudSessions,
+                factories: company.factories,
+                runs: company.runs,
+                teams: company.teams,
+                membership,
+                apps: slackStores.apps,
+                links: slackStores.links,
+                requests: slackStores.requests,
+                slack: createSlackApi(),
+                sealer,
+                tokens: linkTokens,
+                publicUrl: config.publicUrl,
+                report,
+              },
+              installed,
+              callback,
+            );
+          },
         }
       : null,
     log: console,
