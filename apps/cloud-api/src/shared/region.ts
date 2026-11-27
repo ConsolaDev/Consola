@@ -1,7 +1,7 @@
 /**
- * The regions a workspace can be in, each served by a cell of its own; accounts stay global. A
- * workspace's region is picked when it is made, and nothing changes it afterwards. `cloud-global`
- * and every cell read this one list.
+ * The regions a workspace can be in. A deployment runs in one (`REGION`), and every workspace it
+ * makes is made in it; nothing changes a workspace's region afterwards. Accounts and the
+ * configuration read this one list.
  */
 export const REGIONS = ['eu', 'us'] as const;
 

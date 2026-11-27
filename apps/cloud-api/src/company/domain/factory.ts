@@ -11,7 +11,7 @@ import { teamsSeenBy } from './team.js';
 import type { Team } from './team.js';
 
 /**
- * A workspace's factories, held in its region's cell: a name, the team that owns it, where its
+ * A workspace's factories, held in Consola: a name, the team that owns it, where its
  * files come from, and its files, versioned. Each save of the files is a new version, numbered
  * from 1, and every earlier version stays readable. A factory is made blank: its first version
  * holds no files.
@@ -21,7 +21,7 @@ import type { Team } from './team.js';
  * inside the folder and its text. A factory may also hold an agent team, in its own layout
  * (`agents/<name>/agent.md`, `automations/<name>/automation.md`, `skills/<name>/…`), which
  * factory-spec reads apart (`parseAgentTeam`). A set is stored only when factory-spec's parsers
- * find no issue in it, so the cell holds no version a runner would refuse to load.
+ * find no issue in it, so the app holds no version a runner would refuse to load.
  *
  * Who sees a factory follows its team (decided 2026-11-21): a person sees the factories of the
  * teams they see (`teamsSeenBy`), so owners and admins see every factory and a member the
@@ -32,9 +32,9 @@ import type { Team } from './team.js';
 /** Where a factory's files come from. Only stored here, for now; a repo's comes with 9.4. */
 export type FactorySource = { kind: 'stored' };
 
-/** A factory as the cell holds it, without its files. */
+/** A factory as the app holds it, without its files. */
 export type Factory = {
-  /** The factory's id, which the cell gives it. */
+  /** The factory's id, which the app gives it. */
   readonly id: string;
   readonly name: string;
   /** The team that owns it, which always exists: a team that owns a factory is not deleted. */
@@ -55,7 +55,7 @@ export type FactoryVersion = {
   readonly version: number;
   /** When it was saved, as an ISO 8601 time. */
   readonly savedAt: string;
-  /** The global id of the person who saved it. */
+  /** The id of the person who saved it. */
   readonly savedBy: string;
   /** Its files, by path. */
   readonly files: FactoryFile[];
@@ -80,7 +80,7 @@ const CONTROL = /\p{Cc}/u;
 /**
  * A factory's name, trimmed, when it is one: between 1 and `FACTORY_NAME_MAX` characters, with no
  * control character in it. Every problem is named at once. Names are unique in a workspace
- * whatever their case, which the cell's store holds (`name-taken`).
+ * whatever their case, which the app's store holds (`name-taken`).
  */
 export function checkFactoryName(
   name: string,
@@ -124,7 +124,7 @@ const fileIssue = (file: string, message: string): FactoryIssue => ({ message, f
 
 /**
  * What is wrong with the set itself, before any file is parsed: too many files or bytes, a path
- * that is no path inside a factory or is given twice, and a file the cell cannot store as it was
+ * that is no path inside a factory or is given twice, and a file the app cannot store as it was
  * sent (over `MAX_FACTORY_TEXT_BYTES`, the most factory-spec reads of one file; a NUL, which a
  * database text cannot hold; or a lone surrogate, which no UTF-8 can).
  */

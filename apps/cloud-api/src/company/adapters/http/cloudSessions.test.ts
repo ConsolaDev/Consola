@@ -467,7 +467,7 @@ describe('POST /api/cloud-sessions/:id/stop', () => {
   it('is still 202 while the runner is disconnected', async () => {
     const connected = build();
     await post(connected.app, '/api/cloud-sessions', valid);
-    // Same database, a cell whose runner has gone.
+    // Same database, an app whose runner has gone.
     const gone = build(null);
     const response = await post(gone.app, '/api/cloud-sessions/session-1/stop');
     expect(response.status).toBe(202);
@@ -524,7 +524,7 @@ describe('POST /api/cloud-sessions/:id/pass', () => {
     expect(await answerOf(postCloudSessionPass, unknown)).toEqual({ error: 'not_found' });
   });
 
-  it('is 503 no_runner when the cell has no pass key', async () => {
+  it('is 503 no_runner when the app has no pass key', async () => {
     const { app } = await running(build(offer, null));
     const response = await post(app, '/api/cloud-sessions/session-1/pass');
     expect(response.status).toBe(503);

@@ -201,7 +201,7 @@ describe('checkFactoryFiles', () => {
     });
   });
 
-  it('refuses text the cell cannot store as it was sent', () => {
+  it('refuses text the app cannot store as it was sent', () => {
     const check = checkFactoryFiles([
       file('agents/a.md', 'a\u0000b'),
       file('agents/b.md', 'a\ud800b'),

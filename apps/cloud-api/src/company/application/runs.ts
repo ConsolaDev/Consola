@@ -182,7 +182,7 @@ async function seenRun(
 
 /**
  * The automation an automation run ran, as the factory version it executed defines it, and the
- * file behind it; null for a request (its orchestrator has no file in the cell yet), and when the
+ * file behind it; null for a request (its orchestrator has no file in Consola yet), and when the
  * version does not define the automation (a run recorded against files it did not come from).
  */
 async function automationOf(
@@ -278,7 +278,7 @@ export type ApprovalAnswering =
 /**
  * Records the caller's answer to a run waiting for approval, at the version they were shown.
  * Anyone on the run's factory's owning team may answer (`mayAnswer`), and the first answer for a
- * version stands. The cell records it and does not change the run: its runner acts on it.
+ * version stands. The app records it and does not change the run: its runner acts on it.
  *
  * In the order it checks: whether the caller sees the run (`not-found`, so a member of another
  * team learns nothing), whether they are on its team, then `judgeAnswer`'s waiting and version,
@@ -323,7 +323,7 @@ export type RunRecordAnswer =
 
 /**
  * Records a run a runner reports for a workspace, if `checkRun` finds nothing wrong with it. No
- * person calls it: the seed, the tests and the cell's agent runs (`agentRuns.ts`) do now, and a
+ * person calls it: the seed, the tests and the app's agent runs (`agentRuns.ts`) do now, and a
  * runner's connection will.
  */
 export async function recordRun(

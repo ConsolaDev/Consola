@@ -13,7 +13,7 @@ import type { RunStatus, RunWrite, StepStatus, WaitingOn } from './run.js';
 /**
  * Agent runs: a software factory led by one agent, an alternative to the steps design. A GitHub event
  * fires an automation of a factory's team, which starts a cloud session nobody types into, whose
- * first agent is the automation's (by default the team's orchestrator). These are the rules the cell
+ * first agent is the automation's (by default the team's orchestrator). These are the rules the app
  * keeps about one: what it is called, where it came from, and the start it hands the runner.
  */
 
@@ -24,7 +24,7 @@ export const AGENT_RUN_TITLE_MAX = 200;
 const CONTROL = /\p{Cc}+/gu;
 
 /**
- * An agent run's title, which the cell gives it and the runner never replaces:
+ * An agent run's title, which the app gives it and the runner never replaces:
  * `<automation> · <owner/name>#<number> <title>`, on one line, cut to `AGENT_RUN_TITLE_MAX`.
  */
 export function agentRunTitle(automation: string, event: PullRequestEvent): string {
@@ -70,7 +70,7 @@ export function agentRunHarness(team: AgentTeam, automation: TeamAutomation): Ha
 /**
  * The start the runner is handed for an agent run with id `runId`: factory-spec's plan for the
  * automation on the event, with the pull request's head to check out, read back with the
- * protocol's reader so the cell never sends what a runner would refuse. A plan that cannot be
+ * protocol's reader so the app never sends what a runner would refuse. A plan that cannot be
  * made (factory-spec throws when the automation's agent is not in the team) or that the reader
  * refuses is `ok: false`, with the reason, for the log.
  */
@@ -102,7 +102,7 @@ export function agentRunStart(
     : { ok: false, reason: `the protocol refuses the start: ${read.reason}` };
 }
 
-/** What the cell knows of an agent run's run that its session does not say. */
+/** What the app knows of an agent run's run that its session does not say. */
 export type AgentRunFacts = {
   /** The factory version whose files the run started from. */
   readonly factoryVersion: number;
@@ -115,7 +115,7 @@ export type AgentRunFacts = {
 /** The longest one-line summary of an ended agent run, in characters. */
 export const AGENT_RUN_SUMMARY_LINE_MAX = 300;
 
-/** How each failure the cell decides reads on a run's page, as its error. */
+/** How each failure the app decides reads on a run's page, as its error. */
 const FAILURE_WORDS: Record<CellFailureCode, string> = {
   runner_restarted: 'The runner restarted, and the sandbox this run worked in is gone.',
   runner_unreachable: 'The cell could not hand this run to its runner.',
@@ -190,7 +190,7 @@ function standingOf(session: CloudSession): Standing {
  * than running steps of its own. Its one step is that agent (`orchestrator`), its trigger the
  * event, its item the pull request, its text what the agent was sent, and its conversation the
  * cloud session the agent works in. Its id is the session's. Where it stands follows the session
- * and the runner's last report (`standingOf`); an error is the runner's message or the cell's
+ * and the runner's last report (`standingOf`); an error is the runner's message or the app's
  * sentence for its own code. Null for a session that is no agent run.
  */
 export function agentRunRecord(

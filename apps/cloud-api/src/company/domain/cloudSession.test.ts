@@ -88,11 +88,11 @@ describe('endReported', () => {
 });
 
 describe('runnerFailure', () => {
-  it("keeps the runner's message, with no cell code", () => {
+  it("keeps the runner's message, with no code of the app's", () => {
     expect(runnerFailure('clone-failed')).toEqual({ error: 'clone-failed', errorCode: null });
   });
 
-  it("gives a failure the runner left unexplained the cell's code, so it is never neither", () => {
+  it("gives a failure the runner left unexplained the app's code, so it is never neither", () => {
     expect(runnerFailure(undefined)).toEqual({ error: null, errorCode: 'runner_failed' });
   });
 });

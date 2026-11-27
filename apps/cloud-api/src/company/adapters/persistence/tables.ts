@@ -91,7 +91,7 @@ export const teamMembers = pgTable(
  * pointed at through both ids, so it is always a team of the factory's own workspace, and a team
  * that owns a factory cannot be deleted. Names are unique in a workspace whatever their case.
  * `latest_version` is the number of its latest version, which a save moves by a compare-and-set.
- * The cell gives a factory its id. `source` says where its files come from: `stored`, here.
+ * The app gives a factory its id. `source` says where its files come from: `stored`, here.
  */
 export const factories = pgTable(
   'factory',
@@ -118,7 +118,7 @@ export const factories = pgTable(
 );
 
 /**
- * Each version of a factory's files: who saved it, by global id, and when. Versions are numbered
+ * Each version of a factory's files: who saved it, by id, and when. Versions are numbered
  * from 1, the blank version a factory is made with, and are never changed once saved.
  */
 export const factoryVersions = pgTable(
@@ -176,7 +176,7 @@ const oneOf = (column: SQLWrapper, words: readonly string[]) =>
  * runner's id. A run points at the version of its factory it ran, so its factory and version are
  * always the workspace's own. A run a request started points at the request through the
  * request's factory too, so a child is always of its request's factory, and whoever sees the
- * child sees the request. `title` and `phase` are the cell's, stored when the run is recorded so
+ * child sees the request. `title` and `phase` are the app's, stored when the run is recorded so
  * the list filters, searches and counts by them; a request's phase rolls up its children's. The
  * item, the steps and a request's facts are JSON; a request's text, which only its page reads, is
  * a column of its own. The checks hold the domain's rules on the row as a backstop to
@@ -266,7 +266,7 @@ export const runs = pgTable(
 
 /**
  * The answers people gave runs waiting for approval (`domain/runApproval.ts`): one per run and
- * factory version, the first given, by global id. The cell records an answer and never changes
+ * factory version, the first given, by id. The app records an answer and never changes
  * the run for it: its runner acts on it. An answer goes with its run.
  */
 export const runApprovals = pgTable(

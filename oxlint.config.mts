@@ -50,7 +50,7 @@ export default defineConfig({
         varsIgnorePattern: '^_',
       },
     ],
-    // A name's length is counted in code points, by the cell and the page
+    // A name's length is counted in code points, by the API and the page
     // alike, so a string spread into an array is meant.
     'typescript/no-misused-spread': ['error', { allow: ['string'] }],
     // Sorting strings by code unit is the order meant: stable whatever the

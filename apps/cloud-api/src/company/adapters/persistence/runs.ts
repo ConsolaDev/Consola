@@ -245,7 +245,7 @@ async function recordHeld(tx: Transaction, workspaceId: string, run: CheckedRun)
   return written.length > 0;
 }
 
-/** The workspace's runs on the cell's database. */
+/** The workspace's runs on the app's database. */
 export function createRunStore(db: Database): RunStore {
   return {
     async record(workspaceId, run) {

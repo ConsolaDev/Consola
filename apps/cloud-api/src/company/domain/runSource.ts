@@ -6,9 +6,9 @@ import type { ItemKind, LineRange, RunTrigger } from './run.js';
 /**
  * The file behind an automation run: where its automation is written in the factory version the
  * run executed, the whole file's text, the automation's own lines in it, and what its entry says
- * of how it starts. The cell reads it from the stored version on every read, never from the run's
+ * of how it starts. The app reads it from the stored version on every read, never from the run's
  * record, so it is the file as it was then, whatever the factory holds now. A request has none:
- * its orchestrator has no file in the cell yet.
+ * its orchestrator has no file in Consola yet.
  */
 export type RunSource = {
   /** The file the automation is written in: `automations/<name>.yaml`, or `factory.yml`. */

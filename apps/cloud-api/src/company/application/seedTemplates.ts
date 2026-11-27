@@ -32,7 +32,7 @@ function sameFiles(a: readonly FactoryFile[], b: readonly FactoryFile[]): boolea
  * template (`Code review team`) on the workspace's first team, whose latest files are exactly the
  * template's, saved by the workspace's first member (its owner, as `membership` lists them). It is made when missing, and a new version is saved only when its
  * latest files differ, the way the `Demo · <team>` factories are refreshed. The files go through
- * `checkFactoryFiles` first, as any save does, so a template the cell would refuse throws here.
+ * `checkFactoryFiles` first, as any save does, so a template the app would refuse throws here.
  */
 export async function seedCodeReviewTeam(
   ports: { teams: TeamStore; factories: FactoryStore; membership: MembershipReader },

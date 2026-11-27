@@ -7,7 +7,7 @@ import type {
 } from '@consola/factory-spec';
 
 /**
- * A workspace's runs, held in its region's cell: what each factory's runners ran, for the web's
+ * A workspace's runs, held in Consola: what each factory's runners ran, for the web's
  * Runs pages. A run is one of two kinds (the orchestrator spec, slice 6b, "A request is a run"):
  *
  * - a **request**, a run whose one step is the factory's orchestrator, started by a person with
@@ -16,12 +16,12 @@ import type {
  *   request and never changes), or one a trigger or a person started (a top-level run).
  *
  * A runner records each run (`RunStore.record`), and a record is stored only once `checkRun`
- * finds nothing wrong with it, so every run the cell answers keeps these rules. The one run the
- * cell records itself is an agent run's (`agentRunRecord`), a request whose conversation is the
- * cloud session the cell started. Who sees a run follows its factory (`factoriesSeenBy`): owners and admins every
+ * finds nothing wrong with it, so every run the app answers keeps these rules. The one run the
+ * app records itself is an agent run's (`agentRunRecord`), a request whose conversation is the
+ * cloud session the app started. Who sees a run follows its factory (`factoriesSeenBy`): owners and admins every
  * run, a member the runs of the factories of the teams they are in.
  *
- * Each run is in a **phase**, the cell's grouping of its status, which the list filters and
+ * Each run is in a **phase**, the app's grouping of its status, which the list filters and
  * counts by (`phaseOf`). A request whose own phase is active and one of whose children needs a
  * person needs one too (`requestPhase`), so a request parked on a child at a gate is filed with
  * the runs that need someone, not with those at work.
@@ -75,7 +75,7 @@ export type StepStatus = (typeof STEP_STATUSES)[number];
 export const ITEM_KINDS = ['pr', 'issue'] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
 
-// The engine's words are all the cell's: a status the engine records is never refused here.
+// The engine's words are all the app's: a status the engine records is never refused here.
 type Missing<Engine, Cell> = Exclude<Engine, Cell> extends never ? true : Exclude<Engine, Cell>;
 const engineRunStatusesHeld: Missing<EngineRunStatus, RunStatus> = true;
 const engineStepStatusesHeld: Missing<StepRunStatus, StepStatus> = true;
@@ -304,7 +304,7 @@ type NewStepFields =
   | 'reminded'
   | 'output';
 
-/** The most of each of a step's stdout and stderr the cell keeps: the end of it, in UTF-8 bytes. */
+/** The most of each of a step's stdout and stderr the app keeps: the end of it, in UTF-8 bytes. */
 export const OUTPUT_TAIL_MAX = 16 * 1024;
 
 /** What a request spent or may spend: dollars, by the CLI's estimate, and runs started. */
@@ -326,7 +326,7 @@ export const REQUEST_TEXT_MAX_BYTES = 64 * 1024;
 export const TITLE_MAX = 120;
 
 /**
- * A run as a runner records it: everything the cell keeps of it. The run's id is the runner's,
+ * A run as a runner records it: everything the app keeps of it. The run's id is the runner's,
  * and a record of an id the workspace already holds replaces it (`RunStore.record`).
  */
 export type RunWrite = {
@@ -343,7 +343,7 @@ export type RunWrite = {
   readonly trigger: RunTrigger;
   /** The event's name, the cron schedule or the poll's check: what the trigger was. */
   readonly triggerDetail: string | null;
-  /** The global id of the person who started it, for a run a person started. */
+  /** The id of the person who started it, for a run a person started. */
   readonly startedBy: string | null;
   readonly item: RunItem | null;
   /** Which runner ran it: `cloud` for now; the set grows. */
@@ -369,7 +369,7 @@ export type RunWrite = {
   readonly updatedAt: string;
 };
 
-/** A record `checkRun` found nothing wrong with, with what the cell derives from it. */
+/** A record `checkRun` found nothing wrong with, with what the app derives from it. */
 export type CheckedRun = RunWrite & {
   readonly kind: RunKind;
   readonly title: string;
@@ -522,7 +522,7 @@ export function titleOf(run: Pick<RunWrite, 'item' | 'automation' | 'request'>):
 /** A run's id: the runner's, letters, digits and `.`, `_`, `:` or `-`, at most 128 characters. */
 export const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 
-/** An ISO 8601 time with its offset, to the millisecond at most, as the cell stores it. */
+/** An ISO 8601 time with its offset, to the millisecond at most, as the app stores it. */
 const ISO_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/;
 
 const isTime = (value: string): boolean => ISO_TIME.test(value) && !Number.isNaN(Date.parse(value));
@@ -636,9 +636,9 @@ function stepDetailProblems(
 export type RunProblem = { readonly field: string; readonly message: string };
 
 /**
- * Whether a record may be stored, and if so what the cell derives from it: its kind, its title
+ * Whether a record may be stored, and if so what the app derives from it: its kind, its title
  * and its own phase. Every problem is named at once. A runner's record is checked as factory
- * files are, so the cell holds no run its pages could not show: no status or kind it does not
+ * files are, so the app holds no run its pages could not show: no status or kind it does not
  * know, a `waitingOn` exactly when waiting, an automation exactly for an automation run and a
  * request's facts exactly for a request, a parent only on an automation run (started by the
  * request, so `manual` and by no person), an item only at an https address, times it can store,

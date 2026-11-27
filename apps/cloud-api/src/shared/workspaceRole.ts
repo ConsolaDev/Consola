@@ -1,7 +1,7 @@
 /**
- * A person's role in a workspace: the one `cloud-global` keeps on their membership. A cell learns
- * it from the token and from the outbox, never from anywhere else, and decides what each role
- * may do there.
+ * A person's role in a workspace: the one accounts keep on their membership (`member`). Company
+ * code learns it only through the `MembershipReader`, read for each request, and decides what each
+ * role may do there.
  */
 export const WORKSPACE_ROLES = ['owner', 'admin', 'member'] as const;
 

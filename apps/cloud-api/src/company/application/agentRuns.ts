@@ -25,13 +25,13 @@ import { recordRun } from './runs.js';
  * Agent runs: a software factory led by one agent, beside the steps design. A GitHub `pull_request`
  * event fires the automations of a workspace's factories' agent teams whose triggers match it,
  * and each starts an agent run: a cloud session no person started or types into, whose first
- * agent is the automation's. The cell records it, hands its start to the workspace's runner, and
+ * agent is the automation's. The app records it, hands its start to the workspace's runner, and
  * keeps what the runner reports (`applyRunnerUpdate`).
  *
  * Each agent run is also a run of the Runs pages: a request whose orchestrator is its first agent
- * and whose conversation is its session (`agentRunRecord`). The cell records that run itself, as
+ * and whose conversation is its session (`agentRunRecord`). The app records that run itself, as
  * it starts the session, and again after every change to the session (`keepingRunsInStep`):
- * in this experiment the cell, not a runner, decides that a run starts, so it is the run's writer.
+ * in this experiment the app, not a runner, decides that a run starts, so it is the run's writer.
  */
 
 /** A GitHub event the webhook recorded for a workspace, as it hands it on to start its runs. */
@@ -99,11 +99,11 @@ export async function startAgentRunsFor(
 
 /**
  * Starts one agent run: the row is recorded whatever happens, so a person sees that the event
- * arrived and why nothing ran. Its title is the cell's (`agentRunTitle`), its origin the factory,
+ * arrived and why nothing ran. Its title is the app's (`agentRunTitle`), its origin the factory,
  * automation and pull request. It needs the workspace's connected runner to offer the event's
  * repository and the first agent's harness (`claude` when it names none), and a start the
  * protocol reads (`agentRunStart`); short of any of them, the row is recorded `failed` with the
- * cell's code for it (`runner_unavailable`, `repository_not_offered`, `harness_not_offered`,
+ * app's code for it (`runner_unavailable`, `repository_not_offered`, `harness_not_offered`,
  * `agent_run_invalid`, whose reason is logged), and nothing is sent. Otherwise it is recorded
  * `starting` and handed to the runner, as a person's session is (`handToRunner`).
  */
@@ -159,7 +159,7 @@ export async function startAgentRun(ports: AgentRunPorts, firing: Firing): Promi
 type RunKeeping = { runs: RunStore; clock: Clock; report: (line: string) => void };
 
 /**
- * Records an agent run's run as its session stands now (`agentRunRecord`). A run the cell cannot
+ * Records an agent run's run as its session stands now (`agentRunRecord`). A run the app cannot
  * record (`recordRun`'s refusal, or a store that fails) is logged, with its id and why, and never
  * stops the session: the session is what runs, and the run only says so.
  */
@@ -194,7 +194,7 @@ async function recordAgentRun(
  * run, its run recorded again from what the run already holds (its factory version, its text and
  * when it was made) and the session as it is now. Every writer of a session goes through it (a
  * runner's update, its `hello`, a person's stop, a start handed over), so none can move a session
- * without its run. A run the cell holds no record of is left alone and logged: the record made as
+ * without its run. A run the app holds no record of is left alone and logged: the record made as
  * the session started is the only one that may create it.
  */
 export function keepingRunsInStep(

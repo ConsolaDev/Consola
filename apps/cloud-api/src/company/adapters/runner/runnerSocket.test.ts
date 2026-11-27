@@ -101,13 +101,13 @@ afterEach(async () => {
   runner.closeAll();
   await new Promise<void>((resolve) => server.close(() => resolve()));
   await closeDatabase();
-  // Nothing the cell logged, whatever a test did, holds the secret or the pass key.
+  // Nothing the app logged, whatever a test did, holds the secret or the pass key.
   const logged = lines.join('\n');
   expect(logged).not.toContain(SECRET);
   expect(logged).not.toContain(privateD);
 });
 
-/** A runner's socket, as the runner opens it, and what the cell sends it. */
+/** A runner's socket, as the runner opens it, and what the app sends it. */
 type Runner = {
   socket: WebSocket;
   received: CellMessage[];
@@ -138,7 +138,7 @@ function open(secret = SECRET): Promise<Runner> {
   });
 }
 
-/** The status the cell answers an upgrade with, when it refuses one. */
+/** The status the app answers an upgrade with, when it refuses one. */
 function refusal(headers: Record<string, string>): Promise<number> {
   const socket = new WebSocket(url, { headers });
   clients.push(socket);
@@ -160,7 +160,7 @@ const hello = (over: Partial<RunnerHello> = {}): RunnerHello => ({
   ...over,
 });
 
-/** Opens a runner's socket and says hello, once the cell has taken it. */
+/** Opens a runner's socket and says hello, once the app has taken it. */
 async function connect(over: Partial<RunnerHello> = {}, secret = SECRET): Promise<Runner> {
   const opened = await open(secret);
   opened.send(hello(over));
@@ -234,7 +234,7 @@ describe('the runner socket', () => {
       expect(plain.status).toBe(426);
     });
 
-    it('is never in what the cell answers or logs', async () => {
+    it('is never in what the app answers or logs', async () => {
       const wrong = `${SECRET}-but-wrong`;
       const response = await fetch(url.replace('ws:', 'http:'), {
         headers: { authorization: `Bearer ${wrong}` },
@@ -351,7 +351,7 @@ describe('the runner socket', () => {
       });
     });
 
-    it('sends a session.stop for each listed session the cell holds as ended, or does not know', async () => {
+    it('sends a session.stop for each listed session the app holds as ended, or does not know', async () => {
       await holds('s-3', 'stopped');
       const connected = await connect({ runningSessionIds: ['s-3', 's-4'] });
       await waitFor(() =>
@@ -515,7 +515,7 @@ describe('the runner socket', () => {
       expect(lines.join('\n')).not.toMatch(/no longer serves/);
     });
 
-    /** Settles once the cell has read every frame `runner` sent so far: a ping's pong follows them. */
+    /** Settles once the app has read every frame `runner` sent so far: a ping's pong follows them. */
     function readByCell({ socket }: Runner): Promise<void> {
       return new Promise((resolve) => {
         socket.once('pong', () => resolve());
@@ -625,7 +625,7 @@ describe('the runner socket', () => {
     });
   });
 
-  it('closeAll closes every runner socket as the cell shuts down', async () => {
+  it('closeAll closes every runner socket as the app shuts down', async () => {
     const connected = await connect();
     runner.closeAll();
     expect(await connected.closed).toBe(RUNNER_SOCKET_CLOSE.shuttingDown);
