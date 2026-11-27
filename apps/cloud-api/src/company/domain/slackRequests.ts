@@ -146,7 +146,14 @@ export function slackRequestStart(
     : { ok: false, reason: `the protocol refuses the start: ${read.reason}` };
 }
 
-/** Whether an agent run is still open: queued, working, or waiting on a person. */
+/**
+ * Whether an agent run is still open: queued, working, or waiting on a person.
+ *
+ * Accepted for release 1: the check that a thread holds no open request is not atomic. It reads the
+ * thread's requests, then records a new one, so two messages in one thread handled at the same
+ * moment can both start a run. Release 2 turns a message in such a thread into a follow-up, and
+ * that is where it becomes one decision.
+ */
 export function isOpenRequest(session: CloudSession): boolean {
   const { status } = standingOf(session);
   return status === 'queued' || status === 'running' || status === 'waiting';
