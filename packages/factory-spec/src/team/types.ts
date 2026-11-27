@@ -75,6 +75,12 @@ export type AgentTeam = {
   automations: TeamAutomation[];
   skills: TeamSkill[];
   orchestrator?: TeamAgent;
+  /**
+   * `factory.yml`'s `repos:`, each `owner/name`, in the order written, as the steps design reads it
+   * (`factoryRepositories`). A request that names no repository, such as one from Slack, works in
+   * the first. Empty when the factory lists none.
+   */
+  repositories: string[];
 };
 
 /** The facts of a GitHub `pull_request` webhook event that matching and prompts read. */

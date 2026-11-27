@@ -88,6 +88,7 @@ export {
   LATER_FOLDERS,
   MAX_FACTORY_TEXT_BYTES,
   factoryFilesOf,
+  factoryRepositories,
   isIgnoredFileName,
   parseFactory,
   storedFactoryFiles,

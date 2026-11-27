@@ -170,6 +170,7 @@ describe('planAgentRun on a hand-built team', () => {
       ],
       automations: [],
       skills: [],
+      repositories: [],
     };
     const plan = planAgentRun(
       handMade,

@@ -237,13 +237,18 @@ const FROM_ITEM =
   "Writing on a pull request's own head is not supported: a write step cuts its branch from one of `repos:` (invariant 9).";
 const FROM_SHAPE = '`from:` names a branch of the repository, e.g. `from: main`.';
 
-/** A repository as `owner/name`, as `repos:` and a run-owned checkout name one. */
-export const REPO_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+/**
+ * A repository as `owner/name`, as `repos:` and a run-owned checkout name one. It is the shape
+ * the runner protocol takes (`isRepository` in `@consola/runner-protocol`), so a repository a
+ * factory lists is one a cloud runner can be asked for: the owner is letters, digits and `-`, and
+ * the name may not start with `.`, so it never names `.`, `..` or `.git`.
+ */
+export const REPO_PATTERN = /^[A-Za-z0-9-]+\/(?!\.)[A-Za-z0-9._-]+$/;
 /** The most repositories `repos:` may list. */
 export const MAX_REPOS = 50;
 /** What an entry of `repos:`, or a checkout's `repo:`, that is not `owner/name` is told. */
 export const REPO_ENTRY_SHAPE =
-  'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`.';
+  'Each entry of `repos:` is a repository as `owner/name`, e.g. `sprocket/catalog-portal`: the owner is letters, digits and `-`, and the name is letters, digits, `-`, `_` and `.`, not starting with `.`.';
 
 /**
  * `checkout: { repo, branch, from? }`: the run works in a checkout of its

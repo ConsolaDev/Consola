@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CODE_REVIEW_TEAM_FILES } from './codeReviewTeam.generated';
+import { parseFactory, storedFactoryFiles } from '../factory';
 import { hasAgentTeam, parseAgentTeam } from './parse';
 import type { TeamFile } from './types';
 
@@ -207,5 +208,66 @@ describe('parseAgentTeam', () => {
     expect(issues).toEqual([]);
     expect(team.agents.map((a) => a.name)).toEqual(['orchestrator']);
     expect(team.skills).toEqual([]);
+    expect(team.repositories).toEqual([]);
+  });
+});
+
+describe("parseAgentTeam's repositories", () => {
+  const yml = (text: string) => file('factory.yml', text);
+  const REPOS = 'version: 1\nrepos: [sprocket/catalog-portal, sprocket/catalog-api]\n';
+
+  it("reads factory.yml's repos:, in the order written", () => {
+    const { team, issues } = parseAgentTeam([ORCHESTRATOR, yml(REPOS)]);
+    expect(issues).toEqual([]);
+    expect(team.repositories).toEqual(['sprocket/catalog-portal', 'sprocket/catalog-api']);
+  });
+
+  it('has none without a factory.yml, or with one that lists none', () => {
+    expect(parseAgentTeam(CODE_REVIEW_TEAM_FILES).team.repositories).toEqual([]);
+    expect(parseAgentTeam([ORCHESTRATOR, yml('version: 1\n')]).team.repositories).toEqual([]);
+    expect(parseAgentTeam([ORCHESTRATOR, yml('')]).team.repositories).toEqual([]);
+  });
+
+  it("keeps them when a steps entry of factory.yml has a problem: that is the entry's", () => {
+    const text = `${REPOS}automations:\n  - name: broken\n    on: { cron: nonsense }\n`;
+    expect(parseAgentTeam([ORCHESTRATOR, yml(text)]).team.repositories).toEqual([
+      'sprocket/catalog-portal',
+      'sprocket/catalog-api',
+    ]);
+  });
+
+  it.each([
+    ['repos: that is no list', 'version: 1\nrepos: sprocket/catalog-portal\n'],
+    [
+      'an entry that is not owner/name',
+      'version: 1\nrepos: [sprocket/catalog-portal, catalog-api]\n',
+    ],
+    [
+      'an entry listed twice',
+      'version: 1\nrepos: [sprocket/catalog-portal, Sprocket/Catalog-Portal]\n',
+    ],
+    ['a factory.yml that does not parse', 'version: 1\nrepos: [sprocket/catalog-portal\n'],
+    ['a factory.yml with a key it does not take', `${REPOS}colour: blue\n`],
+  ])('has none for %s, and leaves the issue to the steps parser', (_kind, text) => {
+    const files = [ORCHESTRATOR, yml(text)];
+    const { team, issues } = parseAgentTeam(files);
+    expect(team.repositories).toEqual([]);
+    expect(issues).toEqual([]);
+    const steps = parseFactory(storedFactoryFiles([yml(text)]));
+    expect(steps.issues.length).toBeGreaterThan(0);
+    expect(steps.issues.every((issue) => issue.file === 'factory.yml')).toBe(true);
+  });
+
+  it('reads them as the steps design does, from the same files', () => {
+    for (const text of [
+      REPOS,
+      'version: 1\n',
+      'version: 1\nrepos: [sprocket/.github]\n',
+      `${REPOS}automations:\n  - name: broken\n`,
+    ]) {
+      const files = [ORCHESTRATOR, yml(text)];
+      const steps = parseFactory(storedFactoryFiles([yml(text)]));
+      expect(parseAgentTeam(files).team.repositories).toEqual(steps.repos);
+    }
   });
 });
