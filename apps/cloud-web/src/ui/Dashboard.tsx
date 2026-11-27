@@ -9,7 +9,6 @@ import { currentHash, onHashChange, openHash, replaceHash } from '../services/ad
 import { AccountMenu } from './AccountMenu';
 import { FactoriesNav } from './FactoriesNav';
 import { FactoryView, factoryLayout } from './FactoryView';
-import { Footer } from './Footer';
 import { NewFactoryDialog } from './NewFactoryDialog';
 import { SECTIONS } from './sections';
 import type { SectionProps } from './sections';
@@ -168,7 +167,6 @@ export function Dashboard({
             />
           )}
         </main>
-        <Footer />
       </div>
       {settingsOpen && (
         <SettingsDialog

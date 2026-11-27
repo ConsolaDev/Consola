@@ -329,8 +329,8 @@ is created and before every new session. It is open for now (any Google
 account with a verified email), so this deployment is for local use only. The
 later rule that limits it to the company lands in `mayJoin` and so gates every
 sign-in (sessions already open when the rule changes are not ended this
-round). The web app's footer links to the source of the commit it runs
-(AGPL §13).
+round). The web app links to the source of the commit it runs (AGPL §13),
+at the foot of Settings → General and of the sign-in page.
 
 ### Agent teams (an experiment)
 
@@ -1585,7 +1585,7 @@ rules follow:
   license. Such a package must not import from `apps/*` — that would pull
   AGPL code into it.
 - **A server people use over the network offers its source** (AGPL §13). The
-  cloud web app links to the source of the version it is running.
+  cloud web app links to the source of the commit it is running.
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
   MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
   installed dependency's declared licence against the list in

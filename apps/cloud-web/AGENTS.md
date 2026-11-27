@@ -120,8 +120,8 @@ The app is built in layers, and imports point inward only.
   know Better Auth.
 - The entry wires the page. `src/main.tsx` mounts `ui/App` inside Radix's
   `Theme` and follows the system's colour scheme, and `src/env.d.ts` declares
-  the build constants (`__CONSOLA_COMMIT__`, `__CONSOLA_VERSION__`) that
-  `vite.config.ts` defines.
+  the build constant (`__CONSOLA_COMMIT__`) that `vite.config.ts` defines.
+  There is no version constant: the cloud runs a commit, not a release.
 
 ## The dependency rule
 
@@ -865,7 +865,10 @@ takes the icon off). A pick is set at once (`setWorkspaceIcon`), then the page
 loads again (`onWorkspaceChanged`); anyone else sees the tile and no picker,
 and the server refuses them whatever the page shows. An uploaded image, which
 the desktop also offers, is not offered: it would put a person's file in
-the API's accounts.
+the API's accounts. The page ends with the link to the running source
+(`Footer`, AGPL §13), the commit's first seven characters, under a hairline.
+The dashboard has no footer of its own; only the narrow page (sign-in, the
+create form) shows the same link at its foot.
 
 ### Connections
 

@@ -1,5 +1,6 @@
 import { Lock } from 'lucide-react';
 import { regionName, regionPlace, roleName } from '../domain/workspace';
+import { Footer } from './Footer';
 import type { SectionProps } from './sections';
 import { WorkspaceIconPicker } from './WorkspaceIconPicker';
 import './GeneralPage.css';
@@ -7,7 +8,8 @@ import './GeneralPage.css';
 /**
  * Settings' first page: the workspace itself, as the desktop app's General page shows one (its
  * `WorkspaceSettings/ManifestHeader.tsx`): its icon, which an owner or admin changes from the
- * tile, beside its name over a quiet row of its facts. Under it, what cannot change.
+ * tile, beside its name over a quiet row of its facts. Under it, what cannot change, and at
+ * the page's foot the link to the running source.
  */
 export function GeneralPage({ workspace, onWorkspaceChanged }: SectionProps) {
   const place = regionPlace(workspace.region);
@@ -56,6 +58,8 @@ export function GeneralPage({ workspace, onWorkspaceChanged }: SectionProps) {
           </p>
         </div>
       </div>
+
+      <Footer />
     </section>
   );
 }
