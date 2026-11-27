@@ -4,7 +4,7 @@ import type {
   AgentRunState,
   CloudSession,
   CloudSessionOptions,
-  CloudSessionOrigin,
+  AgentRunOrigin,
   CloudSessionPass,
   DispatchedAgent,
   DispatchedAgentStatus,
@@ -50,7 +50,7 @@ const isTime = (value: unknown): value is number =>
  * What started an agent run, with the parts the pages read: the automation and its pull request,
  * or the Slack message a person asked in.
  */
-function isOrigin(value: unknown): value is CloudSessionOrigin {
+function isOrigin(value: unknown): value is AgentRunOrigin {
   if (isObject(value) && value.kind === 'slack') return isSlackOrigin(value);
   if (!isObject(value) || value.kind !== 'automation') return false;
   const { item } = value;
@@ -70,19 +70,25 @@ function isOrigin(value: unknown): value is CloudSessionOrigin {
   );
 }
 
-/** A request from Slack's origin: its factory, its orchestrator and its message (CON-144). */
+/**
+ * A request from Slack's origin (CON-144): its factory, its orchestrator, how it came (`via`, as
+ * any word: one a newer API names still reads as Slack's) and its message, whose permalink the
+ * page links and whose first line it shows.
+ */
 function isSlackOrigin(value: Record<string, unknown>): boolean {
   const { message } = value;
   return (
     isText(value.factoryId) &&
     isText(value.factoryName) &&
     isText(value.agent) &&
+    isText(value.via) &&
     isObject(message) &&
     isText(message.teamId) &&
     isText(message.channelId) &&
     isText(message.threadTs) &&
     isText(message.messageTs) &&
-    isText(message.permalink)
+    isText(message.permalink) &&
+    isText(message.title)
   );
 }
 

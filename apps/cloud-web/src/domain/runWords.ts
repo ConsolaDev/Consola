@@ -226,10 +226,19 @@ export function itemLinkWords(item: RunItem): string {
     : `Open the ${itemNoun(item)} ${itemLabel(item)}`;
 }
 
-/** How a request from Slack came, by its `triggerDetail`. */
+/**
+ * How a request from Slack came: the bot mentioned in a channel, or messaged directly, as its
+ * session's origin names it (`via`).
+ */
+export const SLACK_VIA_WORDS: Readonly<Record<'mention' | 'dm', string>> = {
+  mention: 'Mentioned in Slack',
+  dm: 'Direct message in Slack',
+};
+
+/** How a request from Slack came, by its run's `triggerDetail`: the same words. */
 export const SLACK_TRIGGER_WORDS = {
-  slack_mention: 'Mentioned in Slack',
-  slack_dm: 'Direct message in Slack',
+  slack_mention: SLACK_VIA_WORDS.mention,
+  slack_dm: SLACK_VIA_WORDS.dm,
 } as const;
 
 /** Where a request came from in Slack: how, in words, and its message's permalink. */

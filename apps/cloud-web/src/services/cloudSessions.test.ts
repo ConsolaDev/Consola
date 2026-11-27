@@ -255,12 +255,14 @@ describe('an agent run, as the API lists it', () => {
         factoryId: 'f-1',
         factoryName: 'Code review',
         agent: 'orchestrator',
+        via: 'dm',
         message: {
           teamId: 'T024BE7LD',
           channelId: 'C024BE91L',
           threadTs: '1732700000.000100',
           messageTs: '1732700000.000100',
           permalink: 'https://sprocket.slack.com/archives/C024BE91L/p1732700000000100',
+          title: 'Can you look at the flaky checkout test?',
         },
       },
     } satisfies CloudSession;
@@ -269,8 +271,10 @@ describe('an agent run, as the API lists it', () => {
 
     for (const broken of [
       { ...slack.origin, message: { ...slack.origin.message, permalink: undefined } },
+      { ...slack.origin, message: { ...slack.origin.message, title: undefined } },
       { ...slack.origin, message: null },
       { ...slack.origin, factoryName: 7 },
+      { ...slack.origin, via: undefined },
     ]) {
       const refused = harness({ [LIST]: { status: 200, body: [{ ...slack, origin: broken }] } });
       expect(await refused.service.loadSessions(ACME)).toEqual({ kind: 'unavailable' });
