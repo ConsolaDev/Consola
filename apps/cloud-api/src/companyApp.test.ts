@@ -358,7 +358,8 @@ describe('the caller check', () => {
  * The routes that answer a request with no session, and what each answers a bare one: the health
  * check; GitHub's webhook deliveries, which are signed instead (with no webhook secret set, as
  * here, each is refused before it is read); GitHub's callback, a redirect that reads the session
- * itself and says in the redirect that there is none; and the runner's socket, behind the
+ * itself and says in the redirect that there is none; Slack's OAuth callback, a redirect whose
+ * signed state says who started it; and the runner's socket, behind the
  * runner's secret instead, which a bare request does not carry. Nothing else is open, but Better
  * Auth's own routes (`/api/auth/*`), where signing in happens.
  */
@@ -366,6 +367,7 @@ const OPEN_ROUTES: Record<string, number> = {
   'GET /api/health': 200,
   [`POST ${GITHUB_WEBHOOK_PATH}`]: 503,
   'GET /api/github/callback': 302,
+  'GET /api/slack/oauth/callback': 302,
   'GET /api/runner': 401,
 };
 
