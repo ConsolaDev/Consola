@@ -17,6 +17,7 @@ import { createWebhookSignatures } from './company/adapters/github/webhookSignat
 import { COMPANY_ROUTES, registerCompanyRoutes } from './company/adapters/http/app.js';
 import { GITHUB_ROUTES, registerGitHubRoutes } from './company/adapters/http/gitHub.js';
 import { GITHUB_WEBHOOK_PATH } from './company/adapters/http/gitHubContract.js';
+import { registerSlackRoutes, SLACK_ROUTES } from './company/adapters/http/slack.js';
 import { randomIds } from './company/adapters/persistence/cloudSessions.js';
 import { createGitHubStores } from './company/adapters/persistence/gitHubStores.js';
 import { createDrizzleStores as createCompanyStores } from './company/adapters/persistence/stores.js';
@@ -34,10 +35,16 @@ import type { AppDatabase } from './persistence/database.js';
 
 /**
  * Every route the app serves through its contract, in the order `composeApi` registers them:
- * accounts', company's, GitHub's and the ring's health check. `openapi.test.ts` checks that the
- * composed app serves these and nothing else but `OUTSIDE_THE_CONTRACT`.
+ * accounts', company's, GitHub's, Slack's and the ring's health check. `openapi.test.ts` checks
+ * that the composed app serves these and nothing else but `OUTSIDE_THE_CONTRACT`.
  */
-export const ROUTES = [...ACCOUNT_ROUTES, ...COMPANY_ROUTES, ...GITHUB_ROUTES, ...RING_ROUTES];
+export const ROUTES = [
+  ...ACCOUNT_ROUTES,
+  ...COMPANY_ROUTES,
+  ...GITHUB_ROUTES,
+  ...SLACK_ROUTES,
+  ...RING_ROUTES,
+];
 
 /**
  * The paths Consola's origin check does not guard (`createFrontDoor`): every path under
@@ -170,6 +177,8 @@ export async function composeApi(
       agentRuns: { ...cloudSessions, factories: company.factories, runs: company.runs, report },
     },
   });
+
+  registerSlackRoutes(app, { whoIsAsking, membership, publicUrl: config.publicUrl });
 
   registerHealthRoute(app, [
     () => checkAccountsHealth(accounts.health),
