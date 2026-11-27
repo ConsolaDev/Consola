@@ -17,6 +17,10 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
+// Whether this computer shows Automations: on, unless a test hides it.
+const labs = vi.hoisted(() => ({ automations: true }));
+vi.mock('../services/labsBridge', () => ({ labsBridge: labs }));
+
 const openPanel = vi.fn();
 const closePanel = vi.fn();
 vi.mock('./automationsStore', () => ({
@@ -374,6 +378,32 @@ describe('remembering where each workspace was left', () => {
     expect(useNavigationStore.getState().overlay).toBe('automations');
     expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
     expect(openPanel).toHaveBeenCalledWith({ kind: 'run', runId: 'run-9' });
+  });
+
+  it('opens nothing of Automations on a computer that hides it (labs)', () => {
+    labs.automations = false;
+    try {
+      useNavigationStore.setState({
+        activeWorkspaceId: 'workspace-1',
+        activeSessionId: 'session-3',
+        overlay: null,
+      });
+      vi.mocked(windowBridge.setView).mockClear();
+      openPanel.mockClear();
+
+      useNavigationStore.getState().openAutomations();
+      subscribeToShowAutomations();
+      vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({
+        workspaceId: 'workspace-1',
+        runId: 'run-9',
+      });
+
+      expect(useNavigationStore.getState().overlay).toBeNull();
+      expect(windowBridge.setView).not.toHaveBeenCalled();
+      expect(openPanel).not.toHaveBeenCalled();
+    } finally {
+      labs.automations = true;
+    }
   });
 
   it('switching workspace closes the Automations side panel', async () => {

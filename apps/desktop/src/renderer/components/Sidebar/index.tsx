@@ -10,6 +10,7 @@ import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { AttentionState } from '../../../shared/attention';
 import { AutomationsNavItem } from './AutomationsNavItem';
+import { labsBridge } from '../../services/labsBridge';
 import { FilterBar } from './FilterBar';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
 import { useRenamingStore } from '../../stores/renamingStore';
@@ -405,7 +406,7 @@ export function Sidebar() {
         )}
         {workspace && !isInbox && (
           <div className="home-navigation">
-            <AutomationsNavItem workspace={workspace} />
+            {labsBridge.automations && <AutomationsNavItem workspace={workspace} />}
             {/* Always there, even with one scope: it is also where scopes are added. */}
             <hr className="sidebar-scope-divider" />
             <FilterBar workspace={workspace} accessory={<NavigationSettings />} />

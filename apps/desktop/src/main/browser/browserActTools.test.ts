@@ -284,6 +284,7 @@ async function call(name: string, args: Record<string, unknown>, sessionId = 'w-
       localServers: async () => [],
     }),
     getWorkspaces: () => workspaces,
+    labs: { automations: true },
   });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: 'fake-agent', version: '0.0.0' });

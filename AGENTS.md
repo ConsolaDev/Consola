@@ -389,6 +389,7 @@ Bridge services are in `src/renderer/services/`:
 - `fileBridge.ts` - File system reads
 - `gitBridge.ts` - Git status
 - `browserBridge.ts` - In-app browser tabs and page actions
+- `labsBridge.ts` - Which hidden sections this computer turned on
 
 The website's demo runs the renderer against a hand-written stand-in for the
 whole bridge (`apps/website/demo/mock.ts`, typed by `DemoBridge` to hold every
@@ -396,6 +397,33 @@ whole bridge (`apps/website/demo/mock.ts`, typed by `DemoBridge` to hold every
 checks for before using). A new API, or a new member of one, must land there
 too, or the site breaks: its Vercel build does not typecheck, so CI's
 `pnpm --filter @consola/website typecheck` is what notices.
+
+### Labs Hide What Has Not Shipped
+
+A lab is a section that shows only on a computer that turns it on, in
+`~/.consola/labs.json` (`{ "automations": true }`). There are no remote
+flags, so a fresh install, with no file, shows none (`shared/labs.ts`). Main
+reads the file once per launch (`labs()`: restart after editing it) and hands
+it to each window as a launch argument (`--consola-labs`, read through
+`labsBridge`), so a hidden section never paints for a frame. A test run never
+reads the person's file: every lab is on, unless `CONSOLA_E2E_LABS` gives the
+file's JSON. The website's demo has every lab off.
+
+Automations is the one lab. Hidden, the runner still starts in main, so run
+history, recovery and the checkouts runs hold stay right. Everything that
+leads to it goes:
+
+- the sidebar item and the dashboard (`openAutomations`, and the remembered
+  view through `resolveRememberedView`)
+- the snapshots: `automationsStore` reads none, so there are no run rows,
+  Inbox gate marks or Secrets
+- Settings › Secrets (`sectionShown`)
+- its notifications
+- every agent tool that is part of it (`partOfAutomations`), and every
+  destructive tool, whose approval waits in its dashboard (`offeredWithLabs`)
+
+A new surface of a lab checks it, and a new destructive tool is held back
+with it.
 
 ### Terminals Outlive Their Views
 

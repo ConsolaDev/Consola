@@ -58,11 +58,13 @@ function session(id: string) {
 }
 
 describe('resolveRememberedView', () => {
+  const SHOWN = { automations: true };
+
   it('keeps the automations overlay while dropping a dangling session', () => {
     const workspace = { sessions: [session('s1')] } as Workspace;
 
     expect(
-      resolveRememberedView({ activeSessionId: 'gone', overlay: 'automations' }, workspace),
+      resolveRememberedView({ activeSessionId: 'gone', overlay: 'automations' }, workspace, SHOWN),
     ).toEqual({
       activeSessionId: null,
       overlay: 'automations',
@@ -72,13 +74,15 @@ describe('resolveRememberedView', () => {
   it('returns the empty view when the workspace is gone', () => {
     const view: WorkspaceView = { activeSessionId: 's1', overlay: 'inbox' };
 
-    expect(resolveRememberedView(view, undefined)).toEqual(EMPTY_VIEW);
+    expect(resolveRememberedView(view, undefined, SHOWN)).toEqual(EMPTY_VIEW);
   });
 
   it('keeps a session that still exists', () => {
     const workspace = makeWorkspace({ sessions: [session('s1'), session('s2')] });
 
-    expect(resolveRememberedView({ activeSessionId: 's2', overlay: null }, workspace)).toEqual({
+    expect(
+      resolveRememberedView({ activeSessionId: 's2', overlay: null }, workspace, SHOWN),
+    ).toEqual({
       activeSessionId: 's2',
       overlay: null,
     });
@@ -90,7 +94,9 @@ describe('resolveRememberedView', () => {
     // answer here.
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: 'gone', overlay: null }, workspace)).toEqual({
+    expect(
+      resolveRememberedView({ activeSessionId: 'gone', overlay: null }, workspace, SHOWN),
+    ).toEqual({
       activeSessionId: null,
       overlay: null,
     });
@@ -99,9 +105,9 @@ describe('resolveRememberedView', () => {
   it('treats a remembered composer as a real answer, not as nothing remembered', () => {
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: null, overlay: null }, workspace)).toEqual(
-      EMPTY_VIEW,
-    );
+    expect(
+      resolveRememberedView({ activeSessionId: null, overlay: null }, workspace, SHOWN),
+    ).toEqual(EMPTY_VIEW);
   });
 
   it('keeps the Inbox open for a workspace that is still bound to a provider', () => {
@@ -110,7 +116,9 @@ describe('resolveRememberedView', () => {
       provider: { id: 'github', accountLogin: 'someone' },
     });
 
-    expect(resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace)).toEqual({
+    expect(
+      resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace, SHOWN),
+    ).toEqual({
       activeSessionId: 's1',
       overlay: 'inbox',
     });
@@ -119,10 +127,26 @@ describe('resolveRememberedView', () => {
   it('keeps integration onboarding open without a provider binding', () => {
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace)).toEqual({
+    expect(
+      resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace, SHOWN),
+    ).toEqual({
       activeSessionId: 's1',
       overlay: 'inbox',
     });
+  });
+  it('drops the automations overlay on a computer that hides Automations (labs)', () => {
+    const workspace = makeWorkspace({ sessions: [session('s1')] });
+
+    expect(
+      resolveRememberedView({ activeSessionId: 's1', overlay: 'automations' }, workspace, {
+        automations: false,
+      }),
+    ).toEqual({ activeSessionId: 's1', overlay: null });
+    expect(
+      resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace, {
+        automations: false,
+      }),
+    ).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
   });
 });
 

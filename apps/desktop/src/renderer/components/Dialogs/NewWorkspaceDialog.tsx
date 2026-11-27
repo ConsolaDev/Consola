@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { dialogBridge } from '../../services/dialogBridge';
+import { labsBridge } from '../../services/labsBridge';
 import { useNewWorkspaceDialogStore } from '../../stores/newWorkspaceDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import {
@@ -458,10 +459,12 @@ function WorkspacePreview({ draft, step }: { draft: NewWorkspaceDraft; step: New
               <Inbox size={11} />
             </span>
           </div>
-          <div className="nw-app-row">
-            <Zap size={11} />
-            Automations
-          </div>
+          {labsBridge.automations && (
+            <div className="nw-app-row">
+              <Zap size={11} />
+              Automations
+            </div>
+          )}
           <hr className="nw-app-divider" />
           <div className="nw-app-scopes" data-focus={step === 'folders' ? '' : undefined}>
             <div className="nw-app-heading">Scopes</div>

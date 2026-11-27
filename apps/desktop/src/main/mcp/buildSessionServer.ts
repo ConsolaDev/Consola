@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RunRecord } from '@consola/factory-spec';
 import type { StepToolSpec } from '@consola/automation-engine';
+import type { Labs } from '../../shared/labs';
 import type { Workspace } from '../../shared/workspace';
 import { browserRefusal } from '../browser/browserToolAccess';
 import { agentContext } from '../tools/Tool';
@@ -25,6 +26,20 @@ export interface SessionServerDeps {
   /** Adds the in-app browser tools; called only when `browserRefusal` allows the session. */
   browserTools: { addTo(server: McpServer, sessionId: string): void };
   getWorkspaces(): Workspace[];
+  /** This computer's labs: whether it shows Automations, where some tools' answers wait. */
+  labs: Pick<Labs, 'automations'>;
+}
+
+/**
+ * Whether an agent may be offered a tool on a computer that hides
+ * Automations: not one of its own, and not a destructive one, whose
+ * approval waits in its dashboard where nobody would see it.
+ */
+export function offeredWithLabs(
+  tool: { partOfAutomations?: boolean; destructive?: boolean },
+  labs: Pick<Labs, 'automations'>,
+): boolean {
+  return labs.automations || !(tool.partOfAutomations || tool.destructive);
 }
 
 /** Told to the agent on every destructive tool, so it knows to hand the decision over. */
@@ -67,6 +82,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
 
   for (const tool of deps.registry.list()) {
     if (readOnly && (tool.mutating || tool.fullToolsOnly)) continue;
+    if (!offeredWithLabs(tool, deps.labs)) continue;
     server.registerTool(
       mcpToolName(tool.name),
       {

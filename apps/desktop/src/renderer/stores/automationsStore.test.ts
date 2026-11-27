@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutomationsChange, AutomationsSnapshot } from '../../shared/automations';
 import type { WindowContext } from '../../shared/types';
 
-const { getSnapshot, onChanged, storage, windowContext } = vi.hoisted(() => {
+const { getSnapshot, onChanged, storage, windowContext, labs } = vi.hoisted(() => {
   const data = new Map<string, string>();
   (globalThis as { localStorage?: unknown }).localStorage = {
     getItem: (key: string) => data.get(key) ?? null,
@@ -10,9 +10,17 @@ const { getSnapshot, onChanged, storage, windowContext } = vi.hoisted(() => {
     removeItem: (key: string) => void data.delete(key),
   };
   const context: WindowContext = { workspaceId: null, activeSessionId: null, overlay: null };
-  return { getSnapshot: vi.fn(), onChanged: vi.fn(), storage: data, windowContext: context };
+  return {
+    getSnapshot: vi.fn(),
+    onChanged: vi.fn(),
+    storage: data,
+    windowContext: context,
+    labs: { automations: true },
+  };
 });
 vi.mock('../services/automationsBridge', () => ({ automationsBridge: { getSnapshot, onChanged } }));
+// Whether this computer shows Automations: on, unless a test hides it.
+vi.mock('../services/labsBridge', () => ({ labsBridge: labs }));
 // The store reads the window's context once, when it is created.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
@@ -39,6 +47,7 @@ function snap(filePath: string): AutomationsSnapshot {
 }
 
 beforeEach(() => {
+  labs.automations = true;
   storage.clear();
   getSnapshot.mockReset();
   onChanged.mockReset().mockReturnValue(() => {});
@@ -90,6 +99,17 @@ describe('automationsStore', () => {
     const { snapshots } = useAutomationsStore.getState();
     expect(snapshots.w1.filePath).toBe('/one');
     expect(snapshots.w2.filePath).toBe('/two');
+  });
+
+  it('reads no snapshot and hears no broadcast on a computer that hides Automations (labs)', async () => {
+    labs.automations = false;
+    getSnapshot.mockResolvedValue(snap('/a'));
+    await useAutomationsStore.getState().load('w1');
+    const unsubscribe = useAutomationsStore.getState().subscribe();
+    unsubscribe();
+    expect(getSnapshot).not.toHaveBeenCalled();
+    expect(onChanged).not.toHaveBeenCalled();
+    expect(useAutomationsStore.getState().snapshots).toEqual({});
   });
 });
 
