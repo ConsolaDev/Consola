@@ -62,7 +62,10 @@ The app is built in layers, and imports point inward only.
   `agentRunPhase`, `pullRequestLabel`, `pullRequestUrl`, `shortSha`, and the
   answers), where the section is
   (`sessionsRoute.ts`) and their sentences (`cloudSessionMessages.ts`; see
-  "Sessions"); where the
+  "Sessions"); Slack as a connection (`slack.ts`: a factory's app, its states
+  and setup steps, `checkSlackCredentials`, `isSlackAddress`, the callback's
+  results, the link page's hash and `linkPageView`, and the answers) and its
+  sentences (`slackMessages.ts`; see "Slack"); where the
   running source is (`source.ts`); and how the address names a dashboard
   section (`sections.ts`: `sectionIdOfHash`, `hashOfSection`, `chooseSection`)
   and a settings page
@@ -79,7 +82,7 @@ The app is built in layers, and imports point inward only.
   workspace's calls the API, naming the workspace and reading the caller's
   refusals; `teams.ts`: `teamsService`;
   `factories.ts`: `factoriesService`, a factory's files saved included; `runs.ts`: `runsService`;
-  `cloudSessions.ts`: `cloudSessionsService`), Better
+  `cloudSessions.ts`: `cloudSessionsService`; `slack.ts`: `slackService`), Better
   Auth's client (`authClient.ts`: `signInWithGoogle`, `signOut`), the
   clipboard (`clipboard.ts`: `copyText`) and the address bar
   (`signInRedirect.ts`: `takeSignInErrorCode`; `address.ts`: `currentHash`,
@@ -87,7 +90,8 @@ The app is built in layers, and imports point inward only.
   `currentSettingsPageId`, `openSettingsPage`, `onSettingsPageChange`;
   `gitHubRedirect.ts`: `takeGitHubResult`, `goToGitHub`; `runsAddress.ts`:
   `currentRunsHash`, `onRunsAddressChange`, `showRunsFilters`,
-  `showRunPlace`), whether the
+  `showRunPlace`; `slackAddress.ts`: `currentSlackLinkToken`,
+  `onSlackLinkChange`, `leaveSlackLink`, `takeSlackResult`, `goToSlack`), whether the
   page is in view (`pageVisibility.ts`), and the browser's storage, for a
   convenience only (`foldStore.ts`: `readUnfolded`, `writeUnfolded`;
   `runPagePrefs.ts`, what this browser keeps of a run's page;
@@ -110,7 +114,7 @@ The app is built in layers, and imports point inward only.
   and a factory's pages, `FactoryView.tsx` with `FactoryDefinitionPage` (its
   `FactoryFileTree`, `EditorTabs`, `CodeEditor`, `ProblemsPanel` and the
   edits it keeps while the person is away, `factoryDrafts.ts`),
-  `FactorySettingsPage` and `SourceChoice`), Settings
+  `FactorySettingsPage` with `FactorySlackSection`, and `SourceChoice`), Settings
   (`SettingsDialog.tsx`, its pages in `settingsPages.tsx`: `GeneralPage.tsx`
   with `WorkspaceIconPicker`, `ConnectionsPage.tsx`, and `TeamsPage.tsx` with
   `TeamCard.tsx` and `TeamNameForm.tsx`), the pieces they share (`Avatar`,
@@ -420,6 +424,8 @@ lists its factories, drawn as the desktop app draws its sidebar.
   changeable yet (`SourceChoice`). Whoever sees a factory may rename and move
   it, so there is no `canManage` to read; each sends
   `PATCH /api/factories/{factoryId}` with its one field. There is no delete.
+- **Slack** (`FactorySlackSection`, under Settings; see "Slack") is the
+  factory's own Slack app.
 - **New factory** is a dialog over the dashboard (`NewFactoryDialog`, a
   native modal `<dialog>` drawn as the desktop's dialogs): a name
   (`checkFactoryName`, the API's rule), the team that owns it (chosen for
@@ -814,7 +820,8 @@ under a topbar of their own.
   `.workspace-icon`). A page's own styles go in a stylesheet beside it
   (`ui/OverviewPage.css`, `ui/FactoryView.css`, `ui/FactoryDefinition.css`,
   `ui/NewFactoryDialog.css`,
-  `ui/SourceChoice.css`, `ui/GeneralPage.css`, `ui/ConnectionsPage.css`,
+  `ui/SourceChoice.css`, `ui/FactorySlack.css`, `ui/GeneralPage.css`,
+  `ui/ConnectionsPage.css`,
   `ui/TeamsPage.css`, `ui/RunsList.css`, `ui/RunFileView.css`,
   `ui/ApprovalCard.css`, `ui/RequestAutomations.css`, `ui/Sessions.css`),
   imported by the page.
@@ -932,6 +939,43 @@ anyone else whatever the page shows.
   the success check drawing itself, the connected dot's ping), and none plays
   under `prefers-reduced-motion`. Escape inside Disconnect's question answers
   Keep instead of closing Settings.
+
+## Slack
+
+Slack is a connection of each factory's own (CON-144, the Linear design
+"Cloud · Design: Slack as a Connection (CON-144)"): every factory has a Slack
+app with its own `@handle`, which people mention, or message, to send the
+factory's orchestrator a request. The API is the authority on everything
+(`apps/cloud-api`'s Slack routes, `slackContract.ts`), reached through
+`slackService` (`services/slack.ts`), which names the workspace as every
+service does. With Slack off on the server (no `CONNECTION_SECRETS_KEY`),
+every Slack route answers 503 `slack_not_configured`, and each page says so
+plainly (`not-configured`).
+
+- **A factory's Slack app** (`ui/FactorySlackSection.tsx`, with its own
+  `FactorySlack.css`, under the factory's Settings): Slack's mark, the app's
+  name (`@handle in <Slack workspace>` once installed) and its state's chip
+  (`SLACK_STATE_WORDS`), then, until it is in Slack, the setup's three steps
+  (`slackSteps`): **Create in Slack**, Slack's create-app page with the
+  factory's manifest filled in (`setup.createAppUrl`, linked only on Slack's
+  own address, `isSlackAddress`), or Copy the manifest; the **credentials**,
+  Client ID, Client Secret and Signing Secret, checked as the API checks them
+  (`checkSlackCredentials`, its rules copied) and sent once, the secrets in
+  password fields and never kept after the save; and **Add to Slack**, which
+  waits for the credentials and sends the person to Slack's authorise page
+  (`goToSlack`, only on Slack's address). Once installed: `/invite @handle`
+  with Copy, and Disconnect, which asks first, in place, and links the app's
+  page in Slack, where it is deleted. An app Slack no longer accepts
+  (`needs_reinstall`) says so, with Add to Slack again. Only owners and admins
+  (`canManage`) see the controls; a member sees the state and who to ask.
+- **How "Add to Slack" ended** comes back as `?slack=<result>` before the
+  factory's settings (or Connections, with no factory), from the API's
+  callback. It is read once and cleared (`takeSlackResult`) and said in a
+  notice (`messageForSlackResult`); a result this build does not know is
+  `unknown`, never shown raw. `SLACK_RESULTS` must hold exactly the contract's
+  `SlackCallbackResult` (`satisfies`, and the sentences' exhaustive switch).
+- **Every change shows what the API answered**: a save of the credentials
+  shows the app it answers; Disconnect reads the app again.
 
 ## Adding a feature
 

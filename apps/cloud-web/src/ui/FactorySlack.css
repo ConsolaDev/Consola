@@ -1,0 +1,326 @@
+/* A factory's Slack app, in its Settings (`FactorySlackSection`): a group drawn as the Settings
+   group above it (`.group`, `.group-box`), headed by Slack's mark, the app's name and its state,
+   then the setup's three steps, or the app once it is in Slack. Every class here is
+   `factory-slack-`. Nothing moves but the notice as it arrives, and not for someone who asked
+   for reduced motion. */
+
+.factory-slack {
+  display: flex;
+  flex-direction: column;
+}
+
+.factory-slack > * + * {
+  border-top: 1px solid var(--gray-a4);
+}
+
+.factory-slack-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 12px;
+  padding: 14px 18px;
+}
+
+.factory-slack-tile {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--gray-a5);
+  border-radius: 9px;
+  background: var(--color-background);
+}
+
+.factory-slack-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.factory-slack-name {
+  overflow: hidden;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.factory-slack-description {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+/* A state's chip: quiet, green once installed, yellow while it waits on someone. */
+.factory-slack-chip {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border: 1px solid var(--gray-a6);
+  /* A literal radius: Radix's --radius-full is 0 inside its theme. */
+  border-radius: 999px;
+  color: var(--gray-a10);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.factory-slack-chip[data-state="installed"] {
+  border-color: var(--green-a7);
+  color: var(--green-11);
+}
+
+.factory-slack-chip[data-state="awaiting_install"],
+.factory-slack-chip[data-state="needs_reinstall"] {
+  border-color: var(--amber-a7);
+  color: var(--amber-11);
+}
+
+.factory-slack-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 18px 16px;
+  font-size: var(--font-size-md);
+}
+
+.factory-slack-body p {
+  margin: 0;
+}
+
+.factory-slack-quiet {
+  color: var(--text-2);
+  font-size: var(--font-size-sm);
+}
+
+.factory-slack-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: var(--amber-11);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.factory-slack-warning svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.factory-slack-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---- The steps ---- */
+
+.factory-slack-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  padding: 6px 18px 8px;
+  list-style: none;
+}
+
+.factory-slack-step {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  column-gap: 12px;
+  padding: 10px 0;
+}
+
+.factory-slack-step + .factory-slack-step {
+  border-top: 1px dashed var(--gray-a4);
+}
+
+.factory-slack-marker {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--gray-a6);
+  border-radius: 999px;
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.factory-slack-step[data-status="current"] .factory-slack-marker,
+.factory-slack-step[data-status="next"] .factory-slack-marker {
+  border-color: var(--accent-8);
+  color: var(--accent-11);
+}
+
+.factory-slack-step[data-status="done"] .factory-slack-marker {
+  border-color: var(--green-a7);
+  background: var(--green-a3);
+  color: var(--green-11);
+}
+
+.factory-slack-step-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.factory-slack-step-title {
+  margin: 1px 0 0;
+  color: var(--text);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+}
+
+.factory-slack-step[data-status="waiting"] .factory-slack-step-title,
+.factory-slack-step[data-status="done"] .factory-slack-step-title {
+  color: var(--text-2);
+}
+
+.factory-slack-step .hint {
+  line-height: var(--line-height-normal);
+}
+
+/* The three credentials, each a label over its field. */
+.factory-slack-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 10px 12px;
+  max-width: 660px;
+}
+
+.factory-slack-fields .label {
+  font-size: var(--font-size-sm);
+}
+
+.factory-slack-fields .input {
+  font-family: var(--font-mono);
+}
+
+.factory-slack-fields .error {
+  font-size: var(--font-size-sm);
+}
+
+/* What a person copies: the invite command, the client ID saved. */
+.factory-slack-code {
+  padding: 2px 6px;
+  border: 1px solid var(--gray-a5);
+  border-radius: var(--radius-sm);
+  background: var(--color-background);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.factory-slack-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--gray-a10);
+  font: inherit;
+  font-size: var(--font-size-md);
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.factory-slack-ghost:hover:not(:disabled) {
+  background: var(--gray-a3);
+  color: var(--gray-12);
+}
+
+.factory-slack-ghost.danger:hover:not(:disabled) {
+  background: var(--red-a3);
+  color: var(--red-11);
+}
+
+.factory-slack-ghost:focus-visible {
+  outline: 2px solid var(--accent-8);
+  outline-offset: 1px;
+}
+
+.factory-slack-ghost:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* Disconnect's answer, in the confirm: the one red button. */
+.button.factory-slack-danger {
+  border-color: var(--red-a7);
+  color: var(--red-11);
+}
+
+.button.factory-slack-danger:hover:not(:disabled) {
+  background: var(--red-a3);
+}
+
+/* ---- How "Add to Slack" ended ---- */
+
+.factory-slack-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 8px 10px 12px;
+  border: 1px solid var(--gray-a6);
+  border-radius: 10px;
+  font-size: var(--font-size-md);
+}
+
+.factory-slack-notice p {
+  flex: 1;
+  margin: 0;
+}
+
+.factory-slack-notice[data-tone="done"] {
+  border-color: var(--green-a6);
+  background: var(--green-a2);
+  color: var(--green-11);
+}
+
+.factory-slack-notice[data-tone="problem"] {
+  border-color: var(--amber-a6);
+  background: var(--amber-a2);
+  color: var(--amber-11);
+}
+
+.factory-slack-notice svg {
+  flex-shrink: 0;
+}
+
+.factory-slack-notice .factory-slack-ghost {
+  color: inherit;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .factory-slack-notice {
+    animation: factory-slack-drop 320ms var(--ease-out-quart) backwards;
+  }
+}
+
+@keyframes factory-slack-drop {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+}
+
+@media (max-width: 640px) {
+  .factory-slack-head {
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: 8px;
+  }
+
+  .factory-slack-head .factory-slack-chip {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
