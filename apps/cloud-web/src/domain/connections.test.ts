@@ -111,7 +111,7 @@ describe('a choice of account', () => {
   });
 
   it('has a sentence for every way it cannot be shown', () => {
-    const states: Exclude<ChoiceState, { kind: 'loaded' }>[] = [
+    const states: Array<Exclude<ChoiceState, { kind: 'loaded' }>> = [
       { kind: 'refused', reason: 'bad-choice' },
       { kind: 'refused', reason: 'expired' },
       { kind: 'refused', reason: 'other-workspace' },
@@ -131,7 +131,7 @@ describe('a choice of account', () => {
   });
 
   it('has a sentence for every way choosing can fail', () => {
-    const answers: Exclude<ChooseAnswer, { kind: 'connected' | 'already-connected' }>[] = [
+    const answers: Array<Exclude<ChooseAnswer, { kind: 'connected' | 'already-connected' }>> = [
       { kind: 'refused', reason: 'not-a-candidate' },
       { kind: 'refused', reason: 'taken' },
       { kind: 'refused', reason: 'expired' },
