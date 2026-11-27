@@ -41,10 +41,12 @@ import {
 } from '../domain/connectionMessages';
 import {
   accountKind,
+  afterQuietRead,
   avatarUrl,
   isSuccess,
   justConnectedId,
   LATER_SERVICES,
+  refreshesOnShow,
   resultOfChoice,
   splitCandidates,
 } from '../domain/connections';
@@ -65,6 +67,7 @@ import {
   startGitHubConnect,
 } from '../services/api';
 import { goToGitHub, takeGitHubReturn } from '../services/gitHubRedirect';
+import { onPageVisibilityChange } from '../services/pageVisibility';
 import './ConnectionsPage.css';
 import type { SectionProps } from './sections';
 import { ServiceMark } from './serviceMarks';
@@ -100,14 +103,22 @@ export function ConnectionsPage({ workspace }: SectionProps) {
   );
   const [state, setState] = useState<ConnectionsState | null>(null);
   const latest = useRef(0);
+  const lastReadAt = useRef<number | null>(null);
   const title = useRef<HTMLHeadingElement>(null);
 
   const workspaceId = workspace.id;
-  const load = useCallback(async () => {
-    const asked = ++latest.current;
-    const answer = await loadConnections({ id: workspaceId });
-    if (asked === latest.current) setState(answer);
-  }, [workspaceId]);
+  // A quiet read is the page's own: it never shows the loading state, and one that does not
+  // answer keeps the connections shown (`afterQuietRead`).
+  const load = useCallback(
+    async (quiet = false) => {
+      const asked = ++latest.current;
+      lastReadAt.current = Date.now();
+      const answer = await loadConnections({ id: workspaceId });
+      if (asked !== latest.current) return;
+      setState((shown) => (quiet ? afterQuietRead(shown, answer) : answer));
+    },
+    [workspaceId],
+  );
 
   // The server answers for the session's active workspace, and refuses a call that names
   // another (`switched`). Settings mounts its page afresh for each workspace, so one load per
@@ -118,6 +129,17 @@ export function ConnectionsPage({ workspace }: SectionProps) {
       latest.current++;
     };
   }, [load]);
+
+  // Coming back to the page, from GitHub's tab above all, where the person may have changed
+  // which repositories an installation covers, reads the connections again, quietly, unless
+  // they were read a moment ago (`refreshesOnShow`).
+  useEffect(
+    () =>
+      onPageVisibilityChange((visible) => {
+        if (visible && refreshesOnShow(lastReadAt.current, Date.now())) void load(true);
+      }),
+    [load],
+  );
 
   // A notice or a choice that goes takes the button that had the keyboard with it, so the
   // keyboard lands on the page's title.

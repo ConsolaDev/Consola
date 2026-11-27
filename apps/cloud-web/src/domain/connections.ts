@@ -34,6 +34,33 @@ export type ConnectionsState =
   | { kind: 'unavailable' };
 
 /**
+ * How soon after its last read the page may read the connections again by itself, as it comes
+ * back into view: so flicking between tabs does not ask the API (and the API GitHub) each time.
+ */
+export const CONNECTIONS_REFRESH_MIN_MS = 5_000;
+
+/**
+ * Whether the page, shown again at `now`, reads its connections again: yes, unless it read them
+ * less than `CONNECTIONS_REFRESH_MIN_MS` ago. The person may have changed an installation on
+ * GitHub's own pages meanwhile.
+ */
+export function refreshesOnShow(lastReadAt: number | null, now: number): boolean {
+  return lastReadAt === null || now - lastReadAt >= CONNECTIONS_REFRESH_MIN_MS;
+}
+
+/**
+ * What the page shows after a read it made by itself, rather than for the person: the answer,
+ * except that a read that did not answer keeps the connections already shown, so a moment's
+ * outage never replaces the list with an error the person did not ask for.
+ */
+export function afterQuietRead(
+  shown: ConnectionsState | null,
+  read: ConnectionsState,
+): ConnectionsState {
+  return read.kind === 'unavailable' && shown?.kind === 'loaded' ? shown : read;
+}
+
+/**
  * The answer to starting a Connect: the addresses on GitHub to send the person to. `url` is
  * GitHub's sign-in for the app, where a Connect starts, since GitHub always sends the person back
  * from it; `installUrl` is the app's install page, for installing it on another account.

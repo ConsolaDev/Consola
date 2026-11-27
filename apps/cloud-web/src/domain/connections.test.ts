@@ -12,7 +12,9 @@ import {
 } from './connectionMessages';
 import {
   accountKind,
+  afterQuietRead,
   avatarUrl,
+  CONNECTIONS_REFRESH_MIN_MS,
   DAYS_AGO_SHOWN,
   GITHUB_RESULTS,
   isSuccess,
@@ -21,6 +23,7 @@ import {
   MAX_CHOICE_LENGTH,
   readGitHubResult,
   readGitHubReturn,
+  refreshesOnShow,
   resultOfChoice,
   splitCandidates,
   whenConnected,
@@ -28,6 +31,7 @@ import {
 import type {
   ChoiceState,
   ChooseAnswer,
+  ConnectionsState,
   GitHubCandidate,
   GitHubConnection,
   GitHubResult,
@@ -64,6 +68,42 @@ describe("a Connect's result", () => {
     // A result the API gains fails the typecheck here until the page names it.
     expectTypeOf<GitHubResult>().toEqualTypeOf<components['schemas']['GitHubCallbackResult']>();
     expect(new Set(GITHUB_RESULTS).size).toBe(GITHUB_RESULTS.length);
+  });
+});
+
+describe('reading the connections again as the page comes back into view', () => {
+  const loaded: ConnectionsState = {
+    kind: 'loaded',
+    connections: { canManage: true, github: { configured: true, installations: [] } },
+  };
+
+  it('reads again once a few seconds have passed since the last read, and on the first show', () => {
+    const at = 1_800_000_000_000;
+    expect(refreshesOnShow(null, at)).toBe(true);
+    expect(refreshesOnShow(at, at)).toBe(false);
+    expect(refreshesOnShow(at, at + CONNECTIONS_REFRESH_MIN_MS - 1)).toBe(false);
+    expect(refreshesOnShow(at, at + CONNECTIONS_REFRESH_MIN_MS)).toBe(true);
+    expect(CONNECTIONS_REFRESH_MIN_MS).toBe(5_000);
+  });
+
+  it('shows what the read answered', () => {
+    const fresher: ConnectionsState = {
+      kind: 'loaded',
+      connections: { canManage: false, github: { configured: true, installations: [] } },
+    };
+    expect(afterQuietRead(loaded, fresher)).toBe(fresher);
+    expect(afterQuietRead(null, fresher)).toBe(fresher);
+    expect(afterQuietRead(loaded, { kind: 'switched' })).toEqual({ kind: 'switched' });
+    expect(afterQuietRead(loaded, { kind: 'signed-out' })).toEqual({ kind: 'signed-out' });
+  });
+
+  it('keeps the connections shown when the read did not answer, rather than an error', () => {
+    expect(afterQuietRead(loaded, { kind: 'unavailable' })).toBe(loaded);
+    // With nothing shown to keep, the page says it could not load them.
+    expect(afterQuietRead(null, { kind: 'unavailable' })).toEqual({ kind: 'unavailable' });
+    expect(afterQuietRead({ kind: 'unavailable' }, { kind: 'unavailable' })).toEqual({
+      kind: 'unavailable',
+    });
   });
 });
 
