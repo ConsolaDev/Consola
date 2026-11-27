@@ -294,22 +294,32 @@ export type PassSigner = {
 };
 
 /**
- * What a session's host said of a follow-up: `delivered` now, or `already-delivered` under the
- * same key; `not-ready` while its run's first message is not yet sent; `not-here` when the host
- * at that address takes no follow-up for the session (it refused the pass, or runs no agent run);
- * `failed` when it could not be reached in time, or answered anything else.
+ * What a session's host said of a follow-up: `delivered` now, or `already-delivered` (the same
+ * follow-up, before); `not-ready` while its run's first message is not yet sent; `not-here` when
+ * the host at that address takes no follow-up for the session (it refused the pass, or runs no
+ * agent run); `not-allowed` when the address is not one the deployment calls
+ * (`hostAddressAllowed`), and nothing was sent; `failed` when it could not be reached in time, or
+ * answered anything else.
  */
 export type HostFollowUpAnswer =
   | 'delivered'
   | 'already-delivered'
   | 'not-ready'
   | 'not-here'
+  | 'not-allowed'
   | 'failed';
 
 /** How the app reaches a running session's host, at the address its runner reported. */
 export type HostChannel = {
-  /** Sends a follow-up with a pass for its author. Never throws: a failure is `failed`. */
-  sendFollowUp(hostUrl: string, pass: string, followUp: FollowUp): Promise<HostFollowUpAnswer>;
+  /**
+   * Sends a follow-up with a pass for its author to the session's host, if its address is one the
+   * deployment calls. Never throws: a failure is `failed`.
+   */
+  sendFollowUp(
+    session: { id: string; hostUrl: string },
+    pass: string,
+    followUp: FollowUp,
+  ): Promise<HostFollowUpAnswer>;
 };
 
 /** Everything the cloud session use cases need. */

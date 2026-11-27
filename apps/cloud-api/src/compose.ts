@@ -131,8 +131,9 @@ export async function composeApi(
     ids: randomIds,
     clock: systemClock,
     passes: passKey?.signer ?? null,
-    // A running session's host, at the address its runner reported: a follow-up's way in.
-    hosts: createHostChannel(),
+    // A running session's host, at the address its runner reported, if the deployment calls it:
+    // a follow-up's way in.
+    hosts: createHostChannel({ addresses: config.sandboxHosts, report }),
   };
 
   const app = createFrontDoor({ publicUrl: config.publicUrl, originExempt: ORIGIN_EXEMPT });

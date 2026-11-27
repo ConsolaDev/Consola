@@ -65,7 +65,7 @@ const request: FollowUpRequest = {
 /** Signs nothing: a pass here is its claims, as JSON, so a test can read what was signed. */
 const passSigner: PassSigner = { sign: async (claims) => `pass:${JSON.stringify(claims)}` };
 
-type Sent = { hostUrl: string; pass: string; followUp: FollowUp };
+type Sent = { sessionId: string; hostUrl: string; pass: string; followUp: FollowUp };
 
 /**
  * A host that keeps what it was sent and answers as t3 would: `delivered` for a key it has not
@@ -79,8 +79,8 @@ function setup(options: { answer?: HostFollowUpAnswer; passes?: PassSigner | nul
     clock: { nowSeconds: () => 1000 },
     passes: options.passes === undefined ? passSigner : options.passes,
     hosts: {
-      sendFollowUp: async (hostUrl, pass, followUp) => {
-        sent.push({ hostUrl, pass, followUp });
+      sendFollowUp: async ({ id, hostUrl }, pass, followUp) => {
+        sent.push({ sessionId: id, hostUrl, pass, followUp });
         if (options.answer !== undefined) return options.answer;
         if (seen.has(followUp.key)) return 'already-delivered';
         seen.add(followUp.key);
@@ -101,6 +101,7 @@ describe('sendFollowUp', () => {
     expect(await sendFollowUp(ports, target, request)).toEqual({ kind: 'delivered' });
     expect(sent).toHaveLength(1);
     const [first] = sent;
+    expect(first?.sessionId).toBe('session-run-1');
     expect(first?.hostUrl).toBe(HOST_URL);
     expect(first?.followUp).toEqual({
       key: 'slack:Ev0A1B2C3D4E',
@@ -179,6 +180,7 @@ describe('sendFollowUp', () => {
   it.each([
     ['not-ready', 'starting'],
     ['not-here', 'not_running'],
+    ['not-allowed', 'host_not_allowed'],
     ['failed', 'host_unreachable'],
   ] as const)('reads the host’s %s as %s', async (answer, kind) => {
     const { ports } = setup({ answer });

@@ -31,6 +31,18 @@ export type RunnerConfig = {
   passPrivateKey: Record<string, unknown>;
 };
 
+/**
+ * Which session host addresses the app calls itself (a follow-up): the host names a session's host
+ * may be under, and whether its runner's sandboxes run on this machine. The rule that reads them is
+ * company's `hostAddressAllowed`.
+ */
+export type SandboxHostsConfig = {
+  /** `SANDBOX_HOST_SUFFIXES`, lowercase: `e2b.app` when unset. */
+  suffixes: string[];
+  /** `LOCAL_SANDBOXES`: whether `http:` on loopback is a session's host. False when unset. */
+  local: boolean;
+};
+
 export type CloudConfig = {
   databaseUrl: string;
   authSecret: string;
@@ -49,6 +61,8 @@ export type CloudConfig = {
   githubWebhookSecret: string | null;
   /** Null when none of the runner's settings is set: then no runner connects, nor session starts. */
   runner: RunnerConfig | null;
+  /** Where the app may call a session's host itself. */
+  sandboxHosts: SandboxHostsConfig;
 };
 
 /** Where the web app's dev proxy, the runner and the webhook tunnel expect the API. */
@@ -203,6 +217,44 @@ function readWebhookSecret(
   return { ok: true, secret: value };
 }
 
+/** E2B's exposed ports, `https://<port>-<sandbox>.e2b.app`: the suffix a deployment expects. */
+const DEFAULT_SANDBOX_HOST_SUFFIXES = ['e2b.app'];
+
+/** A host name of two labels or more, whose last is no number: never an IP address or a URL. */
+const HOST_SUFFIX =
+  /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * `SANDBOX_HOST_SUFFIXES` (a comma list of host names, lowercased; `e2b.app` when unset or empty)
+ * and `LOCAL_SANDBOXES` (`true` or `false`; false when unset or empty), or what is wrong with them.
+ */
+function readSandboxHosts(
+  env: Record<string, string | undefined>,
+): { ok: true; hosts: SandboxHostsConfig } | { ok: false; problems: string[] } {
+  const problems: string[] = [];
+  const listed = (env.SANDBOX_HOST_SUFFIXES ?? '')
+    .split(',')
+    .map((each) => each.trim().toLowerCase())
+    .filter((each) => each !== '');
+  if (listed.some((each) => !HOST_SUFFIX.test(each))) {
+    problems.push(
+      'SANDBOX_HOST_SUFFIXES: must be host names separated by commas, such as e2b.app, with no scheme, port or leading dot',
+    );
+  }
+  const local = (env.LOCAL_SANDBOXES ?? '').trim();
+  if (local !== '' && local !== 'true' && local !== 'false') {
+    problems.push('LOCAL_SANDBOXES: must be true or false');
+  }
+  if (problems.length > 0) return { ok: false, problems };
+  return {
+    ok: true,
+    hosts: {
+      suffixes: listed.length > 0 ? listed : [...DEFAULT_SANDBOX_HOST_SUFFIXES],
+      local: local === 'true',
+    },
+  };
+}
+
 /** Lowercase letters and digits, with single dashes between: how GitHub spells an app's slug. */
 const GITHUB_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -257,13 +309,21 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
   });
   const github = readGitHubApp(env);
   const webhookSecret = readWebhookSecret(env.GITHUB_WEBHOOK_SECRET);
-  if (!result.success || runnerMissing.length > 0 || !github.ok || !webhookSecret.ok) {
+  const sandboxHosts = readSandboxHosts(env);
+  if (
+    !result.success ||
+    runnerMissing.length > 0 ||
+    !github.ok ||
+    !webhookSecret.ok ||
+    !sandboxHosts.ok
+  ) {
     const issues = result.success ? [] : result.error.issues;
     throw new ConfigError([
       ...issues.map((issue) => `${String(issue.path[0])}: ${issue.message}`),
       ...runnerMissing,
       ...(github.ok ? [] : github.problems),
       ...(webhookSecret.ok ? [] : [webhookSecret.problem]),
+      ...(sandboxHosts.ok ? [] : sandboxHosts.problems),
     ]);
   }
   const parsed = result.data;
@@ -285,6 +345,7 @@ export function loadConfig(env: Record<string, string | undefined>): CloudConfig
       secret !== undefined && workspaceId !== undefined && passPrivateKey !== undefined
         ? { secret, workspaceId, passPrivateKey }
         : null,
+    sandboxHosts: sandboxHosts.hosts,
   };
 }
 

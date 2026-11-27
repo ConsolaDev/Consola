@@ -177,7 +177,8 @@ Each part is built in rings, and imports point inward only.
   (`factory.ts`) and their templates (`factoryTemplates.ts`), runs (`run.ts`,
   `runApproval.ts`, `runSource.ts`), cloud sessions (`cloudSession.ts`),
   agent runs (`agentRun.ts`) and their follow-ups (`followUp.ts`:
-  `followUpBody`, `followUpReach`), and GitHub: who may connect it and whether a
+  `followUpBody`, `followUpReach`; `hostAddress.ts`: `hostAddressAllowed`,
+  the session host addresses the app calls), and GitHub: who may connect it and whether a
   Connect's state finishes in this session (`connections.ts`:
   `mayManageConnections`, `checkInstallState`), what a webhook delivery's
   headers name and the installation its payload came through (`webhooks.ts`:
@@ -230,7 +231,8 @@ Each part is built in rings, and imports point inward only.
     `noRunner`, which answers that none is connected;
   - `host/` is the `HostChannel`, how the app reaches a running session's
     host, over `fetch`, at the address its runner reported
-    (`hostChannel.ts`; below, "Agent runs").
+    (`hostChannel.ts`), to an address the deployment calls
+    (`SANDBOX_HOST_SUFFIXES`, `LOCAL_SANDBOXES`; below, "Agent runs").
 
 ### The composition ring
 
@@ -1215,8 +1217,16 @@ in `company/domain/agentRun.ts`, the use cases in
   session's host (`HostChannel`, `adapters/host/hostChannel.ts`): `POST
   <hostUrl>/agent-run/follow-ups`, the pass as bearer, the label as
   `authorLabel` (a label such as `a teammate in Slack`, never a name). No
-  runner relays it: the app reaches the host at the address its runner
-  reported, as a person's browser does. The host fences the text, says who
+  runner relays it: the app calls the address the runner reported, which the
+  protocol checked only as an origin, so before anything is sent the adapter
+  asks `hostAddressAllowed` (`domain/hostAddress.ts`) whether the deployment
+  calls it: `https:` under one of `SANDBOX_HOST_SUFFIXES` (`e2b.app`, E2B's
+  exposed ports, when unset) on the default port, never an IP address; or
+  `http:` on `127.0.0.1`, `localhost` or `[::1]` only with
+  `LOCAL_SANDBOXES=true` (sandboxes on this machine). Another address is
+  `host_not_allowed`, logged with the session's id alone. The name is not
+  resolved again, so one under an allowed suffix that points at a private
+  address is not caught: a known limit of the POC. The host fences the text, says who
   wrote it, and queues it after the orchestrator's turn once, keyed by `key`
   and the message it becomes (`packages/host/AGENTS.md`, "Agent runs"), so
   other words or another author under a used key are a follow-up of their own.
@@ -1226,7 +1236,7 @@ in `company/domain/agentRun.ts`, the use cases in
   `not_running` (the host there refused the pass or runs no agent run, `401`
   or `404`); and `host_unreachable` (no answer within `HOST_CALL_TIMEOUT_MS`,
   15 s, a redirect, which is never followed, any other status or receipt, or
-  no pass key). Sending the same follow-up again after `starting` or
+  no pass key); and `host_not_allowed` (above: nothing was sent). Sending the same follow-up again after `starting` or
   `host_unreachable` is safe: its key and content keep it once. A run whose sandbox stopped is `not_running`; what
   picks it up again is CON-39's and 41.8's. The adapter logs nothing, neither
   the pass nor the text.

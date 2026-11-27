@@ -6,6 +6,21 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { createHostChannel } from './hostChannel.js';
 
 const PASS = 'a-pass-for-person-1-in-session-run-1';
+const SESSION = 'session-run-1';
+
+/** Every stand-in host here is on loopback, as a local sandbox's is. */
+const LOCAL = { suffixes: ['e2b.app'], local: true };
+let reported: string[] = [];
+
+/** The channel, as compose builds it, for sandboxes on this machine (or `addresses`). */
+const channel = (options: { timeoutMs?: number; addresses?: typeof LOCAL } = {}) =>
+  createHostChannel({
+    addresses: options.addresses ?? LOCAL,
+    report: (line) => reported.push(line),
+    ...(options.timeoutMs === undefined ? {} : { timeoutMs: options.timeoutMs }),
+  });
+
+const session = (hostUrl: string) => ({ id: SESSION, hostUrl });
 const followUp = {
   key: 'slack:Ev0A1B2C3D4E',
   text: 'Please also check the cart page of sprocket/catalog-portal.',
@@ -16,6 +31,7 @@ type Heard = { method: string; url: string; headers: IncomingMessage['headers'];
 
 let servers: Server[] = [];
 afterEach(async () => {
+  reported = [];
   await Promise.all(
     servers.map(
       (server) =>
@@ -63,7 +79,7 @@ const json =
 describe('createHostChannel', () => {
   it('posts the follow-up to the host’s path with the pass as bearer, and reads its receipt', async () => {
     const { hostUrl, heard } = await host(json(200, { outcome: 'delivered' }));
-    expect(await createHostChannel().sendFollowUp(hostUrl, PASS, followUp)).toBe('delivered');
+    expect(await channel().sendFollowUp(session(hostUrl), PASS, followUp)).toBe('delivered');
     expect(heard).toHaveLength(1);
     expect(heard[0]).toMatchObject({ method: 'POST', url: FOLLOW_UP_PATH });
     expect(heard[0]?.headers.authorization).toBe(`Bearer ${PASS}`);
@@ -73,7 +89,7 @@ describe('createHostChannel', () => {
 
   it('reads already-delivered', async () => {
     const { hostUrl } = await host(json(200, { outcome: 'already-delivered' }));
-    expect(await createHostChannel().sendFollowUp(hostUrl, PASS, followUp)).toBe(
+    expect(await channel().sendFollowUp(session(hostUrl), PASS, followUp)).toBe(
       'already-delivered',
     );
   });
@@ -97,7 +113,7 @@ describe('createHostChannel', () => {
     ],
   ] as const)('reads a host’s %s as %s', async (_, answer, expected) => {
     const { hostUrl } = await host(answer);
-    expect(await createHostChannel().sendFollowUp(hostUrl, PASS, followUp)).toBe(expected);
+    expect(await channel().sendFollowUp(session(hostUrl), PASS, followUp)).toBe(expected);
   });
 
   it('never follows a redirect, so the pass goes to the host alone', async () => {
@@ -105,7 +121,7 @@ describe('createHostChannel', () => {
     const { hostUrl } = await host((response) =>
       response.writeHead(307, { location: `${elsewhere.hostUrl}${FOLLOW_UP_PATH}` }).end(),
     );
-    expect(await createHostChannel().sendFollowUp(hostUrl, PASS, followUp)).toBe('failed');
+    expect(await channel().sendFollowUp(session(hostUrl), PASS, followUp)).toBe('failed');
     expect(elsewhere.heard).toEqual([]);
   });
 
@@ -113,7 +129,7 @@ describe('createHostChannel', () => {
     const { hostUrl } = await host(() => {
       // Never answers.
     });
-    expect(await createHostChannel({ timeoutMs: 200 }).sendFollowUp(hostUrl, PASS, followUp)).toBe(
+    expect(await channel({ timeoutMs: 200 }).sendFollowUp(session(hostUrl), PASS, followUp)).toBe(
       'failed',
     );
 
@@ -123,6 +139,29 @@ describe('createHostChannel', () => {
       server?.closeAllConnections();
       server?.close(() => done());
     });
-    expect(await createHostChannel().sendFollowUp(closed.hostUrl, PASS, followUp)).toBe('failed');
+    expect(await channel().sendFollowUp(session(closed.hostUrl), PASS, followUp)).toBe('failed');
+  });
+
+  it('sends nothing to an address the deployment does not call, and reports the session alone', async () => {
+    const { hostUrl, heard } = await host(json(200, { outcome: 'delivered' }));
+    // Loopback is a session's host only while the runner's sandboxes run on this machine.
+    const remote = { suffixes: ['e2b.app'], local: false };
+    expect(
+      await channel({ addresses: remote }).sendFollowUp(session(hostUrl), PASS, followUp),
+    ).toBe('not-allowed');
+    for (const elsewhere of [
+      'https://metadata.internal.example',
+      'https://10.0.0.7',
+      'https://7420-sbx-acme-1.e2b.app.example.com',
+    ]) {
+      expect(await channel().sendFollowUp(session(elsewhere), PASS, followUp)).toBe('not-allowed');
+    }
+    expect(heard).toEqual([]);
+    expect(reported).toHaveLength(4);
+    for (const line of reported) {
+      expect(line).toBe(
+        `Session ${SESSION}: its host's address is not one this deployment calls (SANDBOX_HOST_SUFFIXES, LOCAL_SANDBOXES), so no follow-up was sent.`,
+      );
+    }
   });
 });

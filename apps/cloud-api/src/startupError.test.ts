@@ -17,6 +17,7 @@ const config: CloudConfig = {
   },
   githubWebhookSecret: 'sprocket-test-webhook-secret-0123456789',
   runner: null,
+  sandboxHosts: { suffixes: ['e2b.app'], local: false },
 };
 
 describe('describeStartupFailure', () => {

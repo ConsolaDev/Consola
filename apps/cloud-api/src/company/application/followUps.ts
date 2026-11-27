@@ -19,6 +19,8 @@ export type { FollowUpAuthor, FollowUpRequest } from '../domain/followUp.js';
  *   an ended run up again is CON-39's and 41.8's to decide, not this;
  * - `host_unreachable`: the host could not be reached, or did not take it, or the app has no pass
  *   key to reach a host with. Nothing is known to be delivered; sending it again is safe;
+ * - `host_not_allowed`: the address the session's runner reported is not one this deployment
+ *   calls (`SANDBOX_HOST_SUFFIXES`, `LOCAL_SANDBOXES`), so nothing was sent;
  * - `invalid`: the follow-up is not one the host would read (`reason` names the field).
  */
 export type FollowUpAnswer =
@@ -27,6 +29,7 @@ export type FollowUpAnswer =
   | { kind: 'starting' }
   | { kind: 'not_running' }
   | { kind: 'host_unreachable' }
+  | { kind: 'host_not_allowed' }
   | { kind: 'invalid'; reason: string };
 
 /**
@@ -62,7 +65,8 @@ export async function sendFollowUp(
     lifetimeSeconds: FOLLOW_UP_PASS_SECONDS,
   });
   const pass = await ports.passes.sign(claims);
-  switch (await ports.hosts.sendFollowUp(reach.hostUrl, pass, body.value)) {
+  const session = { id: target.sessionId, hostUrl: reach.hostUrl };
+  switch (await ports.hosts.sendFollowUp(session, pass, body.value)) {
     case 'delivered':
       return { kind: 'delivered' };
     case 'already-delivered':
@@ -71,6 +75,8 @@ export async function sendFollowUp(
       return { kind: 'starting' };
     case 'not-here':
       return { kind: 'not_running' };
+    case 'not-allowed':
+      return { kind: 'host_not_allowed' };
     case 'failed':
       return { kind: 'host_unreachable' };
   }

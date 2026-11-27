@@ -1,5 +1,7 @@
 import { FOLLOW_UP_PATH, readFollowUpReceipt } from '@consola/runner-protocol';
 import type { HostChannel, HostFollowUpAnswer } from '../../application/ports.js';
+import { hostAddressAllowed } from '../../domain/hostAddress.js';
+import type { HostAddressPolicy } from '../../domain/hostAddress.js';
 
 /**
  * How long the app waits for a session's host to answer a follow-up, in milliseconds: past the
@@ -52,15 +54,28 @@ async function receiptOf(response: Response): Promise<HostFollowUpAnswer> {
  * with the pass as bearer and the protocol's body as JSON, and its answer read by the protocol's
  * reader (`@consola/runner-protocol`, "Follow-ups").
  *
- * The address is the one the session's runner reported, an origin the protocol checked
- * (`isHostUrl`), so the app reaches it as the person's browser does. A redirect is never followed,
- * so the pass goes to that address alone. The call gives up after `timeoutMs`, and reads at most
- * a few kilobytes of the answer. Nothing is logged: not the pass, not the text.
+ * The address is the one the session's runner reported. Before anything is sent, it must be one
+ * the deployment calls (`hostAddressAllowed` under `addresses`: `SANDBOX_HOST_SUFFIXES`,
+ * `LOCAL_SANDBOXES`); another is `not-allowed`, reported with the session's id alone. A redirect
+ * is never followed, so the pass goes to that address alone. The name is not resolved again here,
+ * so a name under an allowed suffix that points at a private address is not caught (a known limit
+ * of the POC). The call gives up after `timeoutMs`, and reads at most a few kilobytes of the
+ * answer. Nothing else is logged: not the address, the pass or the text.
  */
-export function createHostChannel(options: { timeoutMs?: number } = {}): HostChannel {
+export function createHostChannel(options: {
+  addresses: HostAddressPolicy;
+  report: (line: string) => void;
+  timeoutMs?: number;
+}): HostChannel {
   const timeoutMs = options.timeoutMs ?? HOST_CALL_TIMEOUT_MS;
   return {
-    async sendFollowUp(hostUrl, pass, followUp) {
+    async sendFollowUp({ id, hostUrl }, pass, followUp) {
+      if (!hostAddressAllowed(hostUrl, options.addresses)) {
+        options.report(
+          `Session ${id}: its host's address is not one this deployment calls (SANDBOX_HOST_SUFFIXES, LOCAL_SANDBOXES), so no follow-up was sent.`,
+        );
+        return 'not-allowed';
+      }
       let response: Response;
       try {
         response = await fetch(new URL(FOLLOW_UP_PATH, hostUrl), {
