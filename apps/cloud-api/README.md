@@ -192,12 +192,17 @@ To send a real pull request's event without GitHub, from a connected
 installation's repository:
 
 ```bash
-node apps/cloud-api/scripts/deliver-pull-request-event.mjs --repository <owner/name> --number <n>
+node apps/cloud-api/scripts/deliver-pull-request-event.mjs \
+  --repository <owner/name> --number <n> --installation <id>
 ```
 
 It reads the pull request with your `gh`, signs GitHub's `pull_request` body
 with `GITHUB_WEBHOOK_SECRET` as GitHub does, posts it to
-`/api/github/webhooks` with a fresh delivery id and prints the answer.
+`/api/github/webhooks` with a fresh delivery id and prints the answer. The
+installation is the one you connected, by its id on GitHub (the number at the
+end of its settings page's address). `--pull-request-json <file>` reads the
+pull request, or a whole payload GitHub sent, from a file instead of `gh`;
+`--action`, `--api-url` and `--env` are in `AGENTS.md`, "Agent runs".
 
 ## Teams, factories and runs
 

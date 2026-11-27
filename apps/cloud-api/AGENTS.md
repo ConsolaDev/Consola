@@ -1170,13 +1170,28 @@ in `company/domain/agentRun.ts`, the use cases in
   `code-review-team`, factory-spec's `CODE_REVIEW_TEAM_FILES`. The web app
   merges its files into a factory through the ordinary save; the demo seed
   installs it too (above, "Runs").
-- **Firing a real pull request locally.** `node
-  apps/cloud-api/scripts/deliver-pull-request-event.mjs --repository
-  <owner/name> --number <n> [--action opened]` reads the pull request with
-  your `gh`, builds GitHub's `pull_request` body for a connected installation,
-  signs it with `GITHUB_WEBHOOK_SECRET` from this app's `.env` as GitHub
-  does, POSTs it to `/api/github/webhooks` with a fresh delivery id and prints
-  the answer, never the secret. `--pull-request-json <file>` skips `gh`.
+- **Firing a real pull request locally.**
+  `scripts/deliver-pull-request-event.mjs` sends the API the delivery GitHub
+  would, with no GitHub and no tunnel. It reads the pull request with your
+  `gh`, builds GitHub's `pull_request` body, signs it with
+  `GITHUB_WEBHOOK_SECRET` as GitHub does (`X-Hub-Signature-256:
+  sha256=<hmac>` over the body's bytes), POSTs it to `/api/github/webhooks`
+  with `X-GitHub-Event: pull_request` and a fresh `X-GitHub-Delivery`, and
+  prints the status and the answer, never the secret. It reads this app's
+  `.env` as the API does, a variable the shell sets winning. Its flags:
+  - `--repository <owner/name>` and `--number <n>`: the pull request `gh`
+    reads (`gh api repos/<owner/name>/pulls/<n>`);
+  - `--pull-request-json <file>`: read it from a file instead, either what
+    that command prints or a whole `pull_request` payload as GitHub sent it
+    (the App's Advanced page shows each delivery's), whose `installation.id`
+    and `action` stand unless a flag names others;
+  - `--installation <id>`: the installation the event comes through, by its
+    id on GitHub, which a workspace must hold (else 422
+    `unknown_installation`); required unless the payload names one;
+  - `--action <action>`: the event's action, `opened` by default;
+  - `--api-url <url>`: where the API is, `http://127.0.0.1:<PORT>` by
+    default (3100);
+  - `--env <file>`: the env file to read, `apps/cloud-api/.env` by default.
 
 ## The runner's socket
 
