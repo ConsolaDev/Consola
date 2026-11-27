@@ -251,6 +251,7 @@ describe('answering in the thread', () => {
         ids: { newId: () => 'x' },
         clock: { nowSeconds: () => NOW + 90 },
         passes: null,
+        hosts: { sendFollowUp: async () => 'failed' },
       },
       callerAs('person-fay', 'member', 'sprocket'),
       'session-1',
