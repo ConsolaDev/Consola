@@ -14,24 +14,39 @@ no Google, no credential and no sandbox provider. Each case starts:
   PGlite folder of the test's own, with every variable it reads set by the
   test (`DATABASE_URL`, `PORT`, `PUBLIC_URL`, a `BETTER_AUTH_SECRET`, stand-in
   Google settings, `RUNNER_SECRET`, `RUNNER_WORKSPACE_ID` and a
-  `PASS_PRIVATE_KEY` made for the run): the app's `main.ts` loads
+  `PASS_PRIVATE_KEY` made for the run, and the GitHub App's settings and
+  `BETTER_AUTH_SECRETS` empty): the app's `main.ts` loads
   `apps/cloud-api/.env` for any variable left unset, and in a worktree that
-  file is the developer's own;
+  file is the developer's own. A variable set empty is unset to the app but
+  set to that loader, so the file cannot fill it;
 - the runner command over local sandboxes (`@consola/host`'s
   `src/testing/replayRunner.ts`), whose sandboxes are processes of the host's
   session command over a replayed Claude (`localProvider.ts`), with
   `ANTHROPIC_API_KEY=test` and `GIT_TOKEN=test`.
 
-**Signing a person in without Google.** Before the app starts, the test writes
-a user, a session, a workspace and the person's membership in it into the
-app's PGlite folder, with the session's active workspace set to that
-workspace, which is the runner's `RUNNER_WORKSPACE_ID`. Every request then
-carries Better Auth's session cookie, signed with the run's
-`BETTER_AUTH_SECRET` as Better Auth signs it, the web app's origin
-(`PUBLIC_URL`), as a browser would send it, and `x-consola-workspace` naming
-that workspace, as the web app sends it. The app reads who is asking from the
-cookie and the person's role from `member`, as it does for anyone ("Who is
-asking" in `apps/cloud-api/AGENTS.md`).
+**Signing a person in without Google.** Each case starts the app three times
+on its folder, since PGlite takes one process per folder:
+
+1. With no runner, once, so it makes and migrates the folder; then it stops.
+2. With the app stopped, the test writes the person (`user`) and a session of
+   theirs (`session`, a random token, no workspace active) into the folder
+   with PGlite, the rows Better Auth's own sign-in writes once Google
+   answered. Then the app starts again, with no runner, and the person makes
+   their workspace through `POST /api/workspaces`, as the web app asks: it is
+   born whole (its owner's `member` row, its first team) and becomes the
+   session's active workspace. The app stops again.
+3. With the runner's settings, `RUNNER_WORKSPACE_ID` naming that workspace.
+
+Every request carries Better Auth's session cookie, `better-auth.session_token`
+(no `__Secure-` prefix, as `PUBLIC_URL` is http), its value signed with the
+run's `BETTER_AUTH_SECRET` as better-call's `signCookieValue` signs it, which
+Better Auth's `setSessionCookie` runs: the token, a dot and the base64
+HMAC-SHA256 of the token, URI-encoded. A Better Auth upgrade that changes the
+scheme fails the case at `POST /api/workspaces` (401). Each request also
+carries the web app's origin (`PUBLIC_URL`), as a browser would send it, and
+`x-consola-workspace` naming that workspace, as the web app sends it. The app
+reads who is asking from the cookie and the person's role from `member`, as
+it does for anyone ("Who is asking" in `apps/cloud-api/AGENTS.md`).
 
 Then it asks the app's API as a person would: a session starts, runs, is given
 a pass, and its host (reached at the address the runner reported, with a socket
@@ -50,7 +65,9 @@ the runner said before it closed its socket.
   `src/testing/machine.ts`). After each case, every fake CLI's recorded call
   must have seen that machine's home and no config folder.
 - **No real credential.** Every secret is made by the test or is a stand-in,
-  and none may show in what the app or the runner printed. The processes it
+  and none may show in what the app (each of its three runs) or the runner
+  printed: the runner's secret, the auth secret, the pass key, the session's
+  token and every pass. The processes it
   starts get none of the runner's secret variables (`RUNNER_SECRET_VARIABLES`,
   which `localProvider.ts` hands on: an E2B key, a git token, an API key) and
   no `CONSOLA_` setting from the developer's shell, only the test's stand-ins.
@@ -69,7 +86,8 @@ pnpm exec turbo run test typecheck --filter=@consola/cloud-session-e2e
 
 Turborepo builds what the test spawns first (`^build`): its `devDependencies`
 name the cloud app, the host and the packages they load from `dist/`
-(`@consola/runner-protocol`, `@consola/sandbox`).
+(`@consola/runner-protocol`, `@consola/sandbox`), and PGlite at the app's
+version, which writes the person into the app's folder.
 `pnpm --filter @consola/cloud-session-e2e test` alone builds nothing: on a
 fresh checkout, or after changing one of those, run the line above (a case
 with no `dist/main.js` fails at once, naming it). CI checks the package in a

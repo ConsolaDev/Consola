@@ -992,6 +992,9 @@ importers:
       '@consola/sandbox':
         specifier: workspace:*
         version: link:../sandbox
+      '@electric-sql/pglite':
+        specifier: ^0.5.17
+        version: 0.5.17
       '@t3tools/contracts':
         specifier: workspace:*
         version: link:../../vendor/t3code/packages/contracts
@@ -1001,9 +1004,6 @@ importers:
       effect:
         specifier: 'catalog:'
         version: 4.1.5
-      jose:
-        specifier: 6.2.10
-        version: 6.2.10
       typescript:
         specifier: ^5.9.3
         version: 5.9.3
