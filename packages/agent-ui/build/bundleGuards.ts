@@ -4,8 +4,8 @@
  *
  * - `serverSdkGuard` fails the build, naming the importing file, on any import of the Cursor SDK
  *   or the Claude Agent SDK, subpaths included. Both are closed-source SDKs that
- *   Consola never hands out (CON-21), and both are server code, so a browser bundle holding one
- *   is a mistake. It must be asked before Vite's
+ *   Consola never hands out, and both are server code, so a browser bundle holding one is a
+ *   mistake. It must be asked before Vite's
  *   resolver, which answers an installed package first: a top-level plugin with
  *   `enforce: 'pre'` (and in `worker.plugins`), never in `build.rolldownOptions.plugins`. CI's
  *   grep of `dist/` stays as a second check, on what the guard could not see (a string in a

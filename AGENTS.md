@@ -1645,9 +1645,9 @@ Consola is AGPL-3.0-only (`LICENSE`), and every `package.json` says so.
   `.github/scripts/check-licenses.mjs`. Its `NOT_SHIPPED` names the
   closed-source agent SDKs below, each with what keeps it out of everything
   Consola hands out.
-- **Closed-source agent SDKs are ordinary dependencies** (Linear CON-21):
-  the Claude Agent SDK and the Cursor SDK, which the harnesses drive. Their
-  licence never blocks a release, a harness or a feature. The one rule:
+- **Closed-source agent SDKs are ordinary dependencies**: the Claude Agent
+  SDK and the Cursor SDK, which the harnesses drive. Their licence never
+  blocks a release, a harness or a feature. The one rule:
   Consola never puts a copy of one inside something it hands to other
   people (the desktop installer, a published package, a browser bundle).
   Where one of those needs an SDK, it installs it from npm on the machine

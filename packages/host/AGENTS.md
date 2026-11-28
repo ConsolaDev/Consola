@@ -1404,9 +1404,9 @@ t3's MIT licence (`vendor/t3code/LICENSE`).
   never the SDK's bundled copy.
 - The Cursor SDK (`@cursor/sdk`) is never bundled into anything the host builds.
 - `@anthropic-ai/claude-agent-sdk` is a closed-source SDK Consola uses as an
-  ordinary dependency and never hands out (Linear CON-21; root `AGENTS.md`,
-  "Licensing"). The host's bundle holds it ("The bundle and the session
-  template"), which is allowed because the bundle and the `consola-session`
-  template live only in Consola's own E2B account. Local builds are fine.
+  ordinary dependency and never hands out (root `AGENTS.md`, "Licensing").
+  The host's bundle holds it ("The bundle and the session template"),
+  which is allowed because the bundle and the `consola-session` template
+  live only in Consola's own E2B account. Local builds are fine.
 - Fixtures and examples use Acme, Sprocket and the `sprocket` org, never real
   names.

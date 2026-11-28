@@ -7,8 +7,7 @@ People never see E2B.
 
 The template and the host's bundle in it are Consola's alone. The bundle holds
 the Claude Agent SDK, a closed-source SDK Consola uses but never hands out, so
-neither is ever published, shared or released (root `AGENTS.md`, "Licensing";
-Linear CON-21).
+neither is ever published, shared or released (root `AGENTS.md`, "Licensing").
 
 ## What it holds
 
