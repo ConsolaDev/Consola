@@ -56,16 +56,17 @@ const CURSOR_PLATFORM_BINARY =
   "The Cursor SDK's binary for one platform, installed with `@cursor/sdk` (above), under the same licence and kept out the same way.";
 
 /**
- * Packages whose licence Consola cannot ship under, installed only to run the
- * copied t3code packages on the person's own machine and in tests: nothing
- * Consola publishes or releases may bundle them. Keyed by name, with what
- * installs each and what keeps it out of what ships.
+ * Closed-source packages Consola uses as ordinary npm dependencies but never
+ * hands out (CON-21): nothing Consola gives to other people (the desktop
+ * installer, a published package, a browser bundle) may contain them, and
+ * `LICENSE-EXCEPTION` names each one. Keyed by name, with what installs each
+ * and what keeps it out of what Consola hands out.
  */
 export const NOT_SHIPPED = {
   '@anthropic-ai/claude-agent-sdk':
-    "Anthropic's own terms (SEE LICENSE IN README.md). Installed by the copied `@t3tools/provider-claude` and the lifted t3 server, which `@consola/host` runs. Nothing that bundles it is published or released until its licence is settled (CON-21): the host's bundle (`packages/host/dist/consola-host.mjs`) holds it, so that bundle stays out of every release and lives only in the private `consola-session` sandbox template on Consola's own E2B account (`packages/host/sandbox-template/`), and the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
+    "Anthropic's own terms (SEE LICENSE IN README.md): a closed-source SDK Consola uses as an ordinary dependency and never hands out (CON-21, `LICENSE-EXCEPTION`). Installed by the copied `@t3tools/provider-claude` and the lifted t3 server, which `@consola/host` runs. The host's bundle (`packages/host/dist/consola-host.mjs`) holds it, which is allowed: that bundle lives only in the private `consola-session` sandbox template on Consola's own E2B account (`packages/host/sandbox-template/`). The `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
   '@cursor/sdk':
-    "Cursor's own licence (SEE LICENSE IN LICENSE.md). Installed by the copied `@t3tools/provider-cursor`, and never bundled into anything Consola builds: the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
+    "Cursor's own licence (SEE LICENSE IN LICENSE.md): a closed-source SDK Consola uses as an ordinary dependency and never hands out (CON-21, `LICENSE-EXCEPTION`). Installed by the copied `@t3tools/provider-cursor`, and never bundled into anything Consola builds: the host's bundle stubs it, and the `Agent UI` job fails if it reaches `@consola/agent-ui`'s bundle.",
   '@cursor/sdk-darwin-arm64': CURSOR_PLATFORM_BINARY,
   '@cursor/sdk-darwin-x64': CURSOR_PLATFORM_BINARY,
   '@cursor/sdk-linux-arm64': CURSOR_PLATFORM_BINARY,

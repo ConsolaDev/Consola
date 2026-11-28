@@ -169,6 +169,8 @@ Before your first pull request can be merged, you’ll be asked to sign the [Con
 
 Consola is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, study, change and share it. If you distribute a modified version, or run one as a service that others use over a network, you must make your changes available under the same license.
 
+Consola also carries one additional permission, in [LICENSE-EXCEPTION](LICENSE-EXCEPTION): you may combine it with the Claude Agent SDK and the Cursor SDK, whose own licences are not open source, and pass the result on without their source. Each SDK stays under its publisher's terms.
+
 Packages meant to be built against — such as the plugin API types and the factory spec — will be published under the MIT license, so plugins and integrations can use whatever license their authors choose. Each package’s `license` field says which applies.
 
 Copyright © 2026 Javier Tarazaga.

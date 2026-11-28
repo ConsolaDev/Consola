@@ -1627,8 +1627,8 @@ Every terminal message carries `instanceId`; there is one terminal per session.
 
 ## Licensing
 
-Consola is AGPL-3.0-only (`LICENSE`), and every `package.json` says so. Three
-rules follow:
+Consola is AGPL-3.0-only (`LICENSE`), and every `package.json` says so.
+`LICENSE-EXCEPTION` adds one permission to it (below). Four rules follow:
 
 - **Packages other people build against are MIT.** Plugin API types
   (`@consola/plugin-types`), the `factory-spec` schema, the runner protocol
@@ -1642,11 +1642,21 @@ rules follow:
 - **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
   MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not. CI checks every
   installed dependency's declared licence against the list in
-  `.github/scripts/check-licenses.mjs`. Its `NOT_SHIPPED` names the few
-  that are not (the Claude Agent SDK and the Cursor SDK, which the copied
-  t3code packages install), each with what keeps it out of everything
-  Consola publishes or releases; a package joins it only when nothing that
-  ships may bundle it.
+  `.github/scripts/check-licenses.mjs`. Its `NOT_SHIPPED` names the
+  closed-source agent SDKs below, each with what keeps it out of everything
+  Consola hands out.
+- **Closed-source agent SDKs are ordinary dependencies** (Linear CON-21):
+  the Claude Agent SDK and the Cursor SDK, which the harnesses drive. Their
+  licence never blocks a release, a harness or a feature. The one rule:
+  Consola never puts a copy of one inside something it hands to other
+  people (the desktop installer, a published package, a browser bundle).
+  Where one of those needs an SDK, it installs it from npm on the machine
+  that runs it. Consola's own deployments (the runner, the
+  `consola-session` template on Consola's E2B account) may bundle them.
+  `LICENSE-EXCEPTION`, an additional permission under AGPL section 7, lets
+  anyone combine Consola with them and pass the result on without their
+  source. A new closed-source SDK joins `NOT_SHIPPED` and
+  `LICENSE-EXCEPTION`'s list in the same commit.
 
 Outside contributions need a signed CLA (`CLA.md`, checked by
 `.github/workflows/cla.yml`). It is what keeps relicensing — a commercial
