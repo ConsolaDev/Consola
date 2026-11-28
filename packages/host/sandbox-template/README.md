@@ -5,9 +5,9 @@ The sandbox a Consola cloud session runs in. A runner (`consola-host runner`,
 this template, on Consola's own E2B account, and runs its start script there.
 People never see E2B.
 
-The template and the host's bundle in it are Consola's alone: the bundle holds
-the Claude Agent SDK, so neither is ever published, shared or released (root
-`AGENTS.md`, "Licensing"; Linear CON-21).
+The template and the host's bundle in it are Consola's alone. The bundle holds
+the Claude Agent SDK, a closed-source SDK Consola uses but never hands out, so
+neither is ever published, shared or released (root `AGENTS.md`, "Licensing").
 
 ## What it holds
 

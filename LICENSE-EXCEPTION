@@ -1,0 +1,32 @@
+Consola: additional permission under the GNU AGPL version 3, section 7
+
+Consola is licensed under the GNU Affero General Public License, version 3
+only (the file LICENSE). Its licensors add the following permission to that
+licence, as section 7 of the licence allows. Contributors grant the
+maintainer the right to do so in the Contributor License Agreement (CLA.md).
+
+If you modify Consola, or any covered work, by linking or combining it with
+one of the libraries listed below (or a modified version of one), containing
+parts covered by the terms of that library's own licence, you have
+additional permission to convey the resulting work, and to let users
+interact with it remotely through a computer network as section 13
+describes.
+
+The Corresponding Source of such a combination need not include the source
+code of a listed library. It must still include the source code of every
+other part of the work, Consola's own included, as the licence requires.
+
+The libraries:
+
+  - The Claude Agent SDK, published by Anthropic on npm as
+    @anthropic-ai/claude-agent-sdk, together with the
+    @anthropic-ai/claude-agent-sdk-<platform> packages it installs.
+
+  - The Cursor SDK, published by Anysphere on npm as @cursor/sdk, together
+    with the @cursor/sdk-<platform> packages it installs.
+
+This permission does not license the libraries themselves. Each stays under
+its own terms, which you accept from its publisher when you install it.
+
+As section 7 allows, you may remove this permission from your copy of
+Consola, or from any part of it.
