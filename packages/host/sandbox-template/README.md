@@ -137,17 +137,11 @@ fff-node patch, and builds it with `@consola/sandbox/e2b`'s builder
 never an argument and never printed. The build prints the template's id.
 
 **Template id:** `hklvun2u4kalsi5no0ym`, last built 2026-11-27 from main at
-`791c3901` (build `1afb948c-0535-4167-80a6-fed95c84d795`). It runs agent runs
-too, so it is the one template every runner uses. Record the id the build
-prints here, and only the id. `consola-session-orchestrator`, which agent runs
-used before they reached main, was deleted on 2026-11-27.
-
-**Not yet rebuilt for a session with no repository** (CON-166, 2026-11-27).
-That build came from main, before the start script learned to clone nothing,
-so on it a session with no repository fails at start with
-`consola-session-start: CONSOLA_REPOSITORY is not set.` Rebuild it
-(`template:build`) once this lands on main, and record the build here; then
-drop this note.
+`0f9b14e3` (build `8e4ad154-aa52-464d-b269-9aead66f19e1`). It runs agent runs
+and sessions with no repository, so it is the one template every runner uses.
+Record the id the build prints here, and only the id.
+`consola-session-orchestrator` and `consola-session-foreman`, which agent runs
+used before they reached main, were deleted on 2026-11-27.
 
 ## The sandbox's lifetime
 
